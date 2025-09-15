@@ -1,4 +1,4 @@
-use crate::coords::{CoordinateSystem, PointGeometry, extract_axis_title_from_marks};
+use crate::coords::{CoordinateSystem, PointGeometry, extract_channel_title_from_marks};
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
 use crate::polar::{PolarAxis, PolarAxisType, PolarGuide};
@@ -55,7 +55,7 @@ impl CoordinateSystem for Polar {
                 let mut axis = PolarAxis::new().axis_type(axis_type);
 
                 // Extract title from mark encodings
-                if let Some(title) = extract_axis_title_from_marks(marks, channel) {
+                if let Some(title) = extract_channel_title_from_marks(marks, channel) {
                     axis.title = Some(title);
                 }
 

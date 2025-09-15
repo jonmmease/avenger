@@ -1,7 +1,7 @@
 //! Cartesian coordinate system guide implementation
 
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
-use crate::coords::extract_axis_title_from_marks;
+use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
 use crate::marks::Mark;
@@ -83,7 +83,7 @@ impl CartesianGuide {
                 });
 
                 // Try to extract a title from the marks
-                if let Some(title) = extract_axis_title_from_marks(marks, channel_name) {
+                if let Some(title) = extract_channel_title_from_marks(marks, channel_name) {
                     axis.title = Some(title);
                 }
 
