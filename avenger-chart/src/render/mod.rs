@@ -1222,8 +1222,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Create guide with all configurations applied
         let guide = self.create_configured_guide(scales);
 
-        // Render the guide
-        self.render_guide(&guide, scales, plot_width, plot_height, padding)
+        // Render the guide using the coordinate system
+        let theme = self.plot.get_theme();
+        self.plot
+            .coord_system()
+            .render_guide(&guide, scales, plot_width, plot_height, padding, &theme)
             .await
     }
 

@@ -1,9 +1,10 @@
 //! Example of a custom Cartesian axis implementation from an external crate
-//! This demonstrates the current limitations and required workarounds
+//! NOTE: This pattern is no longer supported as CartesianAxis is now a concrete struct
+//! rather than a trait. This file is kept for reference but is disabled.
 
+#![allow(dead_code, unused_imports)]
 use avenger_chart::{
-    axis::{Axis as AxisBase, AxisPosition},
-    cartesian::CartesianAxis,
+    cartesian::{AxisPosition, CartesianAxis},
 };
 use std::any::Any;
 

@@ -8,7 +8,9 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {
-    /// Create a guide with all axis configurations applied
+    /// Create a guide with all axis configurations applied.
+    /// In contrast to `create_default_guide`, this applies all user customizations
+    /// and mark-level axis configurations to the default axes.
     pub(crate) fn create_configured_guide(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -55,8 +57,8 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                 .create_default_guide(all_axes, scales, &self.plot.marks);
 
         // Apply user guide configuration if specified
-        if let Some(guide_spec) = &self.plot.guide_spec {
-            guide = guide_spec(guide);
+        if let Some(guide_config) = &self.plot.guide_spec {
+            guide = guide_config(guide);
         }
 
         guide
@@ -74,22 +76,6 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         self.plot
             .coord_system()
             .measure_guide_overflow(guide, scales, width_estimate, height_estimate, &theme)
-            .await
-    }
-
-    /// Render guide to scene marks
-    pub(crate) async fn render_guide(
-        &self,
-        guide: &C::Guide,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        plot_width: f32,
-        plot_height: f32,
-        padding: &super::Padding,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let theme = self.plot.get_theme();
-        self.plot
-            .coord_system()
-            .render_guide(guide, scales, plot_width, plot_height, padding, &theme)
             .await
     }
 }

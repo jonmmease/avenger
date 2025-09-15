@@ -1,10 +1,10 @@
 //! Integration test to verify external coordinate systems can be defined and used
 
 use avenger_chart::{
-    axis::Axis,
-    coords::{CoordinateSystem, OverflowSpaceRequirement},
+    coords::{CoordinateSystem, OverflowSpaceRequirement, PointGeometry},
     define_common_mark_channels, define_position_channels,
     error::AvengerChartError,
+    guide::CoordinateGuide,
     impl_mark_base, impl_mark_trait_common,
     marks::{ChannelValue, Mark, MarkState},
     render::Padding,
@@ -14,7 +14,6 @@ use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::scalar::ScalarValue;
-use std::any::Any;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -85,7 +84,7 @@ impl IsometricPositionConfig {
 }
 
 // Implement the PositionConfig trait to work with the macro
-impl avenger_chart::channels::PositionConfig for IsometricPositionConfig {
+impl avenger_chart::channel::PositionConfig for IsometricPositionConfig {
     type Axis = IsometricAxis;
 
     fn new(value: ChannelValue) -> Self {
@@ -135,27 +134,84 @@ pub struct IsometricAxis {
     pub visible: bool,
 }
 
-impl Axis for IsometricAxis {
-    fn clone_box(&self) -> Box<dyn Axis> {
-        Box::new(self.clone())
+/// Options for Isometric coordinate system
+#[derive(Clone, Debug)]
+pub struct IsometricOptions {
+    /// Angle for isometric projection (typically 30 degrees)
+    pub angle: f64,
+}
+
+impl Default for IsometricOptions {
+    fn default() -> Self {
+        Self {
+            angle: std::f64::consts::PI / 6.0, // 30 degrees
+        }
+    }
+}
+
+/// Guide for Isometric coordinate system
+#[derive(Clone, Debug)]
+pub struct IsometricGuide {
+    /// Axes configured at the channel level
+    pub axes: HashMap<String, IsometricAxis>,
+    /// Coordinate-system-level options
+    pub options: IsometricOptions,
+}
+
+impl IsometricGuide {
+    pub fn new() -> Self {
+        Self {
+            axes: HashMap::new(),
+            options: IsometricOptions::default(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl CoordinateGuide for IsometricGuide {
+    type Axis = IsometricAxis;
+
+    fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
+        self.axes = axes;
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn axes(&self) -> &HashMap<String, Self::Axis> {
+        &self.axes
     }
 
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
+    async fn measure_overflow(
+        &self,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _plot_width: f32,
+        _plot_height: f32,
+        _theme: &avenger_chart::theme::Theme,
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        // For simplicity, assume isometric axes don't overflow
+        Ok(OverflowSpaceRequirement {
+            top: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+            right: 0.0,
+        })
     }
 
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
+    async fn render(
+        &self,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _plot_width: f32,
+        _plot_height: f32,
+        _padding: &Padding,
+        _theme: &avenger_chart::theme::Theme,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        // For this test, we don't need to actually render axes
+        Ok(vec![])
     }
 }
 
 #[async_trait::async_trait]
 impl CoordinateSystem for Isometric {
-    type Axis = IsometricAxis;
+    type Guide = IsometricGuide;
+    type PlotGeometry = PointGeometry;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["iso_x", "iso_y", "iso_z"]
@@ -170,18 +226,61 @@ impl CoordinateSystem for Isometric {
         }
     }
 
-    fn transform_to_plot_coords(
+    fn create_default_guide(
+        &self,
+        axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _marks: &[Box<dyn avenger_chart::marks::Mark<Self>>],
+    ) -> Self::Guide {
+        let mut guide = IsometricGuide::new();
+        guide.set_axes(axes);
+        guide
+    }
+
+    fn create_default_axes(
+        &self,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _marks: &[Box<dyn avenger_chart::marks::Mark<Self>>],
+    ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis> {
+        let mut axes = HashMap::new();
+
+        // Create axes for each channel that has a scale
+        for channel in ["iso_x", "iso_y", "iso_z"] {
+            if scales.contains_key(channel) {
+                axes.insert(
+                    channel.to_string(),
+                    IsometricAxis {
+                        channel: channel.to_string(),
+                        visible: true,
+                    },
+                );
+            }
+        }
+
+        axes
+    }
+
+    fn get_clip(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> Clip {
+        // Use rectangular clipping for isometric view
+        Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: plot_width,
+            height: plot_height,
+        }
+    }
+
+    fn transform(
         &self,
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
         _plot_width: f32,
         _plot_height: f32,
-    ) -> Result<
-        (
-            avenger_common::value::ScalarOrArray<f32>,
-            avenger_common::value::ScalarOrArray<f32>,
-        ),
-        AvengerChartError,
-    > {
+    ) -> Result<Self::PlotGeometry, AvengerChartError> {
         use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 
         // Get the position channel values
@@ -244,78 +343,10 @@ impl CoordinateSystem for Isometric {
             }
         };
 
-        Ok((screen_x, screen_y))
-    }
-
-    fn create_default_axes(
-        &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Box<dyn avenger_chart::marks::Mark<Self>>],
-    ) -> HashMap<String, Self::Axis>
-    where
-        Self: Sized,
-    {
-        let mut axes = HashMap::new();
-
-        // Create axes for each channel that has a scale
-        for channel in ["iso_x", "iso_y", "iso_z"] {
-            if scales.contains_key(channel) {
-                axes.insert(
-                    channel.to_string(),
-                    IsometricAxis {
-                        channel: channel.to_string(),
-                        visible: true,
-                    },
-                );
-            }
-        }
-
-        axes
-    }
-
-    async fn measure_guide_overflow(
-        &self,
-        _axes: HashMap<String, Self::Axis>,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _width_estimate: f32,
-        _height_estimate: f32,
-        _theme: &avenger_chart::theme::Theme,
-    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        // For simplicity, assume isometric axes don't overflow
-        Ok(OverflowSpaceRequirement {
-            top: 0.0,
-            bottom: 0.0,
-            left: 0.0,
-            right: 0.0,
+        Ok(PointGeometry {
+            x: screen_x,
+            y: screen_y,
         })
-    }
-
-    async fn render_axes(
-        &self,
-        _axes: &HashMap<String, Self::Axis>,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _plot_width: f32,
-        _plot_height: f32,
-        _padding: &Padding,
-        _theme: &avenger_chart::theme::Theme,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // For this test, we don't need to actually render axes
-        Ok(vec![])
-    }
-
-    fn get_clip(
-        &self,
-        plot_width: f32,
-        plot_height: f32,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> Clip {
-        // Use rectangular clipping for isometric view
-        Clip::Rect {
-            x: 0.0,
-            y: 0.0,
-            width: plot_width,
-            height: plot_height,
-        }
     }
 }
 
