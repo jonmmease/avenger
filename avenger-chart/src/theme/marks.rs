@@ -26,6 +26,22 @@ impl MarkDefaults {
             .and_then(|channels| channels.get(channel))
     }
 
+    /// Get default value for a specific mark type and channel, with computed font size
+    pub fn get_with_computed_font_size(
+        &self,
+        mark_type: &str,
+        channel: &str,
+        computed_font_size: f32,
+    ) -> Option<ScalarValue> {
+        // Special case: if asking for text mark font_size, return the computed value
+        if mark_type == "text" && channel == "font_size" {
+            return Some(ScalarValue::Float32(Some(computed_font_size)));
+        }
+
+        // Otherwise return the stored default
+        self.get(mark_type, channel).cloned()
+    }
+
     /// Builder method to set a default for a specific mark and channel
     pub fn with_default(mut self, mark_type: &str, channel: &str, value: ScalarValue) -> Self {
         self.defaults
@@ -128,7 +144,7 @@ impl Default for MarkDefaults {
         arc_defaults.insert("corner_radius".to_string(), ScalarValue::Float32(Some(0.0)));
         defaults.insert("arc".to_string(), arc_defaults);
 
-        // Text mark defaults
+        // Text mark defaults - font_size is computed dynamically
         let mut text_defaults = IndexMap::new();
         text_defaults.insert(
             "fill".to_string(),
@@ -138,7 +154,7 @@ impl Default for MarkDefaults {
             "font".to_string(),
             ScalarValue::Utf8(Some("Atkinson Hyperlegible Next".to_string())),
         );
-        text_defaults.insert("font_size".to_string(), ScalarValue::Float32(Some(12.0)));
+        // Note: font_size is not stored here, it's computed dynamically in get_with_computed_font_size()
         text_defaults.insert("font_weight".to_string(), ScalarValue::Float32(Some(400.0)));
         text_defaults.insert(
             "align".to_string(),

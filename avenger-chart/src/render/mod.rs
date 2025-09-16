@@ -1380,13 +1380,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             legend.title_color = Some(theme.legend.title_color.clone());
             legend.label_color = Some(theme.legend.label_color.clone());
             legend.title_font_family = Some(theme.legend.title_font_family.clone());
-            legend.title_font_size = Some(theme.legend.title_font_size);
+            legend.title_font_size = Some(theme.legend_title_font_size());
             legend.title_font_weight = Some(theme.legend.title_font_weight);
             legend.label_font_family = Some(theme.legend.label_font_family.clone());
-            legend.label_font_size = Some(theme.legend.label_font_size);
+            legend.label_font_size = Some(theme.legend_label_font_size());
             legend.label_font_weight = Some(theme.legend.label_font_weight);
             legend.tick_font_family = Some(theme.legend.tick_font_family.clone());
-            legend.tick_font_size = Some(theme.legend.tick_font_size);
+            legend.tick_font_size = Some(theme.legend_tick_font_size());
             legend.tick_font_weight = Some(theme.legend.tick_font_weight);
             legend.tick_color = Some(theme.legend.tick_color.clone());
 
@@ -1463,10 +1463,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 .clone()
                 .unwrap_or_else(|| theme.title.title_font_family.clone())
                 .into(),
-            font_size: title
-                .font_size
-                .unwrap_or(theme.title.title_font_size)
-                .into(),
+            font_size: title.font_size.unwrap_or(theme.title_font_size()).into(),
             font_weight: avenger_text::types::FontWeight::Number(theme.title.title_font_weight)
                 .into(),
             color: crate::utils::parse_color_string(&theme.title.title_color)
@@ -1523,7 +1520,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 .into(),
             font_size: subtitle
                 .font_size
-                .unwrap_or(theme.title.subtitle_font_size)
+                .unwrap_or(theme.subtitle_font_size())
                 .into(),
             font_weight: avenger_text::types::FontWeight::Number(theme.title.subtitle_font_weight)
                 .into(),
@@ -1718,7 +1715,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 legend.title_font_family = Some(theme.legend.title_font_family.clone());
             }
             if legend.title_font_size.is_none() {
-                legend.title_font_size = Some(theme.legend.title_font_size);
+                legend.title_font_size = Some(theme.legend_title_font_size());
             }
             if legend.title_font_weight.is_none() {
                 legend.title_font_weight = Some(theme.legend.title_font_weight);
@@ -1727,7 +1724,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 legend.label_font_family = Some(theme.legend.label_font_family.clone());
             }
             if legend.label_font_size.is_none() {
-                legend.label_font_size = Some(theme.legend.label_font_size);
+                legend.label_font_size = Some(theme.legend_label_font_size());
             }
             if legend.label_font_weight.is_none() {
                 legend.label_font_weight = Some(theme.legend.label_font_weight);
@@ -1737,7 +1734,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 legend.tick_font_family = Some(theme.legend.tick_font_family.clone());
             }
             if legend.tick_font_size.is_none() {
-                legend.tick_font_size = Some(theme.legend.tick_font_size);
+                legend.tick_font_size = Some(theme.legend_tick_font_size());
             }
             if legend.tick_font_weight.is_none() {
                 legend.tick_font_weight = Some(theme.legend.tick_font_weight);

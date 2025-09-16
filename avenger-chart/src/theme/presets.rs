@@ -92,6 +92,7 @@ impl Theme {
             "fill".to_string(),
             ScalarValue::Utf8(Some("#C9D1D9".to_string())), // Light gray text
         );
+        // Note: font_size is computed dynamically, no need to set it here
         mark_defaults.insert("text".to_string(), text);
 
         // Line marks - copy all defaults from default theme then override colors
@@ -199,14 +200,10 @@ impl Theme {
     pub fn publication() -> Self {
         let mut theme = Theme::default();
 
-        // Conservative font choices
+        // Conservative font choices with smaller base size
         theme.set_font_family("Helvetica");
-        theme.title.title_font_size = 14.0;
-        theme.title.subtitle_font_size = 12.0;
-        theme.axis.label_font_size = 9.0;
-        theme.axis.title_font_size = 10.0;
-        theme.legend.title_font_size = 10.0;
-        theme.legend.label_font_size = 9.0;
+        theme.base_font_size = 10.0; // Smaller base for publication
+        theme.font_scale = FontScale::compact(); // Use compact scaling
 
         // Grayscale palette
         theme.colors = ColorPalettes {

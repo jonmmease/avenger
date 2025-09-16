@@ -1082,7 +1082,7 @@ impl GridBuilder {
 
         // Add title if present
         if let Some(t) = title {
-            let font_size = t.font_size.unwrap_or(theme.title.title_font_size);
+            let font_size = t.font_size.unwrap_or(theme.title_font_size());
             let font_family = t
                 .font_family
                 .as_ref()
@@ -1097,7 +1097,7 @@ impl GridBuilder {
 
         // Add subtitle if present
         if let Some(s) = subtitle {
-            let font_size = s.font_size.unwrap_or(theme.title.subtitle_font_size);
+            let font_size = s.font_size.unwrap_or(theme.subtitle_font_size());
             let font_family = s
                 .font_family
                 .as_ref()
