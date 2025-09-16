@@ -10,7 +10,8 @@ fn test_default_theme() {
 
     // Check default values
     assert_eq!(theme.default_font, "Atkinson Hyperlegible Next");
-    assert_eq!(theme.title.title_font_size, 18.0);
+    assert_eq!(theme.base_font_size, 12.0);
+    assert_eq!(theme.title_font_size(), 18.0);
     assert_eq!(theme.colors.default_color, "#4682b4");
 }
 
@@ -47,7 +48,8 @@ fn test_preset_themes() {
     // Test publication theme
     let publication = Theme::publication();
     assert_eq!(publication.default_font, "Helvetica");
-    assert_eq!(publication.title.title_font_size, 14.0);
+    assert_eq!(publication.base_font_size, 10.0);
+    assert_eq!(publication.title_font_size(), 13.0); // 10.0 * 1.333 (compact scale) = 13.33, rounded to 13
 }
 
 #[test]

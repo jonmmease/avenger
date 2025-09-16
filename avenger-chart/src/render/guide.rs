@@ -4,7 +4,6 @@ use super::PlotRenderer;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::guide::OverflowSpaceRequirement;
-use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {

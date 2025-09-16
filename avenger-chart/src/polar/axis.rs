@@ -303,7 +303,7 @@ impl PolarAxis {
                     font_weight: ScalarOrArray::new_scalar(
                         avenger_text::types::FontWeight::Number(theme.axis.label_font_weight),
                     ),
-                    font_size: ScalarOrArray::new_scalar(theme.axis.label_font_size),
+                    font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size()),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
                         crate::utils::parse_color_to_array(&theme.axis.label_color),
@@ -509,7 +509,7 @@ impl PolarAxis {
                     font_weight: ScalarOrArray::new_scalar(
                         avenger_text::types::FontWeight::Number(theme.axis.label_font_weight),
                     ),
-                    font_size: ScalarOrArray::new_scalar(theme.axis.label_font_size),
+                    font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size()),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
                         crate::utils::parse_color_to_array(&theme.axis.label_color),

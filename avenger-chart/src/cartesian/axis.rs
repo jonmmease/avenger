@@ -117,7 +117,7 @@ impl CartesianAxis {
             dimensions: [plot_width, plot_height],
             grid: self.grid,
             format_number: self.format_number.clone(),
-            title_font_size: Some(theme.axis.title_font_size),
+            title_font_size: Some(theme.axis_title_font_size()),
             // Pass theme colors and styling
             domain_color: Some(crate::utils::parse_color_to_array(&theme.axis.domain_color)),
             tick_color: Some(crate::utils::parse_color_to_array(&theme.axis.tick_color)),
@@ -130,7 +130,7 @@ impl CartesianAxis {
             label_color: Some(crate::utils::parse_color_to_array(&theme.axis.label_color)),
             title_color: Some(crate::utils::parse_color_to_array(&theme.axis.title_color)),
             tick_length: Some(theme.axis.tick_length),
-            label_font_size: Some(theme.axis.label_font_size),
+            label_font_size: Some(theme.axis_label_font_size()),
             label_font_weight: Some(theme.axis.label_font_weight),
             title_font_weight: Some(theme.axis.title_font_weight),
             label_font_family: Some(theme.axis.label_font_family.clone()),

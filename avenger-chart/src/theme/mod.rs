@@ -14,11 +14,83 @@ pub use dashes::DashPatterns;
 pub use marks::MarkDefaults;
 pub use shapes::ShapeSequence;
 
+/// Font scale configuration for proportional font sizing
+#[derive(Clone, Debug, Copy)]
+pub struct FontScale {
+    /// Plot title scale (default: 1.5)
+    pub title_scale: f32,
+    /// Plot subtitle scale (default: 1.167)
+    pub subtitle_scale: f32,
+    /// Axis title scale (default: 1.0)
+    pub axis_title_scale: f32,
+    /// Legend title scale (default: 1.0)
+    pub legend_title_scale: f32,
+    /// Legend label scale (default: 0.917)
+    pub legend_label_scale: f32,
+    /// Axis label scale (default: 0.833)
+    pub axis_label_scale: f32,
+    /// Legend tick scale (default: 0.833)
+    pub legend_tick_scale: f32,
+    /// Text mark scale (default: 1.0)
+    pub text_mark_scale: f32,
+}
+
+impl Default for FontScale {
+    fn default() -> Self {
+        Self {
+            title_scale: 1.5,          // 18px @ 12px base
+            subtitle_scale: 1.167,     // 14px @ 12px base
+            axis_title_scale: 1.0,     // 12px @ 12px base
+            legend_title_scale: 1.0,   // 12px @ 12px base
+            legend_label_scale: 0.917, // 11px @ 12px base
+            axis_label_scale: 0.833,   // 10px @ 12px base
+            legend_tick_scale: 0.833,  // 10px @ 12px base
+            text_mark_scale: 1.0,      // 12px @ 12px base
+        }
+    }
+}
+
+impl FontScale {
+    /// Create a compact font scale with tighter hierarchy
+    pub fn compact() -> Self {
+        Self {
+            title_scale: 1.333,        // 16px @ 12px base
+            subtitle_scale: 1.083,     // 13px @ 12px base
+            axis_title_scale: 1.0,     // 12px @ 12px base
+            legend_title_scale: 1.0,   // 12px @ 12px base
+            legend_label_scale: 0.917, // 11px @ 12px base
+            axis_label_scale: 0.833,   // 10px @ 12px base
+            legend_tick_scale: 0.833,  // 10px @ 12px base
+            text_mark_scale: 1.0,      // 12px @ 12px base
+        }
+    }
+
+    /// Create a dramatic font scale with more contrast
+    pub fn dramatic() -> Self {
+        Self {
+            title_scale: 2.0,          // 24px @ 12px base
+            subtitle_scale: 1.333,     // 16px @ 12px base
+            axis_title_scale: 1.083,   // 13px @ 12px base
+            legend_title_scale: 1.083, // 13px @ 12px base
+            legend_label_scale: 0.917, // 11px @ 12px base
+            axis_label_scale: 0.75,    // 9px @ 12px base
+            legend_tick_scale: 0.75,   // 9px @ 12px base
+            text_mark_scale: 1.0,      // 12px @ 12px base
+        }
+    }
+}
+
 /// Complete theme configuration for chart styling
 #[derive(Clone, Debug)]
 pub struct Theme {
     /// Default font family (others inherit from this if not specified)
     pub default_font: String,
+
+    /// Base font size for all text elements
+    pub base_font_size: f32,
+
+    /// Font scale multipliers
+    pub font_scale: FontScale,
 
     /// Title and subtitle theme
     pub title: TitleTheme,
@@ -133,9 +205,6 @@ pub struct AxisTheme {
     /// Label font family
     pub label_font_family: String,
 
-    /// Label font size
-    pub label_font_size: f32,
-
     /// Label font weight
     pub label_font_weight: f32,
 
@@ -145,9 +214,6 @@ pub struct AxisTheme {
 
     /// Title font family
     pub title_font_family: String,
-
-    /// Title font size
-    pub title_font_size: f32,
 
     /// Title font weight
     pub title_font_weight: f32,
@@ -184,9 +250,6 @@ pub struct LegendTheme {
     /// Title font family
     pub title_font_family: String,
 
-    /// Title font size
-    pub title_font_size: f32,
-
     /// Title font weight
     pub title_font_weight: f32,
 
@@ -197,9 +260,6 @@ pub struct LegendTheme {
     /// Label font family
     pub label_font_family: String,
 
-    /// Label font size
-    pub label_font_size: f32,
-
     /// Label font weight
     pub label_font_weight: f32,
 
@@ -209,9 +269,6 @@ pub struct LegendTheme {
 
     /// Tick label font family
     pub tick_font_family: String,
-
-    /// Tick label font size
-    pub tick_font_size: f32,
 
     /// Tick label font weight
     pub tick_font_weight: f32,
@@ -227,9 +284,6 @@ pub struct TitleTheme {
     /// Title font family
     pub title_font_family: String,
 
-    /// Title font size
-    pub title_font_size: f32,
-
     /// Title font weight
     pub title_font_weight: f32,
 
@@ -239,9 +293,6 @@ pub struct TitleTheme {
 
     /// Subtitle font family
     pub subtitle_font_family: String,
-
-    /// Subtitle font size
-    pub subtitle_font_size: f32,
 
     /// Subtitle font weight
     pub subtitle_font_weight: f32,
@@ -258,6 +309,46 @@ pub struct BackgroundTheme {
 }
 
 impl Theme {
+    /// Compute title font size from base and scale
+    pub fn title_font_size(&self) -> f32 {
+        (self.base_font_size * self.font_scale.title_scale).round()
+    }
+
+    /// Compute subtitle font size from base and scale
+    pub fn subtitle_font_size(&self) -> f32 {
+        (self.base_font_size * self.font_scale.subtitle_scale).round()
+    }
+
+    /// Compute axis title font size from base and scale
+    pub fn axis_title_font_size(&self) -> f32 {
+        (self.base_font_size * self.font_scale.axis_title_scale).round()
+    }
+
+    /// Compute axis label font size from base and scale
+    pub fn axis_label_font_size(&self) -> f32 {
+        (self.base_font_size * self.font_scale.axis_label_scale).round()
+    }
+
+    /// Compute legend title font size from base and scale
+    pub fn legend_title_font_size(&self) -> f32 {
+        (self.base_font_size * self.font_scale.legend_title_scale).round()
+    }
+
+    /// Compute legend label font size from base and scale
+    pub fn legend_label_font_size(&self) -> f32 {
+        (self.base_font_size * self.font_scale.legend_label_scale).round()
+    }
+
+    /// Compute legend tick font size from base and scale
+    pub fn legend_tick_font_size(&self) -> f32 {
+        (self.base_font_size * self.font_scale.legend_tick_scale).round()
+    }
+
+    /// Compute text mark font size from base and scale
+    pub fn text_mark_font_size(&self) -> f32 {
+        (self.base_font_size * self.font_scale.text_mark_scale).round()
+    }
+
     /// Set the font family for all text elements in the theme
     pub fn set_font_family(&mut self, font: &str) {
         self.default_font = font.to_string();
@@ -363,6 +454,8 @@ impl Default for Theme {
     fn default() -> Self {
         Self {
             default_font: "Atkinson Hyperlegible Next".to_string(),
+            base_font_size: 12.0,
+            font_scale: FontScale::default(),
             title: TitleTheme::default(),
             colors: ColorPalettes::default(),
             shapes: ShapeSequence::default(),
@@ -403,12 +496,10 @@ impl Default for AxisTheme {
             // Label (tick label) typography
             label_color: "#5a5a5a".to_string(),
             label_font_family: "Atkinson Hyperlegible Next".to_string(),
-            label_font_size: 10.0,
             label_font_weight: 300.0,
             // Title typography
             title_color: "#2a2a2a".to_string(),
             title_font_family: "Atkinson Hyperlegible Next".to_string(),
-            title_font_size: 12.0,
             title_font_weight: 400.0,
         }
     }
@@ -427,17 +518,14 @@ impl Default for LegendTheme {
             // Title typography
             title_color: "#2C2C2C".to_string(),
             title_font_family: "Atkinson Hyperlegible Next".to_string(),
-            title_font_size: 12.0,
             title_font_weight: 400.0,
             // Label typography (for discrete legends)
             label_color: "#3C3C3C".to_string(),
             label_font_family: "Atkinson Hyperlegible Next".to_string(),
-            label_font_size: 11.0,
             label_font_weight: 300.0,
             // Tick label typography (for continuous/colorbar legends)
             tick_color: "#5a5a5a".to_string(), // Same as axis labels
             tick_font_family: "Atkinson Hyperlegible Next".to_string(),
-            tick_font_size: 10.0,
             tick_font_weight: 300.0,
         }
     }
@@ -449,12 +537,10 @@ impl Default for TitleTheme {
             // Title typography
             title_color: "#1a1a1a".to_string(),
             title_font_family: "Atkinson Hyperlegible Next".to_string(),
-            title_font_size: 18.0,
             title_font_weight: 500.0, // Medium weight
             // Subtitle typography
             subtitle_color: "#4a4a4a".to_string(),
             subtitle_font_family: "Atkinson Hyperlegible Next".to_string(),
-            subtitle_font_size: 14.0,
             subtitle_font_weight: 200.0, // Light weight
         }
     }
@@ -487,6 +573,30 @@ impl Theme {
         value: datafusion_common::ScalarValue,
     ) -> Self {
         self.mark_defaults = self.mark_defaults.with_default(mark_type, channel, value);
+        self
+    }
+
+    /// Scale all fonts proportionally
+    pub fn with_font_size(mut self, base_size: f32) -> Self {
+        self.base_font_size = base_size;
+        self
+    }
+
+    /// Adjust visual hierarchy with custom font scale
+    pub fn with_font_scale(mut self, scale: FontScale) -> Self {
+        self.font_scale = scale;
+        self
+    }
+
+    /// Use compact font scaling
+    pub fn with_compact_fonts(mut self) -> Self {
+        self.font_scale = FontScale::compact();
+        self
+    }
+
+    /// Use dramatic font scaling
+    pub fn with_dramatic_fonts(mut self) -> Self {
+        self.font_scale = FontScale::dramatic();
         self
     }
 }

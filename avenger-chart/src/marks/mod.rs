@@ -88,9 +88,13 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Returns the default value for a channel if not explicitly mapped
     /// First checks theme defaults, then falls back to mark-specific defaults
     fn default_channel_value(&self, channel: &str, context: &RenderContext) -> Option<ScalarValue> {
-        // Check theme defaults first
-        if let Some(default) = context.theme.mark_defaults.get(self.mark_type(), channel) {
-            return Some(default.clone());
+        // Check theme defaults first, using computed font size for text marks
+        if let Some(default) = context.theme.mark_defaults.get_with_computed_font_size(
+            self.mark_type(),
+            channel,
+            context.theme.text_mark_font_size(),
+        ) {
+            return Some(default);
         }
         self.mark_specific_default(channel)
     }

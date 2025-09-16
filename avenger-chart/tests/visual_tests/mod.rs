@@ -9,6 +9,7 @@ pub mod test_conditional_encoding;
 pub mod test_data_domain;
 pub mod test_default_axes_visual;
 pub mod test_eight_types_symbol;
+pub mod test_font_scaling;
 pub mod test_formatting;
 pub mod test_grid_zindex;
 pub mod test_legend;
