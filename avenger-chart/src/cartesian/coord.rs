@@ -62,6 +62,8 @@ impl CoordinateSystem for Cartesian {
                     tick_count: None,
                     label_angle: 0.0,
                     format_number: None,
+                    title_font_family: None,
+                    label_font_family: None,
                 };
 
                 default_axes.insert(channel.to_string(), axis);

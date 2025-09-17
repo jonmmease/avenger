@@ -4,7 +4,7 @@ use crate::guide::CoordinateGuide;
 use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::scales::Scale;
-use crate::theme::Theme;
+use crate::theme::{StructTheme, Theme};
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -92,7 +92,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) subtitle: Option<PlotSubtitle>,
 
     /// Theme for visual styling
-    pub(crate) theme: Option<Theme>,
+    pub(crate) theme: Option<Arc<dyn Theme>>,
 
     /// Guide configuration function
     pub(crate) guide_spec: Option<Box<dyn Fn(C::Guide) -> C::Guide + Send + Sync>>,
@@ -1089,18 +1089,28 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Set the theme for the plot
-    pub fn theme(mut self, theme: Theme) -> Self {
-        self.theme = Some(theme);
+    pub fn theme(mut self, theme: impl Theme + 'static) -> Self {
+        self.theme = Some(Arc::new(theme));
         self
     }
 
     /// Configure the theme with a closure
     pub fn with_theme<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(Theme) -> Theme,
+        F: FnOnce(StructTheme) -> StructTheme,
     {
-        let theme = f(self.theme.unwrap_or_default());
-        self.theme = Some(theme);
+        // Extract current theme or create default
+        let current_theme = match &self.theme {
+            Some(_theme_arc) => {
+                // For now, create a default theme when we can't downcast
+                // This is a temporary solution until full migration
+                StructTheme::default()
+            }
+            None => StructTheme::default(),
+        };
+
+        let new_theme = f(current_theme);
+        self.theme = Some(Arc::new(new_theme));
         self
     }
 
@@ -1124,7 +1134,9 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Access the configured theme (or default if not set)
-    pub fn get_theme(&self) -> Theme {
-        self.theme.clone().unwrap_or_default()
+    pub fn get_theme(&self) -> Arc<dyn Theme> {
+        self.theme
+            .clone()
+            .unwrap_or_else(|| Arc::new(StructTheme::default()))
     }
 }

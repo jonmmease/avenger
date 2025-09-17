@@ -163,7 +163,7 @@ async fn test_eight_types_fill_shape_dark() {
 
     assert_visual_match_with_theme(
         plot,
-        Theme::dark(),
+        StructTheme::dark(),
         "symbol",
         "eight_types_fill_shape_dark",
         0.9999,

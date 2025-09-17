@@ -89,7 +89,7 @@ impl PolarAxis {
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Skip if invisible
         if !self.visible {
@@ -119,7 +119,7 @@ impl PolarAxis {
         center_x: f32,
         center_y: f32,
         _max_radius: f32,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::types::ColorOrGradient;
         use avenger_common::value::ScalarOrArray;
@@ -299,14 +299,14 @@ impl PolarAxis {
                     x: ScalarOrArray::new_array(x_vals),
                     y: ScalarOrArray::new_array(y_vals),
                     text: ScalarOrArray::new_array(text_vals),
-                    font: ScalarOrArray::new_scalar(theme.axis.label_font_family.clone()),
+                    font: ScalarOrArray::new_scalar(theme.axis_label_font_family().to_string()),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(theme.axis.label_font_weight),
+                        avenger_text::types::FontWeight::Number(theme.axis_label_font_weight()),
                     ),
                     font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size()),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        crate::utils::parse_color_to_array(&theme.axis.label_color),
+                        crate::utils::parse_color_to_array(&theme.axis_label_color()),
                     )),
                     align: ScalarOrArray::new_scalar(TextAlign::Center),
                     baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
@@ -331,7 +331,7 @@ impl PolarAxis {
         center_y: f32,
         radius: f32,
         scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::types::ColorOrGradient;
         use avenger_common::types::StrokeCap;
@@ -505,14 +505,14 @@ impl PolarAxis {
                     text: ScalarOrArray::new_array(text_vals),
                     align: ScalarOrArray::new_array(label_aligns),
                     baseline: ScalarOrArray::new_array(label_baselines),
-                    font: ScalarOrArray::new_scalar(theme.axis.label_font_family.clone()),
+                    font: ScalarOrArray::new_scalar(theme.axis_label_font_family().to_string()),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(theme.axis.label_font_weight),
+                        avenger_text::types::FontWeight::Number(theme.axis_label_font_weight()),
                     ),
                     font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size()),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        crate::utils::parse_color_to_array(&theme.axis.label_color),
+                        crate::utils::parse_color_to_array(&theme.axis_label_color()),
                     )),
                     angle: ScalarOrArray::new_scalar(0.0),
                     limit: ScalarOrArray::new_scalar(200.0),

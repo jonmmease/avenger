@@ -136,7 +136,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         scale_impl: &dyn ScaleImpl,
         domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Option<ScaleRange> {
         Symbol::<Cartesian>::common_default_channel_range(channel, scale_impl, domain, theme)
     }

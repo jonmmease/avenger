@@ -65,7 +65,7 @@ async fn test_simple_line_chart_dark() {
 
     assert_visual_match_with_theme(
         plot,
-        Theme::dark(),
+        StructTheme::dark(),
         "line",
         "simple_line_chart_dark",
         0.9999,

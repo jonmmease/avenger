@@ -34,7 +34,7 @@ pub trait CoordinateGuide: Clone + Send + Sync + 'static {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        theme: &Theme,
+        theme: &dyn Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
     /// Render this guide to scene marks
@@ -44,6 +44,6 @@ pub trait CoordinateGuide: Clone + Send + Sync + 'static {
         plot_width: f32,
         plot_height: f32,
         padding: &Padding,
-        theme: &Theme,
+        theme: &dyn Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 }

@@ -77,7 +77,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         width_estimate: f32,
         height_estimate: f32,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         guide
             .measure_overflow(scales, width_estimate, height_estimate, theme)
@@ -94,7 +94,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         guide
             .render(scales, plot_width, plot_height, padding, theme)

@@ -144,12 +144,12 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Add background rect if theme specifies one
         let theme = self.plot.get_theme();
-        if let Some(bg_color) = &theme.background.canvas_background {
+        if let Some(bg_color) = theme.canvas_background() {
             use avenger_common::types::ColorOrGradient;
             use avenger_scenegraph::marks::rect::SceneRectMark;
 
             // Parse the color string to RGBA - fail if color is invalid
-            let color = crate::utils::parse_color_to_array_strict(bg_color)?;
+            let color = crate::utils::parse_color_to_array_strict(&bg_color)?;
 
             let background_rect = SceneRectMark {
                 x: 0.0.into(),
@@ -1365,30 +1365,30 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             let mut legend = Legend::new()
                 .title(self.infer_legend_title(channel))
                 .position(self.default_legend_position(channel))
-                .background_padding(theme.legend.background_padding)
-                .background_corner_radius(theme.legend.background_corner_radius);
+                .background_padding(theme.legend_background_padding())
+                .background_corner_radius(theme.legend_background_corner_radius());
 
             // Apply optional theme defaults
-            if let Some(ref fill) = theme.legend.background_fill {
-                legend = legend.background_fill(fill.clone());
+            if let Some(fill) = theme.legend_background_fill() {
+                legend = legend.background_fill(fill);
             }
-            if let Some(ref stroke) = theme.legend.background_stroke {
-                legend = legend.background_stroke(stroke.clone());
+            if let Some(stroke) = theme.legend_background_stroke() {
+                legend = legend.background_stroke(stroke);
             }
 
             // Set text colors and typography from theme
-            legend.title_color = Some(theme.legend.title_color.clone());
-            legend.label_color = Some(theme.legend.label_color.clone());
-            legend.title_font_family = Some(theme.legend.title_font_family.clone());
+            legend.title_color = Some(theme.legend_title_color());
+            legend.label_color = Some(theme.legend_label_color());
+            legend.title_font_family = Some(theme.legend_title_font_family());
             legend.title_font_size = Some(theme.legend_title_font_size());
-            legend.title_font_weight = Some(theme.legend.title_font_weight);
-            legend.label_font_family = Some(theme.legend.label_font_family.clone());
+            legend.title_font_weight = Some(theme.legend_title_font_weight());
+            legend.label_font_family = Some(theme.legend_label_font_family());
             legend.label_font_size = Some(theme.legend_label_font_size());
-            legend.label_font_weight = Some(theme.legend.label_font_weight);
-            legend.tick_font_family = Some(theme.legend.tick_font_family.clone());
+            legend.label_font_weight = Some(theme.legend_label_font_weight());
+            legend.tick_font_family = Some(theme.legend_tick_font_family());
             legend.tick_font_size = Some(theme.legend_tick_font_size());
-            legend.tick_font_weight = Some(theme.legend.tick_font_weight);
-            legend.tick_color = Some(theme.legend.tick_color.clone());
+            legend.tick_font_weight = Some(theme.legend_tick_font_weight());
+            legend.tick_color = Some(theme.legend_tick_color());
 
             default_legends.insert(channel.clone(), legend);
         }
@@ -1461,12 +1461,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             font: title
                 .font_family
                 .clone()
-                .unwrap_or_else(|| theme.title.title_font_family.clone())
+                .unwrap_or_else(|| theme.title_font_family().to_string())
                 .into(),
             font_size: title.font_size.unwrap_or(theme.title_font_size()).into(),
-            font_weight: avenger_text::types::FontWeight::Number(theme.title.title_font_weight)
-                .into(),
-            color: crate::utils::parse_color_string(&theme.title.title_color)
+            font_weight: avenger_text::types::FontWeight::Number(theme.title_font_weight()).into(),
+            color: crate::utils::parse_color_string(&theme.title_color())
                 .unwrap_or(ColorOrGradient::Color([0.102, 0.102, 0.102, 1.0]))
                 .into(),
             ..Default::default()
@@ -1516,15 +1515,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             font: subtitle
                 .font_family
                 .clone()
-                .unwrap_or_else(|| theme.title.subtitle_font_family.clone())
+                .unwrap_or_else(|| theme.subtitle_font_family().to_string())
                 .into(),
             font_size: subtitle
                 .font_size
                 .unwrap_or(theme.subtitle_font_size())
                 .into(),
-            font_weight: avenger_text::types::FontWeight::Number(theme.title.subtitle_font_weight)
+            font_weight: avenger_text::types::FontWeight::Number(theme.subtitle_font_weight())
                 .into(),
-            color: crate::utils::parse_color_string(&theme.title.subtitle_color)
+            color: crate::utils::parse_color_string(&theme.subtitle_color())
                 .unwrap_or(ColorOrGradient::Color([0.290, 0.290, 0.290, 1.0]))
                 .into(),
             ..Default::default()
@@ -1705,46 +1704,46 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         for legend in all_legends.values_mut() {
             // Only set colors if not already explicitly set by user
             if legend.title_color.is_none() {
-                legend.title_color = Some(theme.legend.title_color.clone());
+                legend.title_color = Some(theme.legend_title_color());
             }
             if legend.label_color.is_none() {
-                legend.label_color = Some(theme.legend.label_color.clone());
+                legend.label_color = Some(theme.legend_label_color());
             }
             // Set typography from theme
             if legend.title_font_family.is_none() {
-                legend.title_font_family = Some(theme.legend.title_font_family.clone());
+                legend.title_font_family = Some(theme.legend_title_font_family());
             }
             if legend.title_font_size.is_none() {
                 legend.title_font_size = Some(theme.legend_title_font_size());
             }
             if legend.title_font_weight.is_none() {
-                legend.title_font_weight = Some(theme.legend.title_font_weight);
+                legend.title_font_weight = Some(theme.legend_title_font_weight());
             }
             if legend.label_font_family.is_none() {
-                legend.label_font_family = Some(theme.legend.label_font_family.clone());
+                legend.label_font_family = Some(theme.legend_label_font_family());
             }
             if legend.label_font_size.is_none() {
                 legend.label_font_size = Some(theme.legend_label_font_size());
             }
             if legend.label_font_weight.is_none() {
-                legend.label_font_weight = Some(theme.legend.label_font_weight);
+                legend.label_font_weight = Some(theme.legend_label_font_weight());
             }
             // Set tick label typography (for colorbar legends)
             if legend.tick_font_family.is_none() {
-                legend.tick_font_family = Some(theme.legend.tick_font_family.clone());
+                legend.tick_font_family = Some(theme.legend_tick_font_family());
             }
             if legend.tick_font_size.is_none() {
                 legend.tick_font_size = Some(theme.legend_tick_font_size());
             }
             if legend.tick_font_weight.is_none() {
-                legend.tick_font_weight = Some(theme.legend.tick_font_weight);
+                legend.tick_font_weight = Some(theme.legend_tick_font_weight());
             }
             if legend.tick_color.is_none() {
-                legend.tick_color = Some(theme.legend.tick_color.clone());
+                legend.tick_color = Some(theme.legend_tick_color());
             }
             // Always pass theme mark defaults for legend rendering
             if legend.theme_mark_defaults.is_none() {
-                legend.theme_mark_defaults = Some(theme.mark_defaults.defaults.clone());
+                legend.theme_mark_defaults = Some(theme.mark_defaults_map());
             }
         }
 
@@ -1975,7 +1974,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                             scale.scale_impl.as_ref(),
                             &resolved_domain,
                             &dt,
-                            &theme,
+                            theme.as_ref(),
                         ) {
                             scale = scale.range(mark_range);
                             break;

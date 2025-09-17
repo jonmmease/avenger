@@ -95,7 +95,7 @@ async fn test_simple_scatter_plot_dark() {
 
     assert_visual_match_with_theme(
         plot,
-        Theme::dark(),
+        StructTheme::dark(),
         "symbol",
         "simple_scatter_plot_dark",
         0.9999,

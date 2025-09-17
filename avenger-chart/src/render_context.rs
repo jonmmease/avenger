@@ -7,7 +7,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct RenderContext {
     /// The theme to use for rendering
-    pub theme: Arc<Theme>,
+    pub theme: Arc<dyn Theme>,
     /// Width of the plot area
     pub plot_width: f32,
     /// Height of the plot area
@@ -15,9 +15,9 @@ pub struct RenderContext {
 }
 
 impl RenderContext {
-    pub fn new(theme: Theme, plot_width: f32, plot_height: f32) -> Self {
+    pub fn new(theme: Arc<dyn Theme>, plot_width: f32, plot_height: f32) -> Self {
         Self {
-            theme: Arc::new(theme),
+            theme,
             plot_width,
             plot_height,
         }

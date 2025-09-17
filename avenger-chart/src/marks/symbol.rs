@@ -140,18 +140,18 @@ impl<C: CoordinateSystem> Symbol<C> {
             };
 
         // Stroke width is scalar only - get default from mark
-        let stroke_width_default = self
-            .default_channel_value("stroke_width", context)
+        let stroke_width_scalar = self.default_channel_value("stroke_width", context);
+
+        let stroke_width_default = stroke_width_scalar
             .and_then(|scalar| crate::utils::ScalarValueHelpers::as_f32(&scalar).ok())
             .unwrap_or(1.0);
 
         let stroke_width = if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
-            Some(
-                *coercer
-                    .to_numeric(width_scalar, Some(stroke_width_default))?
-                    .first()
-                    .unwrap(),
-            )
+            let val = *coercer
+                .to_numeric(width_scalar, Some(stroke_width_default))?
+                .first()
+                .unwrap();
+            Some(val)
         } else {
             Some(stroke_width_default)
         };
@@ -198,7 +198,7 @@ impl<C: CoordinateSystem> Symbol<C> {
         channel: &str,
         scale_impl: &dyn avenger_scales::scales::ScaleImpl,
         domain: &crate::scales::ResolvedDomain,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Option<ScaleRange> {
         match channel {
             "size" => Some(domain.make_interval_or_linspaced_range(16.0, 64.0)),

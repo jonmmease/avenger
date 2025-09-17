@@ -84,10 +84,9 @@ pub fn create_default_scale_for_channel(
         {
             let colors: Vec<ScalarValue> = context
                 .theme
-                .colors
-                .categorical
-                .iter()
-                .map(|c| ScalarValue::Utf8(Some(c.clone())))
+                .categorical_colors()
+                .into_iter()
+                .map(|c| ScalarValue::Utf8(Some(c)))
                 .collect();
             scale = scale.range_discrete(colors);
         }
@@ -96,8 +95,7 @@ pub fn create_default_scale_for_channel(
         ("shape", DomainKind::Categorical, RangeKind::Discrete) => {
             let shapes: Vec<ScalarValue> = context
                 .theme
-                .shapes
-                .get_shape_names()
+                .shape_names()
                 .into_iter()
                 .map(|s| ScalarValue::Utf8(Some(s)))
                 .collect();
@@ -108,8 +106,7 @@ pub fn create_default_scale_for_channel(
         ("stroke_dash", DomainKind::Categorical, RangeKind::Discrete) => {
             let dashes: Vec<ScalarValue> = context
                 .theme
-                .dashes
-                .get_dash_names()
+                .dash_names()
                 .into_iter()
                 .map(|d| ScalarValue::Utf8(Some(d)))
                 .collect();
@@ -121,8 +118,7 @@ pub fn create_default_scale_for_channel(
             // Get default size from theme
             let default_size = context
                 .theme
-                .mark_defaults
-                .get("symbol", "size")
+                .mark_default("symbol", "size")
                 .and_then(|v| v.as_f32().ok())
                 .unwrap_or(64.0);
             scale = scale.range_interval(lit(default_size * 0.5), lit(default_size * 2.0));

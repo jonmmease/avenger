@@ -74,7 +74,7 @@ impl Mark<Polar> for Symbol<Polar> {
         scale_impl: &dyn avenger_scales::scales::ScaleImpl,
         domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Option<ScaleRange> {
         Symbol::<Polar>::common_default_channel_range(channel, scale_impl, domain, theme)
     }
