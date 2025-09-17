@@ -21,6 +21,8 @@ pub struct CartesianAxis {
     pub tick_count: Option<usize>,
     pub label_angle: f32,
     pub format_number: Option<String>,
+    pub title_font_family: Option<String>,
+    pub label_font_family: Option<String>,
 }
 
 impl CartesianAxis {
@@ -63,6 +65,16 @@ impl CartesianAxis {
         self
     }
 
+    pub fn title_font_family(mut self, font: impl Into<String>) -> Self {
+        self.title_font_family = Some(font.into());
+        self
+    }
+
+    pub fn label_font_family(mut self, font: impl Into<String>) -> Self {
+        self.label_font_family = Some(font.into());
+        self
+    }
+
     /// Render this axis to scene marks
     pub fn render(
         &self,
@@ -71,7 +83,7 @@ impl CartesianAxis {
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Result<SceneMark, AvengerChartError> {
         use avenger_guides::axis::{
             band::make_band_axis_marks,
@@ -119,22 +131,36 @@ impl CartesianAxis {
             format_number: self.format_number.clone(),
             title_font_size: Some(theme.axis_title_font_size()),
             // Pass theme colors and styling
-            domain_color: Some(crate::utils::parse_color_to_array(&theme.axis.domain_color)),
-            tick_color: Some(crate::utils::parse_color_to_array(&theme.axis.tick_color)),
+            domain_color: Some(crate::utils::parse_color_to_array(
+                &theme.axis_domain_color(),
+            )),
+            tick_color: Some(crate::utils::parse_color_to_array(&theme.axis_tick_color())),
             grid_color: Some({
-                let mut color = crate::utils::parse_color_to_array(&theme.axis.grid_color);
-                color[3] = theme.axis.grid_opacity; // Apply opacity to alpha channel
+                let mut color = crate::utils::parse_color_to_array(&theme.axis_grid_color());
+                color[3] = theme.axis_grid_opacity(); // Apply opacity to alpha channel
                 color
             }),
-            grid_width: Some(theme.axis.grid_width),
-            label_color: Some(crate::utils::parse_color_to_array(&theme.axis.label_color)),
-            title_color: Some(crate::utils::parse_color_to_array(&theme.axis.title_color)),
-            tick_length: Some(theme.axis.tick_length),
+            grid_width: Some(theme.axis_grid_width()),
+            label_color: Some(crate::utils::parse_color_to_array(
+                &theme.axis_label_color(),
+            )),
+            title_color: Some(crate::utils::parse_color_to_array(
+                &theme.axis_title_color(),
+            )),
+            tick_length: Some(theme.axis_tick_length()),
             label_font_size: Some(theme.axis_label_font_size()),
-            label_font_weight: Some(theme.axis.label_font_weight),
-            title_font_weight: Some(theme.axis.title_font_weight),
-            label_font_family: Some(theme.axis.label_font_family.clone()),
-            title_font_family: Some(theme.axis.title_font_family.clone()),
+            label_font_weight: Some(theme.axis_label_font_weight()),
+            title_font_weight: Some(theme.axis_title_font_weight()),
+            label_font_family: Some(
+                self.label_font_family
+                    .clone()
+                    .unwrap_or_else(|| theme.axis_label_font_family()),
+            ),
+            title_font_family: Some(
+                self.title_font_family
+                    .clone()
+                    .unwrap_or_else(|| theme.axis_title_font_family()),
+            ),
         };
 
         // Generate axis marks based on scale characteristics
@@ -196,6 +222,8 @@ impl Default for CartesianAxis {
             tick_count: None,
             label_angle: 0.0,
             format_number: None,
+            title_font_family: None,
+            label_font_family: None,
         }
     }
 }

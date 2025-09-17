@@ -9,10 +9,17 @@ mod marks;
 mod presets;
 mod shapes;
 
+// New trait-based theme system
+mod struct_impl;
+mod theme_interface;
+
 pub use colors::ColorPalettes;
 pub use dashes::DashPatterns;
 pub use marks::MarkDefaults;
 pub use shapes::ShapeSequence;
+
+// Export trait and related types
+pub use theme_interface::{ContextBuilder, Theme, ThemeContext, ThemeProperty, ThemeValue};
 
 /// Font scale configuration for proportional font sizing
 #[derive(Clone, Debug, Copy)]
@@ -80,11 +87,11 @@ impl FontScale {
     }
 }
 
-/// Complete theme configuration for chart styling
+/// Complete theme configuration for chart styling (struct implementation)
 #[derive(Clone, Debug)]
-pub struct Theme {
-    /// Default font family (others inherit from this if not specified)
-    pub default_font: String,
+pub struct StructTheme {
+    /// Base font family (all text inherits from this if not specified)
+    pub base_font_family: String,
 
     /// Base font size for all text elements
     pub base_font_size: f32,
@@ -202,8 +209,8 @@ pub struct AxisTheme {
     /// Label text color
     pub label_color: String,
 
-    /// Label font family
-    pub label_font_family: String,
+    /// Label font family (None defaults to base font family)
+    pub label_font_family: Option<String>,
 
     /// Label font weight
     pub label_font_weight: f32,
@@ -212,8 +219,8 @@ pub struct AxisTheme {
     /// Title text color
     pub title_color: String,
 
-    /// Title font family
-    pub title_font_family: String,
+    /// Title font family (None defaults to base font family)
+    pub title_font_family: Option<String>,
 
     /// Title font weight
     pub title_font_weight: f32,
@@ -247,8 +254,8 @@ pub struct LegendTheme {
     /// Title text color
     pub title_color: String,
 
-    /// Title font family
-    pub title_font_family: String,
+    /// Title font family (None defaults to base font family)
+    pub title_font_family: Option<String>,
 
     /// Title font weight
     pub title_font_weight: f32,
@@ -257,8 +264,8 @@ pub struct LegendTheme {
     /// Label text color
     pub label_color: String,
 
-    /// Label font family
-    pub label_font_family: String,
+    /// Label font family (None defaults to base font family)
+    pub label_font_family: Option<String>,
 
     /// Label font weight
     pub label_font_weight: f32,
@@ -267,8 +274,8 @@ pub struct LegendTheme {
     /// Tick label text color
     pub tick_color: String,
 
-    /// Tick label font family
-    pub tick_font_family: String,
+    /// Tick label font family (None defaults to base font family)
+    pub tick_font_family: Option<String>,
 
     /// Tick label font weight
     pub tick_font_weight: f32,
@@ -281,8 +288,8 @@ pub struct TitleTheme {
     /// Title text color
     pub title_color: String,
 
-    /// Title font family
-    pub title_font_family: String,
+    /// Title font family (None defaults to base font family)
+    pub title_font_family: Option<String>,
 
     /// Title font weight
     pub title_font_weight: f32,
@@ -291,8 +298,8 @@ pub struct TitleTheme {
     /// Subtitle text color
     pub subtitle_color: String,
 
-    /// Subtitle font family
-    pub subtitle_font_family: String,
+    /// Subtitle font family (None defaults to base font family)
+    pub subtitle_font_family: Option<String>,
 
     /// Subtitle font weight
     pub subtitle_font_weight: f32,
@@ -308,63 +315,90 @@ pub struct BackgroundTheme {
     pub canvas_background: Option<String>,
 }
 
-impl Theme {
-    /// Compute title font size from base and scale
+impl StructTheme {
+    // Helper methods that use the trait interface for backward compatibility
+    // These delegate to the trait implementation for consistency
+
     pub fn title_font_size(&self) -> f32 {
-        (self.base_font_size * self.font_scale.title_scale).round()
+        self.font_size(&ThemeContext::new("title"))
     }
 
-    /// Compute subtitle font size from base and scale
     pub fn subtitle_font_size(&self) -> f32 {
-        (self.base_font_size * self.font_scale.subtitle_scale).round()
+        self.font_size(&ThemeContext::new("subtitle"))
     }
 
-    /// Compute axis title font size from base and scale
     pub fn axis_title_font_size(&self) -> f32 {
-        (self.base_font_size * self.font_scale.axis_title_scale).round()
+        self.font_size(&ThemeContext::new("axis").with_class("title"))
     }
 
-    /// Compute axis label font size from base and scale
     pub fn axis_label_font_size(&self) -> f32 {
-        (self.base_font_size * self.font_scale.axis_label_scale).round()
+        self.font_size(&ThemeContext::new("axis").with_class("label"))
     }
 
-    /// Compute legend title font size from base and scale
     pub fn legend_title_font_size(&self) -> f32 {
-        (self.base_font_size * self.font_scale.legend_title_scale).round()
+        self.font_size(&ThemeContext::new("legend").with_class("title"))
     }
 
-    /// Compute legend label font size from base and scale
     pub fn legend_label_font_size(&self) -> f32 {
-        (self.base_font_size * self.font_scale.legend_label_scale).round()
+        self.font_size(&ThemeContext::new("legend").with_class("label"))
     }
 
-    /// Compute legend tick font size from base and scale
     pub fn legend_tick_font_size(&self) -> f32 {
-        (self.base_font_size * self.font_scale.legend_tick_scale).round()
+        self.font_size(&ThemeContext::new("legend").with_class("tick"))
     }
 
-    /// Compute text mark font size from base and scale
     pub fn text_mark_font_size(&self) -> f32 {
-        (self.base_font_size * self.font_scale.text_mark_scale).round()
+        self.font_size(&ThemeContext::new("mark").with_mark("text"))
+    }
+
+    pub fn title_font_family(&self) -> String {
+        self.font_family(&ThemeContext::new("title"))
+    }
+
+    pub fn subtitle_font_family(&self) -> String {
+        self.font_family(&ThemeContext::new("subtitle"))
+    }
+
+    pub fn axis_title_font_family(&self) -> String {
+        self.font_family(&ThemeContext::new("axis").with_class("title"))
+    }
+
+    pub fn axis_label_font_family(&self) -> String {
+        self.font_family(&ThemeContext::new("axis").with_class("label"))
+    }
+
+    pub fn legend_title_font_family(&self) -> String {
+        self.font_family(&ThemeContext::new("legend").with_class("title"))
+    }
+
+    pub fn legend_label_font_family(&self) -> String {
+        self.font_family(&ThemeContext::new("legend").with_class("label"))
+    }
+
+    pub fn legend_tick_font_family(&self) -> String {
+        self.font_family(&ThemeContext::new("legend").with_class("tick"))
     }
 
     /// Set the font family for all text elements in the theme
     pub fn set_font_family(&mut self, font: &str) {
-        self.default_font = font.to_string();
+        self.base_font_family = font.to_string();
 
-        // Update title fonts
-        self.title.title_font_family = font.to_string();
-        self.title.subtitle_font_family = font.to_string();
+        // Clear specific font families to use the new base
+        self.title.title_font_family = None;
+        self.title.subtitle_font_family = None;
 
-        // Update axis fonts
-        self.axis.label_font_family = font.to_string();
-        self.axis.title_font_family = font.to_string();
+        self.axis.label_font_family = None;
+        self.axis.title_font_family = None;
 
-        // Update legend fonts
-        self.legend.title_font_family = font.to_string();
-        self.legend.label_font_family = font.to_string();
-        self.legend.tick_font_family = font.to_string();
+        self.legend.title_font_family = None;
+        self.legend.label_font_family = None;
+        self.legend.tick_font_family = None;
+
+        // Clear text mark font override
+        self.mark_defaults
+            .defaults
+            .get_mut("text")
+            .and_then(|text_defaults| text_defaults.shift_remove("font"));
     }
 
     /// Builder method to set font family for all text elements
@@ -373,8 +407,8 @@ impl Theme {
         self
     }
 
-    /// Get default color range for a scale type
-    pub fn get_color_range(
+    /// Get default color range for a scale type (implementation)
+    fn get_color_range_impl(
         &self,
         scale_type: &str,
         domain_cardinality: Option<usize>,
@@ -423,8 +457,8 @@ impl Theme {
         }
     }
 
-    /// Get default shape range for ordinal scales
-    pub fn get_shape_range(&self, domain_cardinality: Option<usize>) -> crate::scales::ScaleRange {
+    /// Get default shape range for ordinal scales (implementation)
+    fn get_shape_range_impl(&self, domain_cardinality: Option<usize>) -> crate::scales::ScaleRange {
         use crate::scales::ScaleRange;
         use datafusion_common::ScalarValue;
 
@@ -450,10 +484,10 @@ impl Theme {
     }
 }
 
-impl Default for Theme {
+impl Default for StructTheme {
     fn default() -> Self {
         Self {
-            default_font: "Atkinson Hyperlegible Next".to_string(),
+            base_font_family: "Atkinson Hyperlegible Next".to_string(),
             base_font_size: 12.0,
             font_scale: FontScale::default(),
             title: TitleTheme::default(),
@@ -495,11 +529,11 @@ impl Default for AxisTheme {
             label_angle: 0.0,
             // Label (tick label) typography
             label_color: "#5a5a5a".to_string(),
-            label_font_family: "Atkinson Hyperlegible Next".to_string(),
+            label_font_family: None, // Defaults to base font family
             label_font_weight: 300.0,
             // Title typography
             title_color: "#2a2a2a".to_string(),
-            title_font_family: "Atkinson Hyperlegible Next".to_string(),
+            title_font_family: None, // Defaults to base font family
             title_font_weight: 400.0,
         }
     }
@@ -517,15 +551,15 @@ impl Default for LegendTheme {
             label_padding: 5.0,
             // Title typography
             title_color: "#2C2C2C".to_string(),
-            title_font_family: "Atkinson Hyperlegible Next".to_string(),
+            title_font_family: None, // Defaults to base font family
             title_font_weight: 400.0,
             // Label typography (for discrete legends)
             label_color: "#3C3C3C".to_string(),
-            label_font_family: "Atkinson Hyperlegible Next".to_string(),
+            label_font_family: None, // Defaults to base font family
             label_font_weight: 300.0,
             // Tick label typography (for continuous/colorbar legends)
             tick_color: "#5a5a5a".to_string(), // Same as axis labels
-            tick_font_family: "Atkinson Hyperlegible Next".to_string(),
+            tick_font_family: None,            // Defaults to base font family
             tick_font_weight: 300.0,
         }
     }
@@ -536,17 +570,17 @@ impl Default for TitleTheme {
         Self {
             // Title typography
             title_color: "#1a1a1a".to_string(),
-            title_font_family: "Atkinson Hyperlegible Next".to_string(),
+            title_font_family: None,  // Defaults to base font family
             title_font_weight: 500.0, // Medium weight
             // Subtitle typography
             subtitle_color: "#4a4a4a".to_string(),
-            subtitle_font_family: "Atkinson Hyperlegible Next".to_string(),
+            subtitle_font_family: None,  // Defaults to base font family
             subtitle_font_weight: 200.0, // Light weight
         }
     }
 }
 
-impl Theme {
+impl StructTheme {
     /// Builder method to set color palettes
     pub fn with_colors(mut self, colors: ColorPalettes) -> Self {
         self.colors = colors;
@@ -597,6 +631,57 @@ impl Theme {
     /// Use dramatic font scaling
     pub fn with_dramatic_fonts(mut self) -> Self {
         self.font_scale = FontScale::dramatic();
+        self
+    }
+
+    /// Override title font family
+    pub fn with_title_font_family(mut self, font: impl Into<String>) -> Self {
+        self.title.title_font_family = Some(font.into());
+        self
+    }
+
+    /// Override subtitle font family
+    pub fn with_subtitle_font_family(mut self, font: impl Into<String>) -> Self {
+        self.title.subtitle_font_family = Some(font.into());
+        self
+    }
+
+    /// Override axis title font family
+    pub fn with_axis_title_font_family(mut self, font: impl Into<String>) -> Self {
+        self.axis.title_font_family = Some(font.into());
+        self
+    }
+
+    /// Override axis label font family
+    pub fn with_axis_label_font_family(mut self, font: impl Into<String>) -> Self {
+        self.axis.label_font_family = Some(font.into());
+        self
+    }
+
+    /// Override legend title font family
+    pub fn with_legend_title_font_family(mut self, font: impl Into<String>) -> Self {
+        self.legend.title_font_family = Some(font.into());
+        self
+    }
+
+    /// Override legend label font family
+    pub fn with_legend_label_font_family(mut self, font: impl Into<String>) -> Self {
+        self.legend.label_font_family = Some(font.into());
+        self
+    }
+
+    /// Override legend tick font family
+    pub fn with_legend_tick_font_family(mut self, font: impl Into<String>) -> Self {
+        self.legend.tick_font_family = Some(font.into());
+        self
+    }
+
+    /// Override text mark font family default
+    pub fn with_text_mark_font_family(mut self, font: impl Into<String>) -> Self {
+        use datafusion_common::ScalarValue;
+        self.mark_defaults =
+            self.mark_defaults
+                .with_default("text", "font", ScalarValue::Utf8(Some(font.into())));
         self
     }
 }

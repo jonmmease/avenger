@@ -2,7 +2,7 @@
 
 use avenger_chart::prelude::*;
 use avenger_chart::render_context::RenderContext;
-use avenger_chart::theme::Theme;
+use avenger_chart::theme::{StructTheme, Theme};
 use datafusion::prelude::*;
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
@@ -16,7 +16,7 @@ async fn test_symbol_defaults_used_in_rendering() {
     let symbol = Symbol::<Cartesian>::new().x(col("x")).y(col("y"));
 
     // Create a RenderContext with default theme
-    let theme = Theme::default();
+    let theme = Arc::new(StructTheme::default());
     let context = RenderContext::new(theme, 500.0, 400.0);
 
     // Get the mark's default values
@@ -60,7 +60,7 @@ async fn test_symbol_defaults_used_in_rendering() {
     let scalar_batch = RecordBatch::new_empty(empty_schema);
 
     // Create a render context with default theme and dummy dimensions
-    let theme = avenger_chart::theme::Theme::default();
+    let theme = Arc::new(avenger_chart::theme::StructTheme::default());
     let context = avenger_chart::render_context::RenderContext::new(theme, 500.0, 500.0);
 
     // Create a Cartesian coordinate system

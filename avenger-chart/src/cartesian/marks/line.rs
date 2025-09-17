@@ -453,7 +453,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         scale_impl: &dyn ScaleImpl,
         domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Option<ScaleRange> {
         use avenger_scales::scales::DomainKind;
 

@@ -32,7 +32,7 @@ impl CoordinateGuide for NoGuide {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _theme: &Theme,
+        _theme: &dyn Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
     }
@@ -43,7 +43,7 @@ impl CoordinateGuide for NoGuide {
         _plot_width: f32,
         _plot_height: f32,
         _padding: &Padding,
-        _theme: &Theme,
+        _theme: &dyn Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }

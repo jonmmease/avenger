@@ -230,7 +230,7 @@ pub async fn assert_visual_match_default<C: CoordinateSystem>(
 /// Test a plot with a custom theme against its baseline
 pub async fn assert_visual_match_with_theme<C: CoordinateSystem>(
     plot: Plot<C>,
-    theme: avenger_chart::theme::Theme,
+    theme: avenger_chart::theme::StructTheme,
     category: &str,
     baseline_name: &str,
     tolerance: f64,

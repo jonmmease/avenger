@@ -264,7 +264,7 @@ async fn test_combined_size_color_shape_legend_dark() {
 
     assert_visual_match_with_theme(
         plot,
-        Theme::dark(),
+        StructTheme::dark(),
         "legend",
         "combined_size_color_shape_legend_dark",
         0.9999,

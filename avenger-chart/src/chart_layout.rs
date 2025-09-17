@@ -165,7 +165,7 @@ impl ChartLayout {
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         marks: &[Box<dyn crate::marks::Mark<C>>],
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Result<Self, AvengerChartError> {
         let mut taffy = TaffyTree::new();
         let mut builder = GridBuilder::new();
@@ -1011,7 +1011,7 @@ impl GridBuilder {
         _marks: &[Box<dyn crate::marks::Mark<C>>],
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Result<(GridTemplate, ComponentGridMap), AvengerChartError> {
         // Use edge margins from constants to ensure consistent padding
         let mut cols = Vec::new();
@@ -1083,10 +1083,8 @@ impl GridBuilder {
         // Add title if present
         if let Some(t) = title {
             let font_size = t.font_size.unwrap_or(theme.title_font_size());
-            let font_family = t
-                .font_family
-                .as_ref()
-                .unwrap_or(&theme.title.title_font_family);
+            let title_font_family = theme.title_font_family();
+            let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
             let (height, _) = ChartLayout::measure_text(&t.text, font_size, font_family);
             rows.push(length(height * 1.15));
             // Title starts from left overflow column (if present) or plot column
@@ -1098,10 +1096,8 @@ impl GridBuilder {
         // Add subtitle if present
         if let Some(s) = subtitle {
             let font_size = s.font_size.unwrap_or(theme.subtitle_font_size());
-            let font_family = s
-                .font_family
-                .as_ref()
-                .unwrap_or(&theme.title.subtitle_font_family);
+            let subtitle_font_family = theme.subtitle_font_family();
+            let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
             let (height, _) = ChartLayout::measure_text(&s.text, font_size, font_family);
             rows.push(length(height * 1.1));
             // Subtitle starts from left overflow column (if present) or plot column

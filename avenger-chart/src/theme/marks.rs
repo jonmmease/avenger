@@ -26,7 +26,7 @@ impl MarkDefaults {
             .and_then(|channels| channels.get(channel))
     }
 
-    /// Get default value for a specific mark type and channel, with computed font size
+    /// Get default value for a specific mark type and channel, with computed font properties
     pub fn get_with_computed_font_size(
         &self,
         mark_type: &str,
@@ -36,6 +36,33 @@ impl MarkDefaults {
         // Special case: if asking for text mark font_size, return the computed value
         if mark_type == "text" && channel == "font_size" {
             return Some(ScalarValue::Float32(Some(computed_font_size)));
+        }
+
+        // Otherwise return the stored default
+        self.get(mark_type, channel).cloned()
+    }
+
+    /// Get default value for a specific mark type and channel, with computed font properties
+    pub fn get_with_computed_fonts(
+        &self,
+        mark_type: &str,
+        channel: &str,
+        computed_font_size: f32,
+        base_font_family: &str,
+    ) -> Option<ScalarValue> {
+        if mark_type == "text" {
+            match channel {
+                "font_size" => return Some(ScalarValue::Float32(Some(computed_font_size))),
+                "font" => {
+                    // Check if there's an explicit override first
+                    if let Some(stored_font) = self.get(mark_type, channel) {
+                        return Some(stored_font.clone());
+                    }
+                    // Otherwise use the base font family
+                    return Some(ScalarValue::Utf8(Some(base_font_family.to_string())));
+                }
+                _ => {}
+            }
         }
 
         // Otherwise return the stored default
@@ -150,10 +177,7 @@ impl Default for MarkDefaults {
             "fill".to_string(),
             ScalarValue::Utf8(Some("#000000".to_string())),
         );
-        text_defaults.insert(
-            "font".to_string(),
-            ScalarValue::Utf8(Some("Atkinson Hyperlegible Next".to_string())),
-        );
+        // Note: font is computed dynamically in get_with_computed_fonts() to inherit from base_font_family
         // Note: font_size is not stored here, it's computed dynamically in get_with_computed_font_size()
         text_defaults.insert("font_weight".to_string(), ScalarValue::Float32(Some(400.0)));
         text_defaults.insert(

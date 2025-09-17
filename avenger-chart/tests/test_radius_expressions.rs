@@ -1,6 +1,6 @@
 use avenger_chart::prelude::*;
 use avenger_chart::render_context::RenderContext;
-use avenger_chart::theme::Theme;
+use avenger_chart::theme::StructTheme;
 use datafusion::prelude::SessionContext;
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
@@ -13,8 +13,8 @@ async fn test_symbol_default_channel_values() {
     let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
     // Create a RenderContext with default theme
-    let theme = Theme::default();
-    let context = RenderContext::new(theme, 500.0, 400.0);
+    let theme = StructTheme::default();
+    let context = RenderContext::new(Arc::new(theme), 500.0, 400.0);
 
     // Test default channel values
     assert_eq!(

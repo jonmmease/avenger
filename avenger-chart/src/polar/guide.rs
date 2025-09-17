@@ -115,7 +115,7 @@ impl CoordinateGuide for PolarGuide {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        theme: &Theme,
+        theme: &dyn Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
 
@@ -186,7 +186,7 @@ impl CoordinateGuide for PolarGuide {
         plot_width: f32,
         plot_height: f32,
         padding: &Padding,
-        theme: &Theme,
+        theme: &dyn Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

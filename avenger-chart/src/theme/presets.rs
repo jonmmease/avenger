@@ -4,10 +4,10 @@ use super::*;
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 
-impl Theme {
+impl StructTheme {
     /// Dark theme optimized for dark backgrounds
     pub fn dark() -> Self {
-        let mut theme = Theme::default();
+        let mut theme = StructTheme::default();
 
         // Dark background colors
         theme.background = BackgroundTheme {
@@ -66,7 +66,7 @@ impl Theme {
         );
         symbol.insert(
             "stroke_width".to_string(),
-            ScalarValue::Float64(Some(0.0)), // No stroke by default
+            ScalarValue::Float32(Some(0.0)), // No stroke by default
         );
         mark_defaults.insert("symbol".to_string(), symbol);
 
@@ -82,7 +82,7 @@ impl Theme {
         );
         rect.insert(
             "stroke_width".to_string(),
-            ScalarValue::Float64(Some(0.0)), // No stroke by default
+            ScalarValue::Float32(Some(0.0)), // No stroke by default
         );
         mark_defaults.insert("rect".to_string(), rect);
 
@@ -122,7 +122,7 @@ impl Theme {
 
     /// High contrast theme for accessibility
     pub fn high_contrast() -> Self {
-        let mut theme = Theme::default();
+        let mut theme = StructTheme::default();
 
         // High contrast colors
         theme.colors = ColorPalettes {
@@ -175,7 +175,7 @@ impl Theme {
 
     /// Colorblind-safe theme using Okabe-Ito palette
     pub fn colorblind_safe() -> Self {
-        let mut theme = Theme::default();
+        let mut theme = StructTheme::default();
 
         // Okabe-Ito colorblind-safe palette
         theme.colors = ColorPalettes {
@@ -198,7 +198,7 @@ impl Theme {
 
     /// Publication-ready theme with minimal styling
     pub fn publication() -> Self {
-        let mut theme = Theme::default();
+        let mut theme = StructTheme::default();
 
         // Conservative font choices with smaller base size
         theme.set_font_family("Helvetica");

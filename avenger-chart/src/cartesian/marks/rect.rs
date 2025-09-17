@@ -138,7 +138,7 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         scale_impl: &dyn ScaleImpl,
         domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
-        theme: &crate::theme::Theme,
+        theme: &dyn crate::theme::Theme,
     ) -> Option<ScaleRange> {
         match channel {
             "corner_radius" => Some(domain.make_interval_or_linspaced_range(0.0, 10.0)),
