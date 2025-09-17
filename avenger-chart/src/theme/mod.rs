@@ -13,7 +13,12 @@ mod shapes;
 mod struct_impl;
 mod theme_interface;
 
+// CSS theme system
+pub mod css;
+mod css_adapter;
+
 pub use colors::ColorPalettes;
+pub use css_adapter::CssThemeAdapter;
 pub use dashes::DashPatterns;
 pub use marks::MarkDefaults;
 pub use shapes::ShapeSequence;
