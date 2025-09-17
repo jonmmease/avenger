@@ -451,7 +451,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         &self,
         channel: &str,
         scale_impl: &dyn ScaleImpl,
-        domain: &crate::scales::ResolvedDomain,
+        _domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
         theme: &dyn crate::theme::Theme,
     ) -> Option<ScaleRange> {
@@ -478,12 +478,9 @@ impl Mark<Cartesian> for Line<Cartesian> {
                 }
             }
             "stroke" => {
-                // Use theme color system - check if domain is discrete
-                let scale_type = match domain {
-                    crate::scales::ResolvedDomain::Discrete(_) => "ordinal",
-                    crate::scales::ResolvedDomain::Interval => scale_impl.scale_type(),
-                };
-                Some(theme.get_color_range(scale_type, None))
+                // Use theme color system
+                let range_kind = scale_impl.range_kind();
+                Some(theme.get_range_for_channel("line", channel, range_kind, None))
             }
             _ => None,
         }

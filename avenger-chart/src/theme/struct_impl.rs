@@ -67,15 +67,6 @@ impl Theme for StructTheme {
         Box::new(self.clone())
     }
 
-    fn get_color_range(
-        &self,
-        scale_type: &str,
-        domain_cardinality: Option<usize>,
-    ) -> crate::scales::ScaleRange {
-        // Call the implementation method
-        self.get_color_range_impl(scale_type, domain_cardinality)
-    }
-
     fn get_shape_range(&self, domain_cardinality: Option<usize>) -> crate::scales::ScaleRange {
         // Call the implementation method
         self.get_shape_range_impl(domain_cardinality)

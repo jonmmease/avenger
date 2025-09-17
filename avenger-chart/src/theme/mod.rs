@@ -13,18 +13,18 @@ mod shapes;
 mod struct_impl;
 mod theme_interface;
 
-// CSS theme system
-pub mod css;
-mod css_adapter;
+// CSS theme systems
+pub mod css; // Full CSS parser with cssparser/selectors
 
 pub use colors::ColorPalettes;
-pub use css_adapter::CssThemeAdapter;
 pub use dashes::DashPatterns;
 pub use marks::MarkDefaults;
 pub use shapes::ShapeSequence;
 
 // Export trait and related types
-pub use theme_interface::{ContextBuilder, Theme, ThemeContext, ThemeProperty, ThemeValue};
+pub use theme_interface::{
+    ContextBuilder, LengthUnit, Rgba, Theme, ThemeContext, ThemeProperty, ThemeValue,
+};
 
 /// Font scale configuration for proportional font sizing
 #[derive(Clone, Debug, Copy)]

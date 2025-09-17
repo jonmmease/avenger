@@ -26,6 +26,16 @@ pub struct ThemeContext {
 
     /// Parent context (for inheritance)
     pub parent: Option<Box<ThemeContext>>,
+
+    // Tree structure info for CSS pseudo-class selectors
+    /// Whether this is the first child of its parent
+    pub is_first_child: bool,
+
+    /// Whether this is the last child of its parent
+    pub is_last_child: bool,
+
+    /// Index of this child (0-based)
+    pub child_index: usize,
 }
 
 impl ThemeContext {
@@ -39,6 +49,9 @@ impl ThemeContext {
             classes: Vec::new(),
             id: None,
             parent: None,
+            is_first_child: false,
+            is_last_child: false,
+            child_index: 0,
         }
     }
 
@@ -77,6 +90,14 @@ impl ThemeContext {
         self.parent = Some(Box::new(parent));
         self
     }
+
+    /// Set child position info for CSS pseudo-class selectors
+    pub fn with_child_info(mut self, index: usize, is_first: bool, is_last: bool) -> Self {
+        self.child_index = index;
+        self.is_first_child = is_first;
+        self.is_last_child = is_last;
+        self
+    }
 }
 
 /// Property names that can be queried from themes
@@ -113,13 +134,19 @@ pub enum ThemeProperty {
 }
 
 /// Value types that themes can return
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ThemeValue {
-    /// String value (colors, font families, etc.)
+    /// String value (keywords, identifiers, font families, etc.)
     String(String),
+
+    /// Keyword value (CSS keywords like "bold", "center", etc.)
+    Keyword(String),
 
     /// Floating point value (sizes, opacities, angles, weights)
     Float(f32),
+
+    /// Double precision float (for higher precision values)
+    Double(f64),
 
     /// Integer value
     Integer(i32),
@@ -127,18 +154,58 @@ pub enum ThemeValue {
     /// Boolean value
     Boolean(bool),
 
+    /// Length with unit
+    Length(f64, LengthUnit),
+
+    /// Percentage value
+    Percentage(f64),
+
+    /// Color value
+    Color(Rgba),
+
+    /// CSS function call
+    Function(String, Vec<ThemeValue>),
+
     /// Multiple values (for padding, margin, etc.)
     List(Vec<ThemeValue>),
 
+    /// CSS variable reference
+    Variable(String),
+
+    /// Initial value
+    Initial,
+
+    /// Inherited value
+    Inherit,
+
     /// No value (property not set)
     None,
+}
+
+/// RGBA color representation
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rgba {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+    pub alpha: u8,
+}
+
+/// Length units
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LengthUnit {
+    Px,
+    Em,
+    Rem,
+    Percent,
+    Pt,
 }
 
 impl ThemeValue {
     /// Try to get as string
     pub fn as_string(&self) -> Option<&str> {
         match self {
-            ThemeValue::String(s) => Some(s),
+            ThemeValue::String(s) | ThemeValue::Keyword(s) => Some(s),
             _ => None,
         }
     }
@@ -147,7 +214,23 @@ impl ThemeValue {
     pub fn as_float(&self) -> Option<f32> {
         match self {
             ThemeValue::Float(f) => Some(*f),
+            ThemeValue::Double(d) => Some(*d as f32),
             ThemeValue::Integer(i) => Some(*i as f32),
+            ThemeValue::Length(n, LengthUnit::Px) => Some(*n as f32),
+            ThemeValue::Length(n, LengthUnit::Pt) => Some((*n * 1.333) as f32),
+            ThemeValue::Percentage(p) => Some(*p as f32),
+            _ => None,
+        }
+    }
+
+    /// Try to get as f64
+    pub fn as_double(&self) -> Option<f64> {
+        match self {
+            ThemeValue::Double(d) => Some(*d),
+            ThemeValue::Float(f) => Some(*f as f64),
+            ThemeValue::Integer(i) => Some(*i as f64),
+            ThemeValue::Length(n, _) => Some(*n),
+            ThemeValue::Percentage(p) => Some(*p),
             _ => None,
         }
     }
@@ -157,6 +240,7 @@ impl ThemeValue {
         match self {
             ThemeValue::Integer(i) => Some(*i),
             ThemeValue::Float(f) => Some(*f as i32),
+            ThemeValue::Double(d) => Some(*d as i32),
             _ => None,
         }
     }
@@ -168,6 +252,134 @@ impl ThemeValue {
             _ => None,
         }
     }
+
+    /// Try to get as list
+    pub fn as_list(&self) -> Option<&[ThemeValue]> {
+        match self {
+            ThemeValue::List(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    /// Try to get as color
+    pub fn as_color(&self) -> Option<Rgba> {
+        match self {
+            ThemeValue::Color(rgba) => Some(*rgba),
+            ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                // Try to parse hex color or named color
+                if s.starts_with('#') {
+                    parse_hex_color(s)
+                } else {
+                    parse_named_color(s)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Convert to string value (for display/serialization)
+    pub fn to_string_value(&self) -> Option<String> {
+        match self {
+            ThemeValue::String(s) | ThemeValue::Keyword(s) => Some(s.clone()),
+            ThemeValue::Color(rgba) => {
+                if rgba.alpha < 255 {
+                    Some(format!(
+                        "#{:02x}{:02x}{:02x}{:02x}",
+                        rgba.red, rgba.green, rgba.blue, rgba.alpha
+                    ))
+                } else {
+                    Some(format!(
+                        "#{:02x}{:02x}{:02x}",
+                        rgba.red, rgba.green, rgba.blue
+                    ))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Check if value is None
+    pub fn is_none(&self) -> bool {
+        matches!(self, ThemeValue::None)
+    }
+}
+
+/// Parse a hex color
+pub fn parse_hex_color(hex: &str) -> Option<Rgba> {
+    let hex = hex.trim_start_matches('#');
+
+    let (r, g, b) = match hex.len() {
+        3 => {
+            // Short form: #RGB
+            let r = u8::from_str_radix(&hex[0..1], 16).ok()?;
+            let g = u8::from_str_radix(&hex[1..2], 16).ok()?;
+            let b = u8::from_str_radix(&hex[2..3], 16).ok()?;
+            (r * 17, g * 17, b * 17)
+        }
+        6 => {
+            // Long form: #RRGGBB
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            (r, g, b)
+        }
+        _ => return None,
+    };
+
+    Some(Rgba {
+        red: r,
+        green: g,
+        blue: b,
+        alpha: 255,
+    })
+}
+
+/// Parse a named color
+pub fn parse_named_color(name: &str) -> Option<Rgba> {
+    let color = match name.to_lowercase().as_str() {
+        // Basic colors
+        "black" => (0, 0, 0),
+        "white" => (255, 255, 255),
+        "red" => (255, 0, 0),
+        "green" => (0, 128, 0),
+        "blue" => (0, 0, 255),
+        "yellow" => (255, 255, 0),
+        "cyan" => (0, 255, 255),
+        "magenta" => (255, 0, 255),
+
+        // Grays
+        "gray" | "grey" => (128, 128, 128),
+        "darkgray" | "darkgrey" => (169, 169, 169),
+        "lightgray" | "lightgrey" => (211, 211, 211),
+        "dimgray" | "dimgrey" => (105, 105, 105),
+
+        // Extended colors
+        "orange" => (255, 165, 0),
+        "purple" => (128, 0, 128),
+        "brown" => (165, 42, 42),
+        "pink" => (255, 192, 203),
+        "lime" => (0, 255, 0),
+        "navy" => (0, 0, 128),
+        "teal" => (0, 128, 128),
+        "olive" => (128, 128, 0),
+        "maroon" => (128, 0, 0),
+
+        // Common web colors
+        "steelblue" => (70, 130, 180),
+        "cornflowerblue" => (100, 149, 237),
+        "dodgerblue" => (30, 144, 255),
+        "lightblue" => (173, 216, 230),
+        "skyblue" => (135, 206, 235),
+
+        _ => return None,
+    };
+
+    Some(Rgba {
+        red: color.0,
+        green: color.1,
+        blue: color.2,
+        alpha: 255,
+    })
 }
 
 /// Main theme trait that can be implemented by different backends
@@ -214,25 +426,22 @@ pub trait Theme: Send + Sync {
     /// Get color for a context
     fn color(&self, context: &ThemeContext) -> String {
         self.query(context, &ThemeProperty::Color)
-            .as_string()
-            .unwrap_or("#000000")
-            .to_string()
+            .to_string_value()
+            .unwrap_or_else(|| "#000000".to_string())
     }
 
     /// Get fill color for a context
     fn fill_color(&self, context: &ThemeContext) -> String {
         self.query(context, &ThemeProperty::FillColor)
-            .as_string()
-            .unwrap_or("#4682b4")
-            .to_string()
+            .to_string_value()
+            .unwrap_or_else(|| "#4682b4".to_string())
     }
 
     /// Get stroke color for a context
     fn stroke_color(&self, context: &ThemeContext) -> String {
         self.query(context, &ThemeProperty::StrokeColor)
-            .as_string()
-            .unwrap_or("#000000")
-            .to_string()
+            .to_string_value()
+            .unwrap_or_else(|| "#000000".to_string())
     }
 
     /// Get stroke width for a context
@@ -256,9 +465,16 @@ pub trait Theme: Send + Sync {
 
     /// Get canvas background color
     fn canvas_background(&self) -> Option<String> {
-        let ctx = ThemeContext::new("canvas").with_class("background");
+        let ctx = ThemeContext::new("canvas");
         match self.query(&ctx, &ThemeProperty::BackgroundColor) {
             ThemeValue::String(s) => Some(s),
+            ThemeValue::Color(rgba) => {
+                // Convert Color to hex string
+                Some(format!(
+                    "#{:02x}{:02x}{:02x}",
+                    rgba.red, rgba.green, rgba.blue
+                ))
+            }
             _ => None,
         }
     }
@@ -454,22 +670,25 @@ pub trait Theme: Send + Sync {
     /// Get axis domain color
     fn axis_domain_color(&self) -> String {
         let ctx = ThemeContext::new("axis").with_class("domain");
-        self.color(&ctx)
+        self.query(&ctx, &ThemeProperty::StrokeColor)
+            .to_string_value()
+            .unwrap_or_else(|| "#000000".to_string())
     }
 
     /// Get axis tick color
     fn axis_tick_color(&self) -> String {
         let ctx = ThemeContext::new("axis").with_class("tick");
-        self.color(&ctx)
+        self.query(&ctx, &ThemeProperty::StrokeColor)
+            .to_string_value()
+            .unwrap_or_else(|| "#000000".to_string())
     }
 
     /// Get axis grid color
     fn axis_grid_color(&self) -> String {
         let ctx = ThemeContext::new("axis").with_class("grid");
         self.query(&ctx, &ThemeProperty::GridColor)
-            .as_string()
-            .unwrap_or("#d0d0d0")
-            .to_string()
+            .to_string_value()
+            .unwrap_or_else(|| "#d0d0d0".to_string())
     }
 
     /// Get axis grid opacity
@@ -616,32 +835,92 @@ pub trait Theme: Send + Sync {
         ScaleRange::new_discrete(scalars)
     }
 
-    /// Get default color range for a scale type
-    fn get_color_range(
+    /// Get range for a specific channel based on mark type and range kind
+    fn get_range_for_channel(
         &self,
-        scale_type: &str,
-        _domain_cardinality: Option<usize>,
+        _mark_type: &str,
+        channel: &str,
+        range_kind: avenger_scales::scales::RangeKind,
+        domain_cardinality: Option<usize>,
     ) -> crate::scales::ScaleRange {
         use crate::scales::ScaleRange;
+        use avenger_scales::scales::RangeKind;
         use datafusion_common::ScalarValue;
 
-        match scale_type {
-            "ordinal" => {
-                // Use theme categorical colors
-                let colors = self.categorical_colors();
-                let scalars: Vec<ScalarValue> = colors
-                    .into_iter()
-                    .map(|c| ScalarValue::Utf8(Some(c)))
-                    .collect();
-                ScaleRange::new_discrete(scalars)
-            }
+        // Default implementation delegates to existing methods for compatibility
+        match channel {
+            "fill" | "stroke" => match range_kind {
+                RangeKind::Discrete => {
+                    // Use categorical colors for discrete
+                    let colors = self.categorical_colors();
+                    let scalars: Vec<ScalarValue> = colors
+                        .into_iter()
+                        .map(|c| ScalarValue::Utf8(Some(c)))
+                        .collect();
+                    ScaleRange::new_discrete(scalars)
+                }
+                RangeKind::Continuous => {
+                    // Use gradient for continuous
+                    ScaleRange::new_interval(
+                        datafusion::logical_expr::lit("#4682b4"),
+                        datafusion::logical_expr::lit("#ff7f0e"),
+                    )
+                }
+            },
+            "shape" => self.get_shape_range(domain_cardinality),
+            "stroke_dash" => self.get_dash_range(domain_cardinality),
+            "size" => match range_kind {
+                RangeKind::Discrete => {
+                    // Discrete sizes
+                    let sizes = vec![60.0, 120.0, 180.0, 240.0, 300.0];
+                    let scalars: Vec<ScalarValue> = sizes
+                        .into_iter()
+                        .map(|s| ScalarValue::Float32(Some(s as f32)))
+                        .collect();
+                    ScaleRange::new_discrete(scalars)
+                }
+                RangeKind::Continuous => {
+                    // Size interval
+                    ScaleRange::new_interval(
+                        datafusion::logical_expr::lit(20.0f32),
+                        datafusion::logical_expr::lit(400.0f32),
+                    )
+                }
+            },
+            "opacity" | "fill_opacity" | "stroke_opacity" => match range_kind {
+                RangeKind::Discrete => {
+                    // Discrete opacities
+                    let opacities = vec![0.2, 0.4, 0.6, 0.8, 1.0];
+                    let scalars: Vec<ScalarValue> = opacities
+                        .into_iter()
+                        .map(|o| ScalarValue::Float32(Some(o as f32)))
+                        .collect();
+                    ScaleRange::new_discrete(scalars)
+                }
+                RangeKind::Continuous => {
+                    // Opacity interval
+                    ScaleRange::new_interval(
+                        datafusion::logical_expr::lit(0.0f32),
+                        datafusion::logical_expr::lit(1.0f32),
+                    )
+                }
+            },
             _ => {
-                // For continuous scales, use a default gradient
-                // This is a simple implementation - actual would be more sophisticated
-                ScaleRange::new_interval(
-                    datafusion::logical_expr::lit("#4682b4"),
-                    datafusion::logical_expr::lit("#ff7f0e"),
-                )
+                // Default ranges for unknown channels
+                match range_kind {
+                    RangeKind::Discrete => {
+                        let defaults = vec!["A", "B", "C", "D", "E"];
+                        let scalars: Vec<ScalarValue> = defaults
+                            .into_iter()
+                            .map(|s| ScalarValue::Utf8(Some(s.to_string())))
+                            .collect();
+                        ScaleRange::new_discrete(scalars)
+                    }
+                    RangeKind::Continuous => ScaleRange::new_interval(
+                        datafusion::logical_expr::lit(0.0f32),
+                        datafusion::logical_expr::lit(1.0f32),
+                    ),
+                }
             }
         }
     }
