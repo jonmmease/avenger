@@ -3,11 +3,8 @@
 use crate::error::AvengerChartError;
 use crate::render_context::RenderContext;
 use crate::scales::{Auto, Scale};
-use crate::utils::ScalarValueHelpers;
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
-use datafusion::logical_expr::lit;
-use datafusion_common::ScalarValue;
 use std::sync::Arc;
 
 /// Channel characteristics for scale selection
@@ -71,75 +68,19 @@ pub fn create_default_scale_for_channel(
     context: &RenderContext,
 ) -> Result<Scale<Auto>, AvengerChartError> {
     let _characteristics = get_channel_characteristics(channel); // TODO: Use for validation
-    let domain_kind = scale_impl.domain_kind();
     let range_kind = scale_impl.range_kind();
 
     let mut scale = Scale::<Auto>::from_impl(scale_impl);
 
-    // Set range based on channel type and theme
-    match (channel, domain_kind, range_kind) {
-        // Color channels with discrete range
-        (ch, DomainKind::Categorical, RangeKind::Discrete)
-            if ch == "fill" || ch == "stroke" || ch == "color" =>
-        {
-            let colors: Vec<ScalarValue> = context
-                .theme
-                .categorical_colors()
-                .into_iter()
-                .map(|c| ScalarValue::Utf8(Some(c)))
-                .collect();
-            scale = scale.range_discrete(colors);
-        }
+    // Use generic "mark" type for global scales
+    // Individual marks will override with their specific type in default_channel_range
+    let mark_type = "mark";
 
-        // Shape channel
-        ("shape", DomainKind::Categorical, RangeKind::Discrete) => {
-            let shapes: Vec<ScalarValue> = context
-                .theme
-                .shape_names()
-                .into_iter()
-                .map(|s| ScalarValue::Utf8(Some(s)))
-                .collect();
-            scale = scale.range_discrete(shapes);
-        }
-
-        // Stroke dash channel
-        ("stroke_dash", DomainKind::Categorical, RangeKind::Discrete) => {
-            let dashes: Vec<ScalarValue> = context
-                .theme
-                .dash_names()
-                .into_iter()
-                .map(|d| ScalarValue::Utf8(Some(d)))
-                .collect();
-            scale = scale.range_discrete(dashes);
-        }
-
-        // Size channels with continuous range
-        (ch, _, RangeKind::Continuous) if ch == "size" => {
-            // Get default size from theme
-            let default_size = context
-                .theme
-                .mark_default("symbol", "size")
-                .and_then(|v| v.as_f32().ok())
-                .unwrap_or(64.0);
-            scale = scale.range_interval(lit(default_size * 0.5), lit(default_size * 2.0));
-        }
-
-        // Stroke width
-        ("stroke_width", _, RangeKind::Continuous) => {
-            scale = scale.range_interval(lit(0.5), lit(5.0));
-        }
-
-        // Opacity channels
-        (ch, _, RangeKind::Continuous)
-            if ch == "opacity" || ch == "fill_opacity" || ch == "stroke_opacity" =>
-        {
-            scale = scale.range_interval(lit(0.0), lit(1.0));
-        }
-
-        _ => {
-            // Use default range already set by scale implementation
-        }
-    }
+    // Use the new get_range_for_channel method which supports CSS discrete/continuous properties
+    let range = context
+        .theme
+        .get_range_for_channel(mark_type, channel, range_kind, None);
+    scale = scale.range(range);
 
     Ok(scale)
 }

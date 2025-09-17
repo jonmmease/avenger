@@ -30,11 +30,10 @@ tracing = { workspace = true }
 strsim = "0.11"
 lyon_path = { workspace = true }
 paste = "1.0"
-# CSS parsing - Note: We use a custom simple parser instead of these crates
-# due to API compatibility issues with version 0.35. See src/theme/css/mod.rs
-# for details. These are kept commented for potential future use.
-# cssparser = "0.35"
-# selectors = "0.25"
+# CSS parsing - Latest versions
+cssparser = "0.35"
+selectors = "0.31"
+precomputed-hash = "0.1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

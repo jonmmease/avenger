@@ -145,12 +145,9 @@ impl Mark<Cartesian> for Rect<Cartesian> {
             "opacity" => Some(domain.make_interval_or_linspaced_range(0.1, 1.0)),
             "stroke_width" => Some(domain.make_interval_or_linspaced_range(0.5, 5.0)),
             "fill" | "stroke" | "color" => {
-                // Use theme color system - check if domain is discrete
-                let scale_type = match domain {
-                    crate::scales::ResolvedDomain::Discrete(_) => "ordinal",
-                    crate::scales::ResolvedDomain::Interval => scale_impl.scale_type(),
-                };
-                Some(theme.get_color_range(scale_type, None))
+                // Use theme color system
+                let range_kind = scale_impl.range_kind();
+                Some(theme.get_range_for_channel("rect", channel, range_kind, None))
             }
             _ => None,
         }
