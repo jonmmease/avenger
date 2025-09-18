@@ -2,7 +2,7 @@
 
 use super::helpers::assert_visual_match;
 use avenger_chart::prelude::*;
-use avenger_chart::theme::css::Theme as CssTheme;
+use avenger_chart::theme::css::CssTheme;
 use datafusion::arrow::array::{Float64Array, Int32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;

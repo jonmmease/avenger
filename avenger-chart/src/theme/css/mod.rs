@@ -14,7 +14,7 @@ use selectors::matching::SelectorCaches;
 
 /// CSS-based theme with full selector support
 #[derive(Debug, Clone)]
-pub struct Theme {
+pub struct CssTheme {
     rules: Vec<CompiledRule>,
     variables: IndexMap<String, ThemeValue>,
     inherited_properties: std::collections::HashSet<&'static str>,
@@ -37,7 +37,294 @@ struct QueryKey {
     property: String,
 }
 
-impl Theme {
+impl CssTheme {
+    /// Light theme preset matching StructTheme::default()
+    pub fn light() -> Self {
+        let css = r#"
+            /* Base configuration */
+            :root {
+                font-family: "Atkinson Hyperlegible Next";
+                font-size: 12px;
+
+                /* Color palettes */
+                --categorical-colors: #0072B2, #E69F00, #009E73, #F0E442, #D55E00, #56B4E9, #CC79A7, #999999;
+                --viridis-colors: #440154, #31688E, #35B779, #FDE725;
+            }
+
+            /* Title styling */
+            title {
+                color: #1a1a1a;
+                font-weight: 500;
+                font-size: 1.5rem; /* 18px @ 12px base */
+            }
+
+            subtitle {
+                color: #4a4a4a;
+                font-weight: 200;
+                font-size: 1.167rem; /* 14px @ 12px base */
+            }
+
+            /* Axis styling */
+            axis {
+                grid-color: #e0e0e0;
+                grid-opacity: 0.5;
+                stroke-width: 0.5; /* grid line width */
+                label-padding: 3;
+            }
+
+            axis.domain {
+                stroke: #000;
+                stroke-width: 1.0;
+            }
+
+            axis.tick {
+                stroke: #000;
+                size: 5.0;
+            }
+
+            axis.title {
+                color: #2a2a2a;
+                font-weight: 400;
+                font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
+            axis.label {
+                color: #5a5a5a;
+                font-weight: 300;
+                font-size: 0.833rem; /* 10px @ 12px base */
+                padding: 3;
+            }
+
+            axis.grid {
+                stroke: #e0e0e0;
+                opacity: 0.5;
+                stroke-width: 0.5;
+            }
+
+            /* Legend styling */
+            legend.title {
+                color: #2C2C2C;
+                font-weight: 400;
+                font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
+            legend.label {
+                color: #3C3C3C;
+                font-weight: 300;
+                font-size: 0.917rem; /* 11px @ 12px base */
+            }
+
+            legend.tick {
+                color: #5a5a5a;
+                font-weight: 300;
+                font-size: 0.833rem; /* 10px @ 12px base */
+            }
+
+            legend {
+                spacing: 10;
+                symbol-size: 100;
+                label-padding: 5;
+            }
+
+            legend.background {
+                padding: 8;
+            }
+
+            /* Mark defaults */
+            mark[type="symbol"] {
+                fill: #4682b4;
+                stroke: #000000;
+                stroke-width: 1.0;
+                size: 64;
+                shape: circle;
+                opacity: 1.0;
+            }
+
+            mark[type="rect"] {
+                fill: #4682b4;
+                stroke: #000000;
+                stroke-width: 1.0;
+                corner-radius: 0;
+                opacity: 1.0;
+            }
+
+            mark[type="line"] {
+                stroke: #4682b4;
+                stroke-width: 2.0;
+                stroke-dash: solid;
+                stroke-cap: round;
+                stroke-join: round;
+                opacity: 1.0;
+            }
+
+            mark[type="text"] {
+                fill: #000000;
+                font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
+            /* Range configurations */
+            mark {
+                color-discrete: var(--categorical-colors);
+                color-continuous: var(--viridis-colors);
+                shape-discrete: circle, cross, diamond, square, star, triangle-up, wye, cushion;
+                size-discrete: 30, 80, 140, 200, 260;
+                size-continuous: 30, 200;
+                stroke_dash-discrete: solid, dashed, dotted, long-dash, dash-dot, long-short, even-short, double-dash;
+                stroke_width-discrete: 0.5, 1.0, 2.0, 3.0, 5.0;
+            }
+        "#;
+
+        Self::from_css(css).expect("Failed to parse built-in light theme CSS")
+    }
+
+    /// Dark theme preset matching StructTheme::dark()
+    pub fn dark() -> Self {
+        let css = r#"
+            /* Base configuration */
+            :root {
+                font-family: "Atkinson Hyperlegible Next";
+                font-size: 12px;
+
+                /* Okabe-Ito colorblind-safe palette optimized for dark backgrounds */
+                --categorical-colors: #56B4E9, #E69F00, #009E73, #F0E442, #0072B2, #D55E00, #CC79A7, #999999;
+                --viridis-colors: #440154, #31688E, #35B779, #FDE725;
+            }
+
+            /* Backgrounds */
+            canvas {
+                background-color: #121212;
+            }
+
+            plot {
+                background-color: #1E1E1E;
+            }
+
+            /* Title styling */
+            title {
+                color: #FFFFFF;
+                font-weight: 500;
+                font-size: 1.5rem; /* 18px @ 12px base */
+            }
+
+            subtitle {
+                color: #FFFFFF;
+                font-weight: 200;
+                font-size: 1.167rem; /* 14px @ 12px base */
+            }
+
+            /* Axis styling */
+            axis {
+                grid-color: #30363D;
+                grid-opacity: 0.5;
+                stroke-width: 0.5; /* grid line width */
+                label-padding: 3;
+            }
+
+            axis.domain {
+                stroke: #FFFFFF;
+                stroke-width: 1.0;
+            }
+
+            axis.tick {
+                stroke: #FFFFFF;
+                size: 5.0;
+            }
+
+            axis.title {
+                color: #FFFFFF;
+                font-weight: 400;
+                font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
+            axis.label {
+                color: #AAAAAA;
+                font-weight: 300;
+                font-size: 0.833rem; /* 10px @ 12px base */
+                padding: 3;
+            }
+
+            axis.grid {
+                stroke: #30363D;
+                opacity: 0.5;
+                stroke-width: 0.5;
+            }
+
+            /* Legend styling */
+            legend.title {
+                color: #FFFFFF;
+                font-weight: 400;
+                font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
+            legend.label {
+                color: #E1E6EA;
+                font-weight: 300;
+                font-size: 0.917rem; /* 11px @ 12px base */
+            }
+
+            legend.tick {
+                color: #AAAAAA;
+                font-weight: 300;
+                font-size: 0.833rem; /* 10px @ 12px base */
+            }
+
+            legend {
+                spacing: 10;
+                symbol-size: 100;
+                label-padding: 5;
+            }
+
+            legend.background {
+                padding: 8;
+            }
+
+            /* Mark defaults - note that dark theme uses 0 stroke width by default */
+            mark[type="symbol"] {
+                fill: #56B4E9;
+                stroke: #30363D;
+                stroke-width: 0.0;
+                size: 64;
+                shape: circle;
+                opacity: 1.0;
+            }
+
+            mark[type="rect"] {
+                fill: #56B4E9;
+                stroke: #30363D;
+                stroke-width: 0.0;
+                corner-radius: 0;
+                opacity: 1.0;
+            }
+
+            mark[type="line"] {
+                stroke: #56B4E9;
+                stroke-width: 2.0;
+                stroke-dash: solid;
+                stroke-cap: round;
+                stroke-join: round;
+                opacity: 1.0;
+            }
+
+            mark[type="text"] {
+                fill: #C9D1D9;
+                font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
+            /* Range configurations */
+            mark {
+                color-discrete: var(--categorical-colors);
+                color-continuous: var(--viridis-colors);
+                shape-discrete: circle, cross, diamond, square, star, triangle-up, wye, cushion;
+                size-discrete: 30, 80, 140, 200, 260;
+                size-continuous: 30, 200;
+                stroke_dash-discrete: solid, dashed, dotted, long-dash, dash-dot, long-short, even-short, double-dash;
+                stroke_width-discrete: 0.5, 1.0, 2.0, 3.0, 5.0;
+            }
+        "#;
+
+        Self::from_css(css).expect("Failed to parse built-in dark theme CSS")
+    }
+
     /// Create a theme from CSS string
     pub fn from_css(css: &str) -> Result<Self, String> {
         let rules = parser::parse_stylesheet(css)?;
@@ -208,6 +495,8 @@ impl Theme {
             "stroke-width" => ThemeValue::Double(1.0),
             "opacity" => ThemeValue::Double(1.0),
             "size" => ThemeValue::Double(60.0),
+            "padding" => ThemeValue::Double(8.0),
+            "spacing" => ThemeValue::Double(10.0),
             _ => ThemeValue::Initial,
         }
     }

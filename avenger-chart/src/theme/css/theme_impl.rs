@@ -1,7 +1,7 @@
 //! Implementation of the Theme trait for CSS-based themes
 
-use super::Theme as CssTheme;
-use crate::theme::{LengthUnit, Theme as ThemeTrait, ThemeContext, ThemeProperty, ThemeValue};
+use super::CssTheme;
+use crate::theme::{LengthUnit, Theme, ThemeContext, ThemeProperty, ThemeValue};
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 
@@ -45,7 +45,7 @@ impl CssTheme {
     }
 }
 
-impl ThemeTrait for CssTheme {
+impl Theme for CssTheme {
     fn query(&self, context: &ThemeContext, property: &ThemeProperty) -> ThemeValue {
         // Context-aware property mapping
         let css_property =
@@ -65,18 +65,20 @@ impl ThemeTrait for CssTheme {
         if matches!(property, ThemeProperty::FontSize) {
             if let ThemeValue::Length(size, LengthUnit::Rem) = value {
                 // Convert rem to pixels (rem is relative to base font size)
-                return ThemeValue::Float((size * self.base_font_size as f64) as f32);
+                // Round to match StructTheme behavior
+                return ThemeValue::Float(((size * self.base_font_size as f64) as f32).round());
             } else if let ThemeValue::Length(size, LengthUnit::Em) = value {
                 // For font-size, em is relative to parent's font size
                 // For now, treat it like rem (this could be improved with parent context)
-                return ThemeValue::Float((size * self.base_font_size as f64) as f32);
+                // Round to match StructTheme behavior
+                return ThemeValue::Float(((size * self.base_font_size as f64) as f32).round());
             }
         }
 
         value
     }
 
-    fn clone_box(&self) -> Box<dyn ThemeTrait> {
+    fn clone_box(&self) -> Box<dyn Theme> {
         Box::new(self.clone())
     }
 
@@ -191,37 +193,130 @@ impl ThemeTrait for CssTheme {
     }
 
     fn categorical_colors(&self) -> Vec<String> {
-        // Return default categorical colors
+        // Query categorical colors from CSS
+        let context = ThemeContext::new("mark");
+        let colors_value = self.query_css(&context, "color-discrete");
+
+        // Parse the result into a list of colors
+        match colors_value {
+            ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                let colors = Self::parse_css_list(&s);
+                if !colors.is_empty() {
+                    return colors;
+                }
+            }
+            ThemeValue::List(values) => {
+                let mut colors = Vec::new();
+                for val in values {
+                    match val {
+                        ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                            colors.push(s);
+                        }
+                        ThemeValue::Color(rgba) => {
+                            let hex =
+                                format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
+                            colors.push(hex);
+                        }
+                        _ => {}
+                    }
+                }
+                if !colors.is_empty() {
+                    return colors;
+                }
+            }
+            _ => {}
+        }
+
+        // Fallback to Okabe-Ito colors that match StructTheme default
         vec![
-            "#4c78a8".to_string(),
-            "#f58518".to_string(),
-            "#54a24b".to_string(),
-            "#e45756".to_string(),
-            "#72b7b2".to_string(),
-            "#eeca3b".to_string(),
-            "#b279a2".to_string(),
-            "#ff9da6".to_string(),
-            "#9d755d".to_string(),
-            "#bab0ac".to_string(),
+            "#0072B2".to_string(), // Blue
+            "#E69F00".to_string(), // Orange
+            "#009E73".to_string(), // Bluish Green
+            "#F0E442".to_string(), // Yellow
+            "#D55E00".to_string(), // Vermillion
+            "#56B4E9".to_string(), // Sky Blue
+            "#CC79A7".to_string(), // Reddish Purple
+            "#999999".to_string(), // Grey
         ]
     }
 
     fn shape_names(&self) -> Vec<String> {
+        // Query shape names from CSS
+        let context = ThemeContext::new("mark");
+        let shapes_value = self.query_css(&context, "shape-discrete");
+
+        // Parse the result into a list of shapes
+        match shapes_value {
+            ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                let shapes = Self::parse_css_list(&s);
+                if !shapes.is_empty() {
+                    return shapes;
+                }
+            }
+            ThemeValue::List(values) => {
+                let mut shapes = Vec::new();
+                for val in values {
+                    if let ThemeValue::String(s) | ThemeValue::Keyword(s) = val {
+                        shapes.push(s);
+                    }
+                }
+                if !shapes.is_empty() {
+                    return shapes;
+                }
+            }
+            _ => {}
+        }
+
+        // Fallback to default shapes (matching StructTheme::default())
         vec![
             "circle".to_string(),
-            "square".to_string(),
-            "triangle".to_string(),
-            "diamond".to_string(),
             "cross".to_string(),
+            "diamond".to_string(),
+            "square".to_string(),
+            "star".to_string(),
+            "triangle-up".to_string(),
+            "wye".to_string(),
+            "cushion".to_string(),
         ]
     }
 
     fn dash_names(&self) -> Vec<String> {
+        // Query dash patterns from CSS
+        let context = ThemeContext::new("mark");
+        let dashes_value = self.query_css(&context, "stroke_dash-discrete");
+
+        // Parse the result into a list of dash patterns
+        match dashes_value {
+            ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                let dashes = Self::parse_css_list(&s);
+                if !dashes.is_empty() {
+                    return dashes;
+                }
+            }
+            ThemeValue::List(values) => {
+                let mut dashes = Vec::new();
+                for val in values {
+                    if let ThemeValue::String(s) | ThemeValue::Keyword(s) = val {
+                        dashes.push(s);
+                    }
+                }
+                if !dashes.is_empty() {
+                    return dashes;
+                }
+            }
+            _ => {}
+        }
+
+        // Fallback to default dash patterns (matching StructTheme::default())
         vec![
             "solid".to_string(),
             "dashed".to_string(),
             "dotted".to_string(),
+            "long-dash".to_string(),
             "dash-dot".to_string(),
+            "long-short".to_string(),
+            "even-short".to_string(),
+            "double-dash".to_string(),
         ]
     }
 
@@ -331,13 +426,14 @@ impl CssTheme {
     fn create_scale_range(
         &self,
         values: &[String],
-        _channel: &str,
+        channel: &str,
         range_kind: avenger_scales::scales::RangeKind,
         domain_cardinality: Option<usize>,
     ) -> crate::scales::ScaleRange {
         use crate::scales::ScaleRange;
         use avenger_scales::scales::RangeKind;
         use datafusion::prelude::lit;
+        use palette::Srgba;
 
         match range_kind {
             RangeKind::Discrete => {
@@ -357,18 +453,50 @@ impl CssTheme {
                 ScaleRange::Discrete(scalars)
             }
             RangeKind::Continuous => {
-                // For continuous ranges, expect 2 values (min, max)
-                if values.len() >= 2 {
-                    let min = values[0].parse::<f64>().unwrap_or(0.0);
-                    let max = values[1].parse::<f64>().unwrap_or(1.0);
-                    ScaleRange::new_interval(lit(min), lit(max))
-                } else if values.len() == 1 {
-                    // Single value, use it as max with 0 as min
-                    let max = values[0].parse::<f64>().unwrap_or(1.0);
-                    ScaleRange::new_interval(lit(0.0), lit(max))
+                // Check if this is a color channel
+                if channel == "fill" || channel == "stroke" || channel == "color" {
+                    // For continuous color ranges, parse as Srgba colors
+                    let colors: Vec<Srgba> = values
+                        .iter()
+                        .filter_map(|v| {
+                            // Parse hex color to Srgba
+                            if v.starts_with('#') && v.len() >= 7 {
+                                let r = u8::from_str_radix(&v[1..3], 16).ok()? as f32 / 255.0;
+                                let g = u8::from_str_radix(&v[3..5], 16).ok()? as f32 / 255.0;
+                                let b = u8::from_str_radix(&v[5..7], 16).ok()? as f32 / 255.0;
+                                Some(Srgba::new(r, g, b, 1.0))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    if !colors.is_empty() {
+                        ScaleRange::new_color(colors)
+                    } else {
+                        // Fallback to viridis-like palette
+                        let colors = vec![
+                            Srgba::new(0.267, 0.004, 0.329, 1.0), // Dark purple
+                            Srgba::new(0.193, 0.408, 0.556, 1.0), // Blue
+                            Srgba::new(0.208, 0.718, 0.473, 1.0), // Green
+                            Srgba::new(0.993, 0.906, 0.144, 1.0), // Yellow
+                        ];
+                        ScaleRange::new_color(colors)
+                    }
                 } else {
-                    // Default range
-                    ScaleRange::new_interval(lit(0.0), lit(1.0))
+                    // For numeric continuous ranges, expect 2 values (min, max)
+                    if values.len() >= 2 {
+                        let min = values[0].parse::<f64>().unwrap_or(0.0);
+                        let max = values[1].parse::<f64>().unwrap_or(1.0);
+                        ScaleRange::new_interval(lit(min), lit(max))
+                    } else if values.len() == 1 {
+                        // Single value, use it as max with 0 as min
+                        let max = values[0].parse::<f64>().unwrap_or(1.0);
+                        ScaleRange::new_interval(lit(0.0), lit(max))
+                    } else {
+                        // Default range
+                        ScaleRange::new_interval(lit(0.0), lit(1.0))
+                    }
                 }
             }
         }
@@ -388,23 +516,25 @@ impl CssTheme {
         match (channel, range_kind) {
             // Color channels
             ("fill" | "stroke" | "color", RangeKind::Discrete) => {
-                let colors = vec![
-                    "#4c78a8", "#f58518", "#54a24b", "#e45756", "#72b7b2", "#eeca3b", "#b279a2",
-                    "#ff9da6", "#9d755d", "#bab0ac",
-                ];
+                // Use categorical_colors which queries from CSS or falls back to Okabe-Ito
+                let colors = self.categorical_colors();
                 let scalars: Vec<ScalarValue> = colors
                     .iter()
                     .take(domain_cardinality.unwrap_or(colors.len()))
-                    .map(|c| ScalarValue::Utf8(Some(c.to_string())))
+                    .map(|c| ScalarValue::Utf8(Some(c.clone())))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
             ("fill" | "stroke" | "color", RangeKind::Continuous) => {
-                // Blue gradient
-                ScaleRange::Discrete(vec![
-                    ScalarValue::Utf8(Some("#f7fbff".to_string())),
-                    ScalarValue::Utf8(Some("#08306b".to_string())),
-                ])
+                // Viridis-like gradient
+                use palette::Srgba;
+                let colors = vec![
+                    Srgba::new(0.267, 0.004, 0.329, 1.0), // Dark purple
+                    Srgba::new(0.193, 0.408, 0.556, 1.0), // Blue
+                    Srgba::new(0.208, 0.718, 0.473, 1.0), // Green
+                    Srgba::new(0.993, 0.906, 0.144, 1.0), // Yellow
+                ];
+                ScaleRange::new_color(colors)
             }
 
             // Size channels

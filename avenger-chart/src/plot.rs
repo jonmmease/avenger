@@ -4,7 +4,7 @@ use crate::guide::CoordinateGuide;
 use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::scales::Scale;
-use crate::theme::{StructTheme, Theme};
+use crate::theme::{StructTheme, Theme, css::CssTheme};
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -1137,6 +1137,6 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn get_theme(&self) -> Arc<dyn Theme> {
         self.theme
             .clone()
-            .unwrap_or_else(|| Arc::new(StructTheme::default()))
+            .unwrap_or_else(|| Arc::new(CssTheme::light()))
     }
 }
