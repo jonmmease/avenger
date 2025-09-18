@@ -3,6 +3,20 @@
 //! This trait defines a query-based interface for themes that can be implemented
 //! by different backends (struct-based, CSS-based, etc.)
 
+use std::sync::Arc;
+
+/// Standard element types for chart hierarchy
+pub mod elements {
+    pub const CANVAS: &str = "canvas";
+    pub const COORDS: &str = "coords";
+    pub const GUIDE: &str = "guide";
+    pub const AXIS: &str = "axis";
+    pub const MARK: &str = "mark";
+    pub const TITLE: &str = "title";
+    pub const SUBTITLE: &str = "subtitle";
+    pub const LEGEND: &str = "legend";
+}
+
 /// Context for theme queries, providing information about the element being styled
 #[derive(Debug, Clone)]
 pub struct ThemeContext {
@@ -20,6 +34,9 @@ pub struct ThemeContext {
 
     /// Optional unique identifier
     pub id: Option<String>,
+
+    /// Parent context for hierarchical CSS selectors
+    pub parent: Option<Arc<ThemeContext>>,
 
     // Position info for CSS pseudo-class selectors (e.g., third mark, second legend)
     /// Whether this is the first child of its parent
@@ -40,6 +57,21 @@ impl ThemeContext {
             subtype: None,
             classes: Vec::new(),
             id: None,
+            parent: None,
+            is_first_child: false,
+            is_last_child: false,
+            child_index: 0,
+        }
+    }
+
+    /// Create a child context
+    pub fn child(&self, element_type: impl Into<String>) -> Self {
+        Self {
+            element_type: element_type.into(),
+            subtype: None,
+            classes: Vec::new(),
+            id: None,
+            parent: Some(Arc::new(self.clone())),
             is_first_child: false,
             is_last_child: false,
             child_index: 0,

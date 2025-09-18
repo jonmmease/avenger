@@ -207,6 +207,61 @@ fn test_value_conversions() {
 }
 
 #[test]
+fn test_descendant_selectors() {
+    let css = r#"
+        coords mark { fill: blue; }
+        coords[type="cartesian"] mark { fill: red; }
+        coords[type="cartesian"] mark[type="symbol"] { size: 100px; fill: green; }
+        guide axis { font-size: 12px; }
+        canvas title { font-size: 20px; }
+    "#;
+
+    let theme = Theme::from_css(css).unwrap();
+
+    // Test basic descendant selector
+    let canvas = ThemeContext::new("canvas");
+    let coords = canvas.child("coords");
+    let mark = coords.child("mark");
+    let fill = theme.query_css(&mark, "fill");
+    if let ThemeValue::Color(color) = fill {
+        // Should match "coords mark { fill: blue; }"
+        assert_eq!(color.blue, 255);
+        assert_eq!(color.red, 0);
+    }
+
+    // Test descendant with attribute selector
+    let cartesian_coords = canvas.child("coords").with_subtype("cartesian");
+    let mark_in_cartesian = cartesian_coords.child("mark");
+    let fill = theme.query_css(&mark_in_cartesian, "fill");
+    if let ThemeValue::Color(color) = fill {
+        // Should match "coords[type='cartesian'] mark { fill: red; }"
+        assert_eq!(color.red, 255);
+        assert_eq!(color.blue, 0);
+    }
+
+    // Test multiple levels with attributes
+    let symbol_in_cartesian = cartesian_coords.child("mark").with_subtype("symbol");
+    let size = theme.query_css(&symbol_in_cartesian, "size");
+    assert!(matches!(size, ThemeValue::Length(100.0, _)));
+    let fill = theme.query_css(&symbol_in_cartesian, "fill");
+    if let ThemeValue::Color(color) = fill {
+        // Should match the more specific selector
+        assert_eq!(color.green, 128);
+    }
+
+    // Test guide > axis
+    let guide = coords.child("guide");
+    let axis = guide.child("axis");
+    let font_size = theme.query_css(&axis, "font-size");
+    assert!(matches!(font_size, ThemeValue::Length(12.0, _)));
+
+    // Test canvas > title
+    let title = canvas.child("title");
+    let title_size = theme.query_css(&title, "font-size");
+    assert!(matches!(title_size, ThemeValue::Length(20.0, _)));
+}
+
+#[test]
 fn test_pseudo_class_selectors() {
     let css = r#"
         mark:first-child { fill: red; }
