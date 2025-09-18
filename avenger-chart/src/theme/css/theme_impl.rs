@@ -65,12 +65,12 @@ impl Theme for CssTheme {
         if matches!(property, ThemeProperty::FontSize) {
             if let ThemeValue::Length(size, LengthUnit::Rem) = value {
                 // Convert rem to pixels (rem is relative to base font size)
-                // Round to match StructTheme behavior
+                // Round for consistent behavior
                 return ThemeValue::Float(((size * self.base_font_size as f64) as f32).round());
             } else if let ThemeValue::Length(size, LengthUnit::Em) = value {
                 // For font-size, em is relative to parent's font size
                 // For now, treat it like rem (this could be improved with parent context)
-                // Round to match StructTheme behavior
+                // Round for consistent behavior
                 return ThemeValue::Float(((size * self.base_font_size as f64) as f32).round());
             }
         }
@@ -227,7 +227,7 @@ impl Theme for CssTheme {
             _ => {}
         }
 
-        // Fallback to Okabe-Ito colors that match StructTheme default
+        // Fallback to Okabe-Ito colorblind-safe palette
         vec![
             "#0072B2".to_string(), // Blue
             "#E69F00".to_string(), // Orange
@@ -267,7 +267,7 @@ impl Theme for CssTheme {
             _ => {}
         }
 
-        // Fallback to default shapes (matching StructTheme::default())
+        // Fallback to default shapes
         vec![
             "circle".to_string(),
             "cross".to_string(),
@@ -307,7 +307,7 @@ impl Theme for CssTheme {
             _ => {}
         }
 
-        // Fallback to default dash patterns (matching StructTheme::default())
+        // Fallback to default dash patterns
         vec![
             "solid".to_string(),
             "dashed".to_string(),

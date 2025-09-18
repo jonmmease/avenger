@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
 use avenger_chart::prelude::*;
-use avenger_chart::theme::Theme;
+use avenger_chart::theme::css::CssTheme;
 
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -264,7 +264,7 @@ async fn test_combined_size_color_shape_legend_dark() {
 
     assert_visual_match_with_theme(
         plot,
-        StructTheme::dark(),
+        CssTheme::dark(),
         "legend",
         "combined_size_color_shape_legend_dark",
         0.9999,

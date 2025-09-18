@@ -30,15 +30,8 @@ struct CompiledRule {
     declarations: IndexMap<String, ThemeValue>,
 }
 
-/// Cache key for query results
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct QueryKey {
-    element_key: String,
-    property: String,
-}
-
 impl CssTheme {
-    /// Light theme preset matching StructTheme::default()
+    /// Light theme preset with default colors and styling
     pub fn light() -> Self {
         let css = r#"
             /* Base configuration */
@@ -177,7 +170,7 @@ impl CssTheme {
         Self::from_css(css).expect("Failed to parse built-in light theme CSS")
     }
 
-    /// Dark theme preset matching StructTheme::dark()
+    /// Dark theme preset with dark mode colors
     pub fn dark() -> Self {
         let css = r#"
             /* Base configuration */

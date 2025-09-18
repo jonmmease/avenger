@@ -4,7 +4,7 @@ use crate::guide::CoordinateGuide;
 use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::scales::Scale;
-use crate::theme::{StructTheme, Theme, css::CssTheme};
+use crate::theme::{Theme, css::CssTheme};
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -1091,26 +1091,6 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set the theme for the plot
     pub fn theme(mut self, theme: impl Theme + 'static) -> Self {
         self.theme = Some(Arc::new(theme));
-        self
-    }
-
-    /// Configure the theme with a closure
-    pub fn with_theme<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(StructTheme) -> StructTheme,
-    {
-        // Extract current theme or create default
-        let current_theme = match &self.theme {
-            Some(_theme_arc) => {
-                // For now, create a default theme when we can't downcast
-                // This is a temporary solution until full migration
-                StructTheme::default()
-            }
-            None => StructTheme::default(),
-        };
-
-        let new_theme = f(current_theme);
-        self.theme = Some(Arc::new(new_theme));
         self
     }
 
