@@ -5,18 +5,6 @@
 
 use std::sync::Arc;
 
-/// Standard element types for chart hierarchy
-pub mod elements {
-    pub const CANVAS: &str = "canvas";
-    pub const COORDS: &str = "coords";
-    pub const GUIDE: &str = "guide";
-    pub const AXIS: &str = "axis";
-    pub const MARK: &str = "mark";
-    pub const TITLE: &str = "title";
-    pub const SUBTITLE: &str = "subtitle";
-    pub const LEGEND: &str = "legend";
-}
-
 /// Context for theme queries, providing information about the element being styled
 #[derive(Debug, Clone)]
 pub struct ThemeContext {

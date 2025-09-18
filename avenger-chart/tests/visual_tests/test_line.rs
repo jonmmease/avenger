@@ -1,6 +1,6 @@
 use super::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
 use avenger_chart::prelude::*;
-use avenger_chart::theme::Theme;
+use avenger_chart::theme::css::CssTheme;
 use datafusion::arrow::array::{Float64Array, Int32Array};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -65,7 +65,7 @@ async fn test_simple_line_chart_dark() {
 
     assert_visual_match_with_theme(
         plot,
-        StructTheme::dark(),
+        CssTheme::dark(),
         "line",
         "simple_line_chart_dark",
         0.9999,

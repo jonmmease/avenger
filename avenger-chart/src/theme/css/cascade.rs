@@ -3,7 +3,7 @@
 use crate::theme::{LengthUnit, Rgba, ThemeValue};
 
 /// List of CSS properties that inherit by default
-pub const INHERITED_PROPERTIES: &[&str] = &[
+const INHERITED_PROPERTIES: &[&str] = &[
     "color",
     "font-family",
     "font-size",
@@ -18,12 +18,12 @@ pub const INHERITED_PROPERTIES: &[&str] = &[
 ];
 
 /// Check if a property inherits by default
-pub fn is_inherited(property: &str) -> bool {
+fn is_inherited(property: &str) -> bool {
     INHERITED_PROPERTIES.contains(&property)
 }
 
 /// Get the initial value for a property
-pub fn get_initial_value(property: &str) -> ThemeValue {
+fn get_initial_value(property: &str) -> ThemeValue {
     match property {
         // Text properties
         "color" => ThemeValue::Color(Rgba {
