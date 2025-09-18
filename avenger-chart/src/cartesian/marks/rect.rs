@@ -125,8 +125,10 @@ impl Mark<Cartesian> for Rect<Cartesian> {
                 "fill" | "stroke" | "color",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
             ) => Some(Arc::new(OrdinalScale)),
-            // Stroke width always uses ordinal scale for discrete mapping
-            ("stroke_width", _) => Some(Arc::new(OrdinalScale)),
+            // Stroke width uses ordinal scale only for categorical data
+            ("stroke_width", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(OrdinalScale))
+            }
             // Fall back to data type-based inference for other channels
             _ => crate::marks::default_scale_for_data_type(data_type),
         }

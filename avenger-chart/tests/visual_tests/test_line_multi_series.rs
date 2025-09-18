@@ -180,7 +180,7 @@ async fn test_multi_series_line_with_width() {
                 c.scale(|s| s).axis(|axis| axis.title("Y").grid(true))
             })
             .stroke("#4682b4")
-            .stroke_width(col("width")),
+            .stroke_width(col("series")),
     );
 
     assert_visual_match_default(plot, "line", "multi_series_width").await;
@@ -199,8 +199,8 @@ async fn test_multi_series_with_color_and_width() {
             .y_with(col("y"), |c| {
                 c.scale(|s| s).axis(|axis| axis.title("Y").grid(true))
             })
-            .stroke_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s)) // Color varies by series
-            .stroke_width(col("width")), // Width varies by series
+            .stroke_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s))
+            .stroke_width_with(col("width"), |c| c.no_scale()),
     );
 
     assert_visual_match_default(plot, "line", "multi_series_color_width").await;
