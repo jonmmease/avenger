@@ -1,6 +1,6 @@
 //! Tests for the CSS theme system
 
-use avenger_chart::theme::{LengthUnit, ThemeContext, ThemeValue, css::Theme};
+use avenger_chart::theme::{LengthUnit, ThemeContext, ThemeValue, css::CssTheme};
 
 #[test]
 fn test_basic_theme_creation() {
@@ -10,7 +10,7 @@ fn test_basic_theme_creation() {
         axis { stroke: #888; stroke-width: 1px; }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
     // Just check that parsing succeeded and we have rules
     // Can't check internal rules field directly as it's private
     let context = ThemeContext::new("mark");
@@ -26,7 +26,7 @@ fn test_context_matching() {
         #main-mark { fill: green; }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
 
     // Test basic context selector
     let context = ThemeContext::new("mark");
@@ -57,7 +57,7 @@ fn test_property_inheritance() {
         axis text { font-weight: bold; }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
 
     // Test that properties work without parent traversal
     let context = ThemeContext::new("text");
@@ -79,7 +79,7 @@ fn test_css_variables() {
         }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
 
     // Test that variables are resolved
     let context = ThemeContext::new("mark");
@@ -100,7 +100,7 @@ fn test_color_parsing() {
         .d { fill: steelblue; }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
 
     // All should parse as colors
     for class in ["a", "b", "c", "d"] {
@@ -119,7 +119,7 @@ fn test_length_units() {
         .pt { font-size: 12pt; }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
 
     let px_context = ThemeContext::new("mark").with_class("px");
     let px_value = theme.query_css(&px_context, "stroke-width");
@@ -141,7 +141,7 @@ fn test_pseudo_classes() {
         mark:first-child { fill: red; }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
 
     let first_context = ThemeContext::new("mark").with_child_info(0, true, false);
     let first_fill = theme.query_css(&first_context, "fill");
@@ -168,7 +168,7 @@ fn test_specificity_cascade() {
         #main { fill: green; }               /* specificity: 1,0,0 */
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
 
     // Element with type, class and id
     let context = ThemeContext::new("mark")
@@ -193,7 +193,7 @@ fn test_value_conversions() {
         }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
     let context = ThemeContext::new("mark");
 
     let size = theme.query_css(&context, "size");
@@ -216,7 +216,7 @@ fn test_descendant_selectors() {
         canvas title { font-size: 20px; }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
 
     // Test basic descendant selector
     let canvas = ThemeContext::new("canvas");
@@ -270,7 +270,7 @@ fn test_pseudo_class_selectors() {
         legend:first-child { font-size: 20px; }
     "#;
 
-    let theme = Theme::from_css(css).unwrap();
+    let theme = CssTheme::from_css(css).unwrap();
 
     // Test first mark
     let first_mark = ThemeContext::new("mark").with_child_info(0, true, false);

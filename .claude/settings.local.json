@@ -50,7 +50,8 @@
       "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cssparser-0.35.0//**)",
       "Bash(RUSTFLAGS=\"-D warnings\" cargo test css_parser -- --nocapture)",
       "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.31.0//**)",
-      "Bash(timeout 2 cargo test --test test_css_theme test_pseudo_class_selectors -- --exact --nocapture)"
+      "Bash(timeout 2 cargo test --test test_css_theme test_pseudo_class_selectors -- --exact --nocapture)",
+      "Bash(export RUST_BACKTRACE=1)"
     ]
   },
   "enableAllProjectMcpServers": false

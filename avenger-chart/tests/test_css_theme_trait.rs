@@ -1,6 +1,6 @@
 //! Tests for CSS Theme implementing the Theme trait
 
-use avenger_chart::theme::css::Theme as CssTheme;
+use avenger_chart::theme::css::CssTheme;
 use avenger_chart::theme::{Theme, ThemeContext, ThemeProperty, ThemeValue};
 
 #[test]
