@@ -866,7 +866,7 @@ pub trait Theme: Send + Sync {
 
         // Default implementation delegates to existing methods for compatibility
         match channel {
-            "fill" | "stroke" => match range_kind {
+            "fill" | "stroke" | "color" => match range_kind {
                 RangeKind::Discrete => {
                     // Use categorical colors for discrete
                     let colors = self.categorical_colors();
@@ -877,11 +877,17 @@ pub trait Theme: Send + Sync {
                     ScaleRange::new_discrete(scalars)
                 }
                 RangeKind::Continuous => {
-                    // Use gradient for continuous
-                    ScaleRange::new_interval(
-                        datafusion::logical_expr::lit("#4682b4"),
-                        datafusion::logical_expr::lit("#ff7f0e"),
-                    )
+                    // For continuous color scales, use Color variant with Srgba values
+                    use palette::Srgba;
+
+                    // Viridis-like gradient: dark purple -> blue -> green -> yellow
+                    let colors = vec![
+                        Srgba::new(0.267, 0.004, 0.329, 1.0), // Dark purple
+                        Srgba::new(0.193, 0.408, 0.556, 1.0), // Blue
+                        Srgba::new(0.208, 0.718, 0.473, 1.0), // Green
+                        Srgba::new(0.993, 0.906, 0.144, 1.0), // Yellow
+                    ];
+                    ScaleRange::new_color(colors)
                 }
             },
             "shape" => self.get_shape_range(domain_cardinality),
@@ -919,6 +925,24 @@ pub trait Theme: Send + Sync {
                     ScaleRange::new_interval(
                         datafusion::logical_expr::lit(0.0f32),
                         datafusion::logical_expr::lit(1.0f32),
+                    )
+                }
+            },
+            "stroke_width" => match range_kind {
+                RangeKind::Discrete => {
+                    // Discrete stroke widths
+                    let widths = vec![0.5, 1.0, 2.0, 3.0, 5.0];
+                    let scalars: Vec<ScalarValue> = widths
+                        .into_iter()
+                        .map(|w| ScalarValue::Float32(Some(w as f32)))
+                        .collect();
+                    ScaleRange::new_discrete(scalars)
+                }
+                RangeKind::Continuous => {
+                    // Stroke width interval
+                    ScaleRange::new_interval(
+                        datafusion::logical_expr::lit(0.5f32),
+                        datafusion::logical_expr::lit(5.0f32),
                     )
                 }
             },

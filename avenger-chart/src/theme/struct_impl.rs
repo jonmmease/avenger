@@ -191,6 +191,17 @@ impl StructTheme {
                     ThemeValue::String(self.axis.domain_color.clone())
                 }
             }
+            ThemeProperty::StrokeColor => {
+                // Handle stroke colors for axis elements
+                if is_tick {
+                    ThemeValue::String(self.axis.tick_color.clone())
+                } else if context.classes.contains(&"domain".to_string()) {
+                    ThemeValue::String(self.axis.domain_color.clone())
+                } else {
+                    // Default to domain color for other axis stroke elements
+                    ThemeValue::String(self.axis.domain_color.clone())
+                }
+            }
             ThemeProperty::GridColor => ThemeValue::String(self.axis.grid_color.clone()),
             ThemeProperty::GridOpacity => ThemeValue::Float(self.axis.grid_opacity),
             ThemeProperty::StrokeWidth => {
