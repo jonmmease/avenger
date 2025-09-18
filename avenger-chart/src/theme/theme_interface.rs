@@ -9,14 +9,11 @@ pub struct ThemeContext {
     /// Element type (e.g., "axis", "legend", "mark", "title")
     pub element_type: String,
 
-    /// Optional element subtype (e.g., "x" or "y" for axis, "discrete" or "continuous" for legend)
-    pub element_subtype: Option<String>,
-
-    /// Optional mark type (e.g., "symbol", "line", "rect")
-    pub mark_type: Option<String>,
-
-    /// Optional channel being styled (e.g., "fill", "stroke", "size")
-    pub channel: Option<String>,
+    /// Optional subtype for the element:
+    /// - For marks: "symbol", "line", "rect", "text", etc.
+    /// - For axes: "x", "y", "top", "bottom", "left", "right"
+    /// - For legends: "discrete", "continuous", "symbol", "gradient"
+    pub subtype: Option<String>,
 
     /// Optional classes/tags for the element
     pub classes: Vec<String>,
@@ -24,10 +21,7 @@ pub struct ThemeContext {
     /// Optional unique identifier
     pub id: Option<String>,
 
-    /// Parent context (for inheritance)
-    pub parent: Option<Box<ThemeContext>>,
-
-    // Tree structure info for CSS pseudo-class selectors
+    // Position info for CSS pseudo-class selectors (e.g., third mark, second legend)
     /// Whether this is the first child of its parent
     pub is_first_child: bool,
 
@@ -43,33 +37,30 @@ impl ThemeContext {
     pub fn new(element_type: impl Into<String>) -> Self {
         Self {
             element_type: element_type.into(),
-            element_subtype: None,
-            mark_type: None,
-            channel: None,
+            subtype: None,
             classes: Vec::new(),
             id: None,
-            parent: None,
             is_first_child: false,
             is_last_child: false,
             child_index: 0,
         }
     }
 
-    /// Add a subtype to the context
+    /// Set the subtype for the element
     pub fn with_subtype(mut self, subtype: impl Into<String>) -> Self {
-        self.element_subtype = Some(subtype.into());
+        self.subtype = Some(subtype.into());
         self
     }
 
-    /// Add a mark type to the context
+    /// Deprecated: Use with_subtype() instead
     pub fn with_mark(mut self, mark: impl Into<String>) -> Self {
-        self.mark_type = Some(mark.into());
+        self.subtype = Some(mark.into());
         self
     }
 
-    /// Add a channel to the context
+    /// Add a channel to the context (adds as a class)
     pub fn with_channel(mut self, channel: impl Into<String>) -> Self {
-        self.channel = Some(channel.into());
+        self.classes.push(channel.into());
         self
     }
 
@@ -82,12 +73,6 @@ impl ThemeContext {
     /// Set the ID
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
         self.id = Some(id.into());
-        self
-    }
-
-    /// Set parent context for inheritance
-    pub fn with_parent(mut self, parent: ThemeContext) -> Self {
-        self.parent = Some(Box::new(parent));
         self
     }
 
@@ -937,7 +922,7 @@ pub trait ContextBuilder {
     }
 
     fn mark_context(mark_type: &str) -> ThemeContext {
-        ThemeContext::new("mark").with_mark(mark_type)
+        ThemeContext::new("mark").with_subtype(mark_type)
     }
 
     fn title_context() -> ThemeContext {

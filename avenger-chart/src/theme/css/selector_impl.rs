@@ -41,6 +41,12 @@ impl Borrow<str> for ChartString {
     }
 }
 
+impl AsRef<str> for ChartString {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 impl PrecomputedHash for ChartString {
     fn precomputed_hash(&self) -> u32 {
         let mut hash = 0u32;

@@ -6,7 +6,7 @@ use avenger_chart::theme::{LengthUnit, ThemeContext, ThemeValue, css::Theme};
 fn test_basic_theme_creation() {
     let css = r#"
         mark { fill: #4c78a8; stroke: none; }
-        mark.symbol { size: 60px; }
+        mark[type="symbol"] { size: 60px; }
         axis { stroke: #888; stroke-width: 1px; }
     "#;
 
@@ -22,7 +22,7 @@ fn test_basic_theme_creation() {
 fn test_context_matching() {
     let css = r#"
         mark { fill: blue; }
-        mark.symbol { fill: red; }
+        mark[type="symbol"] { fill: red; }
         #main-mark { fill: green; }
     "#;
 
@@ -33,16 +33,16 @@ fn test_context_matching() {
     let fill = theme.query_css(&context, "fill");
     assert!(matches!(fill, ThemeValue::Color(_)));
 
-    // Test class selector (should override context)
-    let context_with_class = ThemeContext::new("mark").with_class("symbol");
-    let fill_class = theme.query_css(&context_with_class, "fill");
-    if let ThemeValue::Color(color) = fill_class {
+    // Test type attribute selector (should override element selector)
+    let context_with_type = ThemeContext::new("mark").with_subtype("symbol");
+    let fill_type = theme.query_css(&context_with_type, "fill");
+    if let ThemeValue::Color(color) = fill_type {
         assert_eq!(color.red, 255); // Red color
     }
 
-    // Test ID selector (should override class)
+    // Test ID selector (should override type)
     let context_with_id = ThemeContext::new("mark")
-        .with_class("symbol")
+        .with_subtype("symbol")
         .with_id("main-mark");
     let fill_id = theme.query_css(&context_with_id, "fill");
     if let ThemeValue::Color(color) = fill_id {
@@ -59,11 +59,10 @@ fn test_property_inheritance() {
 
     let theme = Theme::from_css(css).unwrap();
 
-    // Test inherited property
-    let parent = ThemeContext::new("axis");
-    let context = ThemeContext::new("text").with_parent(parent);
+    // Test that properties work without parent traversal
+    let context = ThemeContext::new("text");
     let font_size = theme.query_css(&context, "font-size");
-    // Should inherit from default since we don't have full parent traversal
+    // Should get default value
     assert!(matches!(font_size, ThemeValue::Length(_, _)));
 }
 
@@ -163,17 +162,18 @@ fn test_pseudo_classes() {
 #[test]
 fn test_specificity_cascade() {
     let css = r#"
-        mark { fill: black; }           /* specificity: 0,0,1 */
-        .symbol { fill: blue; }          /* specificity: 0,1,0 */
-        mark.symbol { fill: red; }       /* specificity: 0,1,1 */
-        #main { fill: green; }           /* specificity: 1,0,0 */
+        mark { fill: black; }                /* specificity: 0,0,1 */
+        .highlight { fill: blue; }           /* specificity: 0,1,0 */
+        mark[type="symbol"] { fill: red; }   /* specificity: 0,1,1 */
+        #main { fill: green; }               /* specificity: 1,0,0 */
     "#;
 
     let theme = Theme::from_css(css).unwrap();
 
-    // Element with both class and id
+    // Element with type, class and id
     let context = ThemeContext::new("mark")
-        .with_class("symbol")
+        .with_subtype("symbol")
+        .with_class("highlight")
         .with_id("main");
 
     let fill = theme.query_css(&context, "fill");
@@ -204,4 +204,67 @@ fn test_value_conversions() {
 
     let stroke_width = theme.query_css(&context, "stroke-width");
     assert_eq!(stroke_width.as_float(), Some(2.0));
+}
+
+#[test]
+fn test_pseudo_class_selectors() {
+    let css = r#"
+        mark:first-child { fill: red; }
+        mark:last-child { fill: blue; }
+        mark:nth-child(2) { fill: green; }
+        legend:first-child { font-size: 20px; }
+    "#;
+
+    let theme = Theme::from_css(css).unwrap();
+
+    // Test first mark
+    let first_mark = ThemeContext::new("mark").with_child_info(0, true, false);
+    let fill = theme.query_css(&first_mark, "fill");
+    if let ThemeValue::String(s) = fill {
+        assert_eq!(s, "red");
+    } else if let ThemeValue::Color(color) = fill {
+        // We expect red color
+        assert_eq!(color.red, 255);
+        assert_eq!(color.green, 0);
+        assert_eq!(color.blue, 0);
+    } else {
+        panic!(
+            "Expected fill to be 'red' string or red color, got {:?}",
+            fill
+        );
+    }
+
+    // Test second mark (nth-child(2))
+    let second_mark = ThemeContext::new("mark").with_child_info(1, false, false);
+    let fill = theme.query_css(&second_mark, "fill");
+    if let ThemeValue::String(s) = fill {
+        assert_eq!(s, "green");
+    } else if let ThemeValue::Color(color) = fill {
+        // We expect green color
+        assert_eq!(color.red, 0);
+        assert_eq!(color.green, 128);
+        assert_eq!(color.blue, 0);
+    } else {
+        panic!(
+            "Expected fill to be 'green' string or green color, got {:?}",
+            fill
+        );
+    }
+
+    // Test last mark
+    let last_mark = ThemeContext::new("mark").with_child_info(2, false, true);
+    let fill = theme.query_css(&last_mark, "fill");
+    if let ThemeValue::String(s) = fill {
+        assert_eq!(s, "blue");
+    } else if let ThemeValue::Color(color) = fill {
+        // We expect blue color
+        assert_eq!(color.red, 0);
+        assert_eq!(color.green, 0);
+        assert_eq!(color.blue, 255);
+    } else {
+        panic!(
+            "Expected fill to be 'blue' string or blue color, got {:?}",
+            fill
+        );
+    }
 }

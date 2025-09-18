@@ -29,17 +29,17 @@ async fn test_css_theme_basic() {
             stroke-width: 2px;
         }
 
-        mark.symbol {
+        mark[type="symbol"] {
             size: 300px;
         }
 
-        mark.line {
+        mark[type="line"] {
             stroke: orange;
             stroke-width: 3px;
             fill: none;
         }
 
-        mark.rect {
+        mark[type="rect"] {
             fill: #f59e0b;
             stroke: #92400e;
             stroke-width: 1px;
@@ -184,7 +184,7 @@ async fn test_css_theme_scale_ranges() {
             color: #333;
         }
 
-        mark.symbol {
+        mark[type="symbol"] {
             size: 150px;
             stroke: white;
             stroke-width: 1px;
@@ -270,11 +270,11 @@ async fn test_css_theme_dark_mode() {
             stroke-width: 1.5px;
         }
 
-        mark.symbol {
+        mark[type="symbol"] {
             size: 60px;
         }
 
-        mark.line {
+        mark[type="line"] {
             stroke: var(--accent);
             stroke-width: 2.5px;
             fill: none;
@@ -419,12 +419,12 @@ async fn test_css_theme_discrete_continuous_properties() {
         }
 
         /* Mark-specific overrides */
-        mark.symbol {
+        mark[type="symbol"] {
             fill-discrete: #ff7f00, #377eb8, #4daf4a, #984ea3, #ff7f00;
             size-discrete: 100, 200, 300;
         }
 
-        mark.rect {
+        mark[type="rect"] {
             fill-discrete: #a6cee3, #1f78b4, #b2df8a, #33a02c;
             opacity-discrete: 0.8, 0.9, 1.0;
         }

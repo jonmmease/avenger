@@ -7,7 +7,7 @@ use avenger_chart::theme::{Theme, ThemeContext, ThemeProperty, ThemeValue};
 fn test_css_theme_implements_trait() {
     let css = r#"
         mark { fill: #4c78a8; stroke: #000; stroke-width: 2px; }
-        mark.symbol { size: 100px; }
+        mark[type="symbol"] { size: 100px; }
         axis { color: #333; font-size: 14px; }
         axis.label { font-weight: 300; }
         legend.title { font-size: 16px; font-weight: bold; }
@@ -32,8 +32,8 @@ fn test_css_theme_implements_trait() {
     let stroke_width = theme.query(&mark_context, &ThemeProperty::StrokeWidth);
     assert!(matches!(stroke_width, ThemeValue::Length(2.0, _)));
 
-    // Test mark with class
-    let symbol_context = ThemeContext::new("mark").with_class("symbol");
+    // Test mark with type attribute
+    let symbol_context = ThemeContext::new("mark").with_subtype("symbol");
     let size = theme.query(&symbol_context, &ThemeProperty::Size);
     assert!(matches!(size, ThemeValue::Length(100.0, _)));
 
@@ -91,9 +91,9 @@ fn test_theme_trait_methods() {
 #[test]
 fn test_mark_defaults() {
     let css = r#"
-        mark[mark-type="symbol"] { fill: red; size: 50px; }
-        mark[mark-type="rect"] { fill: blue; stroke: black; stroke-width: 1px; }
-        mark[mark-type="text"] { font-family: Arial; font-size: 14px; }
+        mark[type="symbol"] { fill: red; size: 50px; }
+        mark[type="rect"] { fill: blue; stroke: black; stroke-width: 1px; }
+        mark[type="text"] { font-family: Arial; font-size: 14px; }
     "#;
 
     let theme = CssTheme::from_css(css).unwrap();
