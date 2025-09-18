@@ -56,13 +56,17 @@ impl<'i> QualifiedRuleParser<'i> for ChartStyleParser {
         // Capture the starting position
         let start = input.position();
 
-        // Skip until we hit something that's not part of a selector
-        // (like an opening brace for the declaration block)
-        while !input.is_exhausted() {
+        // Parse everything before the declaration block
+        loop {
             let state = input.state();
             match input.next_including_whitespace() {
+                Ok(Token::SquareBracketBlock) => {
+                    // This is part of the selector (attribute selector)
+                    // We need to consume it so slice_from includes it
+                    let _ = input.parse_nested_block(|_| Ok::<(), ParseError<'i, ()>>(()));
+                }
                 Ok(Token::CurlyBracketBlock) => {
-                    // Found the start of the declaration block, reset and stop
+                    // Found the declaration block, reset to before it
                     input.reset(&state);
                     break;
                 }
@@ -393,13 +397,40 @@ impl<'i> SelectorParser<'i> for ChartSelectorParser {
             "last-child" => Ok(LastChild),
             "hover" => Ok(Hover),
             "active" => Ok(Active),
-            _ if name.starts_with("nth-child") => {
-                // Simple nth-child parsing (just handles numbers for now)
-                Ok(NthChild(1))
-            }
             _ => Err(location.new_custom_error(
                 selectors::parser::SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name),
             )),
         }
+    }
+
+    fn parse_non_ts_functional_pseudo_class<'t>(
+        &self,
+        name: cssparser::CowRcStr<'i>,
+        parser: &mut Parser<'i, 't>,
+        _after_part: bool,
+    ) -> Result<ChartPseudoClass, cssparser::ParseError<'i, Self::Error>> {
+        use ChartPseudoClass::*;
+
+        match name.as_ref() {
+            "nth-child" => {
+                // Parse the argument (e.g., "2" from nth-child(2))
+                let n = parser.expect_integer()?;
+                Ok(NthChild(n))
+            }
+            _ => Err(parser.new_custom_error(
+                selectors::parser::SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name),
+            )),
+        }
+    }
+
+    fn default_namespace(&self) -> Option<super::selector_impl::ChartString> {
+        None
+    }
+
+    fn namespace_for_prefix(
+        &self,
+        _prefix: &super::selector_impl::ChartString,
+    ) -> Option<super::selector_impl::ChartString> {
+        None
     }
 }

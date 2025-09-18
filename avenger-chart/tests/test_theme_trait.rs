@@ -87,18 +87,15 @@ fn test_context_builder_helpers() {
     // Use helper methods to build contexts
     let axis_x = ThemeContext::axis_context("x");
     assert_eq!(axis_x.element_type, "axis");
-    assert_eq!(axis_x.element_subtype, Some("x".to_string()));
+    assert!(axis_x.classes.contains(&"x".to_string()));
 
     let legend_discrete = ThemeContext::legend_context("discrete");
     assert_eq!(legend_discrete.element_type, "legend");
-    assert_eq!(
-        legend_discrete.element_subtype,
-        Some("discrete".to_string())
-    );
+    assert!(legend_discrete.classes.contains(&"discrete".to_string()));
 
     let mark_symbol = ThemeContext::mark_context("symbol");
     assert_eq!(mark_symbol.element_type, "mark");
-    assert_eq!(mark_symbol.mark_type, Some("symbol".to_string()));
+    assert_eq!(mark_symbol.subtype, Some("symbol".to_string()));
 }
 
 #[test]

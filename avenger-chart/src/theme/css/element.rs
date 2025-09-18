@@ -10,10 +10,9 @@ use selectors::{Element, OpaqueElement};
 #[derive(Debug, Clone)]
 pub struct CssElement {
     pub element_type: ChartString,
+    pub type_attr: Option<ChartString>, // The "type" attribute for [type="..."] selectors
     pub id: Option<ChartString>,
     pub classes: Vec<ChartString>,
-    pub mark_type: Option<ChartString>,
-    pub parent_type: Option<ChartString>,
     pub is_first_child: bool,
     pub is_last_child: bool,
     pub child_index: usize,
@@ -23,40 +22,19 @@ impl From<&ThemeContext> for CssElement {
     fn from(context: &ThemeContext) -> Self {
         let mut classes = Vec::new();
 
-        // Add regular classes
+        // Add regular classes only (NOT subtype)
         for class in &context.classes {
             classes.push(ChartString::from(class.as_str()));
         }
 
-        // Add subtype as a class if present
-        if let Some(ref subtype) = context.element_subtype {
-            classes.push(ChartString::from(subtype.as_str()));
-        }
-
-        // Add channel as a class if present
-        if let Some(ref channel) = context.channel {
-            classes.push(ChartString::from(channel.as_str()));
-        }
-
-        // Add mark type as a class when element type is "mark"
-        if context.element_type == "mark" {
-            if let Some(ref mark_type) = context.mark_type {
-                classes.push(ChartString::from(mark_type.as_str()));
-            }
-        }
-
         Self {
             element_type: ChartString::from(context.element_type.as_str()),
-            id: context.id.as_ref().map(|s| ChartString::from(s.as_str())),
-            classes,
-            mark_type: context
-                .mark_type
+            type_attr: context
+                .subtype
                 .as_ref()
                 .map(|s| ChartString::from(s.as_str())),
-            parent_type: context
-                .parent
-                .as_ref()
-                .map(|p| ChartString::from(p.element_type.as_str())),
+            id: context.id.as_ref().map(|s| ChartString::from(s.as_str())),
+            classes,
             is_first_child: context.is_first_child,
             is_last_child: context.is_last_child,
             child_index: context.child_index,
@@ -92,19 +70,20 @@ impl Element for CssElement {
     }
 
     fn prev_sibling_element(&self) -> Option<Self> {
-        if self.is_first_child {
+        if self.is_first_child || self.child_index == 0 {
             None
         } else {
-            // Return a dummy sibling to indicate this is not the first child
+            // Return a dummy sibling with proper index
+            // The previous sibling should have child_index - 1
             Some(CssElement {
-                element_type: ChartString::from("dummy"),
+                element_type: self.element_type.clone(),
+                type_attr: self.type_attr.clone(),
                 id: None,
                 classes: Vec::new(),
-                mark_type: None,
-                parent_type: None,
-                is_first_child: false,
+                // If this element is at index 1, prev sibling is at index 0 (first child)
+                is_first_child: self.child_index == 1,
                 is_last_child: false,
-                child_index: 0,
+                child_index: self.child_index - 1,
             })
         }
     }
@@ -113,16 +92,18 @@ impl Element for CssElement {
         if self.is_last_child {
             None
         } else {
-            // Return a dummy sibling to indicate this is not the last child
+            // Return a dummy sibling with proper index
+            // The next sibling should have child_index + 1
             Some(CssElement {
-                element_type: ChartString::from("dummy"),
+                element_type: self.element_type.clone(),
+                type_attr: self.type_attr.clone(),
                 id: None,
                 classes: Vec::new(),
-                mark_type: None,
-                parent_type: None,
                 is_first_child: false,
+                // We don't know if the next sibling is the last, so we say false
+                // This could cause issues, but we can't know without more context
                 is_last_child: false,
-                child_index: 0,
+                child_index: self.child_index + 1,
             })
         }
     }
@@ -153,21 +134,16 @@ impl Element for CssElement {
         local_name: &ChartString,
         operation: &AttrSelectorOperation<&ChartString>,
     ) -> bool {
-        if local_name.0 == "mark-type" {
-            if let Some(ref mark_type) = self.mark_type {
-                match operation {
-                    AttrSelectorOperation::Exists => true,
-                    AttrSelectorOperation::WithValue {
-                        value,
-                        case_sensitivity,
-                        ..
-                    } => (*case_sensitivity).eq(mark_type.0.as_bytes(), value.0.as_bytes()),
+        match local_name.0.as_str() {
+            "type" => {
+                if let Some(ref type_attr) = self.type_attr {
+                    // Use the selectors crate's built-in evaluation!
+                    operation.eval_str(&type_attr.0)
+                } else {
+                    false
                 }
-            } else {
-                false
             }
-        } else {
-            false
+            _ => false,
         }
     }
 
@@ -179,7 +155,15 @@ impl Element for CssElement {
         match pc {
             ChartPseudoClass::FirstChild => self.is_first_child,
             ChartPseudoClass::LastChild => self.is_last_child,
-            ChartPseudoClass::NthChild(n) => self.child_index == (*n as usize - 1),
+            ChartPseudoClass::NthChild(n) => {
+                // nth-child(1) means first child (index 0)
+                // Ensure n is positive to avoid underflow
+                if *n > 0 {
+                    self.child_index == (*n as usize).saturating_sub(1)
+                } else {
+                    false
+                }
+            }
             ChartPseudoClass::Hover | ChartPseudoClass::Active => false,
         }
     }

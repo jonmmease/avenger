@@ -303,7 +303,7 @@ impl StructTheme {
 
     /// Query mark-specific properties
     fn query_mark(&self, context: &ThemeContext, property: &ThemeProperty) -> ThemeValue {
-        let mark_type = context.mark_type.as_deref().unwrap_or("symbol");
+        let mark_type = context.subtype.as_deref().unwrap_or("symbol");
         let channel = match property {
             ThemeProperty::FillColor => "fill",
             ThemeProperty::StrokeColor => "stroke",
