@@ -5,6 +5,7 @@ use crate::theme::ThemeContext;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::matching::ElementSelectorFlags;
 use selectors::{Element, OpaqueElement};
+use std::sync::Arc;
 
 /// Element for CSS selector matching (created from ThemeContext)
 #[derive(Debug, Clone)]
@@ -13,6 +14,7 @@ pub struct CssElement {
     pub type_attr: Option<ChartString>, // The "type" attribute for [type="..."] selectors
     pub id: Option<ChartString>,
     pub classes: Vec<ChartString>,
+    pub parent: Option<Arc<ThemeContext>>,
     pub is_first_child: bool,
     pub is_last_child: bool,
     pub child_index: usize,
@@ -35,6 +37,7 @@ impl From<&ThemeContext> for CssElement {
                 .map(|s| ChartString::from(s.as_str())),
             id: context.id.as_ref().map(|s| ChartString::from(s.as_str())),
             classes,
+            parent: context.parent.clone(),
             is_first_child: context.is_first_child,
             is_last_child: context.is_last_child,
             child_index: context.child_index,
@@ -54,7 +57,7 @@ impl Element for CssElement {
     }
 
     fn parent_element(&self) -> Option<Self> {
-        None
+        self.parent.as_ref().map(|p| CssElement::from(p.as_ref()))
     }
 
     fn parent_node_is_shadow_root(&self) -> bool {
@@ -80,6 +83,7 @@ impl Element for CssElement {
                 type_attr: self.type_attr.clone(),
                 id: None,
                 classes: Vec::new(),
+                parent: self.parent.clone(),
                 // If this element is at index 1, prev sibling is at index 0 (first child)
                 is_first_child: self.child_index == 1,
                 is_last_child: false,
@@ -99,6 +103,7 @@ impl Element for CssElement {
                 type_attr: self.type_attr.clone(),
                 id: None,
                 classes: Vec::new(),
+                parent: self.parent.clone(),
                 is_first_child: false,
                 // We don't know if the next sibling is the last, so we say false
                 // This could cause issues, but we can't know without more context
