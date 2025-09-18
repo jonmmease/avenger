@@ -1,331 +1,267 @@
-//! CSS stylesheet parser
+//! CSS stylesheet parser using cssparser's high-level APIs
 
 use super::CompiledRule;
 use super::selector_impl::{ChartPseudoClass, ChartSelectors};
 use super::value::{parse_hex_color, parse_named_color, parse_rgb_function};
 use crate::theme::{LengthUnit, ThemeValue};
-use cssparser::{BasicParseErrorKind, Parser as CssParser, ParserInput, Token};
+use cssparser::{
+    AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
+    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
+};
 use indexmap::IndexMap;
-use selectors::parser::{ParseRelative, Parser, SelectorList};
+use selectors::parser::{ParseRelative, Parser as SelectorParser, SelectorList};
 
 /// Parse a CSS stylesheet into rules
 pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
     let mut input = ParserInput::new(css);
-    let mut parser = CssParser::new(&mut input);
-    let mut rules = Vec::new();
+    let mut parser = Parser::new(&mut input);
+    let mut chart_parser = ChartStyleParser::new();
     let mut source_order = 0;
 
-    while !parser.is_exhausted() {
-        // Skip whitespace
-        skip_whitespace(&mut parser);
-
-        if parser.is_exhausted() {
-            break;
-        }
-
-        // Try to parse a rule
-        match parse_rule(&mut parser, source_order) {
-            Ok(rule) => {
-                rules.push(rule);
-                source_order += 1;
+    let rules: Vec<CompiledRule> = StyleSheetParser::new(&mut parser, &mut chart_parser)
+        .filter_map(|result| {
+            match result {
+                Ok(mut rule) => {
+                    rule.source_order = source_order;
+                    source_order += 1;
+                    Some(rule)
+                }
+                Err((_, _)) => None, // Ignore invalid rules
             }
-            Err(_) => {
-                // Skip to next rule
-                skip_to_next_rule(&mut parser);
-            }
-        }
-    }
+        })
+        .collect();
 
     Ok(rules)
 }
 
-/// Parse a single CSS rule
-fn parse_rule(parser: &mut CssParser, source_order: usize) -> Result<CompiledRule, String> {
-    // Parse selector
-    let (selector_str, _found_block) = parse_selector_string(parser)?;
+/// Parser struct that implements the required traits for StyleSheetParser
+struct ChartStyleParser;
 
-    if selector_str.is_empty() {
-        return Err("Empty selector".to_string());
-    }
-
-    // Handle :root specially - it applies to the root element
-    // For our purposes, we'll treat it as a universal selector for variable declarations
-    if selector_str == ":root" {
-        // Parse declarations for :root
-        let declarations = parse_declaration_block(parser)?;
-
-        // Create a simple universal selector for :root
-        let mut selector_input = ParserInput::new("*");
-        let mut selector_parser = CssParser::new(&mut selector_input);
-        let selector_list =
-            SelectorList::parse(&ChartParser, &mut selector_parser, ParseRelative::No)
-                .map_err(|_| "Failed to create universal selector".to_string())?;
-        let selector = selector_list
-            .slice()
-            .first()
-            .ok_or_else(|| "No selector found".to_string())?
-            .clone();
-
-        return Ok(CompiledRule {
-            selector,
-            specificity: 0,
-            source_order,
-            declarations,
-        });
-    }
-
-    // Parse selector using selectors crate
-    let mut selector_input = ParserInput::new(&selector_str);
-    let mut selector_parser = CssParser::new(&mut selector_input);
-    let selector_list = SelectorList::parse(&ChartParser, &mut selector_parser, ParseRelative::No)
-        .map_err(|_| format!("Failed to parse selector: {}", selector_str))?;
-
-    // For simplicity, use the first selector
-    let selector = selector_list
-        .slice()
-        .first()
-        .ok_or_else(|| "No selector found".to_string())?
-        .clone();
-
-    let specificity = selector.specificity();
-
-    // Parse declarations
-    let declarations = parse_declaration_block(parser)?;
-
-    Ok(CompiledRule {
-        selector,
-        specificity,
-        source_order,
-        declarations,
-    })
-}
-
-/// Parse the selector part of a rule
-fn parse_selector_string(parser: &mut CssParser) -> Result<(String, bool), String> {
-    let mut selector = String::new();
-    let mut found_block = false;
-    let mut last_was_delim = false;
-
-    loop {
-        let state = parser.state();
-        match parser.next() {
-            Ok(Token::CurlyBracketBlock) => {
-                // Found start of declarations - need to reset to before the block
-                parser.reset(&state);
-                found_block = true;
-                return Ok((selector.trim().to_string(), found_block));
-            }
-            Ok(token) => {
-                // Handle tokens more carefully for selector syntax
-                match token {
-                    Token::Ident(s) => {
-                        if !selector.is_empty() && !last_was_delim && !selector.ends_with(' ') {
-                            selector.push(' ');
-                        }
-                        selector.push_str(&s.to_string());
-                        last_was_delim = false;
-                    }
-                    Token::Delim(c) => {
-                        selector.push(*c);
-                        last_was_delim = true;
-                    }
-                    Token::Hash(s) | Token::IDHash(s) => {
-                        if !selector.is_empty() && !selector.ends_with(' ') {
-                            selector.push(' ');
-                        }
-                        selector.push('#');
-                        selector.push_str(&s);
-                        last_was_delim = false;
-                    }
-                    Token::Colon => {
-                        selector.push(':');
-                        last_was_delim = true;
-                    }
-                    Token::WhiteSpace(_) => {
-                        if !selector.is_empty() && !selector.ends_with(' ') {
-                            selector.push(' ');
-                        }
-                        last_was_delim = false;
-                    }
-                    _ => {
-                        // Other tokens
-                        selector.push_str(&token_to_string(token));
-                        last_was_delim = false;
-                    }
-                }
-            }
-            Err(_) => {
-                if !selector.is_empty() {
-                    return Ok((selector.trim().to_string(), found_block));
-                }
-                return Err("Expected selector".to_string());
-            }
-        }
+impl ChartStyleParser {
+    fn new() -> Self {
+        Self
     }
 }
 
-/// Parse a declaration block
-fn parse_declaration_block(parser: &mut CssParser) -> Result<IndexMap<String, ThemeValue>, String> {
-    let mut declarations = IndexMap::new();
+/// Implementation of QualifiedRuleParser for parsing style rules
+impl<'i> QualifiedRuleParser<'i> for ChartStyleParser {
+    type Prelude = String;
+    type QualifiedRule = CompiledRule;
+    type Error = ();
 
-    // Expect a curly bracket block
-    match parser.next() {
-        Ok(Token::CurlyBracketBlock) => {}
-        _ => return Err("Expected declaration block".to_string()),
-    }
+    fn parse_prelude<'t>(
+        &mut self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<String, ParseError<'i, ()>> {
+        // Capture the starting position
+        let start = input.position();
 
-    parser
-        .parse_nested_block::<_, _, BasicParseErrorKind>(|parser| {
-            loop {
-                skip_whitespace(parser);
-
-                if parser.is_exhausted() {
+        // Skip until we hit something that's not part of a selector
+        // (like an opening brace for the declaration block)
+        while !input.is_exhausted() {
+            let state = input.state();
+            match input.next_including_whitespace() {
+                Ok(Token::CurlyBracketBlock) => {
+                    // Found the start of the declaration block, reset and stop
+                    input.reset(&state);
                     break;
                 }
-
-                // Parse property name
-                let property = match parser.next() {
-                    Ok(Token::Ident(name)) => name.to_string(),
-                    Ok(Token::Semicolon) => {
-                        // Empty declaration, skip
-                        continue;
-                    }
-                    _ => {
-                        skip_to_semicolon(parser);
-                        continue;
-                    }
-                };
-
-                // Expect colon
-                match parser.next() {
-                    Ok(Token::Colon) => {}
-                    _ => {
-                        skip_to_semicolon(parser);
-                        continue;
-                    }
-                };
-
-                // Parse value
-                // For CSS variables and range properties, collect all values until semicolon
-                if property.starts_with("--")
-                    || property.ends_with("-discrete")
-                    || property.ends_with("-continuous")
-                {
-                    match parse_value_list(parser) {
-                        Ok(values) => {
-                            // If it's a single value, store it directly
-                            // If it's multiple values, store as a string to be parsed later
-                            if values.len() == 1 {
-                                declarations.insert(property, values.into_iter().next().unwrap());
-                            } else {
-                                // Join values as a comma-separated string
-                                let joined = values
-                                    .iter()
-                                    .map(|v| match v {
-                                        ThemeValue::Color(rgba) => format!(
-                                            "#{:02x}{:02x}{:02x}",
-                                            rgba.red, rgba.green, rgba.blue
-                                        ),
-                                        ThemeValue::String(s) | ThemeValue::Keyword(s) => s.clone(),
-                                        ThemeValue::Double(n) => n.to_string(),
-                                        ThemeValue::Float(f) => f.to_string(),
-                                        _ => String::new(),
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(", ");
-                                declarations.insert(property, ThemeValue::String(joined));
-                            }
-                        }
-                        Err(_) => {
-                            skip_to_semicolon(parser);
-                        }
-                    }
-                } else {
-                    match parse_value(parser, &property) {
-                        Ok(value) => {
-                            declarations.insert(property, value);
-                        }
-                        Err(_) => {
-                            // Skip invalid values
-                        }
-                    }
-                    // Skip to semicolon or end
-                    skip_to_semicolon(parser);
+                Ok(_) => {
+                    // Continue consuming selector tokens
                 }
+                Err(_) => break,
             }
+        }
 
-            Ok(())
+        // Get the raw selector string from the input
+        let selector = input.slice_from(start).trim();
+
+        if selector.is_empty() {
+            Err(input.new_custom_error(()))
+        } else {
+            Ok(selector.to_string())
+        }
+    }
+
+    fn parse_block<'t>(
+        &mut self,
+        selector_str: String,
+        _start: &ParserState,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<CompiledRule, ParseError<'i, ()>> {
+        // Handle :root specially
+        let (selector, specificity) = if selector_str == ":root" {
+            // Create a universal selector for :root
+            let mut selector_input = ParserInput::new("*");
+            let mut selector_parser = Parser::new(&mut selector_input);
+            let selector_list = SelectorList::parse(
+                &ChartSelectorParser,
+                &mut selector_parser,
+                ParseRelative::No,
+            )
+            .map_err(|_| input.new_custom_error(()))?;
+            let selector = selector_list
+                .slice()
+                .first()
+                .ok_or_else(|| input.new_custom_error(()))?
+                .clone();
+            (selector, 0)
+        } else {
+            // Parse selector using selectors crate
+            let mut selector_input = ParserInput::new(&selector_str);
+            let mut selector_parser = Parser::new(&mut selector_input);
+            let selector_list = SelectorList::parse(
+                &ChartSelectorParser,
+                &mut selector_parser,
+                ParseRelative::No,
+            )
+            .map_err(|_| input.new_custom_error(()))?;
+            let selector = selector_list
+                .slice()
+                .first()
+                .ok_or_else(|| input.new_custom_error(()))?
+                .clone();
+            let specificity = selector.specificity();
+            (selector, specificity)
+        };
+
+        // Parse declarations using RuleBodyParser
+        let mut declaration_parser = DeclarationParserImpl {
+            declarations: IndexMap::new(),
+        };
+
+        let _ = RuleBodyParser::new(input, &mut declaration_parser)
+            .filter_map(|result| result.ok())
+            .collect::<Vec<_>>();
+
+        Ok(CompiledRule {
+            selector,
+            specificity,
+            source_order: 0, // Will be set later
+            declarations: declaration_parser.declarations,
         })
-        .map_err(|_| "Failed to parse declaration block".to_string())?;
+    }
+}
 
-    Ok(declarations)
+/// Internal struct for parsing declarations
+struct DeclarationParserImpl {
+    declarations: IndexMap<String, ThemeValue>,
+}
+
+/// Implementation of DeclarationParser for parsing CSS property declarations
+impl<'i> DeclarationParser<'i> for DeclarationParserImpl {
+    type Declaration = ();
+    type Error = ();
+
+    fn parse_value<'t>(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut Parser<'i, 't>,
+        _start: &ParserState,
+    ) -> Result<(), ParseError<'i, ()>> {
+        let property = name.to_string();
+
+        // Parse value
+        // For CSS variables and range properties, collect all values
+        if property.starts_with("--")
+            || property.ends_with("-discrete")
+            || property.ends_with("-continuous")
+        {
+            // Parse comma-separated list
+            match parse_value_list(input) {
+                Ok(values) => {
+                    if values.len() == 1 {
+                        self.declarations
+                            .insert(property, values.into_iter().next().unwrap());
+                    } else {
+                        // Join values as a comma-separated string
+                        let joined = values
+                            .iter()
+                            .map(|v| match v {
+                                ThemeValue::Color(rgba) => {
+                                    format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue)
+                                }
+                                ThemeValue::String(s) | ThemeValue::Keyword(s) => s.clone(),
+                                ThemeValue::Double(n) => n.to_string(),
+                                ThemeValue::Float(f) => f.to_string(),
+                                _ => String::new(),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        self.declarations
+                            .insert(property, ThemeValue::String(joined));
+                    }
+                }
+                Err(_) => return Err(input.new_custom_error(())),
+            }
+        } else {
+            // Parse single value
+            match parse_single_value(input) {
+                Ok(value) => {
+                    self.declarations.insert(property, value);
+                }
+                Err(_) => return Err(input.new_custom_error(())),
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Implementation of AtRuleParser - we don't support at-rules
+/// The default implementation rejects all at-rules, which is what we want
+impl<'i> AtRuleParser<'i> for ChartStyleParser {
+    type Prelude = ();
+    type AtRule = CompiledRule;
+    type Error = ();
+    // Using default implementations - they reject all at-rules
+}
+
+/// Implementation of RuleBodyItemParser
+impl<'i> RuleBodyItemParser<'i, (), ()> for DeclarationParserImpl {
+    fn parse_declarations(&self) -> bool {
+        true // We do parse declarations
+    }
+
+    fn parse_qualified(&self) -> bool {
+        false // We don't parse nested qualified rules
+    }
+}
+
+/// We also need AtRuleParser for DeclarationParserImpl
+/// Using default implementation which rejects all at-rules
+impl<'i> AtRuleParser<'i> for DeclarationParserImpl {
+    type Prelude = ();
+    type AtRule = ();
+    type Error = ();
+}
+
+/// We also need QualifiedRuleParser for DeclarationParserImpl
+/// Using default implementation which rejects all qualified rules
+impl<'i> QualifiedRuleParser<'i> for DeclarationParserImpl {
+    type Prelude = ();
+    type QualifiedRule = ();
+    type Error = ();
 }
 
 /// Parse a list of CSS values (comma-separated)
-fn parse_value_list(parser: &mut CssParser) -> Result<Vec<ThemeValue>, String> {
-    let mut values = Vec::new();
-
-    loop {
-        skip_whitespace(parser);
-
-        // Check if we've reached the end
-        if parser.is_exhausted() {
-            break;
-        }
-
-        // Try to parse a value
-        match parse_value(parser, "") {
-            Ok(value) => {
-                values.push(value);
-                skip_whitespace(parser);
-
-                // Check for comma or end
-                let state = parser.state();
-                match parser.next() {
-                    Ok(Token::Comma) => {
-                        // Continue to next value
-                        continue;
-                    }
-                    Ok(Token::Semicolon) => {
-                        parser.reset(&state);
-                        break;
-                    }
-                    Err(_) => {
-                        // End of input
-                        break;
-                    }
-                    _ => {
-                        // Unexpected token, assume end of list
-                        parser.reset(&state);
-                        break;
-                    }
-                }
-            }
-            Err(_) => {
-                // Check if it's just a comma or semicolon
-                let state = parser.state();
-                match parser.next() {
-                    Ok(Token::Comma) => continue,
-                    Ok(Token::Semicolon) => {
-                        parser.reset(&state);
-                        break;
-                    }
-                    _ => break,
-                }
-            }
-        }
-    }
+fn parse_value_list<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
+    let values = parser.parse_comma_separated(|p| parse_single_value(p))?;
 
     if values.is_empty() {
-        Err("No values found".to_string())
+        Err(parser.new_custom_error(()))
     } else {
         Ok(values)
     }
 }
 
-/// Parse a CSS value
-fn parse_value(parser: &mut CssParser, _property: &str) -> Result<ThemeValue, String> {
-    skip_whitespace(parser);
+/// Parse a single CSS value
+fn parse_single_value<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    parser.skip_whitespace();
 
     match parser.next() {
         Ok(Token::Ident(s)) => {
@@ -388,13 +324,13 @@ fn parse_value(parser: &mut CssParser, _property: &str) -> Result<ThemeValue, St
             if let Some(color) = parse_hex_color(h.as_ref()) {
                 Ok(ThemeValue::Color(color))
             } else {
-                Err(format!("Invalid color: #{}", h))
+                Err(parser.new_custom_error(()))
             }
         }
         Ok(Token::QuotedString(s)) => Ok(ThemeValue::String(s.to_string())),
         Ok(Token::Function(name)) => {
             let name_str = name.to_string();
-            let args = parse_function_args(parser)?;
+            let args = parse_function_args(parser).map_err(|_| parser.new_custom_error(()))?;
 
             match name_str.as_str() {
                 "rgb" | "rgba" => {
@@ -409,102 +345,39 @@ fn parse_value(parser: &mut CssParser, _property: &str) -> Result<ThemeValue, St
                     if let Some(ThemeValue::String(var_name)) = args.first() {
                         Ok(ThemeValue::Variable(var_name.clone()))
                     } else {
-                        Err("Invalid var() function".to_string())
+                        Err(parser.new_custom_error(()))
                     }
                 }
                 _ => Ok(ThemeValue::Function(name_str, args)),
             }
         }
-        _ => Err("Unexpected token".to_string()),
+        _ => Err(parser.new_custom_error(())),
     }
 }
 
 /// Parse function arguments
-fn parse_function_args(parser: &mut CssParser) -> Result<Vec<ThemeValue>, String> {
-    let mut args = Vec::new();
-
-    parser
-        .parse_nested_block::<_, _, BasicParseErrorKind>(|parser| {
-            loop {
-                skip_whitespace(parser);
-
-                if parser.is_exhausted() {
-                    break;
-                }
-
-                // Parse argument value
-                match parser.next() {
-                    Ok(Token::Number { value, .. }) => args.push(ThemeValue::Double(*value as f64)),
-                    Ok(Token::Ident(s)) => args.push(ThemeValue::String(s.to_string())),
-                    Ok(Token::QuotedString(s)) => args.push(ThemeValue::String(s.to_string())),
-                    Ok(Token::Comma) => {} // Skip commas
-                    _ => break,
-                }
-            }
-
-            Ok(())
-        })
-        .map_err(|_| "Failed to parse function arguments".to_string())?;
-
-    Ok(args)
-}
-
-/// Convert token to string
-fn token_to_string(token: &Token) -> String {
-    match token {
-        Token::Ident(s) => s.to_string(),
-        Token::IDHash(s) | Token::Hash(s) => format!("#{}", s),
-        Token::QuotedString(s) => format!("\"{}\"", s),
-        Token::Delim(c) => c.to_string(),
-        Token::Colon => ":".to_string(),
-        Token::Comma => ",".to_string(),
-        Token::WhiteSpace(_) => " ".to_string(),
-        _ => "".to_string(),
-    }
-}
-
-/// Skip whitespace tokens
-fn skip_whitespace(parser: &mut CssParser) {
-    while parser
-        .try_parse(|p| -> Result<(), ()> {
-            match p.next() {
-                Ok(Token::WhiteSpace(_)) => Ok(()),
-                _ => Err(()),
+fn parse_function_args<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
+    parser.parse_nested_block(|p| {
+        p.parse_comma_separated(|parser| {
+            parser.skip_whitespace();
+            match parser.next() {
+                Ok(Token::Number { value, .. }) => Ok(ThemeValue::Double(*value as f64)),
+                Ok(Token::Ident(s)) => Ok(ThemeValue::String(s.to_string())),
+                Ok(Token::QuotedString(s)) => Ok(ThemeValue::String(s.to_string())),
+                _ => Err(parser.new_custom_error(())),
             }
         })
-        .is_ok()
-    {}
+    })
 }
 
-/// Skip to next semicolon or end
-fn skip_to_semicolon(parser: &mut CssParser) {
-    loop {
-        match parser.next() {
-            Ok(Token::Semicolon) | Err(_) => break,
-            _ => {}
-        }
-    }
-}
-
-/// Skip to next rule (after })
-fn skip_to_next_rule(parser: &mut CssParser) {
-    loop {
-        match parser.next() {
-            Ok(Token::CurlyBracketBlock) => {
-                // Enter nested block
-                let _ = parser.parse_nested_block::<_, _, BasicParseErrorKind>(|_| Ok(()));
-                break;
-            }
-            Err(_) => break,
-            _ => {}
-        }
-    }
-}
+// Value parsing functions use cssparser's built-in methods
 
 /// Parser for chart selectors
-struct ChartParser;
+struct ChartSelectorParser;
 
-impl<'i> Parser<'i> for ChartParser {
+impl<'i> SelectorParser<'i> for ChartSelectorParser {
     type Impl = ChartSelectors;
     type Error = selectors::parser::SelectorParseErrorKind<'i>;
 
