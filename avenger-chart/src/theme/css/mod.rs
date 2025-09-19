@@ -1,6 +1,5 @@
 //! Full CSS-compliant theme system using cssparser and selectors
 
-mod cascade;
 mod element;
 mod parser;
 mod selector_impl;
@@ -395,28 +394,6 @@ impl CssTheme {
                 // Resolve variables if needed
                 if let ThemeValue::Variable(var_name) = value {
                     if let Some(resolved) = self.variables.get(var_name) {
-                        // Check if this is a comma-separated list that should be parsed
-                        if property.ends_with("-range") || property == "range" {
-                            // For range properties, check if the resolved value is a comma-separated list
-                            if let ThemeValue::String(s) | ThemeValue::Keyword(s) = resolved {
-                                if s.contains(',') {
-                                    // Parse as a list of values
-                                    let items: Vec<ThemeValue> = s
-                                        .split(',')
-                                        .map(|item| {
-                                            let trimmed = item.trim();
-                                            // Try to parse as color if it starts with #
-                                            if trimmed.starts_with('#') {
-                                                ThemeValue::Keyword(trimmed.to_string())
-                                            } else {
-                                                ThemeValue::Keyword(trimmed.to_string())
-                                            }
-                                        })
-                                        .collect();
-                                    return ThemeValue::List(items);
-                                }
-                            }
-                        }
                         return resolved.clone();
                     }
                 }
@@ -450,7 +427,7 @@ impl CssTheme {
             }),
             "font-family" => ThemeValue::String("sans-serif".to_string()),
             "font-size" => ThemeValue::Length(self.base_font_size as f64, LengthUnit::Px),
-            "font-weight" => ThemeValue::Double(400.0),
+            "font-weight" => ThemeValue::Number(400.0),
             _ => ThemeValue::Initial,
         }
     }
@@ -464,7 +441,7 @@ impl CssTheme {
         // Context-aware defaults
         if context.element_type == "tick" {
             match property {
-                "size" => return ThemeValue::Double(5.0), // Tick marks should be small
+                "size" => return ThemeValue::Number(5.0),
                 "stroke" => {
                     return ThemeValue::Color(Rgba {
                         red: 0,
@@ -473,7 +450,7 @@ impl CssTheme {
                         alpha: 255,
                     });
                 }
-                "stroke-width" => return ThemeValue::Double(1.0),
+                "stroke-width" => return ThemeValue::Number(1.0),
                 _ => {}
             }
         }
@@ -489,8 +466,8 @@ impl CssTheme {
                         alpha: 255,
                     });
                 }
-                "stroke-width" => return ThemeValue::Double(0.5),
-                "opacity" => return ThemeValue::Double(0.5),
+                "stroke-width" => return ThemeValue::Number(0.5),
+                "opacity" => return ThemeValue::Number(0.5),
                 _ => {}
             }
         }
@@ -504,11 +481,11 @@ impl CssTheme {
                 alpha: 255,
             }),
             "stroke" => ThemeValue::None,
-            "stroke-width" => ThemeValue::Double(1.0),
-            "opacity" => ThemeValue::Double(1.0),
-            "size" => ThemeValue::Double(60.0),
-            "padding" => ThemeValue::Double(8.0),
-            "spacing" => ThemeValue::Double(10.0),
+            "stroke-width" => ThemeValue::Number(1.0),
+            "opacity" => ThemeValue::Number(1.0),
+            "size" => ThemeValue::Number(60.0),
+            "padding" => ThemeValue::Number(8.0),
+            "spacing" => ThemeValue::Number(10.0),
             _ => ThemeValue::Initial,
         }
     }
