@@ -30,6 +30,11 @@ pub trait Theme: Send + Sync {
         }
     }
 
+    /// Get the base font size in pixels (used for rem unit conversion)
+    fn base_font_size(&self) -> f32 {
+        12.0
+    }
+
     /// Get font family for a context
     fn font_family(&self, context: &ThemeContext) -> String {
         let font_family_value = self.query(context, "font-family");
@@ -56,13 +61,15 @@ pub trait Theme: Send + Sync {
 
     /// Get font size for a context
     fn font_size(&self, context: &ThemeContext) -> f32 {
-        self.query(context, "font-size").as_float().unwrap_or(12.0)
+        self.query(context, "font-size")
+            .as_pixels(self.base_font_size())
+            .unwrap_or(12.0)
     }
 
     /// Get font weight for a context
     fn font_weight(&self, context: &ThemeContext) -> f32 {
         self.query(context, "font-weight")
-            .as_float()
+            .as_pixels(self.base_font_size())
             .unwrap_or(400.0)
     }
 
@@ -90,13 +97,15 @@ pub trait Theme: Send + Sync {
     /// Get stroke width for a context
     fn stroke_width(&self, context: &ThemeContext) -> f32 {
         self.query(context, "stroke-width")
-            .as_float()
+            .as_pixels(self.base_font_size())
             .unwrap_or(1.0)
     }
 
     /// Get opacity for a context
     fn opacity(&self, context: &ThemeContext) -> f32 {
-        self.query(context, "opacity").as_float().unwrap_or(1.0)
+        self.query(context, "opacity")
+            .as_pixels(self.base_font_size())
+            .unwrap_or(1.0)
     }
 
     /// Clone the theme into a boxed trait object
@@ -194,14 +203,18 @@ pub trait Theme: Send + Sync {
     fn legend_background_padding(&self) -> f32 {
         let legend_ctx = ThemeContext::new("legend");
         let ctx = legend_ctx.child("background");
-        self.query(&ctx, "padding").as_float().unwrap_or(5.0)
+        self.query(&ctx, "padding")
+            .as_pixels(self.base_font_size())
+            .unwrap_or(5.0)
     }
 
     /// Get legend background corner radius
     fn legend_background_corner_radius(&self) -> f32 {
         let legend_ctx = ThemeContext::new("legend");
         let ctx = legend_ctx.child("background");
-        self.query(&ctx, "corner-radius").as_float().unwrap_or(5.0)
+        self.query(&ctx, "corner-radius")
+            .as_pixels(self.base_font_size())
+            .unwrap_or(5.0)
     }
 
     /// Get legend title color
@@ -349,7 +362,9 @@ pub trait Theme: Send + Sync {
     fn axis_grid_opacity(&self) -> f32 {
         let axis_ctx = ThemeContext::new("axis");
         let ctx = axis_ctx.child("grid");
-        self.query(&ctx, "opacity").as_float().unwrap_or(0.5)
+        self.query(&ctx, "opacity")
+            .as_pixels(self.base_font_size())
+            .unwrap_or(0.5)
     }
 
     /// Get axis grid width
@@ -375,7 +390,9 @@ pub trait Theme: Send + Sync {
     fn axis_tick_length(&self) -> f32 {
         let axis_ctx = ThemeContext::new("axis");
         let ctx = axis_ctx.child("tick");
-        self.query(&ctx, "size").as_float().unwrap_or(5.0)
+        self.query(&ctx, "size")
+            .as_pixels(self.base_font_size())
+            .unwrap_or(5.0)
     }
 
     /// Get axis label font size

@@ -1,7 +1,7 @@
 //! Implementation of the Theme trait for CSS-based themes
 
 use super::CssTheme;
-use crate::theme::{LengthUnit, Theme, ThemeContext, ThemeValue};
+use crate::theme::{Theme, ThemeContext, ThemeValue};
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 
@@ -19,23 +19,11 @@ impl CssTheme {
 
 impl Theme for CssTheme {
     fn query(&self, context: &ThemeContext, property: &str) -> ThemeValue {
-        let value = self.query_css(context, property);
+        self.query_css(context, property)
+    }
 
-        // Convert rem/em units to pixels for font-size
-        if property == "font-size" {
-            if let ThemeValue::Length(size, LengthUnit::Rem) = value {
-                // Convert rem to pixels (rem is relative to base font size)
-                // Round for consistent behavior
-                return ThemeValue::Number((size * self.base_font_size as f64).round());
-            } else if let ThemeValue::Length(size, LengthUnit::Em) = value {
-                // For font-size, em is relative to parent's font size
-                // For now, treat it like rem (this could be improved with parent context)
-                // Round for consistent behavior
-                return ThemeValue::Number((size * self.base_font_size as f64).round());
-            }
-        }
-
-        value
+    fn base_font_size(&self) -> f32 {
+        self.base_font_size
     }
 
     fn clone_box(&self) -> Box<dyn Theme> {
@@ -309,14 +297,20 @@ impl Theme for CssTheme {
                 _ => {}
             }
 
-            if let Some(width) = self.query_css(&context, "stroke-width").as_float() {
+            if let Some(width) = self
+                .query_css(&context, "stroke-width")
+                .as_pixels(self.base_font_size)
+            {
                 mark_defaults.insert(
                     "stroke_width".to_string(),
                     ScalarValue::Float32(Some(width)),
                 );
             }
 
-            if let Some(size) = self.query_css(&context, "size").as_float() {
+            if let Some(size) = self
+                .query_css(&context, "size")
+                .as_pixels(self.base_font_size)
+            {
                 mark_defaults.insert("size".to_string(), ScalarValue::Float32(Some(size)));
             }
 
