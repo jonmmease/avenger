@@ -1,3 +1,4 @@
+use crate::color::parse_color_string;
 use crate::error::AvengerScaleError;
 use crate::formatter::Formatters;
 use crate::scalar::Scalar;
@@ -20,7 +21,6 @@ use avenger_common::{
 };
 use avenger_image::{make_image_fetcher, RgbaImage};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
-use css_color_parser::Color;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
 use paste::paste;
@@ -147,17 +147,9 @@ impl ColorCoercer for CssColorCoercer {
                 let result = string_array
                     .iter()
                     .map(|el| match el {
-                        Some(el) => el
-                            .parse::<Color>()
-                            .map(|color| {
-                                ColorOrGradient::Color([
-                                    color.r as f32 / 255.0,
-                                    color.g as f32 / 255.0,
-                                    color.b as f32 / 255.0,
-                                    color.a,
-                                ])
-                            })
-                            .unwrap_or_else(|_| default_value.clone()),
+                        Some(el) => parse_color_string(el)
+                            .map(ColorOrGradient::Color)
+                            .unwrap_or(default_value.clone()),
                         _ => default_value.clone(),
                     })
                     .collect::<Vec<_>>();
