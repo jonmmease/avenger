@@ -10,16 +10,14 @@ use cssparser::{
 };
 use indexmap::IndexMap;
 use selectors::parser::{ParseRelative, Parser as SelectorParser, SelectorList};
-
 use std::cell::RefCell;
-use std::rc::Rc;
 
 /// Parse a CSS stylesheet into rules
 pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
     let mut input = ParserInput::new(css);
     let mut parser = Parser::new(&mut input);
-    let unsupported_units = Rc::new(RefCell::new(Vec::new()));
-    let mut chart_parser = ChartStyleParser::new(unsupported_units.clone());
+    let unsupported_units = RefCell::new(Vec::new());
+    let mut chart_parser = ChartStyleParser::new(&unsupported_units);
     let mut source_order = 0;
 
     let rules: Vec<CompiledRule> = StyleSheetParser::new(&mut parser, &mut chart_parser)
@@ -36,27 +34,31 @@ pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
         .collect();
 
     // Check if any unsupported units were encountered
-    let errors = unsupported_units.borrow();
+    let errors = unsupported_units.into_inner();
     if !errors.is_empty() {
-        return Err(format!("Unsupported CSS units: {}", errors.join(", ")));
+        // Deduplicate errors
+        let mut unique_units: Vec<String> = errors;
+        unique_units.sort();
+        unique_units.dedup();
+        return Err(format!("Unsupported CSS units: {}", unique_units.join(", ")));
     }
 
     Ok(rules)
 }
 
 /// Parser struct that implements the required traits for StyleSheetParser
-struct ChartStyleParser {
-    unsupported_units: Rc<RefCell<Vec<String>>>,
+struct ChartStyleParser<'a> {
+    unsupported_units: &'a RefCell<Vec<String>>,
 }
 
-impl ChartStyleParser {
-    fn new(unsupported_units: Rc<RefCell<Vec<String>>>) -> Self {
+impl<'a> ChartStyleParser<'a> {
+    fn new(unsupported_units: &'a RefCell<Vec<String>>) -> Self {
         Self { unsupported_units }
     }
 }
 
 /// Implementation of QualifiedRuleParser for parsing style rules
-impl<'i> QualifiedRuleParser<'i> for ChartStyleParser {
+impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
     type Prelude = String;
     type QualifiedRule = CompiledRule;
     type Error = ();
@@ -144,7 +146,7 @@ impl<'i> QualifiedRuleParser<'i> for ChartStyleParser {
         // Parse declarations using RuleBodyParser
         let mut declaration_parser = DeclarationParserImpl {
             declarations: IndexMap::new(),
-            unsupported_units: self.unsupported_units.clone(),
+            unsupported_units: self.unsupported_units,
         };
 
         let _ = RuleBodyParser::new(input, &mut declaration_parser)
@@ -161,13 +163,13 @@ impl<'i> QualifiedRuleParser<'i> for ChartStyleParser {
 }
 
 /// Internal struct for parsing declarations
-struct DeclarationParserImpl {
+struct DeclarationParserImpl<'a> {
     declarations: IndexMap<String, ThemeValue>,
-    unsupported_units: Rc<RefCell<Vec<String>>>,
+    unsupported_units: &'a RefCell<Vec<String>>,
 }
 
 /// Implementation of DeclarationParser for parsing CSS property declarations
-impl<'i> DeclarationParser<'i> for DeclarationParserImpl {
+impl<'i, 'a> DeclarationParser<'i> for DeclarationParserImpl<'a> {
     type Declaration = ();
     type Error = ();
 
@@ -180,7 +182,7 @@ impl<'i> DeclarationParser<'i> for DeclarationParserImpl {
         let property = name.to_string();
 
         // Always try to parse as comma-separated list
-        let values = input.parse_comma_separated(|p| parse_single_value(p, &self.unsupported_units))?;
+        let values = input.parse_comma_separated(|p| parse_single_value(p, self.unsupported_units))?;
 
         // Store based on number of values
         match values.len() {
@@ -202,7 +204,7 @@ impl<'i> DeclarationParser<'i> for DeclarationParserImpl {
 
 /// Implementation of AtRuleParser - we don't support at-rules
 /// The default implementation rejects all at-rules, which is what we want
-impl<'i> AtRuleParser<'i> for ChartStyleParser {
+impl<'i, 'a> AtRuleParser<'i> for ChartStyleParser<'a> {
     type Prelude = ();
     type AtRule = CompiledRule;
     type Error = ();
@@ -210,7 +212,7 @@ impl<'i> AtRuleParser<'i> for ChartStyleParser {
 }
 
 /// Implementation of RuleBodyItemParser
-impl<'i> RuleBodyItemParser<'i, (), ()> for DeclarationParserImpl {
+impl<'i, 'a> RuleBodyItemParser<'i, (), ()> for DeclarationParserImpl<'a> {
     fn parse_declarations(&self) -> bool {
         true // We do parse declarations
     }
@@ -222,7 +224,7 @@ impl<'i> RuleBodyItemParser<'i, (), ()> for DeclarationParserImpl {
 
 /// We also need AtRuleParser for DeclarationParserImpl
 /// Using default implementation which rejects all at-rules
-impl<'i> AtRuleParser<'i> for DeclarationParserImpl {
+impl<'i, 'a> AtRuleParser<'i> for DeclarationParserImpl<'a> {
     type Prelude = ();
     type AtRule = ();
     type Error = ();
@@ -230,14 +232,14 @@ impl<'i> AtRuleParser<'i> for DeclarationParserImpl {
 
 /// We also need QualifiedRuleParser for DeclarationParserImpl
 /// Using default implementation which rejects all qualified rules
-impl<'i> QualifiedRuleParser<'i> for DeclarationParserImpl {
+impl<'i, 'a> QualifiedRuleParser<'i> for DeclarationParserImpl<'a> {
     type Prelude = ();
     type QualifiedRule = ();
     type Error = ();
 }
 
 /// Convert a CSS token to a ThemeValue
-fn token_to_theme_value<'i>(token: &Token<'i>, unsupported_units: &Rc<RefCell<Vec<String>>>) -> Result<ThemeValue, ()> {
+fn token_to_theme_value<'i>(token: &Token<'i>, unsupported_units: &RefCell<Vec<String>>) -> Result<ThemeValue, ()> {
     match token {
         Token::Ident(s) => {
             let s_str = s.to_string();
@@ -264,11 +266,8 @@ fn token_to_theme_value<'i>(token: &Token<'i>, unsupported_units: &Rc<RefCell<Ve
                 "rem" => Ok(ThemeValue::Length(num_value, LengthUnit::Rem)),
                 unit_str => {
                     // Track unsupported unit
-                    let mut units = unsupported_units.borrow_mut();
-                    if !units.contains(&unit_str.to_string()) {
-                        units.push(unit_str.to_string());
-                    }
-                    Err(()) // Unsupported unit
+                    unsupported_units.borrow_mut().push(unit_str.to_string());
+                    Err(()) // Return error
                 }
             }
         }
@@ -296,7 +295,7 @@ fn token_to_theme_value<'i>(token: &Token<'i>, unsupported_units: &Rc<RefCell<Ve
 /// Parse a single CSS value
 fn parse_single_value<'i, 't>(
     parser: &mut Parser<'i, 't>,
-    unsupported_units: &Rc<RefCell<Vec<String>>>,
+    unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
     parser.skip_whitespace();
 
@@ -339,10 +338,7 @@ fn parse_single_value<'i, 't>(
                         "%" => Ok(ThemeValue::Percentage(num_value)),
                         unit_str => {
                             // Track unsupported unit
-                            let mut units = unsupported_units.borrow_mut();
-                            if !units.contains(&unit_str.to_string()) {
-                                units.push(unit_str.to_string());
-                            }
+                            unsupported_units.borrow_mut().push(unit_str.to_string());
                             // Unsupported unit - return error
                             Err(parser.new_custom_error(()))
                         }
@@ -362,7 +358,7 @@ fn parse_single_value<'i, 't>(
 /// Parse function arguments
 fn parse_function_args<'i, 't>(
     parser: &mut Parser<'i, 't>,
-    unsupported_units: &Rc<RefCell<Vec<String>>>,
+    unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
     parser.parse_nested_block(|p| {
         p.parse_comma_separated(|parser| {
