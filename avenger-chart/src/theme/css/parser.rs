@@ -11,11 +11,15 @@ use cssparser::{
 use indexmap::IndexMap;
 use selectors::parser::{ParseRelative, Parser as SelectorParser, SelectorList};
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 /// Parse a CSS stylesheet into rules
 pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
     let mut input = ParserInput::new(css);
     let mut parser = Parser::new(&mut input);
-    let mut chart_parser = ChartStyleParser::new();
+    let unsupported_units = Rc::new(RefCell::new(Vec::new()));
+    let mut chart_parser = ChartStyleParser::new(unsupported_units.clone());
     let mut source_order = 0;
 
     let rules: Vec<CompiledRule> = StyleSheetParser::new(&mut parser, &mut chart_parser)
@@ -31,15 +35,23 @@ pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
         })
         .collect();
 
+    // Check if any unsupported units were encountered
+    let errors = unsupported_units.borrow();
+    if !errors.is_empty() {
+        return Err(format!("Unsupported CSS units: {}", errors.join(", ")));
+    }
+
     Ok(rules)
 }
 
 /// Parser struct that implements the required traits for StyleSheetParser
-struct ChartStyleParser;
+struct ChartStyleParser {
+    unsupported_units: Rc<RefCell<Vec<String>>>,
+}
 
 impl ChartStyleParser {
-    fn new() -> Self {
-        Self
+    fn new(unsupported_units: Rc<RefCell<Vec<String>>>) -> Self {
+        Self { unsupported_units }
     }
 }
 
@@ -132,6 +144,7 @@ impl<'i> QualifiedRuleParser<'i> for ChartStyleParser {
         // Parse declarations using RuleBodyParser
         let mut declaration_parser = DeclarationParserImpl {
             declarations: IndexMap::new(),
+            unsupported_units: self.unsupported_units.clone(),
         };
 
         let _ = RuleBodyParser::new(input, &mut declaration_parser)
@@ -150,6 +163,7 @@ impl<'i> QualifiedRuleParser<'i> for ChartStyleParser {
 /// Internal struct for parsing declarations
 struct DeclarationParserImpl {
     declarations: IndexMap<String, ThemeValue>,
+    unsupported_units: Rc<RefCell<Vec<String>>>,
 }
 
 /// Implementation of DeclarationParser for parsing CSS property declarations
@@ -166,7 +180,7 @@ impl<'i> DeclarationParser<'i> for DeclarationParserImpl {
         let property = name.to_string();
 
         // Always try to parse as comma-separated list
-        let values = input.parse_comma_separated(|p| parse_single_value(p))?;
+        let values = input.parse_comma_separated(|p| parse_single_value(p, &self.unsupported_units))?;
 
         // Store based on number of values
         match values.len() {
@@ -223,7 +237,7 @@ impl<'i> QualifiedRuleParser<'i> for DeclarationParserImpl {
 }
 
 /// Convert a CSS token to a ThemeValue
-fn token_to_theme_value<'i>(token: &Token<'i>) -> Result<ThemeValue, ()> {
+fn token_to_theme_value<'i>(token: &Token<'i>, unsupported_units: &Rc<RefCell<Vec<String>>>) -> Result<ThemeValue, ()> {
     match token {
         Token::Ident(s) => {
             let s_str = s.to_string();
@@ -247,10 +261,15 @@ fn token_to_theme_value<'i>(token: &Token<'i>) -> Result<ThemeValue, ()> {
             let num_value = *value as f64;
             match unit.as_ref() {
                 "px" => Ok(ThemeValue::Length(num_value, LengthUnit::Px)),
-                "em" => Ok(ThemeValue::Length(num_value, LengthUnit::Em)),
                 "rem" => Ok(ThemeValue::Length(num_value, LengthUnit::Rem)),
-                "pt" => Ok(ThemeValue::Length(num_value, LengthUnit::Pt)),
-                _ => Ok(ThemeValue::Number(num_value)),
+                unit_str => {
+                    // Track unsupported unit
+                    let mut units = unsupported_units.borrow_mut();
+                    if !units.contains(&unit_str.to_string()) {
+                        units.push(unit_str.to_string());
+                    }
+                    Err(()) // Unsupported unit
+                }
             }
         }
         Token::Percentage { unit_value, .. } => {
@@ -277,6 +296,7 @@ fn token_to_theme_value<'i>(token: &Token<'i>) -> Result<ThemeValue, ()> {
 /// Parse a single CSS value
 fn parse_single_value<'i, 't>(
     parser: &mut Parser<'i, 't>,
+    unsupported_units: &Rc<RefCell<Vec<String>>>,
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
     parser.skip_whitespace();
 
@@ -286,7 +306,7 @@ fn parse_single_value<'i, 't>(
     match token {
         Token::Function(name) => {
             let name_str = name.to_string();
-            let args = parse_function_args(parser).map_err(|_| parser.new_custom_error(()))?;
+            let args = parse_function_args(parser, unsupported_units).map_err(|_| parser.new_custom_error(()))?;
 
             match name_str.as_str() {
                 "rgb" | "rgba" => {
@@ -315,14 +335,16 @@ fn parse_single_value<'i, 't>(
                 Ok(Token::Ident(unit)) => {
                     match unit.as_ref() {
                         "px" => Ok(ThemeValue::Length(num_value, LengthUnit::Px)),
-                        "em" => Ok(ThemeValue::Length(num_value, LengthUnit::Em)),
                         "rem" => Ok(ThemeValue::Length(num_value, LengthUnit::Rem)),
-                        "pt" => Ok(ThemeValue::Length(num_value, LengthUnit::Pt)),
                         "%" => Ok(ThemeValue::Percentage(num_value)),
-                        _ => {
-                            // Not a recognized unit, reset and treat as plain number
-                            parser.reset(&state);
-                            Ok(ThemeValue::Number(num_value))
+                        unit_str => {
+                            // Track unsupported unit
+                            let mut units = unsupported_units.borrow_mut();
+                            if !units.contains(&unit_str.to_string()) {
+                                units.push(unit_str.to_string());
+                            }
+                            // Unsupported unit - return error
+                            Err(parser.new_custom_error(()))
                         }
                     }
                 }
@@ -333,13 +355,14 @@ fn parse_single_value<'i, 't>(
                 }
             }
         }
-        _ => token_to_theme_value(&token).map_err(|_| parser.new_custom_error(())),
+        _ => token_to_theme_value(&token, unsupported_units).map_err(|_| parser.new_custom_error(())),
     }
 }
 
 /// Parse function arguments
 fn parse_function_args<'i, 't>(
     parser: &mut Parser<'i, 't>,
+    unsupported_units: &Rc<RefCell<Vec<String>>>,
 ) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
     parser.parse_nested_block(|p| {
         p.parse_comma_separated(|parser| {
@@ -348,7 +371,7 @@ fn parse_function_args<'i, 't>(
             // Reuse token_to_theme_value for consistency but keep numbers simple in functions
             match token {
                 Token::Number { value, .. } => Ok(ThemeValue::Number(*value as f64)),
-                _ => token_to_theme_value(&token).map_err(|_| parser.new_custom_error(())),
+                _ => token_to_theme_value(&token, unsupported_units).map_err(|_| parser.new_custom_error(())),
             }
         })
     })

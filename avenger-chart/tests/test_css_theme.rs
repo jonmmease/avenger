@@ -114,9 +114,8 @@ fn test_color_parsing() {
 fn test_length_units() {
     let css = r#"
         .px { stroke-width: 2px; }
-        .em { font-size: 1.5em; }
+        .rem { font-size: 1.5rem; }
         .percent { width: 50%; }
-        .pt { font-size: 12pt; }
     "#;
 
     let theme = CssTheme::from_css(css).unwrap();
@@ -125,13 +124,51 @@ fn test_length_units() {
     let px_value = theme.query_css(&px_context, "stroke-width");
     assert!(matches!(px_value, ThemeValue::Length(2.0, LengthUnit::Px)));
 
-    let em_context = ThemeContext::new("mark").with_class("em");
-    let em_value = theme.query_css(&em_context, "font-size");
-    assert!(matches!(em_value, ThemeValue::Length(1.5, LengthUnit::Em)));
+    let rem_context = ThemeContext::new("mark").with_class("rem");
+    let rem_value = theme.query_css(&rem_context, "font-size");
+    assert!(matches!(
+        rem_value,
+        ThemeValue::Length(1.5, LengthUnit::Rem)
+    ));
 
     let percent_context = ThemeContext::new("mark").with_class("percent");
     let percent_value = theme.query_css(&percent_context, "width");
     assert!(matches!(percent_value, ThemeValue::Percentage(50.0)));
+}
+
+#[test]
+fn test_unsupported_length_units_error() {
+    // Test that unsupported units like em, pt raise an error
+    let css = r#"
+        .test { font-size: 1.5em; }
+        .valid { color: red; }
+    "#;
+
+    let result = CssTheme::from_css(css);
+    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert!(error.contains("Unsupported CSS units"));
+    assert!(error.contains("em"));
+}
+
+#[test]
+fn test_multiple_unsupported_units_error() {
+    // Test that multiple unsupported units are all reported
+    let css = r#"
+        .a { font-size: 1.5em; }
+        .b { width: 12pt; }
+        .c { height: 2ex; }
+        .d { margin: 1cm; }
+    "#;
+
+    let result = CssTheme::from_css(css);
+    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert!(error.contains("Unsupported CSS units"));
+    assert!(error.contains("em"));
+    assert!(error.contains("pt"));
+    assert!(error.contains("ex"));
+    assert!(error.contains("cm"));
 }
 
 #[test]
@@ -172,13 +209,13 @@ fn test_value_conversions() {
     let context = ThemeContext::new("mark");
 
     let size = theme.query_css(&context, "size");
-    assert_eq!(size.as_float(), Some(100.0));
+    assert_eq!(size.as_pixels(12.0), Some(100.0));
 
     let opacity = theme.query_css(&context, "opacity");
     assert_eq!(opacity.as_double(), Some(0.5));
 
     let stroke_width = theme.query_css(&context, "stroke-width");
-    assert_eq!(stroke_width.as_float(), Some(2.0));
+    assert_eq!(stroke_width.as_pixels(12.0), Some(2.0));
 }
 
 #[test]

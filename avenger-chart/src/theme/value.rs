@@ -53,10 +53,7 @@ pub struct Rgba {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LengthUnit {
     Px,
-    Em,
     Rem,
-    Percent,
-    Pt,
 }
 
 impl ThemeValue {
@@ -68,12 +65,13 @@ impl ThemeValue {
         }
     }
 
-    /// Try to get as float
-    pub fn as_float(&self) -> Option<f32> {
+    /// Convert value to pixels for rendering
+    /// For Rem units, converts using the provided base_font_size
+    pub fn as_pixels(&self, base_font_size: f32) -> Option<f32> {
         match self {
             ThemeValue::Number(n) => Some(*n as f32),
             ThemeValue::Length(n, LengthUnit::Px) => Some(*n as f32),
-            ThemeValue::Length(n, LengthUnit::Pt) => Some((*n * 1.333) as f32),
+            ThemeValue::Length(n, LengthUnit::Rem) => Some((*n as f32) * base_font_size),
             ThemeValue::Percentage(p) => Some(*p as f32),
             _ => None,
         }
