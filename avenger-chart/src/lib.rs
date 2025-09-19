@@ -7,7 +7,6 @@ pub mod guide;
 pub mod legend;
 pub mod marks;
 pub mod plot;
-mod plot_scales;
 pub mod polar;
 pub mod prelude;
 pub mod render;

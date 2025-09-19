@@ -1,7 +1,11 @@
+//! Scale configuration methods for Plot
+
 use crate::coords::CoordinateSystem;
-use crate::plot::{Plot, ScaleSpec};
+use crate::plot::Plot;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use std::sync::Arc;
+
+use super::specs::ScaleSpec;
 
 /// Methods for adding scales to Plot
 impl<C: CoordinateSystem> Plot<C> {

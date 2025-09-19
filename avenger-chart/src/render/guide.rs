@@ -32,9 +32,6 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                         let customized = f(base_axis);
                         all_axes.insert(channel.clone(), customized);
                     }
-                    crate::plot::AxisSpec::Reference(_) => {
-                        // Reference axes not yet supported, keep default
-                    }
                 }
             }
         }
@@ -56,7 +53,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                 .create_default_guide(all_axes, scales, &self.plot.marks);
 
         // Apply user guide configuration if specified
-        if let Some(guide_config) = &self.plot.guide_spec {
+        if let Some(guide_config) = &self.plot.configure_guide_fn {
             guide = guide_config(guide);
         }
 
