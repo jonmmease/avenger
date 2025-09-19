@@ -52,29 +52,30 @@ async fn test_css_theme_basic() {
             font-family: "Inter", "Helvetica", sans-serif;
         }
 
-        axis.label {
+        axis label {
             font-weight: 400;
+            font-size: 10px;
             /*color: #6b7280;*/
             color: darkmagenta;
         }
 
-        axis.title {
+        axis title {
             font-size: 1.1rem;
             font-weight: 600;
             color: darkcyan;
         }
 
-        axis.grid {
+        axis grid {
             stroke: var(--grid-color);
             stroke-width: 0.5px;
             opacity: 0.6;
         }
 
-        axis.tick {
+        axis tick {
             stroke: orangered;
         }
 
-        axis.domain {
+        axis domain {
             stroke: blue;
             stroke-width: 2px;
         }
@@ -85,25 +86,25 @@ async fn test_css_theme_basic() {
             color: var(--text-color);
         }
 
-        legend.title {
+        legend title {
             font-size: 1rem;
             font-weight: 600;
             color: purple;
         }
 
-        legend.label {
+        legend label {
             font-size: 0.8rem;
             font-weight: 400;
         }
 
         /* Title styling */
-        title {
+        chart-title {
             font-size: 20px;
             font-weight: 700;
             color: var(--text-color);
         }
 
-        subtitle {
+        chart-subtitle {
             font-size: 16px;
             font-weight: 400;
             color: #6b7280;
@@ -178,7 +179,7 @@ async fn test_css_theme_scale_ranges() {
         }
 
         /* Basic styling */
-        title {
+        chart-title {
             font-size: 18px;
             font-weight: 600;
             color: #333;
@@ -291,23 +292,23 @@ async fn test_css_theme_dark_mode() {
             font-size: 10px;
         }
 
-        axis.domain {
+        axis domain {
             stroke: var(--fg-color);
             stroke-width: 1px;
         }
 
-        axis.tick {
+        axis tick {
             stroke: var(--fg-color);
             stroke-width: 0.5px;
         }
 
-        axis.grid {
+        axis grid {
             stroke: var(--grid);
             stroke-width: 0.5px;
             opacity: 0.4;
         }
 
-        axis.title {
+        axis title {
             font-size: 12px;
             font-weight: 500;
         }
@@ -317,19 +318,19 @@ async fn test_css_theme_dark_mode() {
             color: var(--fg-color);
         }
 
-        legend.title {
+        legend title {
             font-size: 13px;
             font-weight: 600;
         }
 
         /* Titles */
-        title {
+        chart-title {
             color: var(--fg-color);
             font-size: 16px;
             font-weight: 700;
         }
 
-        subtitle {
+        chart-subtitle {
             color: #9ca3af;
             font-size: 13px;
         }
@@ -430,13 +431,9 @@ async fn test_css_theme_discrete_continuous_properties() {
         }
 
         /* Basic styling */
-        title {
+        chart-title {
             font-size: 18px;
             font-weight: 600;
-        }
-
-        axis {
-            font-size: 11px;
         }
     "#;
 

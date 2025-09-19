@@ -536,7 +536,8 @@ pub trait Theme: Send + Sync {
 
     /// Get legend background fill
     fn legend_background_fill(&self) -> Option<String> {
-        let ctx = ThemeContext::new("legend").with_class("background");
+        let legend_ctx = ThemeContext::new("legend");
+        let ctx = legend_ctx.child("background");
         match self.query(&ctx, &ThemeProperty::FillColor) {
             ThemeValue::String(s) => Some(s),
             _ => None,
@@ -545,7 +546,8 @@ pub trait Theme: Send + Sync {
 
     /// Get legend background stroke
     fn legend_background_stroke(&self) -> Option<String> {
-        let ctx = ThemeContext::new("legend").with_class("background");
+        let legend_ctx = ThemeContext::new("legend");
+        let ctx = legend_ctx.child("background");
         match self.query(&ctx, &ThemeProperty::StrokeColor) {
             ThemeValue::String(s) => Some(s),
             _ => None,
@@ -554,7 +556,8 @@ pub trait Theme: Send + Sync {
 
     /// Get legend background padding
     fn legend_background_padding(&self) -> f32 {
-        let ctx = ThemeContext::new("legend").with_class("background");
+        let legend_ctx = ThemeContext::new("legend");
+        let ctx = legend_ctx.child("background");
         self.query(&ctx, &ThemeProperty::Padding)
             .as_float()
             .unwrap_or(5.0)
@@ -562,7 +565,8 @@ pub trait Theme: Send + Sync {
 
     /// Get legend background corner radius
     fn legend_background_corner_radius(&self) -> f32 {
-        let ctx = ThemeContext::new("legend").with_class("background");
+        let legend_ctx = ThemeContext::new("legend");
+        let ctx = legend_ctx.child("background");
         self.query(&ctx, &ThemeProperty::CornerRadius)
             .as_float()
             .unwrap_or(5.0)
@@ -570,111 +574,124 @@ pub trait Theme: Send + Sync {
 
     /// Get legend title color
     fn legend_title_color(&self) -> String {
-        self.color(&ThemeContext::new("legend").with_class("title"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.color(&legend_ctx.child("title"))
     }
 
     /// Get legend label color
     fn legend_label_color(&self) -> String {
-        self.color(&ThemeContext::new("legend").with_class("label"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.color(&legend_ctx.child("label"))
     }
 
     /// Get legend tick color
     fn legend_tick_color(&self) -> String {
-        self.color(&ThemeContext::new("legend").with_class("tick"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.color(&legend_ctx.child("tick"))
     }
 
     /// Get legend title font family
     fn legend_title_font_family(&self) -> String {
-        self.font_family(&ThemeContext::new("legend").with_class("title"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.font_family(&legend_ctx.child("title"))
     }
 
     /// Get legend label font family
     fn legend_label_font_family(&self) -> String {
-        self.font_family(&ThemeContext::new("legend").with_class("label"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.font_family(&legend_ctx.child("label"))
     }
 
     /// Get legend tick font family
     fn legend_tick_font_family(&self) -> String {
-        self.font_family(&ThemeContext::new("legend").with_class("tick"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.font_family(&legend_ctx.child("tick"))
     }
 
     /// Get legend title font size
     fn legend_title_font_size(&self) -> f32 {
-        self.font_size(&ThemeContext::new("legend").with_class("title"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.font_size(&legend_ctx.child("title"))
     }
 
     /// Get legend label font size
     fn legend_label_font_size(&self) -> f32 {
-        self.font_size(&ThemeContext::new("legend").with_class("label"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.font_size(&legend_ctx.child("label"))
     }
 
     /// Get legend tick font size
     fn legend_tick_font_size(&self) -> f32 {
-        self.font_size(&ThemeContext::new("legend").with_class("tick"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.font_size(&legend_ctx.child("tick"))
     }
 
     /// Get legend title font weight
     fn legend_title_font_weight(&self) -> f32 {
-        self.font_weight(&ThemeContext::new("legend").with_class("title"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.font_weight(&legend_ctx.child("title"))
     }
 
     /// Get legend label font weight
     fn legend_label_font_weight(&self) -> f32 {
-        self.font_weight(&ThemeContext::new("legend").with_class("label"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.font_weight(&legend_ctx.child("label"))
     }
 
     /// Get legend tick font weight
     fn legend_tick_font_weight(&self) -> f32 {
-        self.font_weight(&ThemeContext::new("legend").with_class("tick"))
+        let legend_ctx = ThemeContext::new("legend");
+        self.font_weight(&legend_ctx.child("tick"))
     }
 
     // Title-specific methods
 
     /// Get title color
     fn title_color(&self) -> String {
-        self.color(&ThemeContext::new("title"))
+        self.color(&ThemeContext::new("chart-title"))
     }
 
     /// Get subtitle color
     fn subtitle_color(&self) -> String {
-        self.color(&ThemeContext::new("subtitle"))
+        self.color(&ThemeContext::new("chart-subtitle"))
     }
 
     /// Get title font family
     fn title_font_family(&self) -> String {
-        self.font_family(&ThemeContext::new("title"))
+        self.font_family(&ThemeContext::new("chart-title"))
     }
 
     /// Get subtitle font family
     fn subtitle_font_family(&self) -> String {
-        self.font_family(&ThemeContext::new("subtitle"))
+        self.font_family(&ThemeContext::new("chart-subtitle"))
     }
 
     /// Get title font size
     fn title_font_size(&self) -> f32 {
-        self.font_size(&ThemeContext::new("title"))
+        self.font_size(&ThemeContext::new("chart-title"))
     }
 
     /// Get subtitle font size
     fn subtitle_font_size(&self) -> f32 {
-        self.font_size(&ThemeContext::new("subtitle"))
+        self.font_size(&ThemeContext::new("chart-subtitle"))
     }
 
     /// Get title font weight
     fn title_font_weight(&self) -> f32 {
-        self.font_weight(&ThemeContext::new("title"))
+        self.font_weight(&ThemeContext::new("chart-title"))
     }
 
     /// Get subtitle font weight
     fn subtitle_font_weight(&self) -> f32 {
-        self.font_weight(&ThemeContext::new("subtitle"))
+        self.font_weight(&ThemeContext::new("chart-subtitle"))
     }
 
     // Axis-specific methods
 
     /// Get axis domain color
     fn axis_domain_color(&self) -> String {
-        let ctx = ThemeContext::new("axis").with_class("domain");
+        let axis_ctx = ThemeContext::new("axis");
+        let ctx = axis_ctx.child("domain");
         self.query(&ctx, &ThemeProperty::StrokeColor)
             .to_string_value()
             .unwrap_or_else(|| "#000000".to_string())
@@ -682,7 +699,8 @@ pub trait Theme: Send + Sync {
 
     /// Get axis tick color
     fn axis_tick_color(&self) -> String {
-        let ctx = ThemeContext::new("axis").with_class("tick");
+        let axis_ctx = ThemeContext::new("axis");
+        let ctx = axis_ctx.child("tick");
         self.query(&ctx, &ThemeProperty::StrokeColor)
             .to_string_value()
             .unwrap_or_else(|| "#000000".to_string())
@@ -690,15 +708,15 @@ pub trait Theme: Send + Sync {
 
     /// Get axis grid color
     fn axis_grid_color(&self) -> String {
-        let ctx = ThemeContext::new("axis").with_class("grid");
-        self.query(&ctx, &ThemeProperty::GridColor)
-            .to_string_value()
-            .unwrap_or_else(|| "#d0d0d0".to_string())
+        let axis_ctx = ThemeContext::new("axis");
+        let ctx = axis_ctx.child("grid");
+        self.stroke_color(&ctx)
     }
 
     /// Get axis grid opacity
     fn axis_grid_opacity(&self) -> f32 {
-        let ctx = ThemeContext::new("axis").with_class("grid");
+        let axis_ctx = ThemeContext::new("axis");
+        let ctx = axis_ctx.child("grid");
         self.query(&ctx, &ThemeProperty::GridOpacity)
             .as_float()
             .unwrap_or(0.5)
@@ -706,23 +724,27 @@ pub trait Theme: Send + Sync {
 
     /// Get axis grid width
     fn axis_grid_width(&self) -> f32 {
-        let ctx = ThemeContext::new("axis").with_class("grid");
+        let axis_ctx = ThemeContext::new("axis");
+        let ctx = axis_ctx.child("grid");
         self.stroke_width(&ctx)
     }
 
     /// Get axis label color
     fn axis_label_color(&self) -> String {
-        self.color(&ThemeContext::new("axis").with_class("label"))
+        let axis_ctx = ThemeContext::new("axis");
+        self.color(&axis_ctx.child("label"))
     }
 
     /// Get axis title color
     fn axis_title_color(&self) -> String {
-        self.color(&ThemeContext::new("axis").with_class("title"))
+        let axis_ctx = ThemeContext::new("axis");
+        self.color(&axis_ctx.child("title"))
     }
 
     /// Get axis tick length
     fn axis_tick_length(&self) -> f32 {
-        let ctx = ThemeContext::new("axis").with_class("tick");
+        let axis_ctx = ThemeContext::new("axis");
+        let ctx = axis_ctx.child("tick");
         self.query(&ctx, &ThemeProperty::Size)
             .as_float()
             .unwrap_or(5.0)
@@ -730,32 +752,38 @@ pub trait Theme: Send + Sync {
 
     /// Get axis label font size
     fn axis_label_font_size(&self) -> f32 {
-        self.font_size(&ThemeContext::new("axis").with_class("label"))
+        let axis_ctx = ThemeContext::new("axis");
+        self.font_size(&axis_ctx.child("label"))
     }
 
     /// Get axis label font weight
     fn axis_label_font_weight(&self) -> f32 {
-        self.font_weight(&ThemeContext::new("axis").with_class("label"))
+        let axis_ctx = ThemeContext::new("axis");
+        self.font_weight(&axis_ctx.child("label"))
     }
 
     /// Get axis title font size
     fn axis_title_font_size(&self) -> f32 {
-        self.font_size(&ThemeContext::new("axis").with_class("title"))
+        let axis_ctx = ThemeContext::new("axis");
+        self.font_size(&axis_ctx.child("title"))
     }
 
     /// Get axis title font weight
     fn axis_title_font_weight(&self) -> f32 {
-        self.font_weight(&ThemeContext::new("axis").with_class("title"))
+        let axis_ctx = ThemeContext::new("axis");
+        self.font_weight(&axis_ctx.child("title"))
     }
 
     /// Get axis label font family
     fn axis_label_font_family(&self) -> String {
-        self.font_family(&ThemeContext::new("axis").with_class("label"))
+        let axis_ctx = ThemeContext::new("axis");
+        self.font_family(&axis_ctx.child("label"))
     }
 
     /// Get axis title font family
     fn axis_title_font_family(&self) -> String {
-        self.font_family(&ThemeContext::new("axis").with_class("title"))
+        let axis_ctx = ThemeContext::new("axis");
+        self.font_family(&axis_ctx.child("title"))
     }
 
     // Access to color palettes, shapes, and dashes

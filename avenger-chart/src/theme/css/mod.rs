@@ -44,82 +44,81 @@ impl CssTheme {
                 --viridis-colors: #440154, #31688E, #35B779, #FDE725;
             }
 
-            /* Title styling */
-            title {
+            /* Chart title styling */
+            chart-title {
                 color: #1a1a1a;
                 font-weight: 500;
                 font-size: 1.5rem; /* 18px @ 12px base */
             }
 
-            subtitle {
+            chart-subtitle {
                 color: #4a4a4a;
                 font-weight: 200;
                 font-size: 1.167rem; /* 14px @ 12px base */
             }
 
-            /* Axis styling */
+            /* Axis styling - container level */
             axis {
-                grid-color: #e0e0e0;
-                grid-opacity: 0.5;
-                stroke-width: 0.5; /* grid line width */
-                label-padding: 3;
+                /* Container properties if needed */
             }
 
-            axis.domain {
+            /* Axis child elements */
+            axis domain {
                 stroke: #000;
                 stroke-width: 1.0;
             }
 
-            axis.tick {
+            axis tick {
                 stroke: #000;
                 size: 5.0;
             }
 
-            axis.title {
+            axis title {
                 color: #2a2a2a;
                 font-weight: 400;
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
-            axis.label {
+            axis label {
                 color: #5a5a5a;
                 font-weight: 300;
                 font-size: 0.833rem; /* 10px @ 12px base */
                 padding: 3;
             }
 
-            axis.grid {
+            axis grid {
                 stroke: #e0e0e0;
                 opacity: 0.5;
                 stroke-width: 0.5;
             }
 
-            /* Legend styling */
-            legend.title {
-                color: #2C2C2C;
-                font-weight: 400;
-                font-size: 1.0rem; /* 12px @ 12px base */
-            }
-
-            legend.label {
-                color: #3C3C3C;
-                font-weight: 300;
-                font-size: 0.917rem; /* 11px @ 12px base */
-            }
-
-            legend.tick {
-                color: #5a5a5a;
-                font-weight: 300;
-                font-size: 0.833rem; /* 10px @ 12px base */
-            }
-
+            /* Legend styling - container level */
             legend {
                 spacing: 10;
                 symbol-size: 100;
                 label-padding: 5;
             }
 
-            legend.background {
+            /* Legend child elements */
+            legend title {
+                color: #2C2C2C;
+                font-weight: 400;
+                font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
+            legend label {
+                color: #3C3C3C;
+                font-weight: 300;
+                font-size: 0.917rem; /* 11px @ 12px base */
+            }
+
+            legend tick {
+                color: #5a5a5a;
+                font-weight: 300;
+                font-size: 0.833rem; /* 10px @ 12px base */
+            }
+
+            legend background {
                 padding: 8;
             }
 
@@ -192,82 +191,81 @@ impl CssTheme {
                 background-color: #1E1E1E;
             }
 
-            /* Title styling */
-            title {
+            /* Chart title styling */
+            chart-title {
                 color: #FFFFFF;
                 font-weight: 500;
                 font-size: 1.5rem; /* 18px @ 12px base */
             }
 
-            subtitle {
+            chart-subtitle {
                 color: #FFFFFF;
                 font-weight: 200;
                 font-size: 1.167rem; /* 14px @ 12px base */
             }
 
-            /* Axis styling */
+            /* Axis styling - container level */
             axis {
-                grid-color: #30363D;
-                grid-opacity: 0.5;
-                stroke-width: 0.5; /* grid line width */
-                label-padding: 3;
+                /* Container properties if needed */
             }
 
-            axis.domain {
+            /* Axis child elements */
+            axis domain {
                 stroke: #FFFFFF;
                 stroke-width: 1.0;
             }
 
-            axis.tick {
+            axis tick {
                 stroke: #FFFFFF;
                 size: 5.0;
             }
 
-            axis.title {
+            axis title {
                 color: #FFFFFF;
                 font-weight: 400;
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
-            axis.label {
+            axis label {
                 color: #AAAAAA;
                 font-weight: 300;
                 font-size: 0.833rem; /* 10px @ 12px base */
                 padding: 3;
             }
 
-            axis.grid {
+            axis grid {
                 stroke: #30363D;
                 opacity: 0.5;
                 stroke-width: 0.5;
             }
 
-            /* Legend styling */
-            legend.title {
-                color: #FFFFFF;
-                font-weight: 400;
-                font-size: 1.0rem; /* 12px @ 12px base */
-            }
-
-            legend.label {
-                color: #E1E6EA;
-                font-weight: 300;
-                font-size: 0.917rem; /* 11px @ 12px base */
-            }
-
-            legend.tick {
-                color: #AAAAAA;
-                font-weight: 300;
-                font-size: 0.833rem; /* 10px @ 12px base */
-            }
-
+            /* Legend styling - container level */
             legend {
                 spacing: 10;
                 symbol-size: 100;
                 label-padding: 5;
             }
 
-            legend.background {
+            /* Legend child elements */
+            legend title {
+                color: #FFFFFF;
+                font-weight: 400;
+                font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
+            legend label {
+                color: #E1E6EA;
+                font-weight: 300;
+                font-size: 0.917rem; /* 11px @ 12px base */
+            }
+
+            legend tick {
+                color: #AAAAAA;
+                font-weight: 300;
+                font-size: 0.833rem; /* 10px @ 12px base */
+            }
+
+            legend background {
                 padding: 8;
             }
 
@@ -426,10 +424,14 @@ impl CssTheme {
             }
         }
 
-        // Check if property is inherited
+        // Check if property is inherited and try to get it from parent
         if self.inherited_properties.contains(property) {
-            // For now, return a default inherited value
-            // In a full implementation, we'd check the parent element
+            // Try to get the value from the parent element
+            if let Some(parent) = &context.parent {
+                // Recursively query the parent for this property
+                return self.query_css(parent, property);
+            }
+            // No parent, return default inherited value
             return self.get_inherited_default(property);
         }
 
@@ -460,7 +462,7 @@ impl CssTheme {
         property: &str,
     ) -> ThemeValue {
         // Context-aware defaults
-        if context.element_type == "axis" && context.classes.contains(&"tick".to_string()) {
+        if context.element_type == "tick" {
             match property {
                 "size" => return ThemeValue::Double(5.0), // Tick marks should be small
                 "stroke" => {
@@ -472,6 +474,23 @@ impl CssTheme {
                     });
                 }
                 "stroke-width" => return ThemeValue::Double(1.0),
+                _ => {}
+            }
+        }
+
+        // Grid-specific defaults
+        if context.element_type == "grid" {
+            match property {
+                "stroke" => {
+                    return ThemeValue::Color(Rgba {
+                        red: 224, // #e0e0e0
+                        green: 224,
+                        blue: 224,
+                        alpha: 255,
+                    });
+                }
+                "stroke-width" => return ThemeValue::Double(0.5),
+                "opacity" => return ThemeValue::Double(0.5),
                 _ => {}
             }
         }
