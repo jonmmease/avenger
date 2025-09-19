@@ -40,7 +40,10 @@ pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
         let mut unique_units: Vec<String> = errors;
         unique_units.sort();
         unique_units.dedup();
-        return Err(format!("Unsupported CSS units: {}", unique_units.join(", ")));
+        return Err(format!(
+            "Unsupported CSS units: {}",
+            unique_units.join(", ")
+        ));
     }
 
     Ok(rules)
@@ -182,7 +185,8 @@ impl<'i, 'a> DeclarationParser<'i> for DeclarationParserImpl<'a> {
         let property = name.to_string();
 
         // Always try to parse as comma-separated list
-        let values = input.parse_comma_separated(|p| parse_single_value(p, self.unsupported_units))?;
+        let values =
+            input.parse_comma_separated(|p| parse_single_value(p, self.unsupported_units))?;
 
         // Store based on number of values
         match values.len() {
@@ -239,7 +243,10 @@ impl<'i, 'a> QualifiedRuleParser<'i> for DeclarationParserImpl<'a> {
 }
 
 /// Convert a CSS token to a ThemeValue
-fn token_to_theme_value<'i>(token: &Token<'i>, unsupported_units: &RefCell<Vec<String>>) -> Result<ThemeValue, ()> {
+fn token_to_theme_value<'i>(
+    token: &Token<'i>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ()> {
     match token {
         Token::Ident(s) => {
             let s_str = s.to_string();
@@ -305,7 +312,8 @@ fn parse_single_value<'i, 't>(
     match token {
         Token::Function(name) => {
             let name_str = name.to_string();
-            let args = parse_function_args(parser, unsupported_units).map_err(|_| parser.new_custom_error(()))?;
+            let args = parse_function_args(parser, unsupported_units)
+                .map_err(|_| parser.new_custom_error(()))?;
 
             match name_str.as_str() {
                 "rgb" | "rgba" => {
@@ -351,7 +359,9 @@ fn parse_single_value<'i, 't>(
                 }
             }
         }
-        _ => token_to_theme_value(&token, unsupported_units).map_err(|_| parser.new_custom_error(())),
+        _ => {
+            token_to_theme_value(&token, unsupported_units).map_err(|_| parser.new_custom_error(()))
+        }
     }
 }
 
@@ -367,7 +377,8 @@ fn parse_function_args<'i, 't>(
             // Reuse token_to_theme_value for consistency but keep numbers simple in functions
             match token {
                 Token::Number { value, .. } => Ok(ThemeValue::Number(*value as f64)),
-                _ => token_to_theme_value(&token, unsupported_units).map_err(|_| parser.new_custom_error(())),
+                _ => token_to_theme_value(&token, unsupported_units)
+                    .map_err(|_| parser.new_custom_error(())),
             }
         })
     })
