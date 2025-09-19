@@ -1,5 +1,8 @@
 use cosmic_text::{fontdb::Database, Attrs, Buffer, Family, FontSystem, Metrics, SwashCache};
-use std::{collections::HashSet, sync::Mutex};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Mutex,
+};
 
 use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
 use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
@@ -9,6 +12,7 @@ use lazy_static::lazy_static;
 lazy_static! {
     pub static ref FONT_SYSTEM: Mutex<FontSystem> = Mutex::new(build_font_system());
     pub static ref SWASH_CACHE: Mutex<SwashCache> = Mutex::new(SwashCache::new());
+    pub static ref GENERIC_FAMILIES: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
 }
 
 fn build_font_system() -> FontSystem {
@@ -34,10 +38,13 @@ fn setup_default_fonts(fontdb: &mut Database) {
         })
         .collect();
 
+    let mut generic_families = GENERIC_FAMILIES.lock().unwrap();
+
     // Set default sans serif
     for family in ["Helvetica", "Arial", "Liberation Sans"] {
         if families.contains(family) {
             fontdb.set_sans_serif_family(family);
+            generic_families.insert("sans-serif".to_string(), family.to_string());
             break;
         }
     }
@@ -51,6 +58,7 @@ fn setup_default_fonts(fontdb: &mut Database) {
     ] {
         if families.contains(family) {
             fontdb.set_monospace_family(family);
+            generic_families.insert("monospace".to_string(), family.to_string());
             break;
         }
     }
@@ -64,6 +72,7 @@ fn setup_default_fonts(fontdb: &mut Database) {
     ] {
         if families.contains(family) {
             fontdb.set_serif_family(family);
+            generic_families.insert("serif".to_string(), family.to_string());
             break;
         }
     }
