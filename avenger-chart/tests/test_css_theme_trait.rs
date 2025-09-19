@@ -1,7 +1,7 @@
 //! Tests for CSS Theme implementing the Theme trait
 
 use avenger_chart::theme::css::CssTheme;
-use avenger_chart::theme::{Theme, ThemeContext, ThemeProperty, ThemeValue};
+use avenger_chart::theme::{Theme, ThemeContext, ThemeValue};
 
 #[test]
 fn test_css_theme_implements_trait() {
@@ -17,7 +17,7 @@ fn test_css_theme_implements_trait() {
 
     // Test basic mark styling
     let mark_context = ThemeContext::new("mark");
-    let fill = theme.query(&mark_context, &ThemeProperty::FillColor);
+    let fill = theme.query(&mark_context, "fill");
     match fill {
         ThemeValue::Color(rgba) => {
             // Color #4c78a8
@@ -29,17 +29,17 @@ fn test_css_theme_implements_trait() {
         _ => panic!("Expected color value"),
     }
 
-    let stroke_width = theme.query(&mark_context, &ThemeProperty::StrokeWidth);
+    let stroke_width = theme.query(&mark_context, "stroke-width");
     assert!(matches!(stroke_width, ThemeValue::Length(2.0, _)));
 
     // Test mark with type attribute
     let symbol_context = ThemeContext::new("mark").with_subtype("symbol");
-    let size = theme.query(&symbol_context, &ThemeProperty::Size);
+    let size = theme.query(&symbol_context, "size");
     assert!(matches!(size, ThemeValue::Length(100.0, _)));
 
     // Test axis styling
     let axis_context = ThemeContext::new("axis");
-    let color = theme.query(&axis_context, &ThemeProperty::Color);
+    let color = theme.query(&axis_context, "color");
     match color {
         ThemeValue::Color(rgba) => {
             // Color #333 (expanded to #333333)
@@ -51,17 +51,17 @@ fn test_css_theme_implements_trait() {
         _ => panic!("Expected color value"),
     }
 
-    let font_size = theme.query(&axis_context, &ThemeProperty::FontSize);
+    let font_size = theme.query(&axis_context, "font-size");
     assert!(matches!(font_size, ThemeValue::Length(14.0, _)));
 
     // Test axis with class
     let label_context = ThemeContext::new("axis").with_class("label");
-    let font_weight = theme.query(&label_context, &ThemeProperty::FontWeight);
-    assert!(matches!(font_weight, ThemeValue::Double(300.0)));
+    let font_weight = theme.query(&label_context, "font-weight");
+    assert!(matches!(font_weight, ThemeValue::Number(n) if n == 300.0));
 
     // Test legend with class
     let legend_title_context = ThemeContext::new("legend").with_class("title");
-    let title_size = theme.query(&legend_title_context, &ThemeProperty::FontSize);
+    let title_size = theme.query(&legend_title_context, "font-size");
     assert!(matches!(title_size, ThemeValue::Length(16.0, _)));
 }
 
@@ -124,7 +124,7 @@ fn test_clone_box() {
     // Test that clone_box works
     let cloned: Box<dyn Theme> = theme.clone_box();
     let context = ThemeContext::new("mark");
-    let fill = cloned.query(&context, &ThemeProperty::FillColor);
+    let fill = cloned.query(&context, "fill");
 
     match fill {
         ThemeValue::Color(rgba) => {

@@ -2,8 +2,8 @@
 
 use super::CompiledRule;
 use super::selector_impl::{ChartPseudoClass, ChartSelectors};
-use super::value::{parse_hex_color, parse_named_color, parse_rgb_function};
-use crate::theme::{LengthUnit, ThemeValue};
+use super::value::parse_rgb_function;
+use crate::theme::{LengthUnit, ThemeValue, parse_color_string};
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
@@ -165,46 +165,20 @@ impl<'i> DeclarationParser<'i> for DeclarationParserImpl {
     ) -> Result<(), ParseError<'i, ()>> {
         let property = name.to_string();
 
-        // Parse value
-        // For CSS variables and range properties, collect all values
-        if property.starts_with("--")
-            || property.ends_with("-discrete")
-            || property.ends_with("-continuous")
-        {
-            // Parse comma-separated list
-            match parse_value_list(input) {
-                Ok(values) => {
-                    if values.len() == 1 {
-                        self.declarations
-                            .insert(property, values.into_iter().next().unwrap());
-                    } else {
-                        // Join values as a comma-separated string
-                        let joined = values
-                            .iter()
-                            .map(|v| match v {
-                                ThemeValue::Color(rgba) => {
-                                    format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue)
-                                }
-                                ThemeValue::String(s) | ThemeValue::Keyword(s) => s.clone(),
-                                ThemeValue::Double(n) => n.to_string(),
-                                ThemeValue::Float(f) => f.to_string(),
-                                _ => String::new(),
-                            })
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        self.declarations
-                            .insert(property, ThemeValue::String(joined));
-                    }
-                }
-                Err(_) => return Err(input.new_custom_error(())),
+        // Always try to parse as comma-separated list
+        let values = input.parse_comma_separated(|p| parse_single_value(p))?;
+
+        // Store based on number of values
+        match values.len() {
+            0 => return Err(input.new_custom_error(())),
+            1 => {
+                // Single value - store directly
+                self.declarations
+                    .insert(property, values.into_iter().next().unwrap());
             }
-        } else {
-            // Parse single value
-            match parse_single_value(input) {
-                Ok(value) => {
-                    self.declarations.insert(property, value);
-                }
-                Err(_) => return Err(input.new_custom_error(())),
+            _ => {
+                // Multiple values - store as list
+                self.declarations.insert(property, ThemeValue::List(values));
             }
         }
 
@@ -248,16 +222,55 @@ impl<'i> QualifiedRuleParser<'i> for DeclarationParserImpl {
     type Error = ();
 }
 
-/// Parse a list of CSS values (comma-separated)
-fn parse_value_list<'i, 't>(
-    parser: &mut Parser<'i, 't>,
-) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
-    let values = parser.parse_comma_separated(|p| parse_single_value(p))?;
-
-    if values.is_empty() {
-        Err(parser.new_custom_error(()))
-    } else {
-        Ok(values)
+/// Convert a CSS token to a ThemeValue
+fn token_to_theme_value<'i>(token: &Token<'i>) -> Result<ThemeValue, ()> {
+    match token {
+        Token::Ident(s) => {
+            let s_str = s.to_string();
+            // Check for special keywords
+            match s_str.as_str() {
+                "none" => Ok(ThemeValue::None),
+                "initial" => Ok(ThemeValue::Initial),
+                "inherit" => Ok(ThemeValue::Inherit),
+                _ => {
+                    // Always try to parse as color first
+                    if let Some(color) = parse_color_string(&s_str) {
+                        Ok(ThemeValue::Color(color))
+                    } else {
+                        Ok(ThemeValue::String(s_str))
+                    }
+                }
+            }
+        }
+        Token::Number { value, .. } => Ok(ThemeValue::Number(*value as f64)),
+        Token::Dimension { value, unit, .. } => {
+            let num_value = *value as f64;
+            match unit.as_ref() {
+                "px" => Ok(ThemeValue::Length(num_value, LengthUnit::Px)),
+                "em" => Ok(ThemeValue::Length(num_value, LengthUnit::Em)),
+                "rem" => Ok(ThemeValue::Length(num_value, LengthUnit::Rem)),
+                "pt" => Ok(ThemeValue::Length(num_value, LengthUnit::Pt)),
+                _ => Ok(ThemeValue::Number(num_value)),
+            }
+        }
+        Token::Percentage { unit_value, .. } => {
+            Ok(ThemeValue::Percentage((*unit_value * 100.0) as f64))
+        }
+        Token::Hash(h) | Token::IDHash(h) => {
+            // The Hash token doesn't include the # character, so we need to add it
+            let hex_with_hash = format!("#{}", h.as_ref());
+            if let Some(color) = parse_color_string(&hex_with_hash) {
+                Ok(ThemeValue::Color(color))
+            } else {
+                Err(())
+            }
+        }
+        Token::QuotedString(s) => {
+            let s_str = s.to_string();
+            // Quoted strings stay as strings (don't parse as colors)
+            Ok(ThemeValue::String(s_str))
+        }
+        _ => Err(()),
     }
 }
 
@@ -267,72 +280,11 @@ fn parse_single_value<'i, 't>(
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
     parser.skip_whitespace();
 
-    match parser.next() {
-        Ok(Token::Ident(s)) => {
-            let s_str = s.to_string();
-            // Check for special keywords
-            match s_str.as_str() {
-                "none" => Ok(ThemeValue::None),
-                "initial" => Ok(ThemeValue::Initial),
-                "inherit" => Ok(ThemeValue::Inherit),
-                _ => {
-                    // Check if it's a color
-                    if let Some(color) = parse_named_color(&s_str) {
-                        Ok(ThemeValue::Color(color))
-                    } else {
-                        Ok(ThemeValue::Keyword(s_str))
-                    }
-                }
-            }
-        }
-        Ok(Token::Number { value, .. }) => {
-            let num_value = *value as f64;
-            // Check for unit - save state first in case it's not a unit
-            let state = parser.state();
-            match parser.next() {
-                Ok(Token::Ident(unit)) => {
-                    match unit.as_ref() {
-                        "px" => Ok(ThemeValue::Length(num_value, LengthUnit::Px)),
-                        "em" => Ok(ThemeValue::Length(num_value, LengthUnit::Em)),
-                        "rem" => Ok(ThemeValue::Length(num_value, LengthUnit::Rem)),
-                        "pt" => Ok(ThemeValue::Length(num_value, LengthUnit::Pt)),
-                        "%" => Ok(ThemeValue::Percentage(num_value)),
-                        _ => {
-                            // Not a recognized unit, reset and treat as plain number
-                            parser.reset(&state);
-                            Ok(ThemeValue::Double(num_value))
-                        }
-                    }
-                }
-                _ => {
-                    // No unit follows, reset and treat as plain number
-                    parser.reset(&state);
-                    Ok(ThemeValue::Double(num_value))
-                }
-            }
-        }
-        Ok(Token::Dimension { value, unit, .. }) => {
-            let num_value = *value as f64;
-            match unit.as_ref() {
-                "px" => Ok(ThemeValue::Length(num_value, LengthUnit::Px)),
-                "em" => Ok(ThemeValue::Length(num_value, LengthUnit::Em)),
-                "rem" => Ok(ThemeValue::Length(num_value, LengthUnit::Rem)),
-                "pt" => Ok(ThemeValue::Length(num_value, LengthUnit::Pt)),
-                _ => Ok(ThemeValue::Double(num_value)),
-            }
-        }
-        Ok(Token::Percentage { unit_value, .. }) => {
-            Ok(ThemeValue::Percentage((*unit_value * 100.0) as f64))
-        }
-        Ok(Token::Hash(h)) | Ok(Token::IDHash(h)) => {
-            if let Some(color) = parse_hex_color(h.as_ref()) {
-                Ok(ThemeValue::Color(color))
-            } else {
-                Err(parser.new_custom_error(()))
-            }
-        }
-        Ok(Token::QuotedString(s)) => Ok(ThemeValue::String(s.to_string())),
-        Ok(Token::Function(name)) => {
+    let token = parser.next()?;
+
+    // Special handling for functions and numbers with potential units
+    match token {
+        Token::Function(name) => {
             let name_str = name.to_string();
             let args = parse_function_args(parser).map_err(|_| parser.new_custom_error(()))?;
 
@@ -355,7 +307,33 @@ fn parse_single_value<'i, 't>(
                 _ => Ok(ThemeValue::Function(name_str, args)),
             }
         }
-        _ => Err(parser.new_custom_error(())),
+        Token::Number { value, .. } => {
+            let num_value = *value as f64;
+            // Check for unit - save state first in case it's not a unit
+            let state = parser.state();
+            match parser.next() {
+                Ok(Token::Ident(unit)) => {
+                    match unit.as_ref() {
+                        "px" => Ok(ThemeValue::Length(num_value, LengthUnit::Px)),
+                        "em" => Ok(ThemeValue::Length(num_value, LengthUnit::Em)),
+                        "rem" => Ok(ThemeValue::Length(num_value, LengthUnit::Rem)),
+                        "pt" => Ok(ThemeValue::Length(num_value, LengthUnit::Pt)),
+                        "%" => Ok(ThemeValue::Percentage(num_value)),
+                        _ => {
+                            // Not a recognized unit, reset and treat as plain number
+                            parser.reset(&state);
+                            Ok(ThemeValue::Number(num_value))
+                        }
+                    }
+                }
+                _ => {
+                    // No unit follows, reset and treat as plain number
+                    parser.reset(&state);
+                    Ok(ThemeValue::Number(num_value))
+                }
+            }
+        }
+        _ => token_to_theme_value(&token).map_err(|_| parser.new_custom_error(())),
     }
 }
 
@@ -366,11 +344,11 @@ fn parse_function_args<'i, 't>(
     parser.parse_nested_block(|p| {
         p.parse_comma_separated(|parser| {
             parser.skip_whitespace();
-            match parser.next() {
-                Ok(Token::Number { value, .. }) => Ok(ThemeValue::Double(*value as f64)),
-                Ok(Token::Ident(s)) => Ok(ThemeValue::String(s.to_string())),
-                Ok(Token::QuotedString(s)) => Ok(ThemeValue::String(s.to_string())),
-                _ => Err(parser.new_custom_error(())),
+            let token = parser.next()?;
+            // Reuse token_to_theme_value for consistency but keep numbers simple in functions
+            match token {
+                Token::Number { value, .. } => Ok(ThemeValue::Number(*value as f64)),
+                _ => token_to_theme_value(&token).map_err(|_| parser.new_custom_error(())),
             }
         })
     })

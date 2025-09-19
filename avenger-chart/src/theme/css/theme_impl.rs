@@ -1,7 +1,7 @@
 //! Implementation of the Theme trait for CSS-based themes
 
 use super::CssTheme;
-use crate::theme::{LengthUnit, Theme, ThemeContext, ThemeProperty, ThemeValue};
+use crate::theme::{LengthUnit, Theme, ThemeContext, ThemeValue};
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 
@@ -15,63 +15,23 @@ impl CssTheme {
             .filter(|s| !s.is_empty())
             .collect()
     }
-
-    /// Convert a ThemeProperty to a CSS property name
-    fn property_to_css(&self, property: &ThemeProperty) -> &'static str {
-        match property {
-            ThemeProperty::FontFamily => "font-family",
-            ThemeProperty::FontSize => "font-size",
-            ThemeProperty::FontWeight => "font-weight",
-            ThemeProperty::Color => "color",
-            ThemeProperty::BackgroundColor => "background-color",
-            ThemeProperty::FillColor => "fill",
-            ThemeProperty::StrokeColor => "stroke",
-            ThemeProperty::GridColor => "grid-color",
-            ThemeProperty::StrokeWidth => "stroke-width",
-            ThemeProperty::Size => "size",
-            ThemeProperty::Padding => "padding",
-            ThemeProperty::Spacing => "spacing",
-            ThemeProperty::GridOpacity => "grid-opacity",
-            ThemeProperty::Opacity => "opacity",
-            ThemeProperty::CornerRadius => "corner-radius",
-            ThemeProperty::LabelAngle => "label-angle",
-            ThemeProperty::Custom(name) => {
-                // For custom properties, we'll need to leak the string to get a &'static str
-                // This is not ideal but works for now. In a real implementation,
-                // we might want to return a Cow<'static, str> or String instead.
-                Box::leak(name.clone().into_boxed_str())
-            }
-        }
-    }
 }
 
 impl Theme for CssTheme {
-    fn query(&self, context: &ThemeContext, property: &ThemeProperty) -> ThemeValue {
-        // Context-aware property mapping
-        let css_property =
-            if context.element_type == "axis" && context.classes.contains(&"grid".to_string()) {
-                match property {
-                    ThemeProperty::GridColor => "stroke", // Grid lines use stroke, not grid-color
-                    ThemeProperty::GridOpacity => "opacity",
-                    _ => self.property_to_css(property),
-                }
-            } else {
-                self.property_to_css(property)
-            };
-
-        let value = self.query_css(context, css_property);
+    fn query(&self, context: &ThemeContext, property: &str) -> ThemeValue {
+        let value = self.query_css(context, property);
 
         // Convert rem/em units to pixels for font-size
-        if matches!(property, ThemeProperty::FontSize) {
+        if property == "font-size" {
             if let ThemeValue::Length(size, LengthUnit::Rem) = value {
                 // Convert rem to pixels (rem is relative to base font size)
                 // Round for consistent behavior
-                return ThemeValue::Float(((size * self.base_font_size as f64) as f32).round());
+                return ThemeValue::Number((size * self.base_font_size as f64).round());
             } else if let ThemeValue::Length(size, LengthUnit::Em) = value {
                 // For font-size, em is relative to parent's font size
                 // For now, treat it like rem (this could be improved with parent context)
                 // Round for consistent behavior
-                return ThemeValue::Float(((size * self.base_font_size as f64) as f32).round());
+                return ThemeValue::Number((size * self.base_font_size as f64).round());
             }
         }
 
@@ -112,7 +72,7 @@ impl Theme for CssTheme {
 
             // Parse the range value into appropriate ScaleRange
             match range_value {
-                ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                ThemeValue::String(s) => {
                     // Parse comma-separated list
                     let values = Self::parse_css_list(&s);
                     if !values.is_empty() {
@@ -129,7 +89,7 @@ impl Theme for CssTheme {
                     let mut parsed_values = Vec::new();
                     for val in values {
                         match val {
-                            ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                            ThemeValue::String(s) => {
                                 parsed_values.push(s.clone());
                             }
                             ThemeValue::Color(rgba) => {
@@ -137,11 +97,8 @@ impl Theme for CssTheme {
                                     format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
                                 parsed_values.push(hex);
                             }
-                            ThemeValue::Double(n) => {
+                            ThemeValue::Number(n) => {
                                 parsed_values.push(n.to_string());
-                            }
-                            ThemeValue::Float(f) => {
-                                parsed_values.push(f.to_string());
                             }
                             _ => {}
                         }
@@ -159,7 +116,7 @@ impl Theme for CssTheme {
                     // Try to resolve variable manually
                     if let Some(resolved) = self.variables.get(&var_name) {
                         match resolved {
-                            ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                            ThemeValue::String(s) => {
                                 let values = Self::parse_css_list(&s);
                                 if !values.is_empty() {
                                     return self.create_scale_range(
@@ -199,7 +156,7 @@ impl Theme for CssTheme {
 
         // Parse the result into a list of colors
         match colors_value {
-            ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+            ThemeValue::String(s) => {
                 let colors = Self::parse_css_list(&s);
                 if !colors.is_empty() {
                     return colors;
@@ -209,7 +166,7 @@ impl Theme for CssTheme {
                 let mut colors = Vec::new();
                 for val in values {
                     match val {
-                        ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                        ThemeValue::String(s) => {
                             colors.push(s);
                         }
                         ThemeValue::Color(rgba) => {
@@ -247,7 +204,7 @@ impl Theme for CssTheme {
 
         // Parse the result into a list of shapes
         match shapes_value {
-            ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+            ThemeValue::String(s) => {
                 let shapes = Self::parse_css_list(&s);
                 if !shapes.is_empty() {
                     return shapes;
@@ -256,7 +213,7 @@ impl Theme for CssTheme {
             ThemeValue::List(values) => {
                 let mut shapes = Vec::new();
                 for val in values {
-                    if let ThemeValue::String(s) | ThemeValue::Keyword(s) = val {
+                    if let ThemeValue::String(s) = val {
                         shapes.push(s);
                     }
                 }
@@ -287,7 +244,7 @@ impl Theme for CssTheme {
 
         // Parse the result into a list of dash patterns
         match dashes_value {
-            ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+            ThemeValue::String(s) => {
                 let dashes = Self::parse_css_list(&s);
                 if !dashes.is_empty() {
                     return dashes;
@@ -296,7 +253,7 @@ impl Theme for CssTheme {
             ThemeValue::List(values) => {
                 let mut dashes = Vec::new();
                 for val in values {
-                    if let ThemeValue::String(s) | ThemeValue::Keyword(s) = val {
+                    if let ThemeValue::String(s) = val {
                         dashes.push(s);
                     }
                 }
@@ -334,7 +291,7 @@ impl Theme for CssTheme {
                     let hex = format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
                     mark_defaults.insert("fill".to_string(), ScalarValue::Utf8(Some(hex)));
                 }
-                ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                ThemeValue::String(s) => {
                     mark_defaults.insert("fill".to_string(), ScalarValue::Utf8(Some(s)));
                 }
                 _ => {}
@@ -346,7 +303,7 @@ impl Theme for CssTheme {
                     let hex = format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
                     mark_defaults.insert("stroke".to_string(), ScalarValue::Utf8(Some(hex)));
                 }
-                ThemeValue::String(s) | ThemeValue::Keyword(s) => {
+                ThemeValue::String(s) => {
                     mark_defaults.insert("stroke".to_string(), ScalarValue::Utf8(Some(s)));
                 }
                 _ => {}
@@ -388,9 +345,8 @@ impl Theme for CssTheme {
         let theme_value = self.query_css(&context, css_property);
 
         match theme_value {
-            ThemeValue::String(s) | ThemeValue::Keyword(s) => Some(ScalarValue::Utf8(Some(s))),
-            ThemeValue::Double(n) => Some(ScalarValue::Float32(Some(n as f32))),
-            ThemeValue::Float(f) => Some(ScalarValue::Float32(Some(f))),
+            ThemeValue::String(s) => Some(ScalarValue::Utf8(Some(s))),
+            ThemeValue::Number(n) => Some(ScalarValue::Float32(Some(n as f32))),
             ThemeValue::Length(n, _) => Some(ScalarValue::Float32(Some(n as f32))),
             ThemeValue::Color(rgba) => {
                 let hex = format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
