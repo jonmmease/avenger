@@ -60,9 +60,6 @@ impl PrecomputedHash for ChartString {
 /// Pseudo-classes for chart elements
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ChartPseudoClass {
-    FirstChild,
-    LastChild,
-    NthChild(i32),
     Hover,
     Active,
 }
@@ -85,9 +82,6 @@ impl ToCss for ChartPseudoClass {
         W: fmt::Write,
     {
         match self {
-            ChartPseudoClass::FirstChild => dest.write_str(":first-child"),
-            ChartPseudoClass::LastChild => dest.write_str(":last-child"),
-            ChartPseudoClass::NthChild(n) => write!(dest, ":nth-child({})", n),
             ChartPseudoClass::Hover => dest.write_str(":hover"),
             ChartPseudoClass::Active => dest.write_str(":active"),
         }
