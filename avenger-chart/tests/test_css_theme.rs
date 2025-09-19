@@ -165,10 +165,11 @@ fn test_multiple_unsupported_units_error() {
     assert!(result.is_err());
     let error = result.unwrap_err();
     assert!(error.contains("Unsupported CSS units"));
-    assert!(error.contains("em"));
-    assert!(error.contains("pt"));
-    assert!(error.contains("ex"));
+    // Units should be deduplicated and sorted
     assert!(error.contains("cm"));
+    assert!(error.contains("em"));
+    assert!(error.contains("ex"));
+    assert!(error.contains("pt"));
 }
 
 #[test]
