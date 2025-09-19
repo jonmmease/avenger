@@ -32,10 +32,26 @@ pub trait Theme: Send + Sync {
 
     /// Get font family for a context
     fn font_family(&self, context: &ThemeContext) -> String {
-        self.query(context, "font-family")
-            .as_string()
-            .unwrap_or("Atkinson Hyperlegible Next")
-            .to_string()
+        let font_family_value = self.query(context, "font-family");
+
+        // Get the list of fonts from the theme value
+        let fonts = match font_family_value {
+            ThemeValue::List(values) => {
+                // It's already a list, extract the font names
+                values
+                    .into_iter()
+                    .filter_map(|v| v.as_string().map(|s| s.to_string()))
+                    .collect()
+            }
+            ThemeValue::String(s) => {
+                // Single font
+                vec![s]
+            }
+            _ => vec!["sans-serif".to_string()],
+        };
+
+        // Return the first available font from the list
+        select_available_font(fonts)
     }
 
     /// Get font size for a context
@@ -593,6 +609,15 @@ pub trait Theme: Send + Sync {
             }
         }
     }
+}
+
+/// Select the first available font from a list of font families
+/// Checks against the fonts available in the system using avenger-text
+fn select_available_font(fonts: Vec<String>) -> String {
+    use avenger_text::font_resolver::{FontResolver, default_font_resolver};
+
+    let resolver = default_font_resolver();
+    resolver.select_available_font(fonts)
 }
 
 // Implement Theme for Arc<dyn Theme> to allow passing around shared references
