@@ -371,8 +371,6 @@ impl<'i> SelectorParser<'i> for ChartSelectorParser {
         use ChartPseudoClass::*;
 
         match name.as_ref() {
-            "first-child" => Ok(FirstChild),
-            "last-child" => Ok(LastChild),
             "hover" => Ok(Hover),
             "active" => Ok(Active),
             _ => Err(location.new_custom_error(
@@ -387,18 +385,10 @@ impl<'i> SelectorParser<'i> for ChartSelectorParser {
         parser: &mut Parser<'i, 't>,
         _after_part: bool,
     ) -> Result<ChartPseudoClass, cssparser::ParseError<'i, Self::Error>> {
-        use ChartPseudoClass::*;
-
-        match name.as_ref() {
-            "nth-child" => {
-                // Parse the argument (e.g., "2" from nth-child(2))
-                let n = parser.expect_integer()?;
-                Ok(NthChild(n))
-            }
-            _ => Err(parser.new_custom_error(
-                selectors::parser::SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name),
-            )),
-        }
+        // No functional pseudo-classes supported
+        Err(parser.new_custom_error(
+            selectors::parser::SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name),
+        ))
     }
 
     fn default_namespace(&self) -> Option<super::selector_impl::ChartString> {

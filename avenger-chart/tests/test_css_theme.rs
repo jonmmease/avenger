@@ -135,31 +135,6 @@ fn test_length_units() {
 }
 
 #[test]
-fn test_pseudo_classes() {
-    // Simpler test - just first-child
-    let css = r#"
-        mark:first-child { fill: red; }
-    "#;
-
-    let theme = CssTheme::from_css(css).unwrap();
-
-    let first_context = ThemeContext::new("mark").with_child_info(0, true, false);
-    let first_fill = theme.query_css(&first_context, "fill");
-    if let ThemeValue::Color(color) = first_fill {
-        assert_eq!(color.red, 255);
-    }
-
-    let last_context = ThemeContext::new("mark").with_child_info(2, false, true);
-    let last_fill = theme.query_css(&last_context, "fill");
-    // Last context should not match :first-child, so should get initial value (black)
-    if let ThemeValue::Color(color) = last_fill {
-        assert_eq!(color.red, 0);
-        assert_eq!(color.green, 0);
-        assert_eq!(color.blue, 0);
-    }
-}
-
-#[test]
 fn test_specificity_cascade() {
     let css = r#"
         mark { fill: black; }                /* specificity: 0,0,1 */
@@ -259,67 +234,4 @@ fn test_descendant_selectors() {
     let title = canvas.child("title");
     let title_size = theme.query_css(&title, "font-size");
     assert!(matches!(title_size, ThemeValue::Length(20.0, _)));
-}
-
-#[test]
-fn test_pseudo_class_selectors() {
-    let css = r#"
-        mark:first-child { fill: red; }
-        mark:last-child { fill: blue; }
-        mark:nth-child(2) { fill: green; }
-        legend:first-child { font-size: 20px; }
-    "#;
-
-    let theme = CssTheme::from_css(css).unwrap();
-
-    // Test first mark
-    let first_mark = ThemeContext::new("mark").with_child_info(0, true, false);
-    let fill = theme.query_css(&first_mark, "fill");
-    if let ThemeValue::String(s) = fill {
-        assert_eq!(s, "red");
-    } else if let ThemeValue::Color(color) = fill {
-        // We expect red color
-        assert_eq!(color.red, 255);
-        assert_eq!(color.green, 0);
-        assert_eq!(color.blue, 0);
-    } else {
-        panic!(
-            "Expected fill to be 'red' string or red color, got {:?}",
-            fill
-        );
-    }
-
-    // Test second mark (nth-child(2))
-    let second_mark = ThemeContext::new("mark").with_child_info(1, false, false);
-    let fill = theme.query_css(&second_mark, "fill");
-    if let ThemeValue::String(s) = fill {
-        assert_eq!(s, "green");
-    } else if let ThemeValue::Color(color) = fill {
-        // We expect green color
-        assert_eq!(color.red, 0);
-        assert_eq!(color.green, 128);
-        assert_eq!(color.blue, 0);
-    } else {
-        panic!(
-            "Expected fill to be 'green' string or green color, got {:?}",
-            fill
-        );
-    }
-
-    // Test last mark
-    let last_mark = ThemeContext::new("mark").with_child_info(2, false, true);
-    let fill = theme.query_css(&last_mark, "fill");
-    if let ThemeValue::String(s) = fill {
-        assert_eq!(s, "blue");
-    } else if let ThemeValue::Color(color) = fill {
-        // We expect blue color
-        assert_eq!(color.red, 0);
-        assert_eq!(color.green, 0);
-        assert_eq!(color.blue, 255);
-    } else {
-        panic!(
-            "Expected fill to be 'blue' string or blue color, got {:?}",
-            fill
-        );
-    }
 }

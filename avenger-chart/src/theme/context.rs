@@ -22,16 +22,6 @@ pub struct ThemeContext {
 
     /// Parent context for hierarchical CSS selectors
     pub parent: Option<Arc<ThemeContext>>,
-
-    // Position info for CSS pseudo-class selectors (e.g., third mark, second legend)
-    /// Whether this is the first child of its parent
-    pub is_first_child: bool,
-
-    /// Whether this is the last child of its parent
-    pub is_last_child: bool,
-
-    /// Index of this child (0-based)
-    pub child_index: usize,
 }
 
 impl ThemeContext {
@@ -43,9 +33,6 @@ impl ThemeContext {
             classes: Vec::new(),
             id: None,
             parent: None,
-            is_first_child: false,
-            is_last_child: false,
-            child_index: 0,
         }
     }
 
@@ -57,9 +44,6 @@ impl ThemeContext {
             classes: Vec::new(),
             id: None,
             parent: Some(Arc::new(self.clone())),
-            is_first_child: false,
-            is_last_child: false,
-            child_index: 0,
         }
     }
 
@@ -90,14 +74,6 @@ impl ThemeContext {
     /// Set the ID
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
         self.id = Some(id.into());
-        self
-    }
-
-    /// Set child position info for CSS pseudo-class selectors
-    pub fn with_child_info(mut self, index: usize, is_first: bool, is_last: bool) -> Self {
-        self.child_index = index;
-        self.is_first_child = is_first;
-        self.is_last_child = is_last;
         self
     }
 }
