@@ -10,8 +10,10 @@ use super::PlotRenderer;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::render::types::INITIAL_PLOT_AREA_RATIO;
-use crate::render::{LayoutSolution, Padding};
+use crate::render::LayoutSolution;
 use std::collections::HashMap;
+use crate::guide::OverflowSpaceRequirement;
+use crate::layout::{ChartLayout, LayoutResult};
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {
     /// Compute layout using the coordinate system's capabilities
@@ -24,13 +26,13 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         // Create guide with all configurations applied
         let guide = self.create_configured_guide(scales);
 
-        // Call the dynamic layout helper with the guide
-        self.compute_layout_with_dynamic_guide(width, height, scales, guide)
+        // Call the layout helper with the guide
+        self.compute_layout_with_configured_guide(width, height, scales, guide)
             .await
     }
 
     /// Helper method for dynamic layout with guide
-    pub(super) async fn compute_layout_with_dynamic_guide(
+    pub(super) async fn compute_layout_with_configured_guide(
         &self,
         width: f32,
         height: f32,
@@ -58,15 +60,11 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         );
 
         // Use Taffy layout with the overflow requirements
-        let (padding, taffy_layout) = self
+        let taffy_layout = self
             .compute_layout_with_overflow(width, height, scales, overflow)
             .await?;
 
-        Ok(LayoutSolution {
-            padding,
-            plot_area: Self::calculate_plot_area_from_padding(&padding, width, height),
-            taffy_layout,
-        })
+        Ok(LayoutSolution { taffy_layout })
     }
 
     /// Compute layout using Taffy for the coordinate system
@@ -76,10 +74,8 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         width: f32,
         height: f32,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        overflow: crate::coords::OverflowSpaceRequirement,
-    ) -> Result<(Padding, crate::layout::LayoutResult), AvengerChartError> {
-        use crate::layout::ChartLayout;
-
+        overflow: OverflowSpaceRequirement,
+    ) -> Result<LayoutResult, AvengerChartError> {
         // Get legends with theme applied (ensures measurement uses correct fonts)
         let all_legends = self.get_legends_with_theme(configured_scales);
 
@@ -101,29 +97,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
 
         // Compute layout
         let layout_result = layout.compute(width, height)?;
-
-        // Convert layout bounds to padding
-        let padding = Padding {
-            left: layout_result.plot_area.x,
-            right: width - (layout_result.plot_area.x + layout_result.plot_area.width),
-            top: layout_result.plot_area.y,
-            bottom: height - (layout_result.plot_area.y + layout_result.plot_area.height),
-        };
-
-        Ok((padding, layout_result))
+        Ok(layout_result)
     }
 
-    /// Calculate plot area from padding and total dimensions
-    pub(super) fn calculate_plot_area_from_padding(
-        padding: &Padding,
-        width: f32,
-        height: f32,
-    ) -> (f32, f32, f32, f32) {
-        (
-            padding.left,
-            padding.top,
-            width - padding.left - padding.right,
-            height - padding.top - padding.bottom,
-        )
-    }
 }

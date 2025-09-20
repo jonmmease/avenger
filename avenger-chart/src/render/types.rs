@@ -7,30 +7,17 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 /// The actual plot area is typically 70-85% of total size after padding for axes/legends.
 pub(crate) const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
 
-/// Padding around a plot area
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Padding {
-    pub left: f32,
-    pub right: f32,
-    pub top: f32,
-    pub bottom: f32,
-}
-
-/// Result of layout computation, containing padding and Taffy layout
+/// Result of layout computation from Taffy
 #[derive(Debug, Clone)]
 pub struct LayoutSolution {
-    /// Padding around the plot area
-    pub padding: Padding,
-    /// The actual plot area rectangle (x, y, width, height)
-    pub plot_area: (f32, f32, f32, f32),
-    /// Taffy layout result for dynamic positioning
+    /// Complete layout with all component positions
     pub taffy_layout: crate::layout::LayoutResult,
 }
 
 impl LayoutSolution {
-    /// Get the plot area bounds as a tuple
-    pub fn plot_area_bounds(&self) -> (f32, f32, f32, f32) {
-        self.plot_area
+    /// Get the plot area bounds
+    pub fn plot_area_bounds(&self) -> &crate::layout::LayoutBounds {
+        &self.taffy_layout.plot_area
     }
 }
 

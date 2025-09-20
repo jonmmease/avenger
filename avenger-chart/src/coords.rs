@@ -93,11 +93,11 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &crate::render::Padding,
+        plot_bounds: &crate::layout::LayoutBounds,
         theme: &dyn crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         guide
-            .render(scales, plot_width, plot_height, padding, theme)
+            .render(scales, plot_width, plot_height, plot_bounds, theme)
             .await
     }
 

@@ -18,7 +18,7 @@ pub mod types;
 // Re-export commonly used types
 pub use canvas::CanvasExt;
 pub use context::RenderContext;
-pub use types::{LayoutSolution, Padding, RenderResult};
+pub use types::{LayoutSolution, RenderResult};
 
 use crate::coords::CoordinateSystem;
 use crate::plot::Plot;

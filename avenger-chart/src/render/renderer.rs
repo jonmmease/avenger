@@ -50,8 +50,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let layout = self
             .compute_layout(width, height, &initial_configured_scales)
             .await?;
-        let (plot_area_x, plot_area_y, plot_area_width, plot_area_height) =
-            layout.plot_area_bounds();
+        let plot_bounds = layout.plot_area_bounds();
+        let plot_area_x = plot_bounds.x;
+        let plot_area_y = plot_bounds.y;
+        let plot_area_width = plot_bounds.width;
+        let plot_area_height = plot_bounds.height;
 
         // STAGE 3: REBUILD POSITIONAL SCALES WITH FINAL DIMENSIONS
         // Create final RenderContext with actual plot dimensions
@@ -177,7 +180,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         ),
         AvengerChartError,
     > {
-        let (_, _, plot_area_width, plot_area_height) = layout.plot_area_bounds();
+        let plot_bounds = layout.plot_area_bounds();
+        let plot_area_width = plot_bounds.width;
+        let plot_area_height = plot_bounds.height;
 
         // Render marks
         let mut mark_groups = Vec::new();
@@ -190,7 +195,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Create guide marks (axes, grids, backgrounds)
         let guide_marks = self
-            .create_guide_marks(scales, plot_area_width, plot_area_height, &layout.padding)
+            .create_guide_marks(scales, plot_area_width, plot_area_height, plot_bounds)
             .await?;
 
         // Create legends
@@ -207,7 +212,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
             self.create_title(
                 width,
-                &layout.padding,
+                plot_bounds,
                 Some(*title_bounds),
                 Some(layout.taffy_layout.plot_area),
             )?
@@ -219,7 +224,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let subtitle_marks = if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
             self.create_subtitle(
                 width,
-                &layout.padding,
+                plot_bounds,
                 Some(*subtitle_bounds),
                 Some(layout.taffy_layout.plot_area),
             )?

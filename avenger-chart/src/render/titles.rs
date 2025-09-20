@@ -8,7 +8,7 @@
 use super::PlotRenderer;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::render::Padding;
+use crate::layout::LayoutBounds;
 use avenger_common::types::ColorOrGradient;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -20,7 +20,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
     pub(super) fn create_title(
         &self,
         _total_width: f32,
-        _padding: &Padding,
+        _plot_bounds: &LayoutBounds,
         layout_bounds: Option<crate::layout::LayoutBounds>,
         _plot_area: Option<crate::layout::LayoutBounds>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -70,7 +70,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
     pub(super) fn create_subtitle(
         &self,
         _total_width: f32,
-        _padding: &Padding,
+        _plot_bounds: &LayoutBounds,
         layout_bounds: Option<crate::layout::LayoutBounds>,
         _plot_area: Option<crate::layout::LayoutBounds>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {

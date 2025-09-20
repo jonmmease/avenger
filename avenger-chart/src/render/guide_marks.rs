@@ -6,7 +6,7 @@
 use super::PlotRenderer;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::render::Padding;
+use crate::layout::LayoutBounds;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 
@@ -17,7 +17,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &Padding,
+        plot_bounds: &LayoutBounds,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Create guide with all configurations applied
         let guide = self.create_configured_guide(scales);
@@ -26,7 +26,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         let theme = self.plot.get_theme();
         self.plot
             .coord_system()
-            .render_guide(&guide, scales, plot_width, plot_height, padding, &theme)
+            .render_guide(&guide, scales, plot_width, plot_height, plot_bounds, &theme)
             .await
     }
 }

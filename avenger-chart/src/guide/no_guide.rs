@@ -2,7 +2,7 @@
 
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
-use crate::render::Padding;
+use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
@@ -42,7 +42,7 @@ impl CoordinateGuide for NoGuide {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _padding: &Padding,
+        _plot_bounds: &LayoutBounds,
         _theme: &dyn Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())

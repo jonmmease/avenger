@@ -5,7 +5,7 @@ use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
 use crate::marks::Mark;
-use crate::render::Padding;
+use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
@@ -123,16 +123,16 @@ impl CoordinateGuide for CartesianGuide {
         use avenger_geometry::marks::MarkGeometryUtils;
 
         // For overflow measurement, we can place the plot at origin
-        let initial_padding = Padding {
-            left: 0.0,
-            right: 0.0,
-            top: 0.0,
-            bottom: 0.0,
+        let initial_bounds = LayoutBounds {
+            x: 0.0,
+            y: 0.0,
+            width: plot_width,
+            height: plot_height,
         };
 
         // Render axes to measure their bounding box
         let axis_marks = self
-            .render(scales, plot_width, plot_height, &initial_padding, theme)
+            .render(scales, plot_width, plot_height, &initial_bounds, theme)
             .await?;
 
         // Calculate bounding box of all axis marks
@@ -196,7 +196,7 @@ impl CoordinateGuide for CartesianGuide {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &Padding,
+        plot_bounds: &LayoutBounds,
         theme: &dyn Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
@@ -212,8 +212,8 @@ impl CoordinateGuide for CartesianGuide {
                 clip: false,
                 len: 1,
                 gradients: Vec::new(),
-                x: ScalarOrArray::new_scalar(padding.left),
-                y: ScalarOrArray::new_scalar(padding.top),
+                x: ScalarOrArray::new_scalar(plot_bounds.x),
+                y: ScalarOrArray::new_scalar(plot_bounds.y),
                 width: Some(ScalarOrArray::new_scalar(plot_width)),
                 height: Some(ScalarOrArray::new_scalar(plot_height)),
                 x2: None,
@@ -232,7 +232,7 @@ impl CoordinateGuide for CartesianGuide {
         for (channel, axis) in &self.axes {
             if let Some(scale) = scales.get(channel) {
                 let axis_mark =
-                    axis.render(channel, scale, plot_width, plot_height, padding, theme)?;
+                    axis.render(channel, scale, plot_width, plot_height, plot_bounds, theme)?;
                 marks.push(axis_mark);
             }
         }
