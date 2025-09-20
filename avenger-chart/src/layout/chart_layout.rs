@@ -248,7 +248,7 @@ impl ChartLayout {
         self.plot_area_node = Some(self.taffy.new_leaf(plot_style)?);
 
         // Create overflow region nodes if they exist
-        if overflow.left > 0.0 {
+        if overflow.left > OVERFLOW_THRESHOLD {
             if let Some((row, col)) =
                 self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Left))
             {
@@ -263,7 +263,7 @@ impl ChartLayout {
             }
         }
 
-        if overflow.right > 0.0 {
+        if overflow.right > OVERFLOW_THRESHOLD {
             if let Some((row, col)) =
                 self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Right))
             {
@@ -748,7 +748,7 @@ impl ChartLayout {
     }
 
     /// Measure legend size with mark encodings and return flexibility preference
-    pub fn measure_legend_size<C: crate::coords::CoordinateSystem>(
+    pub fn measure_legend_size<C: CoordinateSystem>(
         channel: &str,
         legend: &Legend,
         scale: &ConfiguredScale,
