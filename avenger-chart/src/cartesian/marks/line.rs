@@ -18,7 +18,7 @@ use crate::marks::util::{
     coerce_bool_channel_with_mark, coerce_numeric_channel_with_mark,
     coerce_stroke_cap_channel_with_mark, coerce_stroke_join_channel_with_mark,
 };
-use crate::render_context::RenderContext;
+use crate::render::RenderContext;
 use crate::scales::ScaleRange;
 use std::sync::Arc;
 

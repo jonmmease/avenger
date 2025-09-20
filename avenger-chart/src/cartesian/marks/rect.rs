@@ -9,7 +9,7 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 use crate::error::AvengerChartError;
 pub use crate::marks::rect::Rect;
 use crate::marks::util::{coerce_color_channel_with_mark, coerce_numeric_channel_with_mark};
-use crate::render_context::RenderContext;
+use crate::render::RenderContext;
 use crate::scales::ScaleRange;
 use avenger_scales::scales::{ScaleImpl, band::BandScale, ordinal::OrdinalScale};
 use datafusion::arrow::datatypes::DataType;

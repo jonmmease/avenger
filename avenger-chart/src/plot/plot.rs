@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::specs::{AxisSpec, ScaleSpec};
-use super::title::{PlotSubtitle, PlotTitle, TitleAlign};
+use super::title::{PlotSubtitle, PlotTitle};
 
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,

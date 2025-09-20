@@ -4,7 +4,7 @@ use crate::impl_mark_trait_common;
 use crate::marks::{Mark, RadiusExpression};
 
 use crate::polar::Polar;
-use crate::render_context::RenderContext;
+use crate::render::RenderContext;
 use crate::scales::ScaleRange;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;

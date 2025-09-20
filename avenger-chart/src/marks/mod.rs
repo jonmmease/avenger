@@ -17,7 +17,7 @@ pub use util::default_scale_for_data_type;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend::LegendRenderer;
-use crate::render_context::RenderContext;
+use crate::render::RenderContext;
 use crate::scales::ScaleRange;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;

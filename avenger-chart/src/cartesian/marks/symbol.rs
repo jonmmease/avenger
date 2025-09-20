@@ -13,7 +13,7 @@ use std::collections::HashMap;
 // Import Symbol for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
-use crate::render_context::RenderContext;
+use crate::render::RenderContext;
 use std::sync::Arc;
 
 // Define position channels for Cartesian Symbol using the macro

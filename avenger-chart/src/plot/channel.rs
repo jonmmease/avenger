@@ -1,14 +1,13 @@
 //! Channel resolution and gathering methods for Plot
 
-use super::specs::ScaleDomainWithRadius;
 use crate::channel::ConditionalValue;
 use crate::channel::resolution::resolve_all_channel_refs;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
-use crate::marks::{ChannelValue, Mark};
+use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::plot::{Plot, ScaleSpec};
-use crate::render_context::RenderContext;
+use crate::render::RenderContext;
 use crate::scales::{ConfiguredScaleDataFusionExt, Scale, create_default_scale_for_channel};
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::dataframe::DataFrame;
@@ -483,3 +482,10 @@ impl<C: CoordinateSystem> Plot<C> {
         used_channels
     }
 }
+
+/// Type alias for scale domain expressions with optional radius information
+pub(crate) type ScaleDomainWithRadius = Vec<(
+    Arc<DataFrame>,
+    datafusion::logical_expr::Expr,
+    Option<RadiusExpression>,
+)>;
