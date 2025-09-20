@@ -18,6 +18,18 @@ use taffy::prelude::*;
 use taffy::{NodeId, TaffyTree};
 use tracing::debug;
 
+/// Structure to hold all the node IDs from the TaffyTree
+#[derive(Debug, Clone)]
+pub(crate) struct TaffyNodes {
+    pub root_node: NodeId,
+    pub plot_area_node: Option<NodeId>,
+    pub guide_overflow_nodes: HashMap<AxisPosition, NodeId>,
+    pub legend_container_nodes: HashMap<LegendPosition, NodeId>,
+    pub legend_nodes: HashMap<String, NodeId>,
+    pub title_node: Option<NodeId>,
+    pub subtitle_node: Option<NodeId>,
+}
+
 /// Dynamic grid-based layout manager for data visualization charts.
 ///
 /// `ChartLayout` orchestrates the spatial arrangement of all visual components in a chart,
@@ -80,19 +92,7 @@ use tracing::debug;
 #[derive(Debug)]
 pub struct ChartLayout {
     taffy: TaffyTree,
-    root_node: NodeId,
-
-    // Component nodes
-    plot_area_node: Option<NodeId>,
-    guide_overflow_nodes: HashMap<AxisPosition, NodeId>, // Guide overflow regions
-    legend_container_nodes: HashMap<LegendPosition, NodeId>, // Flex containers for each position
-    legend_nodes: HashMap<String, NodeId>,               // Individual legend nodes keyed by channel
-    legend_sizes: HashMap<String, Size<f32>>,            // Store measured sizes
-    legend_flexible: HashMap<String, bool>, // Store whether legend prefers flexible layout
-    title_node: Option<NodeId>,
-    subtitle_node: Option<NodeId>,
-
-    // Grid configuration
+    nodes: TaffyNodes,
     grid_layout: GridLayout,
 }
 
@@ -109,7 +109,6 @@ impl ChartLayout {
         marks: &[Arc<dyn Mark<C>>],
         theme: &dyn crate::theme::Theme,
     ) -> Result<Self, AvengerChartError> {
-        let mut taffy = TaffyTree::new();
         let mut builder = GridBuilder::new();
 
         // Build grid structure dynamically
@@ -149,35 +148,6 @@ impl ChartLayout {
             layout_spec,
         )?;
 
-        // Create root node with grid layout
-        // Initial size for root will be set during compute based on layout mode
-        let root_style = Style {
-            display: Display::Grid,
-            grid_template_columns: grid_layout.cols.clone(),
-            grid_template_rows: grid_layout.rows.clone(),
-            size: Size {
-                width: auto(),
-                height: auto(),
-            },
-            ..Default::default()
-        };
-
-        let root_node = taffy.new_leaf(root_style)?;
-
-        let mut layout = ChartLayout {
-            taffy,
-            root_node,
-            plot_area_node: None,
-            guide_overflow_nodes: HashMap::new(),
-            legend_container_nodes: HashMap::new(),
-            legend_nodes: HashMap::new(),
-            legend_sizes: HashMap::new(),
-            legend_flexible: HashMap::new(),
-            title_node: None,
-            subtitle_node: None,
-            grid_layout,
-        };
-
         // Measure legend sizes and flexibility preferences
         let mut legend_sizes = HashMap::new();
         let mut legend_flexible = HashMap::new();
@@ -198,380 +168,135 @@ impl ChartLayout {
                 legend_flexible.insert(channel.clone(), flexible);
             }
         }
-        layout.legend_sizes = legend_sizes;
-        layout.legend_flexible = legend_flexible;
 
-        // Create nodes for each component in the grid
-        layout.create_component_nodes_with_overflow(overflow, legends, scales, title, subtitle)?;
+        // Build the TaffyTree and get all the nodes using the pure function
+        let (taffy, nodes) = build_taffy_tree(
+            &grid_layout,
+            overflow,
+            legends,
+            &legend_sizes,
+            &legend_flexible,
+            title,
+            subtitle,
+        )?;
+
+        // Create the ChartLayout with the built tree and nodes
+        let layout = ChartLayout {
+            taffy,
+            nodes,
+            grid_layout,
+        };
 
         Ok(layout)
     }
 
-    /// Find component position in the grid
-    fn find_component_position(&self, component: &ComponentType) -> Option<(usize, usize)> {
-        self.grid_layout.find_component_position(component)
-    }
-
-    fn create_component_nodes_with_overflow(
+    /// Compute layout with flexible sizing based on LayoutSpec
+    pub(crate) fn compute(
         &mut self,
-        overflow: &crate::coords::OverflowSpaceRequirement,
-        legends: &IndexMap<String, Legend>,
-        _scales: &HashMap<String, ConfiguredScale>,
-        title: Option<&PlotTitle>,
-        subtitle: Option<&PlotSubtitle>,
-    ) -> Result<(), AvengerChartError> {
-        // Find plot area position in the component map
-        let mut plot_row = 0;
-        let mut plot_col = 0;
-
-        for ((row, col), comp_type) in &self.grid_layout.component_cells {
-            if matches!(comp_type, ComponentType::PlotArea) {
-                plot_row = *row;
-                plot_col = *col;
-                break;
+        layout_spec: &LayoutSpec,
+    ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
+        // Normalize the layout spec: when both canvas and plot area are Auto,
+        // use default canvas size (400x300)
+        let normalized_spec = if matches!(&layout_spec.canvas, SizeMode::Auto)
+            && matches!(&layout_spec.plot_area, SizeMode::Auto)
+        {
+            LayoutSpec {
+                canvas: SizeMode::Fixed {
+                    width: 400.0,
+                    height: 300.0,
+                },
+                plot_area: layout_spec.plot_area.clone(),
+                margins: layout_spec.margins.clone(),
             }
-        }
+        } else {
+            layout_spec.clone()
+        };
 
-        // Create plot area node
-        let plot_style = Style {
-            display: Display::Block,
-            grid_row: line((plot_row + 1) as i16), // Convert to 1-based grid line
-            grid_column: line((plot_col + 1) as i16), // Convert to 1-based grid line
-            flex_grow: 1.0,                        // Allow plot area to grow
-            flex_shrink: 1.0,                      // Allow plot area to shrink
-            min_size: Size {
-                width: length(50.0),  // Minimum width
-                height: length(50.0), // Minimum height
+        // Step 1: Configure canvas (root) dimensions
+        let (canvas_width, canvas_height) = match &normalized_spec.canvas {
+            SizeMode::Fixed { width, height } => (length(*width), length(*height)),
+            SizeMode::Width(w) => (length(*w), auto()),
+            SizeMode::Height(h) => (auto(), length(*h)),
+            SizeMode::AspectRatio(_) => {
+                // Canvas aspect ratio not yet supported, default to auto
+                (auto(), auto())
+            }
+            SizeMode::Auto => (auto(), auto()),
+        };
+
+        let root_style = Style {
+            display: Display::Grid,
+            grid_template_columns: self.grid_layout.cols.clone(),
+            grid_template_rows: self.grid_layout.rows.clone(),
+            size: Size {
+                width: canvas_width,
+                height: canvas_height,
             },
             ..Default::default()
         };
-        self.plot_area_node = Some(self.taffy.new_leaf(plot_style)?);
+        self.taffy.set_style(self.nodes.root_node, root_style)?;
 
-        // Create overflow region nodes if they exist
-        if overflow.left > OVERFLOW_THRESHOLD {
-            if let Some((row, col)) =
-                self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Left))
-            {
-                let style = Style {
-                    display: Display::Block,
-                    grid_row: line((row + 1) as i16), // Convert to 1-based
-                    grid_column: line((col + 1) as i16), // Convert to 1-based
-                    ..Default::default()
-                };
-                let node = self.taffy.new_leaf(style)?;
-                self.guide_overflow_nodes.insert(AxisPosition::Left, node);
-            }
-        }
+        // Step 2: Configure plot area dimensions
+        if let Some(plot_node) = self.nodes.plot_area_node {
+            let current_style = self.taffy.style(plot_node)?;
 
-        if overflow.right > OVERFLOW_THRESHOLD {
-            if let Some((row, col)) =
-                self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Right))
-            {
-                let style = Style {
-                    display: Display::Block,
-                    grid_row: line((row + 1) as i16), // Convert to 1-based
-                    grid_column: line((col + 1) as i16), // Convert to 1-based
-                    ..Default::default()
-                };
-                let node = self.taffy.new_leaf(style)?;
-                self.guide_overflow_nodes.insert(AxisPosition::Right, node);
-            }
-        }
+            let (plot_width, plot_height, aspect_ratio) = match &normalized_spec.plot_area {
+                SizeMode::Fixed { width, height } => (length(*width), length(*height), None),
+                SizeMode::Width(w) => (length(*w), auto(), None),
+                SizeMode::Height(h) => (auto(), length(*h), None),
+                SizeMode::AspectRatio(ratio) => (auto(), auto(), Some(*ratio)),
+                SizeMode::Auto => (auto(), auto(), None),
+            };
 
-        if overflow.top > OVERFLOW_THRESHOLD {
-            if let Some((row, col)) =
-                self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Top))
-            {
-                let style = Style {
-                    display: Display::Block,
-                    grid_row: line((row + 1) as i16), // Convert to 1-based
-                    grid_column: line((col + 1) as i16), // Convert to 1-based
-                    ..Default::default()
-                };
-                let node = self.taffy.new_leaf(style)?;
-                self.guide_overflow_nodes.insert(AxisPosition::Top, node);
-            }
-        }
-
-        if overflow.bottom > OVERFLOW_THRESHOLD {
-            if let Some((row, col)) =
-                self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Bottom))
-            {
-                let style = Style {
-                    display: Display::Block,
-                    grid_row: line((row + 1) as i16), // Convert to 1-based
-                    grid_column: line((col + 1) as i16), // Convert to 1-based
-                    ..Default::default()
-                };
-                let node = self.taffy.new_leaf(style)?;
-                self.guide_overflow_nodes.insert(AxisPosition::Bottom, node);
-            }
-        }
-
-        // Helper function to calculate grid column based on TitleAlign
-        let calculate_grid_column = |col: usize, align: TitleAlign| {
-            match align {
-                TitleAlign::PlotAreaOnly => {
-                    // Only span the plot area column
-                    let mut plot_col = col;
-                    for ((_, c), comp) in &self.grid_layout.component_cells {
-                        if matches!(comp, ComponentType::PlotArea) {
-                            plot_col = *c;
-                            break;
+            let plot_style = Style {
+                display: Display::Block,
+                size: Size {
+                    width: plot_width,
+                    height: plot_height,
+                },
+                aspect_ratio,
+                grid_row: current_style.grid_row,
+                grid_column: current_style.grid_column,
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                // Ensure minimum size for fixed dimensions
+                // Use the same value as size if it's fixed, otherwise use default minimum
+                min_size: Size {
+                    width: match &normalized_spec.plot_area {
+                        SizeMode::Fixed { width, .. } | SizeMode::Width(width) => length(*width),
+                        _ => length(50.0),
+                    },
+                    height: match &normalized_spec.plot_area {
+                        SizeMode::Fixed { height, .. } | SizeMode::Height(height) => {
+                            length(*height)
                         }
-                    }
-                    line((plot_col + 1) as i16)
-                }
-                TitleAlign::FullWidth => {
-                    // Find the rightmost column with a component
-                    let mut end_col = col;
-                    for ((_, c), _comp) in &self.grid_layout.component_cells {
-                        if *c > end_col {
-                            end_col = *c;
-                        }
-                    }
+                        _ => length(50.0),
+                    },
+                },
+                ..Default::default()
+            };
+            self.taffy.set_style(plot_node, plot_style)?;
+        }
 
-                    let span_count = (end_col - col + 1) as u16;
-                    if span_count == 1 {
-                        line((col + 1) as i16)
-                    } else {
-                        Line {
-                            start: line((col + 1) as i16),
-                            end: line((end_col + 2) as i16),
-                        }
-                    }
-                }
+        // Step 3: Determine available space for layout computation
+        // If dimension is fixed, use Definite; otherwise use MinContent to size based on content
+        let available_width = match &normalized_spec.canvas {
+            SizeMode::Fixed { width, .. } | SizeMode::Width(width) => {
+                AvailableSpace::Definite(*width)
             }
+            _ => AvailableSpace::MinContent,
         };
 
-        // Create title node if present
-        if let Some((row, col)) = self.find_component_position(&ComponentType::Title) {
-            let grid_col = if let Some(t) = title {
-                calculate_grid_column(col, t.align)
-            } else {
-                // Default to full width if no title config (shouldn't happen)
-                line((col + 1) as i16)
-            };
-
-            let style = Style {
-                display: Display::Block,
-                grid_row: line((row + 1) as i16), // Convert to 1-based
-                grid_column: grid_col,
-                ..Default::default()
-            };
-            self.title_node = Some(self.taffy.new_leaf(style)?);
-        }
-
-        // Create subtitle node if present
-        if let Some((row, col)) = self.find_component_position(&ComponentType::Subtitle) {
-            let grid_col = if let Some(s) = subtitle {
-                calculate_grid_column(col, s.align)
-            } else {
-                // Default to full width if no subtitle config (shouldn't happen)
-                line((col + 1) as i16)
-            };
-
-            let style = Style {
-                display: Display::Block,
-                grid_row: line((row + 1) as i16), // Convert to 1-based
-                grid_column: grid_col,
-                ..Default::default()
-            };
-            self.subtitle_node = Some(self.taffy.new_leaf(style)?);
-        }
-
-        // Create legend nodes and group by container
-        let mut legend_nodes_by_container: HashMap<LegendPosition, Vec<taffy::NodeId>> =
-            HashMap::new();
-
-        for (channel, legend) in legends {
-            // Find which container this legend belongs to based on legend position
-            let legend_position = legend.position.unwrap_or(LegendPosition::Right);
-
-            for ((row, col), comp_type) in &self.grid_layout.component_cells {
-                if let ComponentType::LegendContainer(pos) = comp_type {
-                    if *pos == legend_position {
-                        // Create container node if it doesn't exist
-                        if !self.legend_container_nodes.contains_key(pos) {
-                            let container_style = Style {
-                                display: Display::Flex,
-                                flex_direction: FlexDirection::Column,
-                                grid_row: line((*row + 1) as i16), // Convert to 1-based
-                                grid_column: line((*col + 1) as i16), // Convert to 1-based
-                                ..Default::default()
-                            };
-                            let container_node = self.taffy.new_leaf(container_style)?;
-                            self.legend_container_nodes.insert(*pos, container_node);
-                        }
-
-                        // Create legend node
-                        if let Some(size) = self.legend_sizes.get(channel) {
-                            // Check if this legend prefers flexible layout
-                            let is_flexible =
-                                self.legend_flexible.get(channel).copied().unwrap_or(false);
-
-                            let legend_style = if is_flexible {
-                                // Colorbar should stretch vertically
-                                Style {
-                                    display: Display::Block,
-                                    size: Size {
-                                        width: length(size.width),
-                                        height: auto(), // Let it stretch
-                                    },
-                                    flex_grow: 1.0,   // Allow it to grow
-                                    flex_shrink: 1.0, // Allow it to shrink
-                                    min_size: Size {
-                                        width: length(size.width),
-                                        height: length(50.0), // Minimum height
-                                    },
-                                    ..Default::default()
-                                }
-                            } else {
-                                // Regular legends have fixed size
-                                Style {
-                                    display: Display::Block,
-                                    size: Size {
-                                        width: length(size.width),
-                                        height: length(size.height),
-                                    },
-                                    ..Default::default()
-                                }
-                            };
-
-                            let legend_node = self.taffy.new_leaf(legend_style)?;
-                            self.legend_nodes.insert(channel.clone(), legend_node);
-
-                            // Track this legend node for its container
-                            legend_nodes_by_container
-                                .entry(*pos)
-                                .or_default()
-                                .push(legend_node);
-                        }
-                        break;
-                    }
-                }
+        let available_height = match &normalized_spec.canvas {
+            SizeMode::Fixed { height, .. } | SizeMode::Height(height) => {
+                AvailableSpace::Definite(*height)
             }
-        }
-
-        // Set children for each legend container
-        for (position, legend_children) in legend_nodes_by_container {
-            if let Some(container_node) = self.legend_container_nodes.get(&position) {
-                self.taffy.set_children(*container_node, &legend_children)?;
-            }
-        }
-
-        // Set all children on root
-        let mut children = Vec::new();
-        if let Some(node) = self.plot_area_node {
-            children.push(node);
-        }
-        for node in self.guide_overflow_nodes.values() {
-            children.push(*node);
-        }
-        for node in self.legend_container_nodes.values() {
-            children.push(*node);
-        }
-        if let Some(node) = self.title_node {
-            children.push(node);
-        }
-        if let Some(node) = self.subtitle_node {
-            children.push(node);
-        }
-        self.taffy.set_children(self.root_node, &children)?;
-
-        Ok(())
-    }
-
-    /// Compute layout with flexible sizing based on LayoutSpec
-    pub fn compute_with_spec(
-        &mut self,
-        layout_spec: &LayoutSpec,
-    ) -> Result<super::sizing::ComputeResult, AvengerChartError> {
-        // Determine available space based on layout spec
-        let (available_width, available_height) =
-            match (&layout_spec.canvas, &layout_spec.plot_area) {
-                // Case 1: Fixed canvas size (traditional mode)
-                (SizeMode::Fixed { width, height }, _) => {
-                    // Update root to fixed size
-                    let root_style = Style {
-                        display: Display::Grid,
-                        grid_template_columns: self.grid_layout.cols.clone(),
-                        grid_template_rows: self.grid_layout.rows.clone(),
-                        size: Size {
-                            width: length(*width),
-                            height: length(*height),
-                        },
-                        ..Default::default()
-                    };
-                    self.taffy.set_style(self.root_node, root_style)?;
-
-                    (
-                        AvailableSpace::Definite(*width),
-                        AvailableSpace::Definite(*height),
-                    )
-                }
-                // Case 2: Plot area drives layout
-                (SizeMode::Auto, SizeMode::Fixed { width, height }) => {
-                    // Set plot area to fixed size
-                    if let Some(plot_node) = self.plot_area_node {
-                        // Get current plot node style to preserve grid position
-                        let current_style = self.taffy.style(plot_node)?;
-                        let plot_style = Style {
-                            display: Display::Block,
-                            size: Size {
-                                width: length(*width),
-                                height: length(*height),
-                            },
-                            grid_row: current_style.grid_row,
-                            grid_column: current_style.grid_column,
-                            min_size: Size {
-                                width: length(*width),
-                                height: length(*height),
-                            },
-                            ..Default::default()
-                        };
-                        self.taffy.set_style(plot_node, plot_style)?;
-                    }
-
-                    // Update root node for content-based sizing
-                    let root_style = Style {
-                        display: Display::Grid,
-                        grid_template_columns: self.grid_layout.cols.clone(),
-                        grid_template_rows: self.grid_layout.rows.clone(),
-                        size: Size {
-                            width: auto(),
-                            height: auto(),
-                        },
-                        ..Default::default()
-                    };
-                    self.taffy.set_style(self.root_node, root_style)?;
-
-                    // Let canvas size be content-driven
-                    (AvailableSpace::MinContent, AvailableSpace::MinContent)
-                }
-                // Default: Use sensible defaults
-                _ => {
-                    let root_style = Style {
-                        display: Display::Grid,
-                        grid_template_columns: self.grid_layout.cols.clone(),
-                        grid_template_rows: self.grid_layout.rows.clone(),
-                        size: Size {
-                            width: length(400.0),
-                            height: length(300.0),
-                        },
-                        ..Default::default()
-                    };
-                    self.taffy.set_style(self.root_node, root_style)?;
-                    (
-                        AvailableSpace::Definite(400.0),
-                        AvailableSpace::Definite(300.0),
-                    )
-                }
-            };
+            _ => AvailableSpace::MinContent,
+        };
 
         // Compute layout
         self.taffy.compute_layout(
-            self.root_node,
+            self.nodes.root_node,
             Size {
                 width: available_width,
                 height: available_height,
@@ -579,28 +304,16 @@ impl ChartLayout {
         )?;
 
         // Get the actual canvas size after layout
-        let root_layout = self.taffy.layout(self.root_node)?;
+        let root_layout = self.taffy.layout(self.nodes.root_node)?;
         let canvas_size = (root_layout.size.width, root_layout.size.height);
 
         // Extract layout result
-        let layout = self.extract_layout_result()?;
+        let taffy_layout = self.extract_layout_result()?;
 
-        Ok(super::sizing::ComputeResult {
-            layout,
+        Ok(crate::render::LayoutSolution {
+            taffy_layout,
             canvas_size,
         })
-    }
-
-    /// Compute layout for given dimensions (legacy method)
-    pub fn compute(&mut self, width: f32, height: f32) -> Result<LayoutResult, AvengerChartError> {
-        // Use the new method with a fixed canvas size spec
-        let spec = LayoutSpec {
-            canvas: SizeMode::Fixed { width, height },
-            plot_area: SizeMode::Auto,
-            margins: super::sizing::Margins::default(),
-        };
-        let result = self.compute_with_spec(&spec)?;
-        Ok(result.layout)
     }
 
     /// Extract computed positions from Taffy layout
@@ -619,7 +332,7 @@ impl ChartLayout {
         };
 
         // Get plot area bounds
-        if let Some(plot_node) = self.plot_area_node {
+        if let Some(plot_node) = self.nodes.plot_area_node {
             let layout = self.taffy.layout(plot_node)?;
             debug!(
                 x = layout.location.x,
@@ -637,7 +350,7 @@ impl ChartLayout {
         }
 
         // Get guide overflow bounds (stored as axes for backward compatibility)
-        for (position, node) in &self.guide_overflow_nodes {
+        for (position, node) in &self.nodes.guide_overflow_nodes {
             let layout = self.taffy.layout(*node)?;
             debug!(
                 position = ?position,
@@ -662,7 +375,7 @@ impl ChartLayout {
         // Legends are children of containers, so we need to add container position to get absolute position
         // First, get container positions
         let mut container_positions = HashMap::new();
-        for (position, container_node) in &self.legend_container_nodes {
+        for (position, container_node) in &self.nodes.legend_container_nodes {
             let container_layout = self.taffy.layout(*container_node)?;
             debug!(
                 position = ?position,
@@ -679,7 +392,7 @@ impl ChartLayout {
         }
 
         // Now get legend bounds relative to their containers
-        for (channel, legend_node) in &self.legend_nodes {
+        for (channel, legend_node) in &self.nodes.legend_nodes {
             let legend_layout = self.taffy.layout(*legend_node)?;
             if channel == "stroke" {
                 debug!(
@@ -699,7 +412,7 @@ impl ChartLayout {
             let mut absolute_y = legend_layout.location.y;
 
             // Check if this legend is a child of any container
-            for (position, container_node) in &self.legend_container_nodes {
+            for (position, container_node) in &self.nodes.legend_container_nodes {
                 let children = self.taffy.children(*container_node)?;
                 if children.contains(legend_node) {
                     // Found the parent container
@@ -723,7 +436,7 @@ impl ChartLayout {
         }
 
         // Get title bounds
-        if let Some(title_node) = self.title_node {
+        if let Some(title_node) = self.nodes.title_node {
             let layout = self.taffy.layout(title_node)?;
             result.title = Some(LayoutBounds {
                 x: layout.location.x.round(),
@@ -734,7 +447,7 @@ impl ChartLayout {
         }
 
         // Get subtitle bounds
-        if let Some(subtitle_node) = self.subtitle_node {
+        if let Some(subtitle_node) = self.nodes.subtitle_node {
             let layout = self.taffy.layout(subtitle_node)?;
             result.subtitle = Some(LayoutBounds {
                 x: layout.location.x.round(),
@@ -758,4 +471,302 @@ impl ChartLayout {
     ) -> Result<(Size<f32>, bool), AvengerChartError> {
         measure_legend_size(channel, legend, scale, scales, available_space, marks)
     }
+}
+
+/// Pure function to build a TaffyTree with all component nodes
+fn build_taffy_tree(
+    grid_layout: &GridLayout,
+    overflow: &crate::coords::OverflowSpaceRequirement,
+    legends: &IndexMap<String, Legend>,
+    legend_sizes: &HashMap<String, Size<f32>>,
+    legend_flexible: &HashMap<String, bool>,
+    title: Option<&PlotTitle>,
+    subtitle: Option<&PlotSubtitle>,
+) -> Result<(TaffyTree, TaffyNodes), AvengerChartError> {
+    let mut taffy = TaffyTree::new();
+
+    // Create root node with grid layout
+    let root_style = Style {
+        display: Display::Grid,
+        grid_template_columns: grid_layout.cols.clone(),
+        grid_template_rows: grid_layout.rows.clone(),
+        size: Size {
+            width: auto(),
+            height: auto(),
+        },
+        ..Default::default()
+    };
+    let root_node = taffy.new_leaf(root_style)?;
+
+    // Initialize node tracking structure
+    let mut nodes = TaffyNodes {
+        root_node,
+        plot_area_node: None,
+        guide_overflow_nodes: HashMap::new(),
+        legend_container_nodes: HashMap::new(),
+        legend_nodes: HashMap::new(),
+        title_node: None,
+        subtitle_node: None,
+    };
+
+    // Find plot area position and create its node
+    let mut plot_row = 0;
+    let mut plot_col = 0;
+    for ((row, col), comp_type) in &grid_layout.component_cells {
+        if matches!(comp_type, ComponentType::PlotArea) {
+            plot_row = *row;
+            plot_col = *col;
+            break;
+        }
+    }
+
+    let plot_style = Style {
+        display: Display::Block,
+        grid_row: line((plot_row + 1) as i16),
+        grid_column: line((plot_col + 1) as i16),
+        flex_grow: 1.0,
+        flex_shrink: 1.0,
+        min_size: Size {
+            width: length(50.0),
+            height: length(50.0),
+        },
+        ..Default::default()
+    };
+    nodes.plot_area_node = Some(taffy.new_leaf(plot_style)?);
+
+    // Create overflow nodes
+    create_overflow_nodes(&mut taffy, &mut nodes, grid_layout, overflow)?;
+
+    // Create title and subtitle nodes
+    create_title_nodes(&mut taffy, &mut nodes, grid_layout, title, subtitle)?;
+
+    // Create legend nodes
+    create_legend_nodes(
+        &mut taffy,
+        &mut nodes,
+        grid_layout,
+        legends,
+        legend_sizes,
+        legend_flexible,
+    )?;
+
+    // Set all children on root
+    let mut children = Vec::new();
+    if let Some(node) = nodes.plot_area_node {
+        children.push(node);
+    }
+    for node in nodes.guide_overflow_nodes.values() {
+        children.push(*node);
+    }
+    for node in nodes.legend_container_nodes.values() {
+        children.push(*node);
+    }
+    if let Some(node) = nodes.title_node {
+        children.push(node);
+    }
+    if let Some(node) = nodes.subtitle_node {
+        children.push(node);
+    }
+    taffy.set_children(root_node, &children)?;
+
+    Ok((taffy, nodes))
+}
+
+/// Helper function to create overflow nodes
+fn create_overflow_nodes(
+    taffy: &mut TaffyTree,
+    nodes: &mut TaffyNodes,
+    grid_layout: &GridLayout,
+    overflow: &crate::coords::OverflowSpaceRequirement,
+) -> Result<(), AvengerChartError> {
+    // Helper to create a single overflow node
+    let mut create_node = |overflow_value: f32,
+                           overflow_side: OverflowSide,
+                           axis_position: AxisPosition|
+     -> Result<(), AvengerChartError> {
+        if overflow_value > OVERFLOW_THRESHOLD {
+            if let Some((row, col)) =
+                grid_layout.find_component_position(&ComponentType::GuideOverflow(overflow_side))
+            {
+                let style = Style {
+                    display: Display::Block,
+                    grid_row: line((row + 1) as i16),
+                    grid_column: line((col + 1) as i16),
+                    ..Default::default()
+                };
+                let node = taffy.new_leaf(style)?;
+                nodes.guide_overflow_nodes.insert(axis_position, node);
+            }
+        }
+        Ok(())
+    };
+
+    create_node(overflow.left, OverflowSide::Left, AxisPosition::Left)?;
+    create_node(overflow.right, OverflowSide::Right, AxisPosition::Right)?;
+    create_node(overflow.top, OverflowSide::Top, AxisPosition::Top)?;
+    create_node(overflow.bottom, OverflowSide::Bottom, AxisPosition::Bottom)?;
+
+    Ok(())
+}
+
+/// Helper function to create title and subtitle nodes
+fn create_title_nodes(
+    taffy: &mut TaffyTree,
+    nodes: &mut TaffyNodes,
+    grid_layout: &GridLayout,
+    title: Option<&PlotTitle>,
+    subtitle: Option<&PlotSubtitle>,
+) -> Result<(), AvengerChartError> {
+    // Helper function to calculate grid column based on TitleAlign
+    let calculate_grid_column =
+        |col: usize, align: TitleAlign, grid_layout: &GridLayout| match align {
+            TitleAlign::PlotAreaOnly => {
+                let mut plot_col = col;
+                for ((_, c), comp) in &grid_layout.component_cells {
+                    if matches!(comp, ComponentType::PlotArea) {
+                        plot_col = *c;
+                        break;
+                    }
+                }
+                line((plot_col + 1) as i16)
+            }
+            TitleAlign::FullWidth => {
+                let mut end_col = col;
+                for ((_, c), _comp) in &grid_layout.component_cells {
+                    if *c > end_col {
+                        end_col = *c;
+                    }
+                }
+
+                let span_count = (end_col - col + 1) as u16;
+                if span_count == 1 {
+                    line((col + 1) as i16)
+                } else {
+                    Line {
+                        start: line((col + 1) as i16),
+                        end: line((end_col + 2) as i16),
+                    }
+                }
+            }
+        };
+
+    // Create title node
+    if let Some((row, col)) = grid_layout.find_component_position(&ComponentType::Title) {
+        let grid_col = if let Some(t) = title {
+            calculate_grid_column(col, t.align, grid_layout)
+        } else {
+            line((col + 1) as i16)
+        };
+
+        let style = Style {
+            display: Display::Block,
+            grid_row: line((row + 1) as i16),
+            grid_column: grid_col,
+            ..Default::default()
+        };
+        nodes.title_node = Some(taffy.new_leaf(style)?);
+    }
+
+    // Create subtitle node
+    if let Some((row, col)) = grid_layout.find_component_position(&ComponentType::Subtitle) {
+        let grid_col = if let Some(s) = subtitle {
+            calculate_grid_column(col, s.align, grid_layout)
+        } else {
+            line((col + 1) as i16)
+        };
+
+        let style = Style {
+            display: Display::Block,
+            grid_row: line((row + 1) as i16),
+            grid_column: grid_col,
+            ..Default::default()
+        };
+        nodes.subtitle_node = Some(taffy.new_leaf(style)?);
+    }
+
+    Ok(())
+}
+
+/// Helper function to create legend nodes
+fn create_legend_nodes(
+    taffy: &mut TaffyTree,
+    nodes: &mut TaffyNodes,
+    grid_layout: &GridLayout,
+    legends: &IndexMap<String, Legend>,
+    legend_sizes: &HashMap<String, Size<f32>>,
+    legend_flexible: &HashMap<String, bool>,
+) -> Result<(), AvengerChartError> {
+    let mut legend_nodes_by_container: HashMap<LegendPosition, Vec<NodeId>> = HashMap::new();
+
+    for (channel, legend) in legends {
+        let legend_position = legend.position.unwrap_or(LegendPosition::Right);
+
+        for ((row, col), comp_type) in &grid_layout.component_cells {
+            if let ComponentType::LegendContainer(pos) = comp_type {
+                if *pos == legend_position {
+                    // Create container node if it doesn't exist
+                    if !nodes.legend_container_nodes.contains_key(pos) {
+                        let container_style = Style {
+                            display: Display::Flex,
+                            flex_direction: FlexDirection::Column,
+                            grid_row: line((*row + 1) as i16),
+                            grid_column: line((*col + 1) as i16),
+                            ..Default::default()
+                        };
+                        let container_node = taffy.new_leaf(container_style)?;
+                        nodes.legend_container_nodes.insert(*pos, container_node);
+                    }
+
+                    // Create legend node
+                    if let Some(size) = legend_sizes.get(channel) {
+                        let is_flexible = legend_flexible.get(channel).copied().unwrap_or(false);
+
+                        let legend_style = if is_flexible {
+                            Style {
+                                display: Display::Block,
+                                size: Size {
+                                    width: length(size.width),
+                                    height: auto(),
+                                },
+                                flex_grow: 1.0,
+                                flex_shrink: 1.0,
+                                min_size: Size {
+                                    width: length(size.width),
+                                    height: length(50.0),
+                                },
+                                ..Default::default()
+                            }
+                        } else {
+                            Style {
+                                display: Display::Block,
+                                size: Size {
+                                    width: length(size.width),
+                                    height: length(size.height),
+                                },
+                                ..Default::default()
+                            }
+                        };
+
+                        let legend_node = taffy.new_leaf(legend_style)?;
+                        nodes.legend_nodes.insert(channel.clone(), legend_node);
+
+                        legend_nodes_by_container
+                            .entry(*pos)
+                            .or_default()
+                            .push(legend_node);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Set children for each legend container
+    for (position, legend_children) in legend_nodes_by_container {
+        if let Some(container_node) = nodes.legend_container_nodes.get(&position) {
+            taffy.set_children(*container_node, &legend_children)?;
+        }
+    }
+
+    Ok(())
 }

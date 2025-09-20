@@ -193,6 +193,18 @@ impl<C: CoordinateSystem> Plot<C> {
         self.canvas_size(width, height)
     }
 
+    /// Set fixed canvas width (height will be computed based on other constraints)
+    pub fn canvas_width(mut self, width: f32) -> Self {
+        self.layout_spec.canvas = SizeMode::Width(width);
+        self
+    }
+
+    /// Set fixed canvas height (width will be computed based on other constraints)
+    pub fn canvas_height(mut self, height: f32) -> Self {
+        self.layout_spec.canvas = SizeMode::Height(height);
+        self
+    }
+
     /// Set plot area to fixed size (new mode)
     pub fn plot_size(mut self, width: f32, height: f32) -> Self {
         self.layout_spec.plot_area = SizeMode::Fixed { width, height };
@@ -203,6 +215,18 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set plot area aspect ratio
     pub fn plot_aspect_ratio(mut self, ratio: f32) -> Self {
         self.layout_spec.plot_area = SizeMode::AspectRatio(ratio);
+        self
+    }
+
+    /// Set fixed plot area width (height will be computed based on other constraints)
+    pub fn plot_width(mut self, width: f32) -> Self {
+        self.layout_spec.plot_area = SizeMode::Width(width);
+        self
+    }
+
+    /// Set fixed plot area height (width will be computed based on other constraints)
+    pub fn plot_height(mut self, height: f32) -> Self {
+        self.layout_spec.plot_area = SizeMode::Height(height);
         self
     }
 

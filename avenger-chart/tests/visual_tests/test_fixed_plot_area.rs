@@ -107,3 +107,64 @@ async fn test_comparison_canvas_vs_plot_area() {
     // Plot area mode uses computed canvas (produces larger image)
     assert_visual_match_default(plot_area, "fixed_plot_area", "plot_area_mode_400x300").await;
 }
+
+#[tokio::test]
+async fn test_plot_aspect_ratio_with_canvas_width() {
+    let df = create_test_data();
+
+    // Create a plot with:
+    // - Fixed canvas width of 500px
+    // - Plot area aspect ratio of 2:1 (width:height)
+    // Canvas height will be computed to accommodate the plot area with this ratio
+    let plot = Plot::<Cartesian>::new()
+        .canvas_width(500.0) // Fixed canvas width
+        .plot_aspect_ratio(2.0) // Plot area width:height = 2:1
+        .data(df)
+        .mark(
+            Line::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s)
+                        .axis(|a| a.title("X Axis with Fixed Width").grid(true))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s).axis(|a| a.title("Y Axis").grid(true))
+                })
+                .stroke_with(col("category"), |c| c.legend(|l| l.title("Category")))
+                .stroke_width(2.0),
+        );
+
+    assert_visual_match_default(plot, "fixed_plot_area", "aspect_ratio_with_width").await;
+}
+
+#[tokio::test]
+async fn test_plot_width_with_canvas_height() {
+    let df = create_test_data();
+
+    // Create a plot with:
+    // - Fixed plot area width of 350px
+    // - Fixed canvas height of 400px
+    // Plot area height and canvas width will be computed
+    let plot = Plot::<Cartesian>::new()
+        .plot_width(350.0) // Fixed plot area width
+        .canvas_height(400.0) // Fixed canvas height
+        .margins(avenger_chart::layout::Margins {
+            top: 20.0,
+            right: 20.0,
+            bottom: 20.0,
+            left: 20.0,
+        })
+        .data(df)
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s).axis(|a| a.title("Fixed Plot Width"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s).axis(|a| a.title("Fixed Canvas Height"))
+                })
+                .fill_with(col("category"), |c| c.legend(|l| l.title("Groups")))
+                .size(60.0),
+        );
+
+    assert_visual_match_default(plot, "fixed_plot_area", "plot_width_canvas_height").await;
+}
