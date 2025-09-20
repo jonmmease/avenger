@@ -2,7 +2,7 @@
 
 use crate::error::AvengerChartError;
 use crate::guide::OverflowSpaceRequirement;
-use crate::render::Padding;
+use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
@@ -43,7 +43,7 @@ pub trait CoordinateGuide: Clone + Send + Sync + 'static {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &Padding,
+        plot_bounds: &LayoutBounds,
         theme: &dyn Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 }

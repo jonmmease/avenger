@@ -10,14 +10,70 @@ use std::collections::HashMap;
 use taffy::prelude::*;
 use taffy::{NodeId, TaffyTree};
 use tracing::debug;
-
-use super::grid::{GridBuilder, GridTemplate};
+use crate::coords::CoordinateSystem;
+use super::grid::{GridBuilder, GridLayout};
 use super::legend::measure_legend_size;
-use super::types::{
-    ComponentGridMap, ComponentType, LayoutBounds, LayoutResult, OVERFLOW_THRESHOLD,
-};
+use super::types::{ComponentType, LayoutBounds, LayoutResult, OverflowSide, OVERFLOW_THRESHOLD};
 
-/// Main chart layout manager
+/// Dynamic grid-based layout manager for data visualization charts.
+///
+/// `ChartLayout` orchestrates the spatial arrangement of all visual components in a chart,
+/// including the plot area, axes/guides, legends, titles, and subtitles. It uses the Taffy
+/// flexbox/grid layout engine to create a responsive layout that adapts to:
+///
+/// - Variable content sizes (e.g., legend entries, axis labels)
+/// - Overflow requirements from coordinate system guides
+/// - Available canvas dimensions
+///
+/// # Architecture
+///
+/// The layout system works in two phases:
+///
+/// 1. **Grid Construction**: Dynamically builds a CSS Grid template based on which
+///    components are present and their positioning requirements. Components are
+///    arranged in a grid where:
+///    - margin rows and columns are added around the edges
+///    - The plot area occupies the center
+///    - Axes are positioned on edges as overflow regions
+///    - Legends are grouped in containers at their specified positions
+///    - Titles and subtitles are positioned above the plot area
+///
+/// 2. **Layout Computation**: Uses Taffy to calculate precise pixel positions and
+///    dimensions for each component, respecting:
+///    - Minimum size requirements
+///    - Flexible sizing for components like colorbars
+///    - Overflow space for axes and grids
+///    - Text measurement for accurate title/legend sizing
+///
+/// # Example Grid Structure
+///
+/// ```text
+///   ↓ margin column
+/// ┌────┬───────────────────────────────────────────────┬────┐
+/// │    │                                               │    │ ← margin row
+/// ├────┼───────────────────────────────────────────────┼────┤
+/// │    │              Title (optional)                 │    │
+/// │    ├───────────────────────────────────────────────┤    │
+/// │    │            Subtitle (optional)                │    │
+/// │    ├────────────┬─────────────────┬────────┬───────┤    │
+/// │    │            │ Overflow-top    │        │       │    │
+/// │    │            │ (axes/guide)    │        │       │    │
+/// │    ├────────────┼─────────────────┼────────┼───────┤    │
+/// │    │ Overflow-  │                 │Overflow│Right  │    │
+/// │    │ left       │   Plot Area     │-right  │Legend │    │
+/// │    │(axes/guide)│                 │(axes)  │       │    │
+/// │    ├────────────┼─────────────────┼────────┼───────┤    │
+/// │    │            │ Overflow-bottom │        │       │    │
+/// │    │            │ (axes/guide)    │        │       │    │
+/// ├────├────────────┴─────────────────┴────────┴───────┼────┤
+/// │    │                                               │    │ ← margin row
+/// └────┴───────────────────────────────────────────────┴────┘
+///    ↑ margin column                                     ↑ margin column
+/// ```
+///
+/// The layout adapts based on which components are actually present,
+/// collapsing empty rows and columns automatically. The outer margin
+/// is implemented as fixed-size rows/columns in the Taffy grid.
 #[derive(Debug)]
 pub struct ChartLayout {
     taffy: TaffyTree,
@@ -25,7 +81,7 @@ pub struct ChartLayout {
 
     // Component nodes
     plot_area_node: Option<NodeId>,
-    axis_nodes: HashMap<AxisPosition, NodeId>,
+    guide_overflow_nodes: HashMap<AxisPosition, NodeId>,  // Guide overflow regions
     legend_container_nodes: HashMap<LegendPosition, NodeId>, // Flex containers for each position
     legend_nodes: HashMap<String, NodeId>, // Individual legend nodes keyed by channel
     legend_sizes: HashMap<String, Size<f32>>, // Store measured sizes
@@ -34,23 +90,13 @@ pub struct ChartLayout {
     subtitle_node: Option<NodeId>,
 
     // Grid configuration
-    grid_template: GridTemplate,
-    component_map: ComponentGridMap,
-    // Text properties reserved for future font customization
-    #[allow(dead_code)] // Will be used when custom font support is added
-    title_font_size: Option<f32>,
-    #[allow(dead_code)] // Will be used when custom font support is added
-    title_font_family: Option<String>,
-    #[allow(dead_code)] // Will be used when custom font support is added
-    subtitle_font_size: Option<f32>,
-    #[allow(dead_code)] // Will be used when custom font support is added
-    subtitle_font_family: Option<String>,
+    grid_layout: GridLayout,
 }
 
 impl ChartLayout {
     /// Create a new ChartLayout with overflow space requirements
     /// This is the unified layout method for all coordinate systems
-    pub fn new_with_overflow<C: crate::coords::CoordinateSystem>(
+    pub fn new_with_overflow<C: CoordinateSystem>(
         overflow: &crate::coords::OverflowSpaceRequirement,
         legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
@@ -64,7 +110,7 @@ impl ChartLayout {
         let mut builder = GridBuilder::new();
 
         // Build grid structure dynamically
-        builder.add_plot_area(); // Always present
+        // Plot area is always present and positioned dynamically in the grid
 
         // Add optional title and subtitle
         if title.is_some() {
@@ -74,38 +120,21 @@ impl ChartLayout {
             builder.add_subtitle();
         }
 
-        // Add overflow regions as needed (only if above threshold)
-        if overflow.top > OVERFLOW_THRESHOLD {
-            builder.add_axes_at_position(AxisPosition::Top, 1);
-        }
-        if overflow.bottom > OVERFLOW_THRESHOLD {
-            builder.add_axes_at_position(AxisPosition::Bottom, 1);
-        }
-        if overflow.left > OVERFLOW_THRESHOLD {
-            builder.add_axes_at_position(AxisPosition::Left, 1);
-        }
-        if overflow.right > OVERFLOW_THRESHOLD {
-            builder.add_axes_at_position(AxisPosition::Right, 1);
-        }
+        // Note: Guide overflow regions are determined directly from the overflow
+        // measurements in build_with_overflow(), so we don't need to add them explicitly
 
-        // Add legends
+        // Add legends with their positions
         for (channel, legend) in legends.iter() {
-            builder.add_legend(channel.clone(), legend);
+            let position = legend.position.unwrap_or(LegendPosition::Right);
+            builder.add_legend(channel.clone(), position);
         }
-
-        // Finalize legend containers after all legends are added
-        builder.finalize_legend_containers();
 
         // Generate grid template with overflow measurements
         let available_size = preferred_size.unwrap_or((400.0, 300.0));
-        let (grid_template, component_map) = builder.build_with_overflow(
+        let grid_layout = builder.build_with_overflow(
             overflow,
             legends,
             scales,
-            Size {
-                width: available_size.0,
-                height: available_size.1,
-            },
             marks,
             title,
             subtitle,
@@ -115,8 +144,8 @@ impl ChartLayout {
         // Create root node with grid layout
         let root_style = Style {
             display: Display::Grid,
-            grid_template_columns: grid_template.cols.clone(),
-            grid_template_rows: grid_template.rows.clone(),
+            grid_template_columns: grid_layout.cols.clone(),
+            grid_template_rows: grid_layout.rows.clone(),
             size: if let Some((width, height)) = preferred_size {
                 Size {
                     width: length(width),
@@ -137,19 +166,14 @@ impl ChartLayout {
             taffy,
             root_node,
             plot_area_node: None,
-            axis_nodes: HashMap::new(),
+            guide_overflow_nodes: HashMap::new(),
             legend_container_nodes: HashMap::new(),
             legend_nodes: HashMap::new(),
             legend_sizes: HashMap::new(),
             legend_flexible: HashMap::new(),
             title_node: None,
             subtitle_node: None,
-            grid_template,
-            component_map,
-            title_font_size: title.and_then(|t| t.font_size),
-            title_font_family: title.and_then(|t| t.font_family.clone()),
-            subtitle_font_size: subtitle.and_then(|s| s.font_size),
-            subtitle_font_family: subtitle.and_then(|s| s.font_family.clone()),
+            grid_layout,
         };
 
         // Measure legend sizes and flexibility preferences
@@ -183,19 +207,7 @@ impl ChartLayout {
 
     /// Find component position in the grid
     fn find_component_position(&self, component: &ComponentType) -> Option<(usize, usize)> {
-        for ((row, col), comp) in &self.component_map.cells {
-            if std::mem::discriminant(comp) == std::mem::discriminant(component) {
-                // For axis positions, check specific position match
-                if let (ComponentType::Axis(pos1), ComponentType::Axis(pos2)) = (comp, component) {
-                    if pos1 == pos2 {
-                        return Some((*row, *col));
-                    }
-                } else {
-                    return Some((*row, *col));
-                }
-            }
-        }
-        None
+        self.grid_layout.find_component_position(component)
     }
 
     fn create_component_nodes_with_overflow(
@@ -210,7 +222,7 @@ impl ChartLayout {
         let mut plot_row = 0;
         let mut plot_col = 0;
 
-        for ((row, col), comp_type) in &self.component_map.cells {
+        for ((row, col), comp_type) in &self.grid_layout.component_cells {
             if matches!(comp_type, ComponentType::PlotArea) {
                 plot_row = *row;
                 plot_col = *col;
@@ -236,7 +248,7 @@ impl ChartLayout {
         // Create overflow region nodes if they exist
         if overflow.left > 0.0 {
             if let Some((row, col)) =
-                self.find_component_position(&ComponentType::Axis(AxisPosition::Left))
+                self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Left))
             {
                 let style = Style {
                     display: Display::Block,
@@ -245,13 +257,13 @@ impl ChartLayout {
                     ..Default::default()
                 };
                 let node = self.taffy.new_leaf(style)?;
-                self.axis_nodes.insert(AxisPosition::Left, node);
+                self.guide_overflow_nodes.insert(AxisPosition::Left, node);
             }
         }
 
         if overflow.right > 0.0 {
             if let Some((row, col)) =
-                self.find_component_position(&ComponentType::Axis(AxisPosition::Right))
+                self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Right))
             {
                 let style = Style {
                     display: Display::Block,
@@ -260,13 +272,13 @@ impl ChartLayout {
                     ..Default::default()
                 };
                 let node = self.taffy.new_leaf(style)?;
-                self.axis_nodes.insert(AxisPosition::Right, node);
+                self.guide_overflow_nodes.insert(AxisPosition::Right, node);
             }
         }
 
         if overflow.top > OVERFLOW_THRESHOLD {
             if let Some((row, col)) =
-                self.find_component_position(&ComponentType::Axis(AxisPosition::Top))
+                self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Top))
             {
                 let style = Style {
                     display: Display::Block,
@@ -275,13 +287,13 @@ impl ChartLayout {
                     ..Default::default()
                 };
                 let node = self.taffy.new_leaf(style)?;
-                self.axis_nodes.insert(AxisPosition::Top, node);
+                self.guide_overflow_nodes.insert(AxisPosition::Top, node);
             }
         }
 
         if overflow.bottom > OVERFLOW_THRESHOLD {
             if let Some((row, col)) =
-                self.find_component_position(&ComponentType::Axis(AxisPosition::Bottom))
+                self.find_component_position(&ComponentType::GuideOverflow(OverflowSide::Bottom))
             {
                 let style = Style {
                     display: Display::Block,
@@ -290,7 +302,7 @@ impl ChartLayout {
                     ..Default::default()
                 };
                 let node = self.taffy.new_leaf(style)?;
-                self.axis_nodes.insert(AxisPosition::Bottom, node);
+                self.guide_overflow_nodes.insert(AxisPosition::Bottom, node);
             }
         }
 
@@ -300,7 +312,7 @@ impl ChartLayout {
                 TitleAlign::PlotAreaOnly => {
                     // Only span the plot area column
                     let mut plot_col = col;
-                    for ((_, c), comp) in &self.component_map.cells {
+                    for ((_, c), comp) in &self.grid_layout.component_cells {
                         if matches!(comp, ComponentType::PlotArea) {
                             plot_col = *c;
                             break;
@@ -309,11 +321,10 @@ impl ChartLayout {
                     line((plot_col + 1) as i16)
                 }
                 TitleAlign::FullWidth => {
-                    // Find the rightmost column that isn't padding
+                    // Find the rightmost column with a component
                     let mut end_col = col;
-                    for ((_, c), comp) in &self.component_map.cells {
-                        // Include all component types except padding
-                        if !matches!(comp, ComponentType::Padding) && *c > end_col {
+                    for ((_, c), _comp) in &self.grid_layout.component_cells {
+                        if *c > end_col {
                             end_col = *c;
                         }
                     }
@@ -375,7 +386,7 @@ impl ChartLayout {
             // Find which container this legend belongs to based on legend position
             let legend_position = legend.position.unwrap_or(LegendPosition::Right);
 
-            for ((row, col), comp_type) in &self.component_map.cells {
+            for ((row, col), comp_type) in &self.grid_layout.component_cells {
                 if let ComponentType::LegendContainer(pos) = comp_type {
                     if *pos == legend_position {
                         // Create container node if it doesn't exist
@@ -452,7 +463,7 @@ impl ChartLayout {
         if let Some(node) = self.plot_area_node {
             children.push(node);
         }
-        for node in self.axis_nodes.values() {
+        for node in self.guide_overflow_nodes.values() {
             children.push(*node);
         }
         for node in self.legend_container_nodes.values() {
@@ -474,8 +485,8 @@ impl ChartLayout {
         // Update root node size
         let root_style = Style {
             display: Display::Grid,
-            grid_template_columns: self.grid_template.cols.clone(),
-            grid_template_rows: self.grid_template.rows.clone(),
+            grid_template_columns: self.grid_layout.cols.clone(),
+            grid_template_rows: self.grid_layout.rows.clone(),
             size: Size {
                 width: length(width),
                 height: length(height),
@@ -505,12 +516,6 @@ impl ChartLayout {
             legends: HashMap::new(),
             title: None,
             subtitle: None,
-            total_bounds: LayoutBounds {
-                x: 0.0,
-                y: 0.0,
-                width,
-                height,
-            },
         };
 
         // Get plot area bounds
@@ -531,8 +536,8 @@ impl ChartLayout {
             };
         }
 
-        // Get axis bounds
-        for (position, node) in &self.axis_nodes {
+        // Get guide overflow bounds (stored as axes for backward compatibility)
+        for (position, node) in &self.guide_overflow_nodes {
             let layout = self.taffy.layout(*node)?;
             debug!(
                 position = ?position,
@@ -540,7 +545,7 @@ impl ChartLayout {
                 y = layout.location.y,
                 width = layout.size.width,
                 height = layout.size.height,
-                "Axis bounds"
+                "Guide overflow bounds"
             );
             result.axes.insert(
                 *position,

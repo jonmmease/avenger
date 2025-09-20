@@ -7,7 +7,7 @@ use crate::guide::OverflowSpaceRequirement;
 use std::collections::HashMap;
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {
-    /// Create a guide with all axis configurations applied.
+    /// Create a guide with all axis and guide configurations applied
     /// In contrast to `create_default_guide`, this applies all user customizations
     /// and mark-level axis configurations to the default axes.
     pub(crate) fn create_configured_guide(

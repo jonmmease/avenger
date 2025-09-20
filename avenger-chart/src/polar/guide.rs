@@ -5,7 +5,7 @@ use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
 use crate::marks::Mark;
 use crate::polar::{PolarAxis, PolarAxisType};
-use crate::render::Padding;
+use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
@@ -120,16 +120,16 @@ impl CoordinateGuide for PolarGuide {
         use avenger_geometry::marks::MarkGeometryUtils;
 
         // For overflow measurement, we can place the plot at origin
-        let initial_padding = Padding {
-            left: 0.0,
-            right: 0.0,
-            top: 0.0,
-            bottom: 0.0,
+        let initial_bounds = LayoutBounds {
+            x: 0.0,
+            y: 0.0,
+            width: plot_width,
+            height: plot_height,
         };
 
         // Render axes to measure their bounding box
         let axis_marks = self
-            .render(scales, plot_width, plot_height, &initial_padding, theme)
+            .render(scales, plot_width, plot_height, &initial_bounds, theme)
             .await?;
 
         // Calculate bounding box of all axis marks
@@ -185,7 +185,7 @@ impl CoordinateGuide for PolarGuide {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &Padding,
+        plot_bounds: &LayoutBounds,
         theme: &dyn Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
@@ -197,8 +197,8 @@ impl CoordinateGuide for PolarGuide {
             use avenger_scenegraph::marks::arc::SceneArcMark;
 
             // Calculate center and radius
-            let center_x = padding.left + plot_width / 2.0;
-            let center_y = padding.top + plot_height / 2.0;
+            let center_x = plot_bounds.x + plot_width / 2.0;
+            let center_y = plot_bounds.y + plot_height / 2.0;
             let radius = plot_width.min(plot_height) / 2.0;
 
             // Create a full circle for background
@@ -234,7 +234,7 @@ impl CoordinateGuide for PolarGuide {
                     scales,
                     plot_width,
                     plot_height,
-                    padding,
+                    plot_bounds,
                     theme,
                 )?;
                 marks.extend(axis_marks);

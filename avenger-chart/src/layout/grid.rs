@@ -11,136 +11,173 @@ use taffy::prelude::*;
 
 use super::chart_layout::ChartLayout;
 use super::text::measure_text;
-use super::types::{ComponentGridMap, ComponentType, EDGE_MARGIN, OVERFLOW_THRESHOLD};
+use super::types::{ComponentType, OverflowSide, EDGE_MARGIN, OVERFLOW_THRESHOLD};
 
-/// Builder for dynamically constructing grid layout
+/// Dynamic grid builder for chart layouts
+///
+/// `GridBuilder` constructs CSS Grid layouts for charts by dynamically positioning components
+/// based on their semantic roles and spatial requirements. The builder is order-independent -
+/// components can be added in any order and will be positioned deterministically based on
+/// their types and the overflow measurements
+///
+/// ## Component Positioning
+///
+/// Components are positioned in layers moving outward from the plot area:
+/// - **Innermost**: Plot area (where data marks are rendered)
+/// - **Next layer**: Guide overflows (directly adjacent to plot area, in overflow regions)
+/// - **Outer layers**: Legends (farther from plot, after axes)
+/// - **Outermost**: Titles/subtitles (top only, before any axes/legends)
+///
+/// ## Grid Structure
+///
+/// The builder creates a grid with the following structure:
+/// ```text
+///   ↓ margin column
+/// ┌────┬───────────────────────────────────────────────┬────┐
+/// │    │                                               │    │ ← margin row
+/// ├────┼───────────────────────────────────────────────┼────┤
+/// │    │              Title (optional)                 │    │
+/// │    ├───────────────────────────────────────────────┤    │
+/// │    │            Subtitle (optional)                │    │
+/// │    ├────────────┬─────────────────┬────────┬───────┤    │
+/// │    │            │ Overflow-top    │        │       │    │
+/// │    │            │ (guide)         │        │       │    │
+/// │    ├────────────┼─────────────────┼────────┼───────┤    │
+/// │    │ Overflow-  │                 │Overflow│Right  │    │
+/// │    │ left       │   Plot Area     │-right  │Legend │    │
+/// │    │(guide)     │                 │(guide) │       │    │
+/// │    ├────────────┼─────────────────┼────────┼───────┤    │
+/// │    │            │ Overflow-bottom │        │       │    │
+/// │    │            │ (guide)         │        │       │    │
+/// ├────├────────────┴─────────────────┴────────┴───────┼────┤
+/// │    │                                               │    │ ← margin row
+/// └────┴───────────────────────────────────────────────┴────┘
+///    ↑ margin column                                     ↑ margin column
+/// ```
+///
+/// ## Dynamic Columns and Rows
+///
+/// The builder dynamically adds columns and rows based on:
+/// - **Overflow requirements**: Space needed for axis labels/ticks beyond plot area
+/// - **Legend containers**: Each legend position gets its own column/row
+/// - **Titles**: Title and subtitle each get their own row
+///
+/// Only overflow regions larger than `OVERFLOW_THRESHOLD` (1px) are created to avoid
+/// unnecessary grid complexity for minimal overflows.
+///
+/// ## Component Positioning Rules
+///
+/// Components are positioned deterministically based on their types:
+/// - **Margins**: Always outermost rows/columns
+/// - **Title/Subtitle**: Top rows, before any guide overflows
+/// - **Guide overflows**: Adjacent to plot area, created based on overflow measurements
+/// - **Plot area**: Center, flexible sizing
+/// - **Legend containers**: Outside guide overflows, preserving insertion order within each position
+///
+/// ## Legend Containers
+///
+/// Legends are grouped by position into containers:
+/// - Multiple legends at the same position share a container
+/// - The container manages internal spacing and alignment
+/// - Container width is determined by the widest legend it contains
+/// - Only channel names are stored, preserving insertion order per position
+/// - Containers are created automatically during build phase
+///
+/// ## Build Process
+///
+/// The `build_with_overflow()` method:
+/// 1. Creates margin columns/rows using `EDGE_MARGIN` constant
+/// 2. Adds guide overflow columns/rows based on measured requirements
+/// 3. Places the plot area in the center (flexible sizing with `fr(1.0)`)
+/// 4. Adds legend container columns with measured widths
+/// 5. Adds title/subtitle rows with measured heights
+/// 6. Returns a `GridLayout` with track sizing functions and component positions
+///    mapping components to their grid positions
 pub(crate) struct GridBuilder {
-    pub components: Vec<(ComponentType, GridPlacement)>,
+    // Simple flags for component presence
+    pub has_title: bool,
+    pub has_subtitle: bool,
 
-    // Track components by position for dynamic grid building
-    pub left_components: Vec<ComponentType>, // Order: axis first, then legend container
-    pub right_components: Vec<ComponentType>, // Order: axis first, then legend container
-    pub top_components: Vec<ComponentType>,  // Order: axis first, then legend container, then title
-    pub bottom_components: Vec<ComponentType>, // Order: axis first, then legend container
-
-    // Track legends by position for container creation
-    pub legends_by_position: IndexMap<LegendPosition, Vec<(String, Legend)>>,
+    // Track legend channels by position, preserving insertion order
+    // This is the only place where insertion order matters (for stacking)
+    pub legends_by_position: IndexMap<LegendPosition, Vec<String>>,
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
-pub(crate) struct GridPlacement {
-    pub row: usize,
-    pub col: usize,
-    pub row_span: usize,
-    pub col_span: usize,
-}
-
-#[derive(Debug)]
-pub(crate) struct GridTemplate {
+pub(crate) struct GridLayout {
+    /// CSS Grid row track sizing functions
     pub rows: Vec<TrackSizingFunction>,
+    /// CSS Grid column track sizing functions
     pub cols: Vec<TrackSizingFunction>,
+    /// Maps grid cells (row, col) to their component types
+    pub component_cells: HashMap<(usize, usize), ComponentType>,
+}
+
+impl GridLayout {
+    /// Create a new empty grid layout
+    pub fn new() -> Self {
+        GridLayout {
+            rows: Vec::new(),
+            cols: Vec::new(),
+            component_cells: HashMap::new(),
+        }
+    }
+
+    /// Add a component at the specified grid position
+    pub fn add_component(&mut self, component: ComponentType, row: usize, col: usize) {
+        self.component_cells.insert((row, col), component);
+    }
+
+    /// Find the grid position of a component
+    pub fn find_component_position(&self, component: &ComponentType) -> Option<(usize, usize)> {
+        for ((row, col), comp) in &self.component_cells {
+            if std::mem::discriminant(comp) == std::mem::discriminant(component) {
+                // For guide overflow positions, check specific position match
+                if let (ComponentType::GuideOverflow(pos1), ComponentType::GuideOverflow(pos2)) = (comp, component) {
+                    if pos1 == pos2 {
+                        return Some((*row, *col));
+                    }
+                } else {
+                    return Some((*row, *col));
+                }
+            }
+        }
+        None
+    }
 }
 
 impl GridBuilder {
     pub fn new() -> Self {
         GridBuilder {
-            components: Vec::new(),
-            left_components: Vec::new(),
-            right_components: Vec::new(),
-            top_components: Vec::new(),
-            bottom_components: Vec::new(),
+            has_title: false,
+            has_subtitle: false,
             legends_by_position: IndexMap::new(),
         }
     }
 
-    pub fn add_plot_area(&mut self) {
-        // Plot area will be positioned dynamically based on components
-        self.components.push((
-            ComponentType::PlotArea,
-            GridPlacement {
-                row: 0, // Will be calculated dynamically
-                col: 0, // Will be calculated dynamically
-                row_span: 1,
-                col_span: 1,
-            },
-        ));
-    }
-
     pub fn add_title(&mut self) {
-        // Title sits at the top area before axes/legends
-        self.top_components.insert(0, ComponentType::Title);
+        self.has_title = true;
     }
 
     pub fn add_subtitle(&mut self) {
-        // Subtitle sits directly after the title
-        // Find the position after the title if it exists, otherwise at the beginning
-        let insert_pos = self
-            .top_components
-            .iter()
-            .position(|c| matches!(c, ComponentType::Title))
-            .map(|pos| pos + 1)
-            .unwrap_or(0);
-        self.top_components
-            .insert(insert_pos, ComponentType::Subtitle);
+        self.has_subtitle = true;
     }
 
-    pub fn add_axes_at_position(&mut self, position: AxisPosition, _count: usize) {
-        let component = ComponentType::Axis(position);
-        match position {
-            AxisPosition::Left => {
-                // Insert axis at beginning (closest to plot)
-                self.left_components.insert(0, component);
-            }
-            AxisPosition::Right => {
-                // Insert axis at beginning (closest to plot)
-                self.right_components.insert(0, component);
-            }
-            AxisPosition::Top => {
-                // Insert axis at end (closest to plot)
-                self.top_components.push(component);
-            }
-            AxisPosition::Bottom => {
-                // Insert axis at beginning (closest to plot)
-                self.bottom_components.insert(0, component);
-            }
-        }
-    }
+    // Note: Guide overflow regions are determined directly from overflow measurements
+    // in build_with_overflow(), so we don't need an add method for them
 
-    pub fn add_legend(&mut self, channel: String, legend: &Legend) {
-        let position = legend.position.unwrap_or(LegendPosition::Right);
-
-        // Collect legends by position for later container creation
+    pub fn add_legend(&mut self, channel: String, position: LegendPosition) {
+        // Only store channel names, preserving insertion order per position
         self.legends_by_position
             .entry(position)
             .or_default()
-            .push((channel, legend.clone()));
+            .push(channel);
     }
 
-    pub fn finalize_legend_containers(&mut self) {
-        // Create a container component for each position that has legends
-        for position in self.legends_by_position.keys() {
-            let component = ComponentType::LegendContainer(*position);
-
-            match position {
-                LegendPosition::Right => {
-                    // Add container after axes (farther from plot)
-                    self.right_components.push(component);
-                }
-                LegendPosition::Left => {
-                    // Add container after axes (farther from plot)
-                    self.left_components.push(component);
-                }
-                LegendPosition::Top => {
-                    // Add container before axes (farther from plot)
-                    self.top_components.insert(0, component);
-                }
-                LegendPosition::Bottom => {
-                    // Add container after axes (farther from plot)
-                    self.bottom_components.push(component);
-                }
-            }
-        }
+    /// Helper to get the starting column for title/subtitle content
+    /// Returns the left overflow column if present, otherwise the plot column
+    fn get_content_start_col(left_overflow_col: Option<usize>, plot_col_index: usize) -> usize {
+        left_overflow_col.unwrap_or(plot_col_index)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -171,32 +208,34 @@ impl GridBuilder {
         Ok(max_width)
     }
 
+    /// Build the final grid template based on collected components and overflow requirements.
+    ///
+    /// Returns a `GridLayout` containing both the track sizing functions and component positions
     #[allow(clippy::too_many_arguments)]
     pub fn build_with_overflow<C: crate::coords::CoordinateSystem>(
         &self,
         overflow: &crate::coords::OverflowSpaceRequirement,
         legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
-        _available_space: Size<f32>,
-        _marks: &[Box<dyn crate::marks::Mark<C>>],
+        marks: &[Box<dyn crate::marks::Mark<C>>],
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         theme: &dyn crate::theme::Theme,
-    ) -> Result<(GridTemplate, ComponentGridMap), AvengerChartError> {
-        // Use edge margins from constants to ensure consistent padding
-        let mut cols = Vec::new();
-        let mut rows = Vec::new();
-        let mut component_map = ComponentGridMap::new();
+    ) -> Result<GridLayout, AvengerChartError> {
+        // Use edge margins from constants to ensure consistent spacing
+        let mut grid = GridLayout::new();
 
         // === Build Column Template ===
-        // Start with left margin
-        cols.push(length(EDGE_MARGIN));
+        // Columns are built left-to-right:
+        // [margin] [overflow-left?] [plot-area] [overflow-right?] [legends*] [margin]
+
+        // 1. Start with left margin
+        grid.cols.push(length(EDGE_MARGIN));
         let mut col_index = 1;
 
-        // Track column index for left overflow
-        // Only create overflow column if it's more than a minimal threshold
+        // 2. Add left overflow column if needed (for axis labels extending left)
         let left_overflow_col = if overflow.left > OVERFLOW_THRESHOLD {
-            cols.push(length(overflow.left)); // Exact overflow size
+            grid.cols.push(length(overflow.left)); // Exact overflow size
             let idx = col_index;
             col_index += 1;
             Some(idx)
@@ -204,14 +243,14 @@ impl GridBuilder {
             None
         };
 
-        // Plot area column (flexible)
+        // 3. Add plot area column (flexible - takes remaining space)
         let plot_col_index = col_index;
-        cols.push(fr(1.0));
+        grid.cols.push(fr(1.0));
         col_index += 1;
 
-        // Track column index for right overflow
+        // 4. Add right overflow column if needed (for axis labels extending right)
         let right_overflow_col = if overflow.right > OVERFLOW_THRESHOLD {
-            cols.push(length(overflow.right)); // Exact overflow size
+            grid.cols.push(length(overflow.right)); // Exact overflow size
             let idx = col_index;
             col_index += 1;
             Some(idx)
@@ -219,126 +258,114 @@ impl GridBuilder {
             None
         };
 
-        // Add right legend containers and track their column indices
+        // 5. Add columns for right-positioned legend containers
+        // Each container gets its own column with measured width
         let mut right_legend_cols = Vec::new();
-        for component in &self.right_components {
-            if let ComponentType::LegendContainer(position) = component {
-                if *position == LegendPosition::Right {
-                    // Get channels from the merged legends map (not legends_by_position which has unmerged channels)
-                    // Filter legends by position to get only those in this container
-                    let channels: Vec<String> = legends
-                        .iter()
-                        .filter(|(_, legend)| {
-                            legend.position.unwrap_or(LegendPosition::Right) == *position
-                        })
-                        .map(|(ch, _)| ch.clone())
-                        .collect();
-                    let width =
-                        self.measure_legend_container_width(&channels, legends, scales, _marks)?;
-                    cols.push(length(width));
-                    right_legend_cols.push(col_index);
-                    col_index += 1;
-                }
-            }
+        if let Some(channels) = self.legends_by_position.get(&LegendPosition::Right) {
+            let width = self.measure_legend_container_width(channels, legends, scales, marks)?;
+            grid.cols.push(length(width));
+            right_legend_cols.push(col_index);
+            col_index += 1;
         }
 
-        // End with right margin
-        cols.push(length(EDGE_MARGIN));
+        // 6. End with right margin
+        grid.cols.push(length(EDGE_MARGIN));
 
         // === Build Row Template ===
-        rows.push(length(EDGE_MARGIN));
+        // Rows are built top-to-bottom:
+        // [margin] [title?] [subtitle?] [overflow-top?] [plot-area] [overflow-bottom?] [margin]
+
+        // 1. Start with top margin
+        grid.rows.push(length(EDGE_MARGIN));
         let mut row_index = 1;
 
-        // Add title if present
-        if let Some(t) = title {
+        // 2. Add title row if present
+        if self.has_title {
+            if let Some(t) = title {
             let font_size = t.font_size.unwrap_or(theme.title_font_size());
             let title_font_family = theme.title_font_family();
             let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
             let (height, _) = measure_text(&t.text, font_size, font_family);
-            rows.push(length(height * 1.15));
-            // Title starts from left overflow column (if present) or plot column
-            let title_start_col = left_overflow_col.unwrap_or(plot_col_index);
-            component_map.add_component(ComponentType::Title, row_index, title_start_col);
-            row_index += 1;
+            grid.rows.push(length(height * 1.15));
+            // Title spans from left overflow (if present) or plot area to the end
+            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+                grid.add_component(ComponentType::Title, row_index, start_col);
+                row_index += 1;
+            }
         }
 
-        // Add subtitle if present
-        if let Some(s) = subtitle {
+        // 3. Add subtitle row if present
+        if self.has_subtitle {
+            if let Some(s) = subtitle {
             let font_size = s.font_size.unwrap_or(theme.subtitle_font_size());
             let subtitle_font_family = theme.subtitle_font_family();
             let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
             let (height, _) = measure_text(&s.text, font_size, font_family);
-            rows.push(length(height * 1.1));
-            // Subtitle starts from left overflow column (if present) or plot column
-            let subtitle_start_col = left_overflow_col.unwrap_or(plot_col_index);
-            component_map.add_component(ComponentType::Subtitle, row_index, subtitle_start_col);
-            row_index += 1;
+            grid.rows.push(length(height * 1.1));
+            // Subtitle spans from left overflow (if present) or plot area to the end
+            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+                grid.add_component(ComponentType::Subtitle, row_index, start_col);
+                row_index += 1;
+            }
         }
 
-        // Add top overflow space if needed
+        // 4. Add top overflow row if needed (for axis labels extending upward)
         if overflow.top > OVERFLOW_THRESHOLD {
-            rows.push(length(overflow.top)); // Exact overflow size
-            component_map.add_component(
-                ComponentType::Axis(AxisPosition::Top),
+            grid.rows.push(length(overflow.top)); // Exact overflow size
+            grid.add_component(
+                ComponentType::GuideOverflow(OverflowSide::Top),
                 row_index,
                 plot_col_index,
             );
             row_index += 1;
         }
 
-        // Plot area row (flexible)
+        // 5. Add plot area row (flexible - takes remaining vertical space)
         let plot_row_index = row_index;
-        rows.push(fr(1.0));
-        component_map.add_component(ComponentType::PlotArea, plot_row_index, plot_col_index);
+        grid.rows.push(fr(1.0));
+        grid.add_component(ComponentType::PlotArea, plot_row_index, plot_col_index);
 
-        // Now add the left/right axis components at the plot row
+        // 6. Position left/right axes in their overflow columns at the plot row
         if let Some(col) = left_overflow_col {
-            component_map.add_component(
-                ComponentType::Axis(AxisPosition::Left),
+            grid.add_component(
+                ComponentType::GuideOverflow(OverflowSide::Left),
                 plot_row_index,
                 col,
             );
         }
 
         if let Some(col) = right_overflow_col {
-            component_map.add_component(
-                ComponentType::Axis(AxisPosition::Right),
+            grid.add_component(
+                ComponentType::GuideOverflow(OverflowSide::Right),
                 plot_row_index,
                 col,
             );
         }
 
-        // Add right legend containers at the plot row
-        let mut legend_idx = 0;
-        for component in &self.right_components {
-            if let ComponentType::LegendContainer(position) = component {
-                if *position == LegendPosition::Right && legend_idx < right_legend_cols.len() {
-                    component_map.add_component(
-                        component.clone(),
-                        plot_row_index,
-                        right_legend_cols[legend_idx],
-                    );
-                    legend_idx += 1;
-                }
-            }
+        // 7. Position right legend containers at the plot row
+        if self.legends_by_position.contains_key(&LegendPosition::Right) && !right_legend_cols.is_empty() {
+            grid.add_component(
+                ComponentType::LegendContainer(LegendPosition::Right),
+                plot_row_index,
+                right_legend_cols[0],
+            );
         }
 
         row_index += 1;
 
-        // Add bottom overflow space if needed
+        // 8. Add bottom overflow row if needed (for axis labels extending downward)
         if overflow.bottom > OVERFLOW_THRESHOLD {
-            rows.push(length(overflow.bottom)); // Exact overflow size
-            component_map.add_component(
-                ComponentType::Axis(AxisPosition::Bottom),
+            grid.rows.push(length(overflow.bottom));
+            grid.add_component(
+                ComponentType::GuideOverflow(OverflowSide::Bottom),
                 row_index,
                 plot_col_index,
             );
-            // row_index += 1;
         }
 
-        // End with bottom margin
-        rows.push(length(EDGE_MARGIN));
+        // 9. End with bottom margin
+        grid.rows.push(length(EDGE_MARGIN));
 
-        Ok((GridTemplate { cols, rows }, component_map))
+        Ok(grid)
     }
 }

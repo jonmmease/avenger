@@ -80,7 +80,7 @@ impl CoordinateSystem for ZeroDCoord {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _padding: &crate::render::Padding,
+        _plot_bounds: &crate::layout::LayoutBounds,
         _theme: &dyn crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // No guides exist in 0D space

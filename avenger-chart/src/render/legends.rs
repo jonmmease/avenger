@@ -349,11 +349,10 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
     }
 
     /// Get legends with theme applied - used for both layout measurement and rendering
-    /// This ensures consistency between measurement and actual rendering
     pub(super) fn get_legends_with_theme(
         &self,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> indexmap::IndexMap<String, Legend> {
+    ) -> IndexMap<String, Legend> {
         // Get default legends for channels with ConfiguredScale
         let default_legends = self.create_default_legends(configured_scales);
         let mut all_legends = self.plot.legends.clone();

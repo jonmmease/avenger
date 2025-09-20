@@ -3,7 +3,6 @@
 use crate::error::AvengerChartError;
 use crate::layout::LayoutBounds;
 use crate::plot::{Plot, PlotSubtitle, PlotTitle};
-use crate::render::Padding;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
@@ -14,7 +13,7 @@ use std::sync::Arc;
 pub fn create_title<T: Theme>(
     title: &PlotTitle,
     _total_width: f32,
-    _padding: &Padding,
+    _plot_bounds: &LayoutBounds,
     layout_bounds: Option<LayoutBounds>,
     _plot_area: Option<LayoutBounds>,
     theme: &T,
@@ -56,7 +55,7 @@ pub fn create_title<T: Theme>(
 pub fn create_subtitle<T: Theme>(
     subtitle: &PlotSubtitle,
     _total_width: f32,
-    _padding: &Padding,
+    _plot_bounds: &LayoutBounds,
     layout_bounds: Option<LayoutBounds>,
     _plot_area: Option<LayoutBounds>,
     theme: &T,

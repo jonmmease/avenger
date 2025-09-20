@@ -82,7 +82,7 @@ impl CartesianAxis {
         scale: &avenger_scales::scales::ConfiguredScale,
         plot_width: f32,
         plot_height: f32,
-        padding: &crate::render::Padding,
+        plot_bounds: &crate::layout::LayoutBounds,
         theme: &dyn crate::theme::Theme,
     ) -> Result<SceneMark, AvengerChartError> {
         use avenger_guides::axis::{
@@ -121,7 +121,7 @@ impl CartesianAxis {
         };
 
         // Axis origin is always the top-left corner of the plot area
-        let axis_origin = [padding.left, padding.top];
+        let axis_origin = [plot_bounds.x, plot_bounds.y];
 
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {

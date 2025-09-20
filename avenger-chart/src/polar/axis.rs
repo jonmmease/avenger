@@ -88,7 +88,7 @@ impl PolarAxis {
         scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &crate::render::Padding,
+        plot_bounds: &crate::layout::LayoutBounds,
         theme: &dyn crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Skip if invisible
@@ -97,8 +97,8 @@ impl PolarAxis {
         }
 
         // Get center point
-        let center_x = padding.left + plot_width / 2.0;
-        let center_y = padding.top + plot_height / 2.0;
+        let center_x = plot_bounds.x + plot_width / 2.0;
+        let center_y = plot_bounds.y + plot_height / 2.0;
         let radius = plot_width.min(plot_height) / 2.0;
 
         match self.axis_type {
