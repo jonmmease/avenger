@@ -1,5 +1,6 @@
 //! Legend-specific layout logic
 
+use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend::{ChannelInfo, Legend, LegendChannel};
 use crate::marks::Mark;
@@ -9,7 +10,7 @@ use std::sync::Arc;
 use taffy::Size;
 
 /// Measure legend size with mark encodings and return flexibility preference
-pub fn measure_legend_size<C: crate::coords::CoordinateSystem>(
+pub fn measure_legend_size<C: CoordinateSystem>(
     channel: &str,
     legend: &Legend,
     scale: &ConfiguredScale,

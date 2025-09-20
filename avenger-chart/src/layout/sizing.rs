@@ -107,12 +107,3 @@ impl Margins {
         Self::uniform(0.0)
     }
 }
-
-/// Result of computing layout with flexible sizing
-#[derive(Debug, Clone)]
-pub struct ComputeResult {
-    /// The computed layout bounds for all components
-    pub layout: crate::layout::LayoutResult,
-    /// Actual canvas dimensions (may differ from requested in Auto mode)
-    pub canvas_size: (f32, f32),
-}
