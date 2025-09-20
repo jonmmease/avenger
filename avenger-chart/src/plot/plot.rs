@@ -180,58 +180,6 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
-    /// Set a simple plot title. For advanced styling, a richer API can be added later.
-    pub fn title(mut self, text: impl Into<String>) -> Self {
-        self.title = Some(PlotTitle {
-            text: text.into(),
-            font_size: None,
-            font_family: None,
-            align: TitleAlign::default(),
-        });
-        self
-    }
-
-    /// Configure the title with a closure for advanced options
-    pub fn configure_title<F>(mut self, text: impl Into<String>, f: F) -> Self
-    where
-        F: FnOnce(PlotTitle) -> PlotTitle,
-    {
-        let title = PlotTitle {
-            text: text.into(),
-            font_size: None,
-            font_family: None,
-            align: TitleAlign::default(),
-        };
-        self.title = Some(f(title));
-        self
-    }
-
-    /// Set a simple plot subtitle. For advanced styling, a richer API can be added later.
-    pub fn subtitle(mut self, text: impl Into<String>) -> Self {
-        self.subtitle = Some(PlotSubtitle {
-            text: text.into(),
-            font_size: None,
-            font_family: None,
-            align: TitleAlign::default(),
-        });
-        self
-    }
-
-    /// Configure the subtitle with a closure for advanced options
-    pub fn configure_subtitle<F>(mut self, text: impl Into<String>, f: F) -> Self
-    where
-        F: FnOnce(PlotSubtitle) -> PlotSubtitle,
-    {
-        let subtitle = PlotSubtitle {
-            text: text.into(),
-            font_size: None,
-            font_family: None,
-            align: TitleAlign::default(),
-        };
-        self.subtitle = Some(f(subtitle));
-        self
-    }
-
     /// Set the theme for the plot
     pub fn theme(mut self, theme: impl Theme + 'static) -> Self {
         self.theme = Some(Arc::new(theme));
@@ -245,16 +193,6 @@ impl<C: CoordinateSystem> Plot<C> {
     {
         self.configure_guide_fn = Some(Box::new(f));
         self
-    }
-
-    /// Access the configured title
-    pub fn get_title(&self) -> Option<&PlotTitle> {
-        self.title.as_ref()
-    }
-
-    /// Access the configured subtitle
-    pub fn get_subtitle(&self) -> Option<&PlotSubtitle> {
-        self.subtitle.as_ref()
     }
 
     /// Access the configured theme (or default if not set)

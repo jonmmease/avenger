@@ -1,18 +1,21 @@
 //! Channel resolution and gathering methods for Plot
 
+use super::specs::ScaleDomainWithRadius;
 use crate::channel::ConditionalValue;
+use crate::channel::resolution::resolve_all_channel_refs;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::{Plot, ScaleSpec};
+use crate::render_context::RenderContext;
 use crate::scales::{ConfiguredScaleDataFusionExt, Scale, create_default_scale_for_channel};
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-
-use super::specs::ScaleDomainWithRadius;
 
 impl<C: CoordinateSystem> Plot<C> {
     /// Extract scale and legend configurations from a mark's channels
@@ -22,15 +25,14 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Try to resolve channel references, but if it fails (e.g., due to conditional references),
         // we still want to extract configs from non-reference channels
-        let resolved_encodings =
-            match crate::channel::resolution::resolve_all_channel_refs(encodings) {
-                Ok(resolved) => resolved,
-                Err(_) => {
-                    // Resolution failed (probably due to conditional references)
-                    // Use original encodings - we'll handle the error later during rendering
-                    encodings.clone()
-                }
-            };
+        let resolved_encodings = match resolve_all_channel_refs(encodings) {
+            Ok(resolved) => resolved,
+            Err(_) => {
+                // Resolution failed (probably due to conditional references)
+                // Use original encodings - we'll handle the error later during rendering
+                encodings.clone()
+            }
+        };
 
         for (channel_name, channel_value) in resolved_encodings {
             // Extract scale and legend configs
@@ -65,32 +67,49 @@ impl<C: CoordinateSystem> Plot<C> {
 
             // Extract scale config if present
             if let Some(config) = scale_config {
-                // Only insert if not already configured at plot level
-                self.scale_specs
-                    .entry(scale_key.clone())
-                    .or_insert_with(|| ScaleSpec::Local(config.clone()));
+                match self.scale_specs.entry(scale_key.clone()) {
+                    Entry::Occupied(mut occupied) => {
+                        let existing_spec = occupied.get().clone();
+                        match existing_spec {
+                            ScaleSpec::Local(existing_scale_config) => {
+                                // Compose the two scale configuration functions
+                                // Apply existing config first, then the new config
+                                occupied.insert(ScaleSpec::Local(Arc::new(move |scale| {
+                                    let scale_with_existing = existing_scale_config(scale);
+                                    config(scale_with_existing)
+                                })));
+                            }
+                        }
+                    }
+                    Entry::Vacant(vacant) => {
+                        vacant.insert(ScaleSpec::Local(config.clone()));
+                    }
+                }
             }
 
             // Extract legend config if present
             if let Some(config) = legend_config {
-                // Apply config to existing or new legend
-                let legend = self
-                    .legends
-                    .shift_remove(channel_name.as_str())
-                    .unwrap_or_default();
-                let configured = config(legend);
+                // Compose legend configurations - apply all configs in order
+                let existing_legend = self.legends.shift_remove(channel_name.as_str());
+                let configured = if let Some(existing) = existing_legend {
+                    // Apply new config on top of existing configured legend
+                    config(existing)
+                } else {
+                    // Apply config to default legend
+                    config(Legend::default())
+                };
                 self.legends.insert(channel_name.clone(), configured);
             }
         }
     }
 
-    /// Create a channel resolver function for non-positional channels (which are already configured)
+    /// Create a channel resolver function for non-positional channels
     /// This is used primarily for radius calculations that need size/stroke_width expressions
     pub(crate) fn create_channel_resolver<'a>(
         mark: &'a dyn Mark<C>,
         encodings: &'a IndexMap<String, ChannelValue>,
         configured_scales: &'a HashMap<String, ConfiguredScale>,
-        context: &'a crate::render_context::RenderContext,
+        context: &'a RenderContext,
     ) -> impl Fn(&str) -> datafusion::logical_expr::Expr + 'a {
         use crate::channel::value::strip_trailing_numbers;
         use datafusion::prelude::lit;
@@ -134,8 +153,7 @@ impl<C: CoordinateSystem> Plot<C> {
                         }
                     }
                     ChannelValue::Conditional { .. } => {
-                        // TODO: Conditional encoding resolution will be handled in a later phase
-                        // For now, return a placeholder
+                        // Conditional values are not supported for radius calculations
                         lit(datafusion::scalar::ScalarValue::Null)
                     }
                 }
@@ -164,21 +182,20 @@ impl<C: CoordinateSystem> Plot<C> {
             let channels = mark.data_context().channels();
 
             // Try to resolve channel references first
-            let resolved_channels =
-                match crate::channel::resolution::resolve_all_channel_refs(channels) {
-                    Ok(resolved) => resolved,
-                    Err(e) => {
-                        // If resolution failed (e.g., due to cycles), return an error
-                        if channels.contains_key(channel) {
-                            return Err(AvengerChartError::InternalError(format!(
-                                "Cannot create scale for channel '{}': {}",
-                                channel, e
-                            )));
-                        }
-                        // Channel doesn't exist in this mark, continue to next
-                        continue;
+            let resolved_channels = match resolve_all_channel_refs(channels) {
+                Ok(resolved) => resolved,
+                Err(e) => {
+                    // If resolution failed (e.g., due to cycles), return an error
+                    if channels.contains_key(channel) {
+                        return Err(AvengerChartError::InternalError(format!(
+                            "Cannot create scale for channel '{}': {}",
+                            channel, e
+                        )));
                     }
-                };
+                    // Channel doesn't exist in this mark, continue to next
+                    continue;
+                }
+            };
 
             if let Some(channel_value) = resolved_channels.get(channel) {
                 // Get the dataframe for this mark
@@ -208,7 +225,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // Create render context with theme for scale defaults
         // Use placeholder dimensions since we're not rendering yet
         let theme = self.get_theme();
-        let context = crate::render_context::RenderContext::new(theme, 0.0, 0.0);
+        let context = RenderContext::new(theme, 0.0, 0.0);
 
         // Create scale with theme-based defaults
         let mut scale = create_default_scale_for_channel(channel, scale_impl.clone(), &context)?;
@@ -249,7 +266,7 @@ impl<C: CoordinateSystem> Plot<C> {
         for mark in &self.marks {
             // Get channels and resolve references first to check if columns are referenced
             let channels = mark.data_context().channels();
-            let resolved_channels = crate::channel::resolution::resolve_all_channel_refs(channels)?;
+            let resolved_channels = resolve_all_channel_refs(channels)?;
 
             // Check if any expressions reference columns
             let references_columns =
@@ -335,7 +352,7 @@ impl<C: CoordinateSystem> Plot<C> {
         &self,
         scale_name: &str,
         configured_scales: &HashMap<String, ConfiguredScale>,
-        context: &crate::render_context::RenderContext,
+        context: &RenderContext,
     ) -> Result<ScaleDomainWithRadius, AvengerChartError> {
         let mut data_expressions = Vec::new();
 
@@ -456,8 +473,7 @@ impl<C: CoordinateSystem> Plot<C> {
             let encodings = mark.data_context().channels();
             // Try to resolve, but use original channels if resolution fails
             let resolved_encodings =
-                crate::channel::resolution::resolve_all_channel_refs(encodings)
-                    .unwrap_or_else(|_| encodings.clone());
+                resolve_all_channel_refs(encodings).unwrap_or_else(|_| encodings.clone());
             for (channel_name, channel_value) in resolved_encodings {
                 if channel_value.get_scale_name(&channel_name).is_some() {
                     used_channels.insert(channel_name.clone());
@@ -465,10 +481,5 @@ impl<C: CoordinateSystem> Plot<C> {
             }
         }
         used_channels
-    }
-
-    /// Create a default scale for a channel
-    pub async fn create_default_scale_for_channel(&self, channel: &str) -> Option<Scale> {
-        self.create_default_scale_for_channel_internal(channel).ok()
     }
 }

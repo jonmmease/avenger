@@ -120,18 +120,19 @@ async fn test_ordinal_size_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .legend("size", |legend| legend.title("Size Category"))
-        ._scale("size", |scale| {
-            scale.range_discrete(vec![50.0, 150.0, 300.0]).domain(vec![
-                lit("Small"),
-                lit("Medium"),
-                lit("Large"),
-            ])
-        })
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .size(col("size_category"))
+                .size_with(col("size_category"), |c| {
+                    c.scale(|scale| {
+                        scale.range_discrete(vec![50.0, 150.0, 300.0]).domain(vec![
+                            lit("Small"),
+                            lit("Medium"),
+                            lit("Large"),
+                        ])
+                    })
+                })
                 .fill_with(lit("#1f77b4"), |c| c.no_scale())
                 .shape_with(lit("circle"), |c| c.no_scale()),
         );
@@ -169,34 +170,21 @@ async fn test_combined_size_color_shape_legend() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        // Configure scales for the shared category column
-        ._scale("size", |scale| {
-            scale.range_discrete(vec![30.0, 120.0, 480.0]).domain(vec![
-                lit("Type A"),
-                lit("Type B"),
-                lit("Type C"),
-            ])
-        })
-        ._scale("fill", |scale| {
-            scale
-                .range_discrete(vec!["#e41a1c", "#377eb8", "#4daf4a"])
-                .domain(vec![lit("Type A"), lit("Type B"), lit("Type C")])
-        })
-        ._scale("shape", |scale| {
-            scale
-                .range_discrete(vec!["circle", "square", "triangle-up"])
-                .domain(vec![lit("Type A"), lit("Type B"), lit("Type C")])
-        })
-        // Configure the legend to show all three varying properties
         .legend("fill", |legend| legend.title("Type"))
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
                 // All three channels use the same column
-                .size(col("category"))
-                .fill(col("category"))
-                .shape(col("category"))
+                .size_with(col("category"), |c| {
+                    c.scale(|scale| scale.range_discrete(vec![30.0, 120.0, 480.0]))
+                })
+                .fill_with(col("category"), |c| {
+                    c.scale(|scale| scale.range_discrete(vec!["#e41a1c", "#377eb8", "#4daf4a"]))
+                })
+                .shape_with(col("category"), |c| {
+                    c.scale(|scale| scale.range_discrete(vec!["circle", "square", "triangle-up"]))
+                })
                 .stroke_with(lit("#000000"), |c| c.no_scale())
                 .stroke_width_with(lit(1.0), |c| c.no_scale()),
         );
@@ -242,22 +230,15 @@ async fn test_combined_size_color_shape_legend_dark() {
     // Create plot without custom colors - let the dark theme provide them
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        // Configure scales for the shared category column (sizes only, colors from theme)
-        ._scale("size", |scale| {
-            scale.range_discrete(vec![30.0, 120.0, 480.0]).domain(vec![
-                lit("Type A"),
-                lit("Type B"),
-                lit("Type C"),
-            ])
-        })
-        // Let the theme provide the colors and shapes
         .legend("fill", |legend| legend.title("Type"))
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
                 // All three channels use the same column
-                .size(col("category"))
+                .size_with(col("category"), |c| {
+                    c.scale(|scale| scale.range_discrete(vec![30.0, 120.0, 480.0]))
+                })
                 .fill(col("category"))
                 .shape(col("category")),
         );
