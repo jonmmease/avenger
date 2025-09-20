@@ -1,17 +1,18 @@
 //! Grid layout building logic
 
-use crate::cartesian::axis::AxisPosition;
+use super::chart_layout::ChartLayout;
+use super::sizing::LayoutSpec;
+use super::text::measure_text;
+use super::types::{ComponentType, OVERFLOW_THRESHOLD, OverflowSide};
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendPosition};
+use crate::marks::Mark;
 use crate::plot::{PlotSubtitle, PlotTitle};
 use avenger_scales::scales::ConfiguredScale;
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use std::sync::Arc;
 use taffy::prelude::*;
-
-use super::chart_layout::ChartLayout;
-use super::text::measure_text;
-use super::types::{ComponentType, OverflowSide, EDGE_MARGIN, OVERFLOW_THRESHOLD};
 
 /// Dynamic grid builder for chart layouts
 ///
@@ -133,7 +134,9 @@ impl GridLayout {
         for ((row, col), comp) in &self.component_cells {
             if std::mem::discriminant(comp) == std::mem::discriminant(component) {
                 // For guide overflow positions, check specific position match
-                if let (ComponentType::GuideOverflow(pos1), ComponentType::GuideOverflow(pos2)) = (comp, component) {
+                if let (ComponentType::GuideOverflow(pos1), ComponentType::GuideOverflow(pos2)) =
+                    (comp, component)
+                {
                     if pos1 == pos2 {
                         return Some((*row, *col));
                     }
@@ -186,7 +189,7 @@ impl GridBuilder {
         channels: &[String],
         legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
-        marks: &[Box<dyn crate::marks::Mark<C>>],
+        marks: &[Arc<dyn Mark<C>>],
     ) -> Result<f32, AvengerChartError> {
         let mut max_width: f32 = 0.0;
         for channel in channels {
@@ -217,12 +220,14 @@ impl GridBuilder {
         overflow: &crate::coords::OverflowSpaceRequirement,
         legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
-        marks: &[Box<dyn crate::marks::Mark<C>>],
+        marks: &[Arc<dyn Mark<C>>],
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         theme: &dyn crate::theme::Theme,
+        layout_spec: &LayoutSpec,
     ) -> Result<GridLayout, AvengerChartError> {
-        // Use edge margins from constants to ensure consistent spacing
+        // Use margins from layout spec
+        let margins = &layout_spec.margins;
         let mut grid = GridLayout::new();
 
         // === Build Column Template ===
@@ -230,7 +235,7 @@ impl GridBuilder {
         // [margin] [overflow-left?] [plot-area] [overflow-right?] [legends*] [margin]
 
         // 1. Start with left margin
-        grid.cols.push(length(EDGE_MARGIN));
+        grid.cols.push(length(margins.left));
         let mut col_index = 1;
 
         // 2. Add left overflow column if needed (for axis labels extending left)
@@ -265,30 +270,31 @@ impl GridBuilder {
             let width = self.measure_legend_container_width(channels, legends, scales, marks)?;
             grid.cols.push(length(width));
             right_legend_cols.push(col_index);
-            col_index += 1;
+            // col_index would be incremented here if we had more legend positions
+            let _ = col_index + 1;
         }
 
         // 6. End with right margin
-        grid.cols.push(length(EDGE_MARGIN));
+        grid.cols.push(length(margins.right));
 
         // === Build Row Template ===
         // Rows are built top-to-bottom:
         // [margin] [title?] [subtitle?] [overflow-top?] [plot-area] [overflow-bottom?] [margin]
 
         // 1. Start with top margin
-        grid.rows.push(length(EDGE_MARGIN));
+        grid.rows.push(length(margins.top));
         let mut row_index = 1;
 
         // 2. Add title row if present
         if self.has_title {
             if let Some(t) = title {
-            let font_size = t.font_size.unwrap_or(theme.title_font_size());
-            let title_font_family = theme.title_font_family();
-            let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
-            let (height, _) = measure_text(&t.text, font_size, font_family);
-            grid.rows.push(length(height * 1.15));
-            // Title spans from left overflow (if present) or plot area to the end
-            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+                let font_size = t.font_size.unwrap_or(theme.title_font_size());
+                let title_font_family = theme.title_font_family();
+                let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
+                let (height, _) = measure_text(&t.text, font_size, font_family);
+                grid.rows.push(length(height * 1.15));
+                // Title spans from left overflow (if present) or plot area to the end
+                let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Title, row_index, start_col);
                 row_index += 1;
             }
@@ -297,13 +303,13 @@ impl GridBuilder {
         // 3. Add subtitle row if present
         if self.has_subtitle {
             if let Some(s) = subtitle {
-            let font_size = s.font_size.unwrap_or(theme.subtitle_font_size());
-            let subtitle_font_family = theme.subtitle_font_family();
-            let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
-            let (height, _) = measure_text(&s.text, font_size, font_family);
-            grid.rows.push(length(height * 1.1));
-            // Subtitle spans from left overflow (if present) or plot area to the end
-            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+                let font_size = s.font_size.unwrap_or(theme.subtitle_font_size());
+                let subtitle_font_family = theme.subtitle_font_family();
+                let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
+                let (height, _) = measure_text(&s.text, font_size, font_family);
+                grid.rows.push(length(height * 1.1));
+                // Subtitle spans from left overflow (if present) or plot area to the end
+                let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Subtitle, row_index, start_col);
                 row_index += 1;
             }
@@ -343,7 +349,11 @@ impl GridBuilder {
         }
 
         // 7. Position right legend containers at the plot row
-        if self.legends_by_position.contains_key(&LegendPosition::Right) && !right_legend_cols.is_empty() {
+        if self
+            .legends_by_position
+            .contains_key(&LegendPosition::Right)
+            && !right_legend_cols.is_empty()
+        {
             grid.add_component(
                 ComponentType::LegendContainer(LegendPosition::Right),
                 plot_row_index,
@@ -364,7 +374,7 @@ impl GridBuilder {
         }
 
         // 9. End with bottom margin
-        grid.rows.push(length(EDGE_MARGIN));
+        grid.rows.push(length(margins.bottom));
 
         Ok(grid)
     }

@@ -12,6 +12,8 @@ pub(crate) const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
 pub struct LayoutSolution {
     /// Complete layout with all component positions
     pub taffy_layout: crate::layout::LayoutResult,
+    /// Computed canvas size (may differ from requested when using plot_size)
+    pub canvas_size: (f32, f32),
 }
 
 impl LayoutSolution {

@@ -16,6 +16,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::scalar::ScalarValue;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 /// A custom 3D isometric coordinate system defined in an external crate
 /// This maps 3D coordinates (x, y, z) to 2D screen space using isometric projection
@@ -230,7 +231,7 @@ impl CoordinateSystem for Isometric {
         &self,
         axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Box<dyn avenger_chart::marks::Mark<Self>>],
+        _marks: &[Arc<dyn Mark<Self>>],
     ) -> Self::Guide {
         let mut guide = IsometricGuide::new();
         guide.set_axes(axes);
@@ -240,7 +241,7 @@ impl CoordinateSystem for Isometric {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Box<dyn avenger_chart::marks::Mark<Self>>],
+        _marks: &[Arc<dyn Mark<Self>>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis> {
         let mut axes = HashMap::new();
 

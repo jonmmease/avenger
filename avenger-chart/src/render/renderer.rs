@@ -26,13 +26,20 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
     /// Render the plot to a scene graph
     pub async fn render(&self) -> Result<RenderResult, AvengerChartError> {
-        // Get plot dimensions from preferred size or default
-        let (width, height) = self.plot.get_preferred_size().unwrap_or((400.0, 300.0));
+        // Get layout spec and estimate initial dimensions
+        let layout_spec = self.plot.get_layout_spec();
+
+        // For now, we'll use a simple estimation for canvas size
+        // This will be refined after we compute the actual layout
+        let (estimated_width, estimated_height) = match &layout_spec.canvas {
+            crate::layout::SizeMode::Fixed { width, height } => (*width, *height),
+            _ => (400.0, 300.0), // Default for Auto or other modes
+        };
 
         // STAGE 1: BUILD INITIAL SCALES WITH ESTIMATED DIMENSIONS
         // Use estimated dimensions for initial scale construction
-        let estimated_plot_width = width * INITIAL_PLOT_AREA_RATIO;
-        let estimated_plot_height = height * INITIAL_PLOT_AREA_RATIO;
+        let estimated_plot_width = estimated_width * INITIAL_PLOT_AREA_RATIO;
+        let estimated_plot_height = estimated_height * INITIAL_PLOT_AREA_RATIO;
 
         // Create initial RenderContext with estimated dimensions
         let theme = self.plot.get_theme();
@@ -48,9 +55,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // STAGE 2: COMPUTE LAYOUT USING INITIAL SCALES
         let layout = self
-            .compute_layout(width, height, &initial_configured_scales)
+            .compute_layout(
+                estimated_width,
+                estimated_height,
+                &initial_configured_scales,
+            )
             .await?;
         let plot_bounds = layout.plot_area_bounds();
+        let (final_width, final_height) = layout.canvas_size;
         let plot_area_x = plot_bounds.x;
         let plot_area_y = plot_bounds.y;
         let plot_area_width = plot_bounds.width;
@@ -70,7 +82,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // STAGE 4: RENDER ALL COMPONENTS WITH FINAL SCALES
         let all_component_marks = self
-            .render_all_components(&final_configured_scales, &layout, width, height)
+            .render_all_components(&final_configured_scales, &layout, final_width, final_height)
             .await?;
 
         let (mark_groups, guide_marks, legend_marks, title_marks, subtitle_marks) =
@@ -107,8 +119,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             let background_rect = SceneRectMark {
                 x: 0.0.into(),
                 y: 0.0.into(),
-                width: Some(width.into()),
-                height: Some(height.into()),
+                width: Some(final_width.into()),
+                height: Some(final_height.into()),
                 fill: ColorOrGradient::Color(color).into(),
                 stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(), // No stroke
                 stroke_width: 0.0.into(),
@@ -147,10 +159,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             ..Default::default()
         };
 
+        // Use the computed canvas size from layout
         let scene_graph = SceneGraph {
             marks: vec![SceneMark::Group(root_group)],
-            width,
-            height,
+            width: final_width,
+            height: final_height,
             origin: [0.0, 0.0],
         };
 

@@ -3,12 +3,13 @@
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
+use crate::layout::LayoutBounds;
 use crate::marks::Mark;
 use crate::polar::{PolarAxis, PolarAxisType};
-use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Options for polar coordinate system
 #[derive(Clone, Debug)]
@@ -61,7 +62,7 @@ impl PolarGuide {
     /// Create default axes for channels that have scales
     pub fn create_default_axes<C>(
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Box<dyn Mark<C>>],
+        marks: &[Arc<dyn Mark<C>>],
     ) -> HashMap<String, PolarAxis>
     where
         C: crate::coords::CoordinateSystem,

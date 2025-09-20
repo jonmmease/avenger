@@ -2,8 +2,10 @@ use crate::cartesian::{CartesianAxis, CartesianGuide, axis::AxisPosition};
 use crate::coords::{CoordinateSystem, PointGeometry, extract_channel_title_from_marks};
 use crate::error::AvengerChartError;
 use crate::guide::CoordinateGuide;
+use crate::marks::Mark;
 use avenger_scenegraph::marks::group::Clip;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Cartesian coordinate system with x and y axes
 #[derive(Clone, Default)]
@@ -29,7 +31,7 @@ impl CoordinateSystem for Cartesian {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Box<dyn crate::marks::Mark<Self>>],
+        marks: &[Arc<dyn Mark<Self>>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis> {
         let mut default_axes = HashMap::new();
 
@@ -77,7 +79,7 @@ impl CoordinateSystem for Cartesian {
         &self,
         axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Box<dyn crate::marks::Mark<Self>>],
+        _marks: &[Arc<dyn Mark<Self>>],
     ) -> Self::Guide {
         let mut guide = CartesianGuide::new();
         guide.set_axes(axes);

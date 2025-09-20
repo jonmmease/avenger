@@ -2,14 +2,13 @@
 
 use avenger_chart::coords::CoordinateSystem;
 use avenger_chart::plot::Plot;
-use avenger_chart::render::CanvasExt;
+use avenger_chart::render::PlotRenderer;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use image::RgbaImage;
 use std::path::Path;
 
 /// Default dimensions for test charts
-pub const DEFAULT_SIZE: (f32, f32) = (400.0, 300.0);
 pub const DEFAULT_SCALE: f32 = 2.0;
 
 /// Configuration for visual tests
@@ -29,13 +28,20 @@ impl Default for VisualTestConfig {
     }
 }
 
-/// Render a plot to an image with default dimensions
+/// Render a plot to an image, automatically handling canvas sizing based on layout spec
 pub async fn render_plot<C: CoordinateSystem>(plot: &Plot<C>) -> RgbaImage {
-    // Use plot's preferred size if available, otherwise use default
-    let (width, height) = plot.get_preferred_size().unwrap_or(DEFAULT_SIZE);
+    // Always use the renderer to compute the scene graph
+    // This works for both fixed canvas and fixed plot area modes
+    let renderer = PlotRenderer::new(plot);
+    let render_result = renderer.render().await.expect("Failed to render plot");
 
+    // The scene graph contains the correct canvas dimensions for any mode
+    let canvas_width = render_result.scene_graph.width;
+    let canvas_height = render_result.scene_graph.height;
+
+    // Create canvas with the dimensions from the scene graph
     let dimensions = CanvasDimensions {
-        size: [width, height],
+        size: [canvas_width, canvas_height],
         scale: DEFAULT_SCALE,
     };
     let config = CanvasConfig::default();
@@ -44,10 +50,10 @@ pub async fn render_plot<C: CoordinateSystem>(plot: &Plot<C>) -> RgbaImage {
         .await
         .expect("Failed to create canvas");
 
+    // Set the already computed scene graph
     canvas
-        .render_plot(plot)
-        .await
-        .expect("Failed to render plot");
+        .set_scene(&render_result.scene_graph)
+        .expect("Failed to set scene");
 
     canvas.render().await.expect("Failed to render image")
 }

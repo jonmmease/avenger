@@ -1,19 +1,22 @@
 //! Main ChartLayout struct and core implementation
 
+use super::grid::{GridBuilder, GridLayout};
+use super::legend::measure_legend_size;
+use super::sizing::{LayoutSpec, SizeMode};
+use super::types::{ComponentType, LayoutBounds, LayoutResult, OVERFLOW_THRESHOLD, OverflowSide};
 use crate::cartesian::axis::AxisPosition;
+use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendPosition};
+use crate::marks::Mark;
 use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};
 use avenger_scales::scales::ConfiguredScale;
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use std::sync::Arc;
 use taffy::prelude::*;
 use taffy::{NodeId, TaffyTree};
 use tracing::debug;
-use crate::coords::CoordinateSystem;
-use super::grid::{GridBuilder, GridLayout};
-use super::legend::measure_legend_size;
-use super::types::{ComponentType, LayoutBounds, LayoutResult, OverflowSide, OVERFLOW_THRESHOLD};
 
 /// Dynamic grid-based layout manager for data visualization charts.
 ///
@@ -81,10 +84,10 @@ pub struct ChartLayout {
 
     // Component nodes
     plot_area_node: Option<NodeId>,
-    guide_overflow_nodes: HashMap<AxisPosition, NodeId>,  // Guide overflow regions
+    guide_overflow_nodes: HashMap<AxisPosition, NodeId>, // Guide overflow regions
     legend_container_nodes: HashMap<LegendPosition, NodeId>, // Flex containers for each position
-    legend_nodes: HashMap<String, NodeId>, // Individual legend nodes keyed by channel
-    legend_sizes: HashMap<String, Size<f32>>, // Store measured sizes
+    legend_nodes: HashMap<String, NodeId>,               // Individual legend nodes keyed by channel
+    legend_sizes: HashMap<String, Size<f32>>,            // Store measured sizes
     legend_flexible: HashMap<String, bool>, // Store whether legend prefers flexible layout
     title_node: Option<NodeId>,
     subtitle_node: Option<NodeId>,
@@ -100,10 +103,10 @@ impl ChartLayout {
         overflow: &crate::coords::OverflowSpaceRequirement,
         legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
-        preferred_size: Option<(f32, f32)>,
+        layout_spec: &LayoutSpec,
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
-        marks: &[Box<dyn crate::marks::Mark<C>>],
+        marks: &[Arc<dyn Mark<C>>],
         theme: &dyn crate::theme::Theme,
     ) -> Result<Self, AvengerChartError> {
         let mut taffy = TaffyTree::new();
@@ -130,7 +133,11 @@ impl ChartLayout {
         }
 
         // Generate grid template with overflow measurements
-        let available_size = preferred_size.unwrap_or((400.0, 300.0));
+        // For initial layout, we need to estimate a size for legend measurements
+        let available_size = match &layout_spec.canvas {
+            SizeMode::Fixed { width, height } => (*width, *height),
+            _ => (400.0, 300.0), // Default for Auto or other modes
+        };
         let grid_layout = builder.build_with_overflow(
             overflow,
             legends,
@@ -139,23 +146,18 @@ impl ChartLayout {
             title,
             subtitle,
             theme,
+            layout_spec,
         )?;
 
         // Create root node with grid layout
+        // Initial size for root will be set during compute based on layout mode
         let root_style = Style {
             display: Display::Grid,
             grid_template_columns: grid_layout.cols.clone(),
             grid_template_rows: grid_layout.rows.clone(),
-            size: if let Some((width, height)) = preferred_size {
-                Size {
-                    width: length(width),
-                    height: length(height),
-                }
-            } else {
-                Size {
-                    width: length(400.0),
-                    height: length(300.0),
-                }
+            size: Size {
+                width: auto(),
+                height: auto(),
             },
             ..Default::default()
         };
@@ -480,31 +482,129 @@ impl ChartLayout {
         Ok(())
     }
 
-    /// Compute layout for given dimensions
-    pub fn compute(&mut self, width: f32, height: f32) -> Result<LayoutResult, AvengerChartError> {
-        // Update root node size
-        let root_style = Style {
-            display: Display::Grid,
-            grid_template_columns: self.grid_layout.cols.clone(),
-            grid_template_rows: self.grid_layout.rows.clone(),
-            size: Size {
-                width: length(width),
-                height: length(height),
-            },
-            ..Default::default()
-        };
-        self.taffy.set_style(self.root_node, root_style)?;
+    /// Compute layout with flexible sizing based on LayoutSpec
+    pub fn compute_with_spec(
+        &mut self,
+        layout_spec: &LayoutSpec,
+    ) -> Result<super::sizing::ComputeResult, AvengerChartError> {
+        // Determine available space based on layout spec
+        let (available_width, available_height) =
+            match (&layout_spec.canvas, &layout_spec.plot_area) {
+                // Case 1: Fixed canvas size (traditional mode)
+                (SizeMode::Fixed { width, height }, _) => {
+                    // Update root to fixed size
+                    let root_style = Style {
+                        display: Display::Grid,
+                        grid_template_columns: self.grid_layout.cols.clone(),
+                        grid_template_rows: self.grid_layout.rows.clone(),
+                        size: Size {
+                            width: length(*width),
+                            height: length(*height),
+                        },
+                        ..Default::default()
+                    };
+                    self.taffy.set_style(self.root_node, root_style)?;
+
+                    (
+                        AvailableSpace::Definite(*width),
+                        AvailableSpace::Definite(*height),
+                    )
+                }
+                // Case 2: Plot area drives layout
+                (SizeMode::Auto, SizeMode::Fixed { width, height }) => {
+                    // Set plot area to fixed size
+                    if let Some(plot_node) = self.plot_area_node {
+                        // Get current plot node style to preserve grid position
+                        let current_style = self.taffy.style(plot_node)?;
+                        let plot_style = Style {
+                            display: Display::Block,
+                            size: Size {
+                                width: length(*width),
+                                height: length(*height),
+                            },
+                            grid_row: current_style.grid_row,
+                            grid_column: current_style.grid_column,
+                            min_size: Size {
+                                width: length(*width),
+                                height: length(*height),
+                            },
+                            ..Default::default()
+                        };
+                        self.taffy.set_style(plot_node, plot_style)?;
+                    }
+
+                    // Update root node for content-based sizing
+                    let root_style = Style {
+                        display: Display::Grid,
+                        grid_template_columns: self.grid_layout.cols.clone(),
+                        grid_template_rows: self.grid_layout.rows.clone(),
+                        size: Size {
+                            width: auto(),
+                            height: auto(),
+                        },
+                        ..Default::default()
+                    };
+                    self.taffy.set_style(self.root_node, root_style)?;
+
+                    // Let canvas size be content-driven
+                    (AvailableSpace::MinContent, AvailableSpace::MinContent)
+                }
+                // Default: Use sensible defaults
+                _ => {
+                    let root_style = Style {
+                        display: Display::Grid,
+                        grid_template_columns: self.grid_layout.cols.clone(),
+                        grid_template_rows: self.grid_layout.rows.clone(),
+                        size: Size {
+                            width: length(400.0),
+                            height: length(300.0),
+                        },
+                        ..Default::default()
+                    };
+                    self.taffy.set_style(self.root_node, root_style)?;
+                    (
+                        AvailableSpace::Definite(400.0),
+                        AvailableSpace::Definite(300.0),
+                    )
+                }
+            };
 
         // Compute layout
         self.taffy.compute_layout(
             self.root_node,
             Size {
-                width: AvailableSpace::Definite(width),
-                height: AvailableSpace::Definite(height),
+                width: available_width,
+                height: available_height,
             },
         )?;
 
-        // Extract computed positions
+        // Get the actual canvas size after layout
+        let root_layout = self.taffy.layout(self.root_node)?;
+        let canvas_size = (root_layout.size.width, root_layout.size.height);
+
+        // Extract layout result
+        let layout = self.extract_layout_result()?;
+
+        Ok(super::sizing::ComputeResult {
+            layout,
+            canvas_size,
+        })
+    }
+
+    /// Compute layout for given dimensions (legacy method)
+    pub fn compute(&mut self, width: f32, height: f32) -> Result<LayoutResult, AvengerChartError> {
+        // Use the new method with a fixed canvas size spec
+        let spec = LayoutSpec {
+            canvas: SizeMode::Fixed { width, height },
+            plot_area: SizeMode::Auto,
+            margins: super::sizing::Margins::default(),
+        };
+        let result = self.compute_with_spec(&spec)?;
+        Ok(result.layout)
+    }
+
+    /// Extract computed positions from Taffy layout
+    fn extract_layout_result(&self) -> Result<LayoutResult, AvengerChartError> {
         let mut result = LayoutResult {
             plot_area: LayoutBounds {
                 x: 0.0,
@@ -654,7 +754,7 @@ impl ChartLayout {
         scale: &ConfiguredScale,
         scales: &HashMap<String, ConfiguredScale>,
         available_space: Size<f32>,
-        marks: &[Box<dyn crate::marks::Mark<C>>],
+        marks: &[Arc<dyn Mark<C>>],
     ) -> Result<(Size<f32>, bool), AvengerChartError> {
         measure_legend_size(channel, legend, scale, scales, available_space, marks)
     }

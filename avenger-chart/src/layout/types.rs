@@ -43,4 +43,3 @@ pub(crate) enum ComponentType {
 
 /// Constants for layout
 pub(crate) const OVERFLOW_THRESHOLD: f32 = 2.0;
-pub(crate) const EDGE_MARGIN: f32 = 10.0;
