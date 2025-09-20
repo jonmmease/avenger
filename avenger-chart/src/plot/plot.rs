@@ -4,6 +4,7 @@ use crate::channel::value::strip_trailing_numbers;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::guide::CoordinateGuide;
+use crate::layout::{LayoutSpec, Margins, SizeMode};
 use crate::legend::Legend;
 use crate::marks::Mark;
 use crate::scales::Scale;
@@ -16,11 +17,12 @@ use std::sync::Arc;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
 
+#[derive(Clone)]
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     pub(crate) axis_specs: HashMap<String, AxisSpec<<C::Guide as CoordinateGuide>::Axis>>,
     pub(crate) legends: IndexMap<String, Legend>,
-    pub(crate) marks: Vec<Box<dyn Mark<C>>>,
+    pub(crate) marks: Vec<Arc<dyn Mark<C>>>,
 
     /// Plot-level data for mark inheritance
     pub(crate) data: Option<DataFrame>,
@@ -32,8 +34,8 @@ pub struct Plot<C: CoordinateSystem> {
     /// e.g., "y2" -> "y", "x2" -> "x"
     pub(crate) scale_to_coord_channel: HashMap<String, String>,
 
-    /// Preferred size for the plot canvas
-    preferred_size: Option<(f32, f32)>,
+    /// Layout specification for sizing and margins
+    pub(crate) layout_spec: LayoutSpec,
 
     /// Optional plot title rendered by the layout system
     pub(crate) title: Option<PlotTitle>,
@@ -45,7 +47,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) theme: Option<Arc<dyn Theme>>,
 
     /// Guide configuration function
-    pub(crate) configure_guide_fn: Option<Box<dyn Fn(C::Guide) -> C::Guide + Send + Sync>>,
+    pub(crate) configure_guide_fn: Option<Arc<dyn Fn(C::Guide) -> C::Guide + Send + Sync>>,
 }
 
 impl<C: CoordinateSystem> Plot<C> {
@@ -58,7 +60,7 @@ impl<C: CoordinateSystem> Plot<C> {
             data: None,
             scale_specs: HashMap::new(),
             scale_to_coord_channel: HashMap::new(),
-            preferred_size: None,
+            layout_spec: LayoutSpec::default(),
             title: None,
             subtitle: None,
             theme: None,
@@ -100,7 +102,7 @@ impl<C: CoordinateSystem> Plot<C> {
         &self.scale_to_coord_channel
     }
 
-    pub fn marks(&self) -> &[Box<dyn Mark<C>>] {
+    pub fn marks(&self) -> &[Arc<dyn Mark<C>>] {
         &self.marks
     }
 
@@ -159,7 +161,7 @@ impl<C: CoordinateSystem> Plot<C> {
         self.extract_channel_configs(&mark);
 
         // Add the mark
-        self.marks.push(Box::new(mark));
+        self.marks.push(Arc::new(mark));
         self
     }
 
@@ -169,14 +171,44 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
-    /// Get preferred size for the plot
-    pub fn get_preferred_size(&self) -> Option<(f32, f32)> {
-        self.preferred_size
+    /// Get the layout specification
+    pub fn get_layout_spec(&self) -> &LayoutSpec {
+        &self.layout_spec
     }
 
-    /// Set a preferred size for the plot canvas
-    pub fn with_size(mut self, width: f32, height: f32) -> Self {
-        self.preferred_size = Some((width, height));
+    /// Set the layout specification for this plot
+    pub fn layout(mut self, spec: LayoutSpec) -> Self {
+        self.layout_spec = spec;
+        self
+    }
+
+    /// Set canvas to fixed size (traditional mode)
+    pub fn canvas_size(mut self, width: f32, height: f32) -> Self {
+        self.layout_spec.canvas = SizeMode::Fixed { width, height };
+        self
+    }
+
+    /// Set a preferred size for the plot canvas (compatibility method)
+    pub fn with_size(self, width: f32, height: f32) -> Self {
+        self.canvas_size(width, height)
+    }
+
+    /// Set plot area to fixed size (new mode)
+    pub fn plot_size(mut self, width: f32, height: f32) -> Self {
+        self.layout_spec.plot_area = SizeMode::Fixed { width, height };
+        self.layout_spec.canvas = SizeMode::Auto;
+        self
+    }
+
+    /// Set plot area aspect ratio
+    pub fn plot_aspect_ratio(mut self, ratio: f32) -> Self {
+        self.layout_spec.plot_area = SizeMode::AspectRatio(ratio);
+        self
+    }
+
+    /// Set margins
+    pub fn margins(mut self, margins: Margins) -> Self {
+        self.layout_spec.margins = margins;
         self
     }
 
@@ -191,7 +223,7 @@ impl<C: CoordinateSystem> Plot<C> {
     where
         F: Fn(C::Guide) -> C::Guide + Send + Sync + 'static,
     {
-        self.configure_guide_fn = Some(Box::new(f));
+        self.configure_guide_fn = Some(Arc::new(f));
         self
     }
 

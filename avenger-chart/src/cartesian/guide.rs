@@ -4,11 +4,12 @@ use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
-use crate::marks::Mark;
 use crate::layout::LayoutBounds;
+use crate::marks::Mark;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Options for Cartesian coordinate system (beyond axes)
 #[derive(Clone, Debug)]
@@ -63,7 +64,7 @@ impl CartesianGuide {
     /// that don't have explicit axis configuration
     pub fn create_default_axes<C>(
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Box<dyn Mark<C>>],
+        marks: &[Arc<dyn Mark<C>>],
     ) -> HashMap<String, CartesianAxis>
     where
         C: crate::coords::CoordinateSystem,

@@ -6,6 +6,7 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Geometry type for point-based coordinate systems (Cartesian, Polar, ZeroD)
 #[derive(Debug, Clone)]
@@ -45,7 +46,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         &self,
         axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Box<dyn Mark<Self>>],
+        marks: &[Arc<dyn Mark<Self>>],
     ) -> Self::Guide;
 
     /// Configure the guide with user-provided settings
@@ -65,7 +66,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Box<dyn Mark<Self>>],
+        marks: &[Arc<dyn Mark<Self>>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis>;
 
     /// Measure how much space the coordinate system's guide needs outside the plot area
@@ -158,7 +159,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 /// # Returns
 /// An optional string containing the column name if found
 pub fn extract_channel_title_from_marks<C: CoordinateSystem>(
-    marks: &[Box<dyn Mark<C>>],
+    marks: &[Arc<dyn Mark<C>>],
     channel: &str,
 ) -> Option<String> {
     // Look through marks to find a column name for this channel

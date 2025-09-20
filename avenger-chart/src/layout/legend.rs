@@ -2,8 +2,10 @@
 
 use crate::error::AvengerChartError;
 use crate::legend::{ChannelInfo, Legend, LegendChannel};
+use crate::marks::Mark;
 use avenger_scales::scales::ConfiguredScale;
 use std::collections::HashMap;
+use std::sync::Arc;
 use taffy::Size;
 
 /// Measure legend size with mark encodings and return flexibility preference
@@ -13,7 +15,7 @@ pub fn measure_legend_size<C: crate::coords::CoordinateSystem>(
     scale: &ConfiguredScale,
     scales: &HashMap<String, ConfiguredScale>,
     available_space: Size<f32>,
-    marks: &[Box<dyn crate::marks::Mark<C>>],
+    marks: &[Arc<dyn Mark<C>>],
 ) -> Result<(Size<f32>, bool), AvengerChartError> {
     // Skip invisible legends
     if !legend.visible {

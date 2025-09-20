@@ -3,7 +3,7 @@ pub mod channel;
 pub mod coords;
 pub mod error;
 pub mod guide;
-mod layout;
+pub mod layout;
 pub mod legend;
 pub mod marks;
 pub mod plot;

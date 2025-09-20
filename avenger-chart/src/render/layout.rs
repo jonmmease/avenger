@@ -9,11 +9,11 @@
 use super::PlotRenderer;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::render::types::INITIAL_PLOT_AREA_RATIO;
-use crate::render::LayoutSolution;
-use std::collections::HashMap;
 use crate::guide::OverflowSpaceRequirement;
-use crate::layout::{ChartLayout, LayoutResult};
+use crate::layout::{ChartLayout, ComputeResult};
+use crate::render::LayoutSolution;
+use crate::render::types::INITIAL_PLOT_AREA_RATIO;
+use std::collections::HashMap;
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {
     /// Compute layout using the coordinate system's capabilities
@@ -60,22 +60,26 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         );
 
         // Use Taffy layout with the overflow requirements
-        let taffy_layout = self
+        let compute_result = self
             .compute_layout_with_overflow(width, height, scales, overflow)
             .await?;
 
-        Ok(LayoutSolution { taffy_layout })
+        // Extract the layout and canvas size from compute result
+        Ok(LayoutSolution {
+            taffy_layout: compute_result.layout,
+            canvas_size: compute_result.canvas_size,
+        })
     }
 
     /// Compute layout using Taffy for the coordinate system
     /// Convert overflow requirements to pseudo-axes for Taffy layout
     pub(super) async fn compute_layout_with_overflow(
         &self,
-        width: f32,
-        height: f32,
+        _width: f32,
+        _height: f32,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         overflow: OverflowSpaceRequirement,
-    ) -> Result<LayoutResult, AvengerChartError> {
+    ) -> Result<ComputeResult, AvengerChartError> {
         // Get legends with theme applied (ensures measurement uses correct fonts)
         let all_legends = self.get_legends_with_theme(configured_scales);
 
@@ -84,20 +88,20 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
             self.merge_legend_channels(&all_legends, configured_scales);
 
         // Create ChartLayout with overflow directly
+        let layout_spec = self.plot.get_layout_spec();
         let mut layout = ChartLayout::new_with_overflow::<C>(
             &overflow,
             &legends_map,
             configured_scales,
-            Some((width, height)),
+            layout_spec,
             self.plot.get_title(),
             self.plot.get_subtitle(),
             &self.plot.marks,
             &self.plot.get_theme(),
         )?;
 
-        // Compute layout
-        let layout_result = layout.compute(width, height)?;
-        Ok(layout_result)
+        // Compute layout using the layout spec
+        let compute_result = layout.compute_with_spec(layout_spec)?;
+        Ok(compute_result)
     }
-
 }
