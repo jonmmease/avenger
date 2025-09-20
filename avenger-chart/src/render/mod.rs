@@ -409,48 +409,6 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         debug_marks
     }
 
-    /// Check if an expression references any columns
-    fn references_columns(expr: &Expr) -> bool {
-        match expr {
-            Expr::Column(_) => true,
-            Expr::Literal(..) => false,
-            Expr::ScalarFunction(func) => func.args.iter().any(|arg| Self::references_columns(arg)),
-            Expr::BinaryExpr(binary) => {
-                Self::references_columns(&binary.left) || Self::references_columns(&binary.right)
-            }
-            Expr::Alias(alias) => Self::references_columns(&alias.expr),
-            Expr::Cast(cast) => Self::references_columns(&cast.expr),
-            Expr::TryCast(cast) => Self::references_columns(&cast.expr),
-            Expr::Not(expr) => Self::references_columns(expr),
-            Expr::IsNull(expr) => Self::references_columns(expr),
-            Expr::IsNotNull(expr) => Self::references_columns(expr),
-            Expr::IsTrue(expr) => Self::references_columns(expr),
-            Expr::IsFalse(expr) => Self::references_columns(expr),
-            Expr::IsUnknown(expr) => Self::references_columns(expr),
-            Expr::IsNotTrue(expr) => Self::references_columns(expr),
-            Expr::IsNotFalse(expr) => Self::references_columns(expr),
-            Expr::IsNotUnknown(expr) => Self::references_columns(expr),
-            Expr::Negative(expr) => Self::references_columns(expr),
-            Expr::Case(case) => {
-                let expr_refs = case
-                    .expr
-                    .as_ref()
-                    .map(|e| Self::references_columns(e))
-                    .unwrap_or(false);
-                let when_refs = case.when_then_expr.iter().any(|(when, then)| {
-                    Self::references_columns(when) || Self::references_columns(then)
-                });
-                let else_refs = case
-                    .else_expr
-                    .as_ref()
-                    .map(|e| Self::references_columns(e))
-                    .unwrap_or(false);
-                expr_refs || when_refs || else_refs
-            }
-            _ => false, // For other expression types, conservatively assume no column references
-        }
-    }
-
     /// Render a single mark to scene marks using the new Mark trait
     /// Build initial scales with estimated dimensions
     /// Returns (raw_scales, configured_non_positional, configured_positional)
@@ -904,7 +862,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     self.apply_channel_scale(channel_desc.name, channel_value, scales)?;
 
                 // Check if this channel references columns (needs array data)
-                if channel_desc.allow_column_ref && Self::references_columns(&scaled_expr) {
+                if channel_desc.allow_column_ref && scaled_expr.any_column_refs() {
                     array_channels.push((channel_desc.name, scaled_expr));
                     has_array_data = true;
                 } else {

@@ -54,14 +54,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Create a new plot with the specific size
         let sized_plot = Plot::<Polar>::new()
             .data(df)
-            ._scale("r", |s| s.domain_interval(lit(0.0), lit(120.0)))
-            ._scale("theta", |s| {
-                s.domain_interval(lit(0.0), lit(2.0 * std::f64::consts::PI))
-            })
             .mark(
                 Symbol::new()
-                    .r(col("radius"))
-                    .theta(col("theta"))
+                    .r_with(col("radius"), |c| {
+                        c.scale(|s| s.domain_interval(lit(0.0), lit(120.0)))
+                    })
+                    .theta_with(col("theta"), |c| {
+                        c.scale(|s| s.domain_interval(lit(0.0), lit(2.0 * std::f64::consts::PI)))
+                    })
                     .fill(col("category"))
                     .size(lit(100.0)),
             )

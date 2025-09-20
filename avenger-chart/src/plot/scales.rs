@@ -10,11 +10,7 @@ use super::specs::ScaleSpec;
 /// Methods for adding scales to Plot
 impl<C: CoordinateSystem> Plot<C> {
     /// Configure a scale by channel name
-    ///
-    /// This is an internal method. Use position-specific methods like `scale_x`, `scale_y`
-    /// for position channels, or channel-specific scale methods on marks for other channels.
-    #[doc(hidden)]
-    pub fn _scale<F>(mut self, channel: &str, f: F) -> Self
+    pub fn scale<F>(mut self, channel: &str, f: F) -> Self
     where
         F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
@@ -23,12 +19,8 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
-    /// Configure a scale with explicit type
-    ///
-    /// This is an internal method. Use position-specific methods like `scale_x_with`, `scale_y_with`
-    /// for position channels, or channel-specific scale methods on marks for other channels.
-    #[doc(hidden)]
-    pub fn _scale_with<S: ScaleTypeSpec>(
+    /// Configure a scale with explicit scale type
+    pub fn scale_with<S: ScaleTypeSpec>(
         mut self,
         channel: &str,
         f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,

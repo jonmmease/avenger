@@ -477,7 +477,8 @@ pub fn resolve_channel_refs(expr: Expr, channels: &IndexMap<String, ChannelValue
     .unwrap_or(original)
 }
 
-/// Resolve all channel references in a mark's channels
+/// Resolve all channel references in a mark's channels,
+/// replacing channel references (e.g. `:x`) with the actual expressions.
 ///
 /// Returns the resolved channels or an error if resolution fails
 pub fn resolve_all_channel_refs(
