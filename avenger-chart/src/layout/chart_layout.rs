@@ -1,18 +1,23 @@
+//! Main ChartLayout struct and core implementation
+
 use crate::cartesian::axis::AxisPosition;
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendPosition};
 use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};
 use avenger_scales::scales::ConfiguredScale;
 use indexmap::IndexMap;
-use tracing::debug;
-// Use stable ordering by iterating sorted keys, not map type
 use std::collections::HashMap;
 use taffy::prelude::*;
 use taffy::{NodeId, TaffyTree};
+use tracing::debug;
 
-const OVERFLOW_THRESHOLD: f32 = 2.0;
-const EDGE_MARGIN: f32 = 10.0;
+use super::grid::{GridBuilder, GridTemplate};
+use super::legend::measure_legend_size;
+use super::types::{
+    ComponentGridMap, ComponentType, LayoutBounds, LayoutResult, OVERFLOW_THRESHOLD,
+};
 
+/// Main chart layout manager
 #[derive(Debug)]
 pub struct ChartLayout {
     taffy: TaffyTree,
@@ -42,119 +47,7 @@ pub struct ChartLayout {
     subtitle_font_family: Option<String>,
 }
 
-/// Maps components to their grid positions
-#[derive(Debug)]
-struct ComponentGridMap {
-    // Track which grid cells are occupied by which components
-    cells: HashMap<(usize, usize), ComponentType>,
-
-    // Dynamic grid dimensions
-    row_count: usize,
-    col_count: usize,
-}
-
-impl ComponentGridMap {
-    fn new() -> Self {
-        ComponentGridMap {
-            cells: HashMap::new(),
-            row_count: 0,
-            col_count: 0,
-        }
-    }
-
-    fn add_component(&mut self, component: ComponentType, row: usize, col: usize) {
-        self.cells.insert((row, col), component);
-        self.row_count = self.row_count.max(row + 1);
-        self.col_count = self.col_count.max(col + 1);
-    }
-}
-
-#[derive(Debug, Clone)]
-enum ComponentType {
-    PlotArea,
-    Axis(AxisPosition),
-    #[allow(dead_code)]
-    Legend(String), // Channel name - may be used in future
-    LegendContainer(LegendPosition), // Container for legends at a position
-    Title,
-    Subtitle,
-    #[allow(dead_code)]
-    Padding, // Empty space - may be used for layout padding in future
-}
-
-/// Result of layout computation
-#[derive(Debug, Clone)]
-pub struct LayoutResult {
-    pub plot_area: LayoutBounds,
-    pub axes: HashMap<AxisPosition, LayoutBounds>,
-    pub legends: HashMap<String, LayoutBounds>,
-    pub title: Option<LayoutBounds>,
-    pub subtitle: Option<LayoutBounds>,
-    #[allow(dead_code)] // Reserved for future bounding box calculations
-    pub total_bounds: LayoutBounds,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct LayoutBounds {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-/// Builder for dynamically constructing grid layout
-struct GridBuilder {
-    components: Vec<(ComponentType, GridPlacement)>,
-
-    // Track components by position for dynamic grid building
-    left_components: Vec<ComponentType>, // Order: axis first, then legend container
-    right_components: Vec<ComponentType>, // Order: axis first, then legend container
-    top_components: Vec<ComponentType>,  // Order: axis first, then legend container, then title
-    bottom_components: Vec<ComponentType>, // Order: axis first, then legend container
-
-    // Track legends by position for container creation
-    legends_by_position: IndexMap<LegendPosition, Vec<(String, Legend)>>,
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-struct GridPlacement {
-    row: usize,
-    col: usize,
-    row_span: usize,
-    col_span: usize,
-}
-
-#[derive(Debug)]
-struct GridTemplate {
-    rows: Vec<TrackSizingFunction>,
-    cols: Vec<TrackSizingFunction>,
-}
-
 impl ChartLayout {
-    /// Measure the actual text to get accurate bounds
-    /// Returns (height, width) for the measured text
-    fn measure_text(text: &str, font_size: f32, font_family: &str) -> (f32, f32) {
-        use avenger_text::measurement::cosmic::CosmicTextMeasurer;
-        use avenger_text::measurement::{TextMeasurementConfig, TextMeasurer};
-        use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec};
-
-        let measurer = CosmicTextMeasurer::new();
-
-        let config = TextMeasurementConfig {
-            text,
-            font: font_family,
-            font_size,
-            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-            font_style: &FontStyle::Normal,
-        };
-
-        let bounds = measurer.measure_text_bounds(&config);
-
-        (bounds.line_height, bounds.width)
-    }
-
-    /// Create a new chart layout with default axes and legends included
     /// Create a new ChartLayout with overflow space requirements
     /// This is the unified layout method for all coordinate systems
     pub fn new_with_overflow<C: crate::coords::CoordinateSystem>(
@@ -264,7 +157,7 @@ impl ChartLayout {
         let mut legend_flexible = HashMap::new();
         for (channel, legend) in legends.iter() {
             if let Some(scale) = scales.get(channel) {
-                let (size, flexible) = ChartLayout::measure_legend_size(
+                let (size, flexible) = measure_legend_size(
                     channel,
                     legend,
                     scale,
@@ -288,7 +181,7 @@ impl ChartLayout {
         Ok(layout)
     }
 
-    /// Create taffy nodes for each component
+    /// Find component position in the grid
     fn find_component_position(&self, component: &ComponentType) -> Option<(usize, usize)> {
         for ((row, col), comp) in &self.component_map.cells {
             if std::mem::discriminant(comp) == std::mem::discriminant(component) {
@@ -371,7 +264,6 @@ impl ChartLayout {
             }
         }
 
-        const OVERFLOW_THRESHOLD: f32 = 2.0;
         if overflow.top > OVERFLOW_THRESHOLD {
             if let Some((row, col)) =
                 self.find_component_position(&ComponentType::Axis(AxisPosition::Top))
@@ -759,417 +651,6 @@ impl ChartLayout {
         available_space: Size<f32>,
         marks: &[Box<dyn crate::marks::Mark<C>>],
     ) -> Result<(Size<f32>, bool), AvengerChartError> {
-        use crate::legend::LegendChannel;
-
-        // Skip invisible legends
-        if !legend.visible {
-            return Ok((
-                Size {
-                    width: 0.0,
-                    height: 0.0,
-                },
-                false,
-            ));
-        }
-
-        // Find the mark that has this channel and its index
-        let (mark_index, mark_with_channel) = marks
-            .iter()
-            .enumerate()
-            .find(|(_, m)| m.data_context().channels().contains_key(channel))
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "Channel '{}' not found in any mark",
-                    channel
-                ))
-            })?;
-
-        // Get the renderer - either explicitly configured or from the mark
-        let renderer = if let Some(ref renderer) = legend.renderer {
-            // Use explicitly configured renderer
-            renderer.clone()
-        } else {
-            // Get the mark's preferred renderer for this channel
-            mark_with_channel
-                .preferred_legend_renderer(channel, scale)
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "No legend renderer available for channel '{}'",
-                        channel
-                    ))
-                })?
-        };
-
-        // Collect related channels from the mark (needed for correct size constants)
-        use crate::legend::ChannelInfo;
-        let mut related_channels = HashMap::new();
-        for (other_name, other_value) in mark_with_channel.data_context().channels() {
-            if other_name != channel {
-                // Check if this channel has a scale or is constant
-                let channel_info = if let Some(other_scale) = scales.get(other_name) {
-                    // Channel has a scale
-                    ChannelInfo::Scaled {
-                        expr: other_value.expr().cloned(),
-                        scale: other_scale.clone(),
-                    }
-                } else if let Some(expr) = other_value.expr() {
-                    // Channel has a constant expression
-                    ChannelInfo::Constant { expr: expr.clone() }
-                } else {
-                    // Skip channels without expressions
-                    continue;
-                };
-                related_channels.insert(other_name.clone(), channel_info);
-            }
-        }
-
-        // Create legend channels for all merged channels, not just the primary one
-        let mut legend_channels = Vec::new();
-
-        // Always add the primary channel
-        legend_channels.push(LegendChannel {
-            name: channel.to_string(),
-            expression: mark_with_channel
-                .data_context()
-                .channels()
-                .get(channel)
-                .and_then(|v| v.expr().cloned()),
-            scale: scale.clone(),
-            channel_type: channel.to_string(),
-            mark_type: mark_with_channel.mark_type().to_string(),
-            mark_index,
-            related_channels: related_channels.clone(),
-        });
-
-        // Add any merged channels
-        for merged_channel_name in &legend.merged_channels {
-            if merged_channel_name != channel {
-                // Only add if this channel exists in the mark
-                if let Some(channel_value) = mark_with_channel
-                    .data_context()
-                    .channels()
-                    .get(merged_channel_name)
-                {
-                    if let Some(merged_scale) = scales.get(merged_channel_name) {
-                        legend_channels.push(LegendChannel {
-                            name: merged_channel_name.clone(),
-                            expression: channel_value.expr().cloned(),
-                            scale: merged_scale.clone(),
-                            channel_type: merged_channel_name.clone(),
-                            mark_type: mark_with_channel.mark_type().to_string(),
-                            mark_index,
-                            related_channels: related_channels.clone(),
-                        });
-                    }
-                }
-            }
-        }
-
-        // Ask the renderer to measure itself with all merged channels
-        let size = renderer.measure(&legend_channels, legend, available_space)?;
-        let flexible = renderer.prefers_flexible_layout();
-        Ok((size, flexible))
-    }
-}
-
-impl GridBuilder {
-    fn new() -> Self {
-        GridBuilder {
-            components: Vec::new(),
-            left_components: Vec::new(),
-            right_components: Vec::new(),
-            top_components: Vec::new(),
-            bottom_components: Vec::new(),
-            legends_by_position: IndexMap::new(),
-        }
-    }
-
-    fn add_plot_area(&mut self) {
-        // Plot area will be positioned dynamically based on components
-        self.components.push((
-            ComponentType::PlotArea,
-            GridPlacement {
-                row: 0, // Will be calculated dynamically
-                col: 0, // Will be calculated dynamically
-                row_span: 1,
-                col_span: 1,
-            },
-        ));
-    }
-
-    fn add_title(&mut self) {
-        // Title sits at the top area before axes/legends
-        self.top_components.insert(0, ComponentType::Title);
-    }
-
-    fn add_subtitle(&mut self) {
-        // Subtitle sits directly after the title
-        // Find the position after the title if it exists, otherwise at the beginning
-        let insert_pos = self
-            .top_components
-            .iter()
-            .position(|c| matches!(c, ComponentType::Title))
-            .map(|pos| pos + 1)
-            .unwrap_or(0);
-        self.top_components
-            .insert(insert_pos, ComponentType::Subtitle);
-    }
-
-    fn add_axes_at_position(&mut self, position: AxisPosition, _count: usize) {
-        let component = ComponentType::Axis(position);
-        match position {
-            AxisPosition::Left => {
-                // Insert axis at beginning (closest to plot)
-                self.left_components.insert(0, component);
-            }
-            AxisPosition::Right => {
-                // Insert axis at beginning (closest to plot)
-                self.right_components.insert(0, component);
-            }
-            AxisPosition::Top => {
-                // Insert axis at end (closest to plot)
-                self.top_components.push(component);
-            }
-            AxisPosition::Bottom => {
-                // Insert axis at beginning (closest to plot)
-                self.bottom_components.insert(0, component);
-            }
-        }
-    }
-
-    fn add_legend(&mut self, channel: String, legend: &Legend) {
-        let position = legend.position.unwrap_or(LegendPosition::Right);
-
-        // Collect legends by position for later container creation
-        self.legends_by_position
-            .entry(position)
-            .or_default()
-            .push((channel, legend.clone()));
-    }
-
-    fn finalize_legend_containers(&mut self) {
-        // Create a container component for each position that has legends
-        for position in self.legends_by_position.keys() {
-            let component = ComponentType::LegendContainer(*position);
-
-            match position {
-                LegendPosition::Right => {
-                    // Add container after axes (farther from plot)
-                    self.right_components.push(component);
-                }
-                LegendPosition::Left => {
-                    // Add container after axes (farther from plot)
-                    self.left_components.push(component);
-                }
-                LegendPosition::Top => {
-                    // Add container before axes (farther from plot)
-                    self.top_components.insert(0, component);
-                }
-                LegendPosition::Bottom => {
-                    // Add container after axes (farther from plot)
-                    self.bottom_components.push(component);
-                }
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn measure_legend_container_width<C: crate::coords::CoordinateSystem>(
-        &self,
-        channels: &[String],
-        legends: &IndexMap<String, Legend>,
-        scales: &HashMap<String, ConfiguredScale>,
-        marks: &[Box<dyn crate::marks::Mark<C>>],
-    ) -> Result<f32, AvengerChartError> {
-        let mut max_width: f32 = 0.0;
-        for channel in channels {
-            if let Some(legend) = legends.get(channel) {
-                if let Some(scale) = scales.get(channel) {
-                    // Use the actual measured legend size
-                    // For now use a dummy available space - legends will adapt
-                    let available = Size {
-                        width: 200.0,
-                        height: 400.0,
-                    };
-                    let (size, _flexible) = ChartLayout::measure_legend_size(
-                        channel, legend, scale, scales, available, marks,
-                    )?;
-                    max_width = max_width.max(size.width);
-                }
-            }
-        }
-        Ok(max_width)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn build_with_overflow<C: crate::coords::CoordinateSystem>(
-        &self,
-        overflow: &crate::coords::OverflowSpaceRequirement,
-        legends: &IndexMap<String, Legend>,
-        scales: &HashMap<String, ConfiguredScale>,
-        _available_space: Size<f32>,
-        _marks: &[Box<dyn crate::marks::Mark<C>>],
-        title: Option<&PlotTitle>,
-        subtitle: Option<&PlotSubtitle>,
-        theme: &dyn crate::theme::Theme,
-    ) -> Result<(GridTemplate, ComponentGridMap), AvengerChartError> {
-        // Use edge margins from constants to ensure consistent padding
-        let mut cols = Vec::new();
-        let mut rows = Vec::new();
-        let mut component_map = ComponentGridMap::new();
-
-        // === Build Column Template ===
-        // Start with left margin
-        cols.push(length(EDGE_MARGIN));
-        let mut col_index = 1;
-
-        // Track column index for left overflow
-        // Only create overflow column if it's more than a minimal threshold
-        const OVERFLOW_THRESHOLD: f32 = 2.0; // Minimum pixels to create an overflow region
-        let left_overflow_col = if overflow.left > OVERFLOW_THRESHOLD {
-            cols.push(length(overflow.left)); // Exact overflow size
-            let idx = col_index;
-            col_index += 1;
-            Some(idx)
-        } else {
-            None
-        };
-
-        // Plot area column (flexible)
-        let plot_col_index = col_index;
-        cols.push(fr(1.0));
-        col_index += 1;
-
-        // Track column index for right overflow
-        let right_overflow_col = if overflow.right > OVERFLOW_THRESHOLD {
-            cols.push(length(overflow.right)); // Exact overflow size
-            let idx = col_index;
-            col_index += 1;
-            Some(idx)
-        } else {
-            None
-        };
-
-        // Add right legend containers and track their column indices
-        let mut right_legend_cols = Vec::new();
-        for component in &self.right_components {
-            if let ComponentType::LegendContainer(position) = component {
-                if *position == LegendPosition::Right {
-                    // Get channels from the merged legends map (not legends_by_position which has unmerged channels)
-                    // Filter legends by position to get only those in this container
-                    let channels: Vec<String> = legends
-                        .iter()
-                        .filter(|(_, legend)| {
-                            legend.position.unwrap_or(LegendPosition::Right) == *position
-                        })
-                        .map(|(ch, _)| ch.clone())
-                        .collect();
-                    let width =
-                        self.measure_legend_container_width(&channels, legends, scales, _marks)?;
-                    cols.push(length(width));
-                    right_legend_cols.push(col_index);
-                    col_index += 1;
-                }
-            }
-        }
-
-        // End with right margin
-        cols.push(length(EDGE_MARGIN));
-
-        // === Build Row Template ===
-        rows.push(length(EDGE_MARGIN));
-        let mut row_index = 1;
-
-        // Add title if present
-        if let Some(t) = title {
-            let font_size = t.font_size.unwrap_or(theme.title_font_size());
-            let title_font_family = theme.title_font_family();
-            let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
-            let (height, _) = ChartLayout::measure_text(&t.text, font_size, font_family);
-            rows.push(length(height * 1.15));
-            // Title starts from left overflow column (if present) or plot column
-            let title_start_col = left_overflow_col.unwrap_or(plot_col_index);
-            component_map.add_component(ComponentType::Title, row_index, title_start_col);
-            row_index += 1;
-        }
-
-        // Add subtitle if present
-        if let Some(s) = subtitle {
-            let font_size = s.font_size.unwrap_or(theme.subtitle_font_size());
-            let subtitle_font_family = theme.subtitle_font_family();
-            let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
-            let (height, _) = ChartLayout::measure_text(&s.text, font_size, font_family);
-            rows.push(length(height * 1.1));
-            // Subtitle starts from left overflow column (if present) or plot column
-            let subtitle_start_col = left_overflow_col.unwrap_or(plot_col_index);
-            component_map.add_component(ComponentType::Subtitle, row_index, subtitle_start_col);
-            row_index += 1;
-        }
-
-        // Add top overflow space if needed
-        if overflow.top > OVERFLOW_THRESHOLD {
-            rows.push(length(overflow.top)); // Exact overflow size
-            component_map.add_component(
-                ComponentType::Axis(AxisPosition::Top),
-                row_index,
-                plot_col_index,
-            );
-            row_index += 1;
-        }
-
-        // Plot area row (flexible)
-        let plot_row_index = row_index;
-        rows.push(fr(1.0));
-        component_map.add_component(ComponentType::PlotArea, plot_row_index, plot_col_index);
-
-        // Now add the left/right axis components at the plot row
-        if let Some(col) = left_overflow_col {
-            component_map.add_component(
-                ComponentType::Axis(AxisPosition::Left),
-                plot_row_index,
-                col,
-            );
-        }
-
-        if let Some(col) = right_overflow_col {
-            component_map.add_component(
-                ComponentType::Axis(AxisPosition::Right),
-                plot_row_index,
-                col,
-            );
-        }
-
-        // Add right legend containers at the plot row
-        let mut legend_idx = 0;
-        for component in &self.right_components {
-            if let ComponentType::LegendContainer(position) = component {
-                if *position == LegendPosition::Right && legend_idx < right_legend_cols.len() {
-                    component_map.add_component(
-                        component.clone(),
-                        plot_row_index,
-                        right_legend_cols[legend_idx],
-                    );
-                    legend_idx += 1;
-                }
-            }
-        }
-
-        row_index += 1;
-
-        // Add bottom overflow space if needed
-        if overflow.bottom > OVERFLOW_THRESHOLD {
-            rows.push(length(overflow.bottom)); // Exact overflow size
-            component_map.add_component(
-                ComponentType::Axis(AxisPosition::Bottom),
-                row_index,
-                plot_col_index,
-            );
-            // row_index += 1;
-        }
-
-        // End with bottom margin
-        rows.push(length(EDGE_MARGIN));
-
-        Ok((GridTemplate { cols, rows }, component_map))
+        measure_legend_size(channel, legend, scale, scales, available_space, marks)
     }
 }

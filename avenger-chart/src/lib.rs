@@ -1,16 +1,16 @@
 pub mod cartesian;
 pub mod channel;
-mod chart_layout;
 pub mod coords;
 pub mod error;
 pub mod guide;
+mod layout;
 pub mod legend;
 pub mod marks;
 pub mod plot;
 pub mod polar;
 pub mod prelude;
 pub mod render;
-pub mod render_context;
+// render_context moved to render/context
 pub mod scales;
 pub mod theme;
 pub mod utils;

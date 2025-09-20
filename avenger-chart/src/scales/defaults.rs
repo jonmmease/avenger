@@ -1,7 +1,7 @@
 //! Default scale creation using theme and trait-based type detection
 
 use crate::error::AvengerChartError;
-use crate::render_context::RenderContext;
+use crate::render::RenderContext;
 use crate::scales::{Auto, Scale};
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;

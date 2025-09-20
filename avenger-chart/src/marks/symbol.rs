@@ -5,7 +5,7 @@ use crate::channel::{
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{Mark, MarkState};
-use crate::render_context::RenderContext;
+use crate::render::RenderContext;
 use crate::scales::{ResolvedDomain, ScaleRange};
 use crate::{define_common_mark_channels, impl_mark_base};
 use arrow::array::RecordBatch;

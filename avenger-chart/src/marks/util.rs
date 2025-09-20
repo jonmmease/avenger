@@ -88,7 +88,7 @@ pub fn coerce_numeric_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render_context::RenderContext,
+    context: &crate::render::RenderContext,
     fallback_default: f32,
 ) -> Result<ScalarOrArray<f32>, AvengerChartError> {
     use crate::utils::ScalarValueHelpers;
@@ -145,7 +145,7 @@ pub fn coerce_color_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render_context::RenderContext,
+    context: &crate::render::RenderContext,
     fallback_default: [f32; 4],
 ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
     // Get default from mark - the mark's default_channel_value returns a ScalarValue
@@ -182,7 +182,7 @@ pub fn coerce_bool_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render_context::RenderContext,
+    context: &crate::render::RenderContext,
     fallback_default: bool,
 ) -> Result<ScalarOrArray<bool>, AvengerChartError> {
     use datafusion::scalar::ScalarValue;
@@ -218,7 +218,7 @@ pub fn coerce_stroke_cap_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render_context::RenderContext,
+    context: &crate::render::RenderContext,
     fallback_default: StrokeCap,
 ) -> Result<StrokeCap, AvengerChartError> {
     use datafusion::scalar::ScalarValue;
@@ -260,7 +260,7 @@ pub fn coerce_stroke_join_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render_context::RenderContext,
+    context: &crate::render::RenderContext,
     fallback_default: StrokeJoin,
 ) -> Result<StrokeJoin, AvengerChartError> {
     use datafusion::scalar::ScalarValue;

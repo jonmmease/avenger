@@ -1,16 +1,7 @@
 //! Specification types for scales and axes
 
-use crate::marks::RadiusExpression;
 use crate::scales::Scale;
-use datafusion::dataframe::DataFrame;
 use std::sync::Arc;
-
-/// Type alias for scale domain expressions with optional radius information
-pub(crate) type ScaleDomainWithRadius = Vec<(
-    Arc<DataFrame>,
-    datafusion::logical_expr::Expr,
-    Option<RadiusExpression>,
-)>;
 
 /// How a scale is defined for a channel
 #[derive(Clone)]

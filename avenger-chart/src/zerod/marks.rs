@@ -6,7 +6,7 @@
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
 use crate::marks::Mark;
-use crate::render_context::RenderContext;
+use crate::render::RenderContext;
 use crate::zerod::ZeroDCoord;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
