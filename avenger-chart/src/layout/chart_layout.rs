@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use taffy::prelude::*;
-use taffy::{NodeId, TaffyTree};
+use taffy::{AlignSelf, NodeId, TaffyTree};
 use tracing::debug;
 
 /// Structure to hold all the node IDs from the TaffyTree
@@ -195,33 +195,40 @@ impl ChartLayout {
         &mut self,
         layout_spec: &LayoutSpec,
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
-        // Normalize the layout spec: when both canvas and plot area are Auto,
-        // use default canvas size (400x300)
-        let normalized_spec = if matches!(&layout_spec.canvas, SizeMode::Auto)
-            && matches!(&layout_spec.plot_area, SizeMode::Auto)
-        {
-            LayoutSpec {
-                canvas: SizeMode::Fixed {
+        // Normalize the layout spec to handle special cases
+        // The layout spec should already have canvas and plot_area fields set from the mode
+        let normalized_spec = match (&layout_spec.canvas, &layout_spec.plot_area) {
+            // Case 1: Both canvas and plot area are Auto - use default 400x300
+            (SizeMode::Auto, SizeMode::Auto) => {
+                let mut spec = layout_spec.clone();
+                spec.canvas = SizeMode::Fixed {
                     width: 400.0,
                     height: 300.0,
-                },
-                plot_area: layout_spec.plot_area.clone(),
-                margins: layout_spec.margins.clone(),
+                };
+                spec
+            },
+            // Case 2: Canvas aspect ratio with Auto plot area - compute canvas size
+            (SizeMode::AspectRatio(ratio), SizeMode::Auto) => {
+                let width = 400.0;
+                let height = width / ratio;
+                let mut spec = layout_spec.clone();
+                spec.canvas = SizeMode::Fixed { width, height };
+                spec
             }
-        } else {
-            layout_spec.clone()
+            // Case 3: Canvas aspect ratio with fixed plot area
+            // Keep as-is - Taffy should handle this with proper constraints
+            (SizeMode::AspectRatio(_), SizeMode::Fixed { .. }) => layout_spec.clone(),
+            // All other cases: use as-is
+            _ => layout_spec.clone(),
         };
 
         // Step 1: Configure canvas (root) dimensions
-        let (canvas_width, canvas_height) = match &normalized_spec.canvas {
-            SizeMode::Fixed { width, height } => (length(*width), length(*height)),
-            SizeMode::Width(w) => (length(*w), auto()),
-            SizeMode::Height(h) => (auto(), length(*h)),
-            SizeMode::AspectRatio(_) => {
-                // Canvas aspect ratio not yet supported, default to auto
-                (auto(), auto())
-            }
-            SizeMode::Auto => (auto(), auto()),
+        let (canvas_width, canvas_height, canvas_aspect) = match &normalized_spec.canvas {
+            SizeMode::Fixed { width, height } => (length(*width), length(*height), None),
+            SizeMode::Width(w) => (length(*w), auto(), None),
+            SizeMode::Height(h) => (auto(), length(*h), None),
+            SizeMode::AspectRatio(ratio) => (auto(), auto(), Some(*ratio)),
+            SizeMode::Auto => (auto(), auto(), None),
         };
 
         let root_style = Style {
@@ -232,6 +239,7 @@ impl ChartLayout {
                 width: canvas_width,
                 height: canvas_height,
             },
+            aspect_ratio: canvas_aspect,
             ..Default::default()
         };
         self.taffy.set_style(self.nodes.root_node, root_style)?;
@@ -244,6 +252,7 @@ impl ChartLayout {
                 SizeMode::Fixed { width, height } => (length(*width), length(*height), None),
                 SizeMode::Width(w) => (length(*w), auto(), None),
                 SizeMode::Height(h) => (auto(), length(*h), None),
+                // For aspect ratio, set width to 100% and let height be determined by ratio
                 SizeMode::AspectRatio(ratio) => (auto(), auto(), Some(*ratio)),
                 SizeMode::Auto => (auto(), auto(), None),
             };
@@ -279,11 +288,12 @@ impl ChartLayout {
         }
 
         // Step 3: Determine available space for layout computation
-        // If dimension is fixed, use Definite; otherwise use MinContent to size based on content
+        // If dimension is fixed, use Definite; otherwise use MaxContent for aspect ratio, MinContent otherwise
         let available_width = match &normalized_spec.canvas {
             SizeMode::Fixed { width, .. } | SizeMode::Width(width) => {
                 AvailableSpace::Definite(*width)
             }
+            SizeMode::AspectRatio(_) => AvailableSpace::MaxContent,
             _ => AvailableSpace::MinContent,
         };
 
@@ -291,6 +301,7 @@ impl ChartLayout {
             SizeMode::Fixed { height, .. } | SizeMode::Height(height) => {
                 AvailableSpace::Definite(*height)
             }
+            SizeMode::AspectRatio(_) => AvailableSpace::MaxContent,
             _ => AvailableSpace::MinContent,
         };
 

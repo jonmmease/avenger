@@ -232,7 +232,7 @@ async fn test_scatter_with_size_encoding() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::<Cartesian>::new()
-        .with_size(600.0, 450.0)
+        .canvas_size(600.0, 450.0)
         .data(df)
         .mark(
             Symbol::new()
@@ -283,7 +283,7 @@ async fn test_scatter_with_size_encoding_legend() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::<Cartesian>::new()
-        .with_size(600.0, 450.0)
+        .canvas_size(600.0, 450.0)
         .data(df)
         .legend("fill", |legend| legend)
         .mark(

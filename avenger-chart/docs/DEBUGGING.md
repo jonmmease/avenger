@@ -115,4 +115,4 @@ The tracing output can be consumed by various tools:
 
 The following environment variables have been replaced with tracing:
 - `AVENGER_DEBUG_LAYOUT` → Use `RUST_LOG=avenger_chart=debug`
-- `AVENGER_DEBUG_LAYOUT_RECTS` → Use `RUST_LOG=avenger_chart::render=trace` (debug builds only)
+- `AVENGER_CHART_DEBUG_LAYOUT` → Use `RUST_LOG=avenger_chart::render=trace`

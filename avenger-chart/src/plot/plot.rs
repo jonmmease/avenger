@@ -4,7 +4,7 @@ use crate::channel::value::strip_trailing_numbers;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::guide::CoordinateGuide;
-use crate::layout::{LayoutSpec, Margins, SizeMode};
+use crate::layout::{LayoutSpec, Margins, CanvasConstraint, PlotConstraint};
 use crate::legend::Legend;
 use crate::marks::Mark;
 use crate::scales::Scale;
@@ -176,59 +176,49 @@ impl<C: CoordinateSystem> Plot<C> {
         &self.layout_spec
     }
 
-    /// Set the layout specification for this plot
-    pub fn layout(mut self, spec: LayoutSpec) -> Self {
-        self.layout_spec = spec;
-        self
-    }
+    // ====== Layout API ======
 
-    /// Set canvas to fixed size (traditional mode)
+    /// Set fixed canvas dimensions (traditional mode)
+    /// The plot area will fill the available space within the canvas
     pub fn canvas_size(mut self, width: f32, height: f32) -> Self {
-        self.layout_spec.canvas = SizeMode::Fixed { width, height };
+        self.layout_spec = LayoutSpec::fixed_canvas(width, height, self.layout_spec.margins.clone());
         self
     }
 
-    /// Set a preferred size for the plot canvas (compatibility method)
-    pub fn with_size(self, width: f32, height: f32) -> Self {
-        self.canvas_size(width, height)
-    }
-
-    /// Set fixed canvas width (height will be computed based on other constraints)
-    pub fn canvas_width(mut self, width: f32) -> Self {
-        self.layout_spec.canvas = SizeMode::Width(width);
+    /// Set canvas sizing constraint for responsive layouts
+    pub fn canvas_constraint(mut self, constraint: CanvasConstraint) -> Self {
+        // If setting aspect ratio, clear plot aspect ratio to avoid conflicts
+        if matches!(constraint, CanvasConstraint::PreferredAspectRatio(_))
+            && matches!(self.layout_spec.plot_area, crate::layout::SizeMode::AspectRatio(_)) {
+            self.layout_spec.plot_area = crate::layout::SizeMode::Auto;
+        }
+        self.layout_spec.canvas = constraint.into();
         self
     }
 
-    /// Set fixed canvas height (width will be computed based on other constraints)
-    pub fn canvas_height(mut self, height: f32) -> Self {
-        self.layout_spec.canvas = SizeMode::Height(height);
-        self
-    }
-
-    /// Set plot area to fixed size (new mode)
+    /// Set fixed plot area dimensions (data-first mode)
+    /// The canvas will expand to accommodate the plot area plus margins, axes, and legends
     pub fn plot_size(mut self, width: f32, height: f32) -> Self {
-        self.layout_spec.plot_area = SizeMode::Fixed { width, height };
-        self.layout_spec.canvas = SizeMode::Auto;
+        self.layout_spec = LayoutSpec::fixed_plot_area(width, height, self.layout_spec.margins.clone());
         self
     }
 
-    /// Set plot area aspect ratio
-    pub fn plot_aspect_ratio(mut self, ratio: f32) -> Self {
-        self.layout_spec.plot_area = SizeMode::AspectRatio(ratio);
+    /// Set plot area sizing constraint for responsive layouts
+    pub fn plot_constraint(mut self, constraint: PlotConstraint) -> Self {
+        self.layout_spec.plot_area = match constraint {
+            PlotConstraint::Auto => crate::layout::SizeMode::Auto,
+            PlotConstraint::AspectRatio(r) => crate::layout::SizeMode::AspectRatio(r),
+            PlotConstraint::Width(w) => crate::layout::SizeMode::Width(w),
+            PlotConstraint::Height(h) => crate::layout::SizeMode::Height(h),
+        };
+        // If setting aspect ratio, clear canvas aspect ratio to avoid conflicts
+        if matches!(constraint, PlotConstraint::AspectRatio(_))
+            && matches!(self.layout_spec.canvas, crate::layout::SizeMode::AspectRatio(_)) {
+            self.layout_spec.canvas = crate::layout::SizeMode::Auto;
+        }
         self
     }
 
-    /// Set fixed plot area width (height will be computed based on other constraints)
-    pub fn plot_width(mut self, width: f32) -> Self {
-        self.layout_spec.plot_area = SizeMode::Width(width);
-        self
-    }
-
-    /// Set fixed plot area height (width will be computed based on other constraints)
-    pub fn plot_height(mut self, height: f32) -> Self {
-        self.layout_spec.plot_area = SizeMode::Height(height);
-        self
-    }
 
     /// Set margins
     pub fn margins(mut self, margins: Margins) -> Self {
