@@ -4,7 +4,7 @@ use crate::channel::value::strip_trailing_numbers;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::guide::CoordinateGuide;
-use crate::layout::{LayoutSpec, Margins, CanvasConstraint, PlotConstraint};
+use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
 use crate::marks::Mark;
 use crate::scales::Scale;
@@ -181,7 +181,8 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set fixed canvas dimensions (traditional mode)
     /// The plot area will fill the available space within the canvas
     pub fn canvas_size(mut self, width: f32, height: f32) -> Self {
-        self.layout_spec = LayoutSpec::fixed_canvas(width, height, self.layout_spec.margins.clone());
+        self.layout_spec =
+            LayoutSpec::fixed_canvas(width, height, self.layout_spec.margins.clone());
         self
     }
 
@@ -189,7 +190,11 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn canvas_constraint(mut self, constraint: CanvasConstraint) -> Self {
         // If setting aspect ratio, clear plot aspect ratio to avoid conflicts
         if matches!(constraint, CanvasConstraint::PreferredAspectRatio(_))
-            && matches!(self.layout_spec.plot_area, crate::layout::SizeMode::AspectRatio(_)) {
+            && matches!(
+                self.layout_spec.plot_area,
+                crate::layout::SizeMode::AspectRatio(_)
+            )
+        {
             self.layout_spec.plot_area = crate::layout::SizeMode::Auto;
         }
         self.layout_spec.canvas = constraint.into();
@@ -199,7 +204,8 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set fixed plot area dimensions (data-first mode)
     /// The canvas will expand to accommodate the plot area plus margins, axes, and legends
     pub fn plot_size(mut self, width: f32, height: f32) -> Self {
-        self.layout_spec = LayoutSpec::fixed_plot_area(width, height, self.layout_spec.margins.clone());
+        self.layout_spec =
+            LayoutSpec::fixed_plot_area(width, height, self.layout_spec.margins.clone());
         self
     }
 
@@ -213,12 +219,15 @@ impl<C: CoordinateSystem> Plot<C> {
         };
         // If setting aspect ratio, clear canvas aspect ratio to avoid conflicts
         if matches!(constraint, PlotConstraint::AspectRatio(_))
-            && matches!(self.layout_spec.canvas, crate::layout::SizeMode::AspectRatio(_)) {
+            && matches!(
+                self.layout_spec.canvas,
+                crate::layout::SizeMode::AspectRatio(_)
+            )
+        {
             self.layout_spec.canvas = crate::layout::SizeMode::Auto;
         }
         self
     }
-
 
     /// Set margins
     pub fn margins(mut self, margins: Margins) -> Self {

@@ -1,5 +1,5 @@
+use avenger_chart::layout::{CanvasConstraint, Margins, PlotConstraint};
 use avenger_chart::prelude::*;
-use avenger_chart::layout::{CanvasConstraint, PlotConstraint, Margins};
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -239,9 +239,7 @@ async fn test_fixed_plot_area_with_canvas_aspect_ratio() {
                 .y_with(col("y"), |c| {
                     c.scale(|s| s).axis(|a| a.title("Y Axis").grid(true))
                 })
-                .stroke_with(col("category"), |c| {
-                    c.legend(|l| l.title("Category"))
-                })
+                .stroke_with(col("category"), |c| c.legend(|l| l.title("Category")))
                 .stroke_width(2.5),
         );
 
@@ -260,7 +258,7 @@ async fn test_fixed_canvas_with_plot_aspect_ratio() {
     // then margins will expand to fill remaining space
     let plot = Plot::<Cartesian>::new()
         .canvas_size(600.0, 400.0)
-        .plot_constraint(PlotConstraint::AspectRatio(3.0))  // 3:1 aspect ratio
+        .plot_constraint(PlotConstraint::AspectRatio(3.0)) // 3:1 aspect ratio
         .margins(Margins::uniform(20.0))
         .data(df)
         .mark(
@@ -271,9 +269,7 @@ async fn test_fixed_canvas_with_plot_aspect_ratio() {
                 .y_with(col("y"), |c| {
                     c.scale(|s| s).axis(|a| a.title("Y Axis").grid(true))
                 })
-                .fill_with(col("category"), |c| {
-                    c.legend(|l| l.title("Category"))
-                })
+                .fill_with(col("category"), |c| c.legend(|l| l.title("Category")))
                 .size(100.0)
                 .shape("circle"),
         );

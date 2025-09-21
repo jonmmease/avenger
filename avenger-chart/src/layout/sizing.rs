@@ -45,8 +45,6 @@
 //! - Canvas aspect ratio is "preferred" - it may be overridden if content requires more space
 //! - Canvas and plot aspect ratios cannot be used together (creates conflicting constraints)
 
-
-
 /// Constraints that can be applied to the canvas
 #[derive(Clone, Debug, PartialEq)]
 pub enum CanvasConstraint {
@@ -140,7 +138,10 @@ pub struct LayoutSpec {
 impl Default for LayoutSpec {
     fn default() -> Self {
         Self {
-            canvas: SizeMode::Fixed { width: 400.0, height: 300.0 },
+            canvas: SizeMode::Fixed {
+                width: 400.0,
+                height: 300.0,
+            },
             plot_area: SizeMode::Auto,
             margins: Margins::default(),
         }
