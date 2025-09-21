@@ -28,14 +28,3 @@ use crate::plot::Plot;
 pub struct PlotRenderer<'a, C: CoordinateSystem> {
     pub(crate) plot: &'a Plot<C>,
 }
-
-// All implementation blocks are now in their respective modules:
-// - renderer.rs: Main render() method and orchestration
-// - scales.rs: Scale building and configuration
-// - marks.rs: Mark rendering and channel processing
-// - legends.rs: Legend creation and management
-// - titles.rs: Title and subtitle rendering
-// - layout.rs: Layout computation
-// - guide_marks.rs: Guide mark creation
-// - debug.rs: Debug visualization utilities
-// - guide.rs: Guide system for coordinate systems
