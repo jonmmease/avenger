@@ -19,7 +19,7 @@ async fn test_channel_resolution_in_rendering() -> Result<(), Box<dyn std::error
         .await?;
 
     // Create a plot with channel reference
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Rect::new()
             .data(df)
             .x(col("category"))
@@ -58,7 +58,7 @@ async fn test_channel_resolution_with_scale() -> Result<(), Box<dyn std::error::
         .await?;
 
     // Create a plot where channel reference goes through scale transformation
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Rect::new()
             .data(df)
             .x_with(col("name"), |c| c.scale_with::<Band>(|scale| scale))
@@ -86,7 +86,7 @@ async fn test_unresolved_channel_reference_fails() -> Result<(), Box<dyn std::er
     let df = ctx.sql("SELECT 'A' as category, 10.0 as value").await?;
 
     // Create a plot with reference to non-existent channel
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Rect::new()
             .data(df)
             .x(col("category"))
@@ -132,7 +132,7 @@ async fn test_simple_chained_channel_resolution() -> Result<(), Box<dyn std::err
     // y -> value
     // stroke -> :x (resolves to category)
     // fill -> :stroke (resolves to category through :x)
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Symbol::new()
             .data(df)
             .x(col("category"))
@@ -178,7 +178,7 @@ async fn test_complex_chained_channel_resolution() -> Result<(), Box<dyn std::er
     // y2 -> :y + 0.5 (expression with channel ref)
     // stroke -> :fill (references fill)
     // fill -> color
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Rect::new()
             .data(df)
             .x(col("x_val"))
@@ -220,7 +220,7 @@ async fn test_multiple_level_chained_resolution() -> Result<(), Box<dyn std::err
     // stroke -> :x (resolves to cat)
     // fill -> :stroke (resolves to :x -> cat)
     // opacity -> :fill (resolves to :stroke -> :x -> cat)
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Symbol::new()
             .data(df)
             .x(col("cat"))
@@ -253,7 +253,7 @@ async fn test_cyclic_channel_reference_detection() -> Result<(), Box<dyn std::er
     // x -> :y (references y)
     // y -> :x (references x)
     // This creates a cycle: x -> y -> x
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Symbol::new()
             .data(df)
             .x(col(":y")) // x references y
@@ -290,7 +290,7 @@ async fn test_complex_cycle_detection() -> Result<(), Box<dyn std::error::Error>
     // stroke -> :fill
     // fill -> :x
     // This creates a cycle: x -> stroke -> fill -> x
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Symbol::new()
             .data(df)
             .x(col(":stroke")) // x references stroke
@@ -333,7 +333,7 @@ async fn test_partial_cycle_with_valid_channels() -> Result<(), Box<dyn std::err
     // stroke -> :fill (references fill)
     // fill -> :stroke (references stroke - creates cycle!)
     // size -> size (valid)
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Symbol::new()
             .data(df)
             .x(col("category")) // Valid
@@ -374,7 +374,7 @@ async fn test_channel_resolution_with_expressions() -> Result<(), Box<dyn std::e
     // y -> y_val * 2
     // x2 -> :x * 2 (expression with channel ref)
     // y2 -> :y + 1 (expression with channel ref to computed value)
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Rect::new()
             .data(df)
             .x(col("x_val"))

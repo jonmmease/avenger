@@ -54,6 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Create a new plot with the specific size
         let sized_plot = Plot::<Polar>::new()
             .data(df)
+            .canvas_size(width, height)
             .mark(
                 Symbol::new()
                     .r_with(col("radius"), |c| {
@@ -64,8 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     })
                     .fill(col("category"))
                     .size(lit(100.0)),
-            )
-            .with_size(width, height);
+            );
 
         // Render the plot to the canvas
         canvas.render_plot(&sized_plot).await?;

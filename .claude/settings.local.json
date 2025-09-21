@@ -53,7 +53,10 @@
       "Bash(timeout 2 cargo test --test test_css_theme test_pseudo_class_selectors -- --exact --nocapture)",
       "Bash(export RUST_BACKTRACE=1)",
       "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/css-color-parser-0.1.2/src/**)",
-      "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/taffy-0.8.3/src/**)"
+      "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/taffy-0.8.3/src/**)",
+      "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/taffy-0.8.3/**)",
+      "Bash(AVENGER_DEBUG_LAYOUT=1 cargo test test_fixed_canvas_with_plot_aspect_ratio -- --nocapture)",
+      "Bash(AVENGER_CHART_DEBUG_LAYOUT=1 cargo test test_fixed_canvas_with_plot_aspect_ratio -- --nocapture)"
     ]
   },
   "enableAllProjectMcpServers": false

@@ -19,7 +19,7 @@ async fn test_reference_to_conditional_channel() -> Result<(), Box<dyn std::erro
         .await?;
 
     // Create a plot with a conditional channel that is referenced
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Symbol::new()
             .data(df.clone())
             .x(col("value"))
@@ -81,7 +81,7 @@ async fn test_rect_with_conditional_x_reference() -> Result<(), Box<dyn std::err
         .await?;
 
     // Create a plot where x2 references a conditional x
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Rect::new()
             .data(df)
             .x(col("value"))
@@ -128,7 +128,7 @@ async fn test_chain_through_conditional() -> Result<(), Box<dyn std::error::Erro
         )
         .await?;
 
-    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+    let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Symbol::new()
             .data(df)
             .x(col("value"))
