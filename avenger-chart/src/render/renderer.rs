@@ -36,7 +36,6 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             _ => (400.0, 300.0), // Default for Auto or other modes
         };
 
-        // STAGE 1: BUILD INITIAL SCALES WITH ESTIMATED DIMENSIONS
         // Use estimated dimensions for initial scale construction
         let estimated_plot_width = estimated_width * INITIAL_PLOT_AREA_RATIO;
         let estimated_plot_height = estimated_height * INITIAL_PLOT_AREA_RATIO;
@@ -223,24 +222,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Create title
         let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
-            self.create_title(
-                width,
-                plot_bounds,
-                Some(*title_bounds),
-                Some(layout.taffy_layout.plot_area),
-            )?
+            self.create_title(Some(*title_bounds))?
         } else {
             Vec::new()
         };
 
         // Create subtitle
         let subtitle_marks = if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
-            self.create_subtitle(
-                width,
-                plot_bounds,
-                Some(*subtitle_bounds),
-                Some(layout.taffy_layout.plot_area),
-            )?
+            self.create_subtitle(Some(*subtitle_bounds))?
         } else {
             Vec::new()
         };
