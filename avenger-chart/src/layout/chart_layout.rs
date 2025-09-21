@@ -2,7 +2,9 @@
 
 use super::grid::{GridBuilder, GridLayout};
 use super::sizing::{LayoutSpec, SizeMode};
-use super::types::{ComponentType, LayoutBounds, LayoutResult, OVERFLOW_THRESHOLD, OverflowSide};
+use super::types::{
+    ComponentType, LayoutBounds, LayoutResult, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide,
+};
 use crate::cartesian::axis::AxisPosition;
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendPosition};
@@ -559,7 +561,7 @@ fn create_overflow_nodes(
                            overflow_side: OverflowSide,
                            axis_position: AxisPosition|
      -> Result<(), AvengerChartError> {
-        if overflow_value > OVERFLOW_THRESHOLD {
+        if overflow_value > MIN_GUIDE_OVERFLOW_SIZE {
             if let Some((row, col)) =
                 grid_layout.find_component_position(&ComponentType::GuideOverflow(overflow_side))
             {

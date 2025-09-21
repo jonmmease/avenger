@@ -2,7 +2,7 @@
 
 use super::sizing::LayoutSpec;
 use super::text::measure_text;
-use super::types::{ComponentType, OVERFLOW_THRESHOLD, OverflowSide};
+use super::types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide};
 use crate::error::AvengerChartError;
 use crate::legend::LegendPosition;
 use crate::plot::{PlotSubtitle, PlotTitle};
@@ -10,6 +10,10 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 use taffy::Size;
 use taffy::prelude::*;
+
+/// Spacing multipliers for title and subtitle rows
+const TITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.15;
+const SUBTITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.1;
 
 /// Dynamic grid builder for chart layouts
 ///
@@ -60,7 +64,7 @@ use taffy::prelude::*;
 /// - **Legend containers**: Each legend position gets its own column/row
 /// - **Titles**: Title and subtitle each get their own row
 ///
-/// Only overflow regions larger than `OVERFLOW_THRESHOLD` (1px) are created to avoid
+/// Only overflow regions larger than `MIN_GUIDE_OVERFLOW_SIZE` (2px) are created to avoid
 /// unnecessary grid complexity for minimal overflows.
 ///
 /// ## Component Positioning Rules
@@ -180,7 +184,6 @@ impl GridBuilder {
         left_overflow_col.unwrap_or(plot_col_index)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn measure_legend_container_width(
         &self,
         channels: &[String],
@@ -198,7 +201,6 @@ impl GridBuilder {
     /// Build the final grid template based on collected components and overflow requirements.
     ///
     /// Returns a `GridLayout` containing both the track sizing functions and component positions
-    #[allow(clippy::too_many_arguments)]
     pub fn build_with_overflow(
         &self,
         overflow: &crate::coords::OverflowSpaceRequirement,
@@ -221,7 +223,7 @@ impl GridBuilder {
         let mut col_index = 1;
 
         // 2. Add left overflow column if needed (for axis labels extending left)
-        let left_overflow_col = if overflow.left > OVERFLOW_THRESHOLD {
+        let left_overflow_col = if overflow.left > MIN_GUIDE_OVERFLOW_SIZE {
             grid.cols.push(length(overflow.left)); // Exact overflow size
             let idx = col_index;
             col_index += 1;
@@ -236,7 +238,7 @@ impl GridBuilder {
         col_index += 1;
 
         // 4. Add right overflow column if needed (for axis labels extending right)
-        let right_overflow_col = if overflow.right > OVERFLOW_THRESHOLD {
+        let right_overflow_col = if overflow.right > MIN_GUIDE_OVERFLOW_SIZE {
             grid.cols.push(length(overflow.right)); // Exact overflow size
             let idx = col_index;
             col_index += 1;
@@ -274,7 +276,7 @@ impl GridBuilder {
                 let title_font_family = theme.title_font_family();
                 let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
                 let (height, _) = measure_text(&t.text, font_size, font_family);
-                grid.rows.push(length(height * 1.15));
+                grid.rows.push(length(height * TITLE_ROW_HEIGHT_MULTIPLIER));
                 // Title spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Title, row_index, start_col);
@@ -289,7 +291,8 @@ impl GridBuilder {
                 let subtitle_font_family = theme.subtitle_font_family();
                 let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
                 let (height, _) = measure_text(&s.text, font_size, font_family);
-                grid.rows.push(length(height * 1.1));
+                grid.rows
+                    .push(length(height * SUBTITLE_ROW_HEIGHT_MULTIPLIER));
                 // Subtitle spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Subtitle, row_index, start_col);
@@ -298,7 +301,7 @@ impl GridBuilder {
         }
 
         // 4. Add top overflow row if needed (for axis labels extending upward)
-        if overflow.top > OVERFLOW_THRESHOLD {
+        if overflow.top > MIN_GUIDE_OVERFLOW_SIZE {
             grid.rows.push(length(overflow.top)); // Exact overflow size
             grid.add_component(
                 ComponentType::GuideOverflow(OverflowSide::Top),
@@ -346,7 +349,7 @@ impl GridBuilder {
         row_index += 1;
 
         // 8. Add bottom overflow row if needed (for axis labels extending downward)
-        if overflow.bottom > OVERFLOW_THRESHOLD {
+        if overflow.bottom > MIN_GUIDE_OVERFLOW_SIZE {
             grid.rows.push(length(overflow.bottom));
             grid.add_component(
                 ComponentType::GuideOverflow(OverflowSide::Bottom),
