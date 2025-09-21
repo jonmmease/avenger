@@ -1,9 +1,10 @@
+use avenger_chart::layout::{CanvasConstraint, Margins, PlotConstraint};
 use avenger_chart::prelude::*;
-use avenger_chart::layout::{CanvasConstraint, PlotConstraint, Margins};
 use datafusion::prelude::*;
 
 #[tokio::test]
-async fn test_margins_expand_with_fixed_canvas_and_plot() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_margins_expand_with_fixed_canvas_and_plot() -> Result<(), Box<dyn std::error::Error>>
+{
     // Create a simple DataFrame
     let ctx = SessionContext::new();
     let df = ctx.sql("SELECT 1 as x, 2 as y").await?;
@@ -19,13 +20,7 @@ async fn test_margins_expand_with_fixed_canvas_and_plot() -> Result<(), Box<dyn 
         .canvas_size(500.0, 400.0)
         .plot_size(200.0, 150.0)
         .margins(Margins::uniform(10.0))
-        .mark(
-            Symbol::new()
-                .data(df)
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0),
-        );
+        .mark(Symbol::new().data(df).x(col("x")).y(col("y")).size(100.0));
 
     // Render the plot
     use avenger_common::canvas::CanvasDimensions;
@@ -59,13 +54,7 @@ async fn test_margins_with_canvas_and_plot_width() -> Result<(), Box<dyn std::er
         .canvas_constraint(CanvasConstraint::Width(400.0))
         .plot_constraint(PlotConstraint::Width(250.0))
         .margins(Margins::uniform(10.0))
-        .mark(
-            Symbol::new()
-                .data(df)
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0),
-        );
+        .mark(Symbol::new().data(df).x(col("x")).y(col("y")).size(100.0));
 
     // Render the plot
     use avenger_common::canvas::CanvasDimensions;
@@ -99,13 +88,7 @@ async fn test_margins_with_canvas_and_plot_height() -> Result<(), Box<dyn std::e
         .canvas_constraint(CanvasConstraint::Height(350.0))
         .plot_constraint(PlotConstraint::Height(200.0))
         .margins(Margins::uniform(15.0))
-        .mark(
-            Symbol::new()
-                .data(df)
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0),
-        );
+        .mark(Symbol::new().data(df).x(col("x")).y(col("y")).size(100.0));
 
     // Render the plot
     use avenger_common::canvas::CanvasDimensions;
