@@ -41,5 +41,6 @@ pub(crate) enum ComponentType {
     Subtitle,
 }
 
-/// Constants for layout
-pub(crate) const OVERFLOW_THRESHOLD: f32 = 2.0;
+/// Minimum size in pixels for creating guide overflow regions
+/// Overflow regions smaller than this are ignored to avoid unnecessary grid complexity
+pub(crate) const MIN_GUIDE_OVERFLOW_SIZE: f32 = 2.0;
