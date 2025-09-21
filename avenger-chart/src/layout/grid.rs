@@ -1,17 +1,14 @@
 //! Grid layout building logic
 
-use super::chart_layout::ChartLayout;
 use super::sizing::LayoutSpec;
 use super::text::measure_text;
 use super::types::{ComponentType, OVERFLOW_THRESHOLD, OverflowSide};
 use crate::error::AvengerChartError;
-use crate::legend::{Legend, LegendPosition};
-use crate::marks::Mark;
+use crate::legend::LegendPosition;
 use crate::plot::{PlotSubtitle, PlotTitle};
-use avenger_scales::scales::ConfiguredScale;
 use indexmap::IndexMap;
 use std::collections::HashMap;
-use std::sync::Arc;
+use taffy::Size;
 use taffy::prelude::*;
 
 /// Dynamic grid builder for chart layouts
@@ -184,47 +181,32 @@ impl GridBuilder {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn measure_legend_container_width<C: crate::coords::CoordinateSystem>(
+    pub fn measure_legend_container_width(
         &self,
         channels: &[String],
-        legends: &IndexMap<String, Legend>,
-        scales: &HashMap<String, ConfiguredScale>,
-        marks: &[Arc<dyn Mark<C>>],
-    ) -> Result<f32, AvengerChartError> {
+        legend_sizes: &HashMap<String, Size<f32>>,
+    ) -> f32 {
         let mut max_width: f32 = 0.0;
         for channel in channels {
-            if let Some(legend) = legends.get(channel) {
-                if let Some(scale) = scales.get(channel) {
-                    // Use the actual measured legend size
-                    // For now use a dummy available space - legends will adapt
-                    let available = Size {
-                        width: 200.0,
-                        height: 400.0,
-                    };
-                    let (size, _flexible) = ChartLayout::measure_legend_size(
-                        channel, legend, scale, scales, available, marks,
-                    )?;
-                    max_width = max_width.max(size.width);
-                }
+            if let Some(size) = legend_sizes.get(channel) {
+                max_width = max_width.max(size.width);
             }
         }
-        Ok(max_width)
+        max_width
     }
 
     /// Build the final grid template based on collected components and overflow requirements.
     ///
     /// Returns a `GridLayout` containing both the track sizing functions and component positions
     #[allow(clippy::too_many_arguments)]
-    pub fn build_with_overflow<C: crate::coords::CoordinateSystem>(
+    pub fn build_with_overflow(
         &self,
         overflow: &crate::coords::OverflowSpaceRequirement,
-        legends: &IndexMap<String, Legend>,
-        scales: &HashMap<String, ConfiguredScale>,
-        marks: &[Arc<dyn Mark<C>>],
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         theme: &dyn crate::theme::Theme,
         layout_spec: &LayoutSpec,
+        legend_sizes: &HashMap<String, Size<f32>>,
     ) -> Result<GridLayout, AvengerChartError> {
         // Use margins from layout spec
         let margins = &layout_spec.margins;
@@ -267,7 +249,7 @@ impl GridBuilder {
         // Each container gets its own column with measured width
         let mut right_legend_cols = Vec::new();
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Right) {
-            let width = self.measure_legend_container_width(channels, legends, scales, marks)?;
+            let width = self.measure_legend_container_width(channels, legend_sizes);
             grid.cols.push(length(width));
             right_legend_cols.push(col_index);
             // col_index would be incremented here if we had more legend positions

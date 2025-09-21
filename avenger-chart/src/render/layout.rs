@@ -52,17 +52,24 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         // Use the helper to merge legend channels - exactly the same as for rendering
         let (_channel_groups, legends_map) = self.merge_legend_channels(&all_legends, scales);
 
+        // Prepare legend measurements
+        let available_size = taffy::Size {
+            width: width * INITIAL_PLOT_AREA_RATIO,
+            height: height * INITIAL_PLOT_AREA_RATIO,
+        };
+        let legend_measurements =
+            self.prepare_legend_measurements(&legends_map, scales, available_size)?;
+
         // Create ChartLayout with overflow directly
         let layout_spec = self.plot.get_layout_spec();
-        let mut layout = ChartLayout::new_with_overflow::<C>(
+        let mut layout = ChartLayout::new_with_overflow(
             &overflow,
             &legends_map,
-            scales,
             layout_spec,
             self.plot.get_title(),
             self.plot.get_subtitle(),
-            &self.plot.marks,
             &self.plot.get_theme(),
+            &legend_measurements,
         )?;
 
         // Compute layout using the layout spec and return it directly

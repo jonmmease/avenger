@@ -9,11 +9,15 @@
 use super::PlotRenderer;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::layout::legend::measure_legend_size_with_channels;
 use crate::legend::{ChannelInfo, Legend, LegendChannel, MergeKey};
 use avenger_scenegraph::marks::mark::SceneMark;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Type alias for legend measurements: channel -> (size, is_flexible)
+pub type LegendMeasurements = IndexMap<String, (taffy::Size<f32>, bool)>;
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {
     /// Create legend marks based on configured legends
@@ -57,26 +61,15 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                     mark_opt
                         .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &scales))
                 } else {
-                    // Single channel - use the standard renderer selection
-                    scales.get(&primary_channel.name).and_then(
-                        |scale| -> Option<Arc<dyn crate::legend::LegendRenderer>> {
-                            if let Some(ref renderer) = legend.renderer {
-                                // Use explicitly configured renderer
-                                Some(renderer.clone())
-                            } else {
-                                // Find the mark and get its preference
-                                self.plot
-                                    .marks
-                                    .get(primary_channel.mark_index)
-                                    .and_then(|mark| {
-                                        mark.preferred_legend_renderer(
-                                            &primary_channel.channel_type,
-                                            scale,
-                                        )
-                                    })
-                            }
-                        },
-                    )
+                    // Single channel - use the unified renderer selection
+                    scales.get(&primary_channel.name).and_then(|scale| {
+                        self.get_legend_renderer(
+                            &primary_channel.channel_type,
+                            legend,
+                            scale,
+                            Some(primary_channel.mark_index),
+                        )
+                    })
                 };
 
                 // Skip this legend group if no renderer is available
@@ -209,6 +202,187 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         crate::legend::LegendPosition::Right
     }
 
+    /// Get the appropriate legend renderer for a channel
+    pub(super) fn get_legend_renderer(
+        &self,
+        channel: &str,
+        legend: &Legend,
+        scale: &avenger_scales::scales::ConfiguredScale,
+        mark_index: Option<usize>,
+    ) -> Option<Arc<dyn crate::legend::LegendRenderer>> {
+        if let Some(ref renderer) = legend.renderer {
+            // Use explicitly configured renderer
+            Some(renderer.clone())
+        } else if let Some(idx) = mark_index {
+            // Find the mark and get its preference
+            self.plot
+                .marks
+                .get(idx)
+                .and_then(|mark| mark.preferred_legend_renderer(channel, scale))
+        } else {
+            None
+        }
+    }
+
+    /// Build a LegendChannel from mark and channel information
+    pub(super) fn build_legend_channel(
+        &self,
+        channel_name: &str,
+        channel_value: &crate::marks::ChannelValue,
+        scale: &avenger_scales::scales::ConfiguredScale,
+        mark: &dyn crate::marks::Mark<C>,
+        mark_index: usize,
+        configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> LegendChannel {
+        // Collect related channels
+        let mut related_channels = HashMap::new();
+        for (other_name, other_value) in mark.data_context().channels() {
+            if other_name != channel_name {
+                // Check if this channel has a scale or is constant
+                let channel_info = if let Some(other_scale) = configured_scales.get(other_name) {
+                    // Channel has a scale
+                    ChannelInfo::Scaled {
+                        expr: other_value.expr().cloned(),
+                        scale: other_scale.clone(),
+                    }
+                } else if let Some(expr) = other_value.expr() {
+                    // Channel has a constant expression
+                    ChannelInfo::Constant { expr: expr.clone() }
+                } else {
+                    // Skip channels without expressions
+                    continue;
+                };
+                related_channels.insert(other_name.clone(), channel_info);
+            }
+        }
+
+        LegendChannel {
+            name: channel_name.to_string(),
+            expression: channel_value.expr().cloned(),
+            scale: scale.clone(),
+            channel_type: channel_name.to_string(),
+            mark_type: mark.mark_type().to_string(),
+            mark_index,
+            related_channels,
+        }
+    }
+
+    /// Prepare legend measurements for layout computation
+    pub fn prepare_legend_measurements(
+        &self,
+        legends: &IndexMap<String, Legend>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        available_space: taffy::Size<f32>,
+    ) -> Result<LegendMeasurements, AvengerChartError> {
+        let mut legend_measurements = LegendMeasurements::new();
+
+        for (channel, legend) in legends.iter() {
+            if let Some(scale) = scales.get(channel) {
+                // Build legend channels for this channel
+                let legend_channels =
+                    self.build_legend_channels_for_channel(channel, legend, scales)?;
+
+                // Get the renderer
+                let renderer = if !legend_channels.is_empty() {
+                    self.get_legend_renderer(
+                        channel,
+                        legend,
+                        scale,
+                        Some(legend_channels[0].mark_index),
+                    )
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "No legend renderer available for channel '{}'",
+                            channel
+                        ))
+                    })?
+                } else {
+                    continue;
+                };
+
+                // Measure the legend
+                let (size, flexible) = measure_legend_size_with_channels(
+                    &legend_channels,
+                    legend,
+                    renderer,
+                    available_space,
+                )?;
+
+                legend_measurements.insert(channel.clone(), (size, flexible));
+            }
+        }
+
+        Ok(legend_measurements)
+    }
+
+    /// Build legend channels for a specific channel
+    /// This is used by both layout measurement and rendering
+    pub fn build_legend_channels_for_channel(
+        &self,
+        channel: &str,
+        legend: &Legend,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> Result<Vec<LegendChannel>, AvengerChartError> {
+        // Find the mark that has this channel
+        let (mark_index, mark) = self
+            .plot
+            .marks
+            .iter()
+            .enumerate()
+            .find(|(_, m)| m.data_context().channels().contains_key(channel))
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Channel '{}' not found in any mark",
+                    channel
+                ))
+            })?;
+
+        let channel_value = mark.data_context().channels().get(channel).ok_or_else(|| {
+            AvengerChartError::InternalError(format!("Channel '{}' not found in mark", channel))
+        })?;
+
+        let scale = scales.get(channel).ok_or_else(|| {
+            AvengerChartError::InternalError(format!("Scale for channel '{}' not found", channel))
+        })?;
+
+        let mut legend_channels = Vec::new();
+
+        // Always add the primary channel
+        let primary_channel = self.build_legend_channel(
+            channel,
+            channel_value,
+            scale,
+            mark.as_ref(),
+            mark_index,
+            scales,
+        );
+        legend_channels.push(primary_channel);
+
+        // Add any merged channels
+        for merged_channel_name in &legend.merged_channels {
+            if merged_channel_name != channel {
+                // Only add if this channel exists in the mark
+                if let Some(merged_channel_value) =
+                    mark.data_context().channels().get(merged_channel_name)
+                {
+                    if let Some(merged_scale) = scales.get(merged_channel_name) {
+                        let merged_channel = self.build_legend_channel(
+                            merged_channel_name,
+                            merged_channel_value,
+                            merged_scale,
+                            mark.as_ref(),
+                            mark_index,
+                            scales,
+                        );
+                        legend_channels.push(merged_channel);
+                    }
+                }
+            }
+        }
+
+        Ok(legend_channels)
+    }
+
     /// Helper function to merge legend channels based on MergeKey
     /// Returns a sorted list of channel groups and a legends map for layout
     pub(super) fn merge_legend_channels(
@@ -235,38 +409,14 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
 
                 let scale = &configured_scales[channel_name];
 
-                // Collect related channels
-                let mut related_channels = HashMap::new();
-                for (other_name, other_value) in mark.data_context().channels() {
-                    if other_name != channel_name {
-                        // Check if this channel has a scale or is constant
-                        let channel_info =
-                            if let Some(other_scale) = configured_scales.get(other_name) {
-                                // Channel has a scale
-                                ChannelInfo::Scaled {
-                                    expr: other_value.expr().cloned(),
-                                    scale: other_scale.clone(),
-                                }
-                            } else if let Some(expr) = other_value.expr() {
-                                // Channel has a constant expression
-                                ChannelInfo::Constant { expr: expr.clone() }
-                            } else {
-                                // Skip channels without expressions
-                                continue;
-                            };
-                        related_channels.insert(other_name.clone(), channel_info);
-                    }
-                }
-
-                let legend_channel = LegendChannel {
-                    name: channel_name.clone(),
-                    expression: channel_value.expr().cloned(),
-                    scale: scale.clone(),
-                    channel_type: channel_name.clone(),
-                    mark_type: mark.mark_type().to_string(),
+                let legend_channel = self.build_legend_channel(
+                    channel_name,
+                    channel_value,
+                    scale,
+                    mark.as_ref(),
                     mark_index,
-                    related_channels,
-                };
+                    configured_scales,
+                );
 
                 all_channels.push(legend_channel);
             }

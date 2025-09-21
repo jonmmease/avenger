@@ -1,21 +1,17 @@
 //! Main ChartLayout struct and core implementation
 
 use super::grid::{GridBuilder, GridLayout};
-use super::legend::measure_legend_size;
 use super::sizing::{LayoutSpec, SizeMode};
 use super::types::{ComponentType, LayoutBounds, LayoutResult, OVERFLOW_THRESHOLD, OverflowSide};
 use crate::cartesian::axis::AxisPosition;
-use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendPosition};
-use crate::marks::Mark;
 use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};
-use avenger_scales::scales::ConfiguredScale;
+use crate::render::LegendMeasurements;
 use indexmap::IndexMap;
 use std::collections::HashMap;
-use std::sync::Arc;
 use taffy::prelude::*;
-use taffy::{AlignSelf, NodeId, TaffyTree};
+use taffy::{NodeId, TaffyTree};
 use tracing::debug;
 
 /// Structure to hold all the node IDs from the TaffyTree
@@ -97,99 +93,6 @@ pub struct ChartLayout {
 }
 
 impl ChartLayout {
-    /// Create a new ChartLayout with overflow space requirements
-    /// This is the unified layout method for all coordinate systems
-    pub fn new_with_overflow<C: CoordinateSystem>(
-        overflow: &crate::coords::OverflowSpaceRequirement,
-        legends: &IndexMap<String, Legend>,
-        scales: &HashMap<String, ConfiguredScale>,
-        layout_spec: &LayoutSpec,
-        title: Option<&PlotTitle>,
-        subtitle: Option<&PlotSubtitle>,
-        marks: &[Arc<dyn Mark<C>>],
-        theme: &dyn crate::theme::Theme,
-    ) -> Result<Self, AvengerChartError> {
-        let mut builder = GridBuilder::new();
-
-        // Build grid structure dynamically
-        // Plot area is always present and positioned dynamically in the grid
-
-        // Add optional title and subtitle
-        if title.is_some() {
-            builder.add_title();
-        }
-        if subtitle.is_some() {
-            builder.add_subtitle();
-        }
-
-        // Note: Guide overflow regions are determined directly from the overflow
-        // measurements in build_with_overflow(), so we don't need to add them explicitly
-
-        // Add legends with their positions
-        for (channel, legend) in legends.iter() {
-            let position = legend.position.unwrap_or(LegendPosition::Right);
-            builder.add_legend(channel.clone(), position);
-        }
-
-        // Generate grid template with overflow measurements
-        // For initial layout, we need to estimate a size for legend measurements
-        let available_size = match &layout_spec.canvas {
-            SizeMode::Fixed { width, height } => (*width, *height),
-            _ => (400.0, 300.0), // Default for Auto or other modes
-        };
-        let grid_layout = builder.build_with_overflow(
-            overflow,
-            legends,
-            scales,
-            marks,
-            title,
-            subtitle,
-            theme,
-            layout_spec,
-        )?;
-
-        // Measure legend sizes and flexibility preferences
-        let mut legend_sizes = HashMap::new();
-        let mut legend_flexible = HashMap::new();
-        for (channel, legend) in legends.iter() {
-            if let Some(scale) = scales.get(channel) {
-                let (size, flexible) = measure_legend_size(
-                    channel,
-                    legend,
-                    scale,
-                    scales,
-                    Size {
-                        width: available_size.0,
-                        height: available_size.1,
-                    },
-                    marks,
-                )?;
-                legend_sizes.insert(channel.clone(), size);
-                legend_flexible.insert(channel.clone(), flexible);
-            }
-        }
-
-        // Build the TaffyTree and get all the nodes using the pure function
-        let (taffy, nodes) = build_taffy_tree(
-            &grid_layout,
-            overflow,
-            legends,
-            &legend_sizes,
-            &legend_flexible,
-            title,
-            subtitle,
-        )?;
-
-        // Create the ChartLayout with the built tree and nodes
-        let layout = ChartLayout {
-            taffy,
-            nodes,
-            grid_layout,
-        };
-
-        Ok(layout)
-    }
-
     /// Compute layout with flexible sizing based on LayoutSpec
     pub(crate) fn compute(
         &mut self,
@@ -206,7 +109,7 @@ impl ChartLayout {
                     height: 300.0,
                 };
                 spec
-            },
+            }
             // Case 2: Canvas aspect ratio with Auto plot area - compute canvas size
             (SizeMode::AspectRatio(ratio), SizeMode::Auto) => {
                 let width = 400.0;
@@ -325,6 +228,79 @@ impl ChartLayout {
             taffy_layout,
             canvas_size,
         })
+    }
+
+    /// Create a new ChartLayout with overflow space requirements
+    /// This is the unified layout method for all coordinate systems
+    pub fn new_with_overflow(
+        overflow: &crate::coords::OverflowSpaceRequirement,
+        legends: &IndexMap<String, Legend>,
+        layout_spec: &LayoutSpec,
+        title: Option<&PlotTitle>,
+        subtitle: Option<&PlotSubtitle>,
+        theme: &dyn crate::theme::Theme,
+        legend_measurements: &LegendMeasurements,
+    ) -> Result<Self, AvengerChartError> {
+        let mut builder = GridBuilder::new();
+
+        // Build grid structure dynamically
+        // Plot area is always present and positioned dynamically in the grid
+
+        // Add optional title and subtitle
+        if title.is_some() {
+            builder.add_title();
+        }
+        if subtitle.is_some() {
+            builder.add_subtitle();
+        }
+
+        // Add legends with their positions
+        for (channel, legend) in legends.iter() {
+            let position = legend.position.unwrap_or(LegendPosition::Right);
+            builder.add_legend(channel.clone(), position);
+        }
+
+        // Extract sizes for grid building
+        let legend_sizes: HashMap<String, Size<f32>> = legend_measurements
+            .iter()
+            .map(|(k, (size, _))| (k.clone(), *size))
+            .collect();
+
+        // Generate grid template with overflow measurements
+        let grid_layout = builder.build_with_overflow(
+            overflow,
+            title,
+            subtitle,
+            theme,
+            layout_spec,
+            &legend_sizes,
+        )?;
+
+        // Extract flexible flags for taffy tree building
+        let legend_flexible: HashMap<String, bool> = legend_measurements
+            .iter()
+            .map(|(k, (_, flexible))| (k.clone(), *flexible))
+            .collect();
+
+        // Build the TaffyTree and get all the nodes using the pure function
+        let (taffy, nodes) = build_taffy_tree(
+            &grid_layout,
+            overflow,
+            legends,
+            &legend_sizes,
+            &legend_flexible,
+            title,
+            subtitle,
+        )?;
+
+        // Create the ChartLayout with the built tree and nodes
+        let layout = ChartLayout {
+            taffy,
+            nodes,
+            grid_layout,
+        };
+
+        Ok(layout)
     }
 
     /// Extract computed positions from Taffy layout
@@ -469,18 +445,6 @@ impl ChartLayout {
         }
 
         Ok(result)
-    }
-
-    /// Measure legend size with mark encodings and return flexibility preference
-    pub fn measure_legend_size<C: CoordinateSystem>(
-        channel: &str,
-        legend: &Legend,
-        scale: &ConfiguredScale,
-        scales: &HashMap<String, ConfiguredScale>,
-        available_space: Size<f32>,
-        marks: &[Arc<dyn Mark<C>>],
-    ) -> Result<(Size<f32>, bool), AvengerChartError> {
-        measure_legend_size(channel, legend, scale, scales, available_space, marks)
     }
 }
 

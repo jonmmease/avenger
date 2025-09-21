@@ -18,6 +18,7 @@ pub mod types;
 // Re-export commonly used types
 pub use canvas::CanvasExt;
 pub use context::RenderContext;
+pub use legends::LegendMeasurements;
 pub use types::{LayoutSolution, RenderResult};
 
 use crate::coords::CoordinateSystem;
