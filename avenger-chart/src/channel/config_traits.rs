@@ -3,8 +3,8 @@
 //! This module provides traits that reduce duplication across channel configs
 //! by implementing common behavior once and allowing configs to opt into capabilities.
 
-use crate::channel::{ChannelValue, ConditionalValue, LegendConfig, ScaleConfig};
-use crate::legend::LegendBuilder;
+use crate::channel::{ChannelValue, ConditionalValue, ScaleConfig};
+use crate::legend::{Legend, LegendBuilder};
 use crate::scales::{Auto, Scale, ScaleSpec};
 use datafusion::logical_expr::Expr;
 use std::sync::Arc;
@@ -109,8 +109,7 @@ pub trait LegendableChannel: ChannelConfig {
         let configured = f(builder);
         let legend = configured.build();
 
-        let legend_config: LegendConfig = Arc::new(move |_| legend.clone());
-        let new_value = apply_legend_config(self.get_value().clone(), legend_config);
+        let new_value = apply_legend_config(self.get_value().clone(), legend);
         self.set_value(new_value);
         self
     }
@@ -238,7 +237,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: ScaleConfig) -> Channel
 }
 
 /// Apply legend configuration to a ChannelValue
-fn apply_legend_config(value: ChannelValue, legend_config: LegendConfig) -> ChannelValue {
+fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelValue {
     match value {
         ChannelValue::Scaled {
             expr,

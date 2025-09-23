@@ -11,6 +11,7 @@ pub mod polar;
 pub mod prelude;
 pub mod render;
 // render_context moved to render/context
+pub mod maybe;
 pub mod scales;
 pub mod theme;
 pub mod utils;

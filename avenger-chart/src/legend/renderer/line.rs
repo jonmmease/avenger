@@ -138,7 +138,7 @@ impl LegendRenderer for LineLegendRenderer {
         // Initialize config with defaults
         // Use longer line length for better dash pattern visibility
         let mut legend_config = LineLegendConfig {
-            title: config.title.clone(),
+            title: config.title.clone().into_option(),
             text: ScalarOrArray::new_array(text_values),
             stroke_cap: self.stroke_cap,
             stroke_join: Some(self.stroke_join), // Add stroke_join to config
@@ -151,8 +151,8 @@ impl LegendRenderer for LineLegendRenderer {
         };
 
         // Apply legend background styling if provided
-        if let Some(pad) = config.background_padding {
-            legend_config.background_padding = Some(pad);
+        if let Some(pad) = config.background_padding.as_option() {
+            legend_config.background_padding = Some(*pad);
             tracing::trace!(
                 channel = channel_name.as_str(),
                 padding = pad,
@@ -164,20 +164,20 @@ impl LegendRenderer for LineLegendRenderer {
                 "Line legend has no padding specified, will use default"
             );
         }
-        if let Some(r) = config.background_corner_radius {
-            legend_config.background_corner_radius = Some(r);
+        if let Some(r) = config.background_corner_radius.as_option() {
+            legend_config.background_corner_radius = Some(*r);
         }
-        if let Some(ref fill_str) = config.background_fill {
+        if let Some(fill_str) = config.background_fill.as_option() {
             legend_config.background_fill =
                 Some(crate::utils::parse_color_string_strict(fill_str)?);
         }
-        if let Some(ref stroke_str) = config.background_stroke {
+        if let Some(stroke_str) = config.background_stroke.as_option() {
             legend_config.background_stroke =
                 Some(crate::utils::parse_color_string_strict(stroke_str)?);
         }
 
         // Set text colors from legend config - fail if colors cannot be parsed
-        if let Some(ref title_color) = config.title_color {
+        if let Some(title_color) = config.title_color.as_option() {
             let color = crate::utils::parse_color_string_strict(title_color)?;
             legend_config.title_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
@@ -189,7 +189,7 @@ impl LegendRenderer for LineLegendRenderer {
                 }
             });
         }
-        if let Some(ref label_color) = config.label_color {
+        if let Some(label_color) = config.label_color.as_option() {
             let color = crate::utils::parse_color_string_strict(label_color)?;
             legend_config.label_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
@@ -203,23 +203,25 @@ impl LegendRenderer for LineLegendRenderer {
         }
 
         // Set typography from legend config
-        if let Some(ref family) = config.title_font_family {
+        if let Some(family) = config.title_font_family.as_option() {
             legend_config.title_font_family = Some(family.clone());
         }
-        if let Some(size) = config.title_font_size {
-            legend_config.title_font_size = Some(size);
+        if let Some(size) = config.title_font_size.as_option() {
+            legend_config.title_font_size = Some(*size);
         }
-        if let Some(weight) = config.title_font_weight {
-            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        if let Some(weight) = config.title_font_weight.as_option() {
+            legend_config.title_font_weight =
+                Some(avenger_text::types::FontWeight::Number(*weight));
         }
-        if let Some(ref family) = config.label_font_family {
+        if let Some(family) = config.label_font_family.as_option() {
             legend_config.label_font_family = Some(family.clone());
         }
-        if let Some(size) = config.label_font_size {
-            legend_config.label_font_size = Some(size);
+        if let Some(size) = config.label_font_size.as_option() {
+            legend_config.label_font_size = Some(*size);
         }
-        if let Some(weight) = config.label_font_weight {
-            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        if let Some(weight) = config.label_font_weight.as_option() {
+            legend_config.label_font_weight =
+                Some(avenger_text::types::FontWeight::Number(*weight));
         }
 
         // When multiple channels are present, vary all of them together

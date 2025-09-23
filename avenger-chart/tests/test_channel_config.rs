@@ -1,5 +1,6 @@
 // Test that channel-level scale and legend configuration works
 
+use avenger_chart::maybe::Maybe;
 use avenger_chart::prelude::*;
 
 use palette::Srgba;
@@ -45,11 +46,14 @@ fn test_channel_legend_config() {
 
     // The legend configs should be extracted and stored in the plot
     assert!(plot.legends().contains_key("fill"));
-    assert_eq!(plot.legends()["fill"].title, Some("Category".to_string()));
-    assert!(plot.legends()["fill"].visible);
+    assert_eq!(
+        plot.legends()["fill"].title,
+        Maybe::Set("Category".to_string())
+    );
+    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(true));
 
     assert!(plot.legends().contains_key("size"));
-    assert!(!plot.legends()["size"].visible);
+    assert_eq!(plot.legends()["size"].visible, Maybe::Set(false));
 }
 
 #[test]
@@ -92,7 +96,7 @@ fn test_channel_config() {
     assert!(plot.scale_specs().contains_key("fill")); // From channel with scale config
 
     assert!(plot.legends().contains_key("fill")); // From channel
-    assert!(!plot.legends()["fill"].visible);
+    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(false));
 
     // Position channels don't have legends, they have axes
     assert!(!plot.legends().contains_key("x"));
@@ -111,7 +115,7 @@ fn test_no_legend_helper() {
 
     // The legend should be created but marked as not visible
     assert!(plot.legends().contains_key("fill"));
-    assert!(!plot.legends()["fill"].visible);
+    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(false));
 }
 
 #[test]
@@ -153,11 +157,14 @@ fn test_direct_expr_legend_config() {
 
     // The legend configs should be extracted
     assert!(plot.legends().contains_key("fill"));
-    assert_eq!(plot.legends()["fill"].title, Some("Category".to_string()));
-    assert!(plot.legends()["fill"].visible);
+    assert_eq!(
+        plot.legends()["fill"].title,
+        Maybe::Set("Category".to_string())
+    );
+    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(true));
 
     assert!(plot.legends().contains_key("size"));
-    assert!(!plot.legends()["size"].visible);
+    assert_eq!(plot.legends()["size"].visible, Maybe::Set(false));
 }
 
 #[test]
@@ -184,7 +191,7 @@ fn test_direct_expr_combined_config() {
 
     assert!(plot.scale_specs().contains_key("fill"));
     assert!(plot.legends().contains_key("fill"));
-    assert!(!plot.legends()["fill"].visible);
+    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(false));
 }
 
 #[test]

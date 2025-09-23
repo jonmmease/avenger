@@ -88,9 +88,6 @@ fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
 /// Type alias for scale configuration function
 pub type ScaleConfig = Arc<dyn Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync>;
 
-/// Type alias for legend configuration function  
-pub type LegendConfig = Arc<dyn Fn(Legend) -> Legend + Send + Sync>;
-
 /// Value for conditional encoding branches
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConditionalValue {
@@ -127,7 +124,7 @@ pub enum ChannelValue {
         /// Optional scale configuration
         scale_config: Option<ScaleConfig>,
         /// Optional legend configuration
-        legend_config: Option<LegendConfig>,
+        legend_config: Option<Legend>,
     },
     /// Expression that bypasses scaling (identity transformation)
     Value { expr: Expr },
@@ -140,7 +137,7 @@ pub enum ChannelValue {
         /// Optional scale configuration (applies to all Field branches)
         scale_config: Option<ScaleConfig>,
         /// Optional legend configuration (applies to all Field branches)
-        legend_config: Option<LegendConfig>,
+        legend_config: Option<Legend>,
     },
 }
 
@@ -205,7 +202,7 @@ impl ChannelValue {
     }
 
     /// Get the legend configuration if present
-    pub fn get_legend_config(&self) -> Option<&LegendConfig> {
+    pub fn get_legend_config(&self) -> Option<&Legend> {
         match self {
             ChannelValue::Scaled { legend_config, .. }
             | ChannelValue::Conditional { legend_config, .. } => legend_config.as_ref(),
@@ -370,10 +367,7 @@ impl ChannelValue {
     }
 
     /// Configure the legend for this channel
-    pub fn legend<F>(self, f: F) -> Self
-    where
-        F: Fn(Legend) -> Legend + Send + Sync + 'static,
-    {
+    pub fn legend(self, legend: Legend) -> Self {
         match self {
             ChannelValue::Scaled {
                 expr,
@@ -386,7 +380,7 @@ impl ChannelValue {
                 scale_name,
                 band,
                 scale_config,
-                legend_config: Some(Arc::new(f)),
+                legend_config: Some(legend),
             },
             ChannelValue::Conditional {
                 conditions,
@@ -397,7 +391,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
-                legend_config: Some(Arc::new(f)),
+                legend_config: Some(legend),
             },
             ChannelValue::Value { .. } => {
                 // No-op for identity values - they don't have legends
@@ -408,7 +402,7 @@ impl ChannelValue {
 
     /// Disable legend for this channel
     pub fn no_legend(self) -> Self {
-        self.legend(|_| Legend::new().visible(false))
+        self.legend(Legend::new().visible(false))
     }
 
     /// Disable scaling and use raw values

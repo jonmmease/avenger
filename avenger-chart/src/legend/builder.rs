@@ -1,5 +1,6 @@
 use super::LegendRenderer;
 use crate::legend::{Legend, LegendOrientation, LegendPosition};
+use crate::maybe::Maybe;
 use std::sync::Arc;
 
 /// Base trait for legend builders - just for common functionality
@@ -13,7 +14,7 @@ pub trait LegendBuilder: Sized {
 
     /// Set visibility - available on all legend builders
     fn visible(mut self, visible: bool) -> Self {
-        self.legend_mut().visible = visible;
+        self.legend_mut().visible = Maybe::Set(visible);
         self
     }
 }
@@ -33,78 +34,78 @@ impl ColorLegendBuilder {
 
     // Common legend methods
     pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Some(title.into());
+        self.legend.title = Maybe::Set(title.into());
         self
     }
 
     pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = visible;
+        self.legend.visible = Maybe::Set(visible);
         self
     }
 
     pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Some(position);
+        self.legend.position = Maybe::Set(position);
         self
     }
 
     pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Some(orientation);
+        self.legend.orientation = Maybe::Set(orientation);
         self
     }
 
     pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Some(order);
+        self.legend.order = Maybe::Set(order);
         self
     }
 
     // Color-specific methods
     pub fn gradient_length(mut self, length: f64) -> Self {
-        self.legend.gradient_length = Some(length);
+        self.legend.gradient_length = Maybe::Set(length);
         self
     }
 
     pub fn gradient_thickness(mut self, thickness: f64) -> Self {
-        self.legend.gradient_thickness = Some(thickness);
+        self.legend.gradient_thickness = Maybe::Set(thickness);
         self
     }
 
     pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Some(columns);
+        self.legend.columns = Maybe::Set(columns);
         self
     }
 
     pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Some(size);
+        self.legend.symbol_size = Maybe::Set(size);
         self
     }
 
     pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Some(limit);
+        self.legend.label_limit = Maybe::Set(limit);
         self
     }
 
     pub fn format_number(mut self, format: impl Into<String>) -> Self {
-        self.legend.format_number = Some(format.into());
+        self.legend.format_number = Maybe::Set(format.into());
         self
     }
 
     pub fn background_fill(mut self, fill: impl Into<String>) -> Self {
-        self.legend.background_fill = Some(fill.into());
+        self.legend.background_fill = Maybe::Set(fill.into());
         self
     }
 
     pub fn background_stroke(mut self, stroke: impl Into<String>) -> Self {
-        self.legend.background_stroke = Some(stroke.into());
+        self.legend.background_stroke = Maybe::Set(stroke.into());
         self
     }
 
     pub fn background_corner_radius(mut self, radius: f32) -> Self {
-        self.legend.background_corner_radius = Some(radius);
+        self.legend.background_corner_radius = Maybe::Set(radius);
         self
     }
 
     pub fn background_padding(mut self, padding: f32) -> Self {
-        self.legend.background_padding = Some(padding);
+        self.legend.background_padding = Maybe::Set(padding);
         self
     }
 
@@ -139,48 +140,48 @@ impl SizeLegendBuilder {
 
     // Common legend methods
     pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Some(title.into());
+        self.legend.title = Maybe::Set(title.into());
         self
     }
 
     pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = visible;
+        self.legend.visible = Maybe::Set(visible);
         self
     }
 
     pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Some(position);
+        self.legend.position = Maybe::Set(position);
         self
     }
 
     pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Some(orientation);
+        self.legend.orientation = Maybe::Set(orientation);
         self
     }
 
     pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Some(order);
+        self.legend.order = Maybe::Set(order);
         self
     }
 
     // Size-specific methods
     pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Some(size);
+        self.legend.symbol_size = Maybe::Set(size);
         self
     }
 
     pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Some(columns);
+        self.legend.columns = Maybe::Set(columns);
         self
     }
 
     pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Some(limit);
+        self.legend.label_limit = Maybe::Set(limit);
         self
     }
 
     pub fn format_number(mut self, format: impl Into<String>) -> Self {
-        self.legend.format_number = Some(format.into());
+        self.legend.format_number = Maybe::Set(format.into());
         self
     }
 
@@ -215,43 +216,43 @@ impl ShapeLegendBuilder {
 
     // Common legend methods
     pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Some(title.into());
+        self.legend.title = Maybe::Set(title.into());
         self
     }
 
     pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = visible;
+        self.legend.visible = Maybe::Set(visible);
         self
     }
 
     pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Some(position);
+        self.legend.position = Maybe::Set(position);
         self
     }
 
     pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Some(orientation);
+        self.legend.orientation = Maybe::Set(orientation);
         self
     }
 
     pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Some(order);
+        self.legend.order = Maybe::Set(order);
         self
     }
 
     // Shape-specific methods
     pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Some(columns);
+        self.legend.columns = Maybe::Set(columns);
         self
     }
 
     pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Some(size);
+        self.legend.symbol_size = Maybe::Set(size);
         self
     }
 
     pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Some(limit);
+        self.legend.label_limit = Maybe::Set(limit);
         self
     }
 
@@ -286,48 +287,48 @@ impl OpacityLegendBuilder {
 
     // Common legend methods
     pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Some(title.into());
+        self.legend.title = Maybe::Set(title.into());
         self
     }
 
     pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = visible;
+        self.legend.visible = Maybe::Set(visible);
         self
     }
 
     pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Some(position);
+        self.legend.position = Maybe::Set(position);
         self
     }
 
     pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Some(orientation);
+        self.legend.orientation = Maybe::Set(orientation);
         self
     }
 
     pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Some(order);
+        self.legend.order = Maybe::Set(order);
         self
     }
 
     // Opacity-specific methods
     pub fn gradient_length(mut self, length: f64) -> Self {
-        self.legend.gradient_length = Some(length);
+        self.legend.gradient_length = Maybe::Set(length);
         self
     }
 
     pub fn gradient_thickness(mut self, thickness: f64) -> Self {
-        self.legend.gradient_thickness = Some(thickness);
+        self.legend.gradient_thickness = Maybe::Set(thickness);
         self
     }
 
     pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Some(size);
+        self.legend.symbol_size = Maybe::Set(size);
         self
     }
 
     pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Some(limit);
+        self.legend.label_limit = Maybe::Set(limit);
         self
     }
 
@@ -362,43 +363,43 @@ impl AngleLegendBuilder {
 
     // Common legend methods
     pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Some(title.into());
+        self.legend.title = Maybe::Set(title.into());
         self
     }
 
     pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = visible;
+        self.legend.visible = Maybe::Set(visible);
         self
     }
 
     pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Some(position);
+        self.legend.position = Maybe::Set(position);
         self
     }
 
     pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Some(orientation);
+        self.legend.orientation = Maybe::Set(orientation);
         self
     }
 
     pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Some(order);
+        self.legend.order = Maybe::Set(order);
         self
     }
 
     // Angle-specific methods
     pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Some(size);
+        self.legend.symbol_size = Maybe::Set(size);
         self
     }
 
     pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Some(columns);
+        self.legend.columns = Maybe::Set(columns);
         self
     }
 
     pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Some(limit);
+        self.legend.label_limit = Maybe::Set(limit);
         self
     }
 
@@ -433,43 +434,43 @@ impl StrokeWidthLegendBuilder {
 
     // Common legend methods
     pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Some(title.into());
+        self.legend.title = Maybe::Set(title.into());
         self
     }
 
     pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = visible;
+        self.legend.visible = Maybe::Set(visible);
         self
     }
 
     pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Some(position);
+        self.legend.position = Maybe::Set(position);
         self
     }
 
     pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Some(orientation);
+        self.legend.orientation = Maybe::Set(orientation);
         self
     }
 
     pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Some(order);
+        self.legend.order = Maybe::Set(order);
         self
     }
 
     // Stroke width-specific methods
     pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Some(size);
+        self.legend.symbol_size = Maybe::Set(size);
         self
     }
 
     pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Some(columns);
+        self.legend.columns = Maybe::Set(columns);
         self
     }
 
     pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Some(limit);
+        self.legend.label_limit = Maybe::Set(limit);
         self
     }
 
@@ -504,43 +505,43 @@ impl StrokeDashLegendBuilder {
 
     // Common legend methods
     pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Some(title.into());
+        self.legend.title = Maybe::Set(title.into());
         self
     }
 
     pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = visible;
+        self.legend.visible = Maybe::Set(visible);
         self
     }
 
     pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Some(position);
+        self.legend.position = Maybe::Set(position);
         self
     }
 
     pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Some(orientation);
+        self.legend.orientation = Maybe::Set(orientation);
         self
     }
 
     pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Some(order);
+        self.legend.order = Maybe::Set(order);
         self
     }
 
     // Stroke dash-specific methods
     pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Some(size);
+        self.legend.symbol_size = Maybe::Set(size);
         self
     }
 
     pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Some(columns);
+        self.legend.columns = Maybe::Set(columns);
         self
     }
 
     pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Some(limit);
+        self.legend.label_limit = Maybe::Set(limit);
         self
     }
 

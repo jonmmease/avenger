@@ -258,7 +258,7 @@ impl ChartLayout {
 
         // Add legends with their positions
         for (channel, legend) in legends.iter() {
-            let position = legend.position.unwrap_or(LegendPosition::Right);
+            let position = legend.position.clone().unwrap_or(LegendPosition::Right);
             builder.add_legend(channel.clone(), position);
         }
 
@@ -676,7 +676,7 @@ fn create_legend_nodes(
     let mut legend_nodes_by_container: HashMap<LegendPosition, Vec<NodeId>> = HashMap::new();
 
     for (channel, legend) in legends {
-        let legend_position = legend.position.unwrap_or(LegendPosition::Right);
+        let legend_position = legend.position.clone().unwrap_or(LegendPosition::Right);
 
         for ((row, col), comp_type) in &grid_layout.component_cells {
             if let ComponentType::LegendContainer(pos) = comp_type {

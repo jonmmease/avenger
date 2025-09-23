@@ -26,4 +26,4 @@ pub use self::configs::{
 };
 pub use self::descriptor::{ChannelDefault, ChannelDescriptor};
 pub use self::position::{GenericPositionConfig, PositionConfig};
-pub use self::value::{ChannelValue, ConditionalValue, LegendConfig, ScaleConfig};
+pub use self::value::{ChannelValue, ConditionalValue, ScaleConfig};

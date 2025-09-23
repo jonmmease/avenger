@@ -105,7 +105,7 @@ impl LegendRenderer for RectLegendRenderer {
 
         // Create legend configuration
         let mut legend_config = SymbolLegendConfig {
-            title: config.title.clone(),
+            title: config.title.clone().into_option(),
             text: ScalarOrArray::new_scalar("".to_string()), // Will be set later
             shape: ScalarOrArray::new_scalar(
                 SymbolShape::from_vega_str("square").unwrap_or_default(),
@@ -123,17 +123,17 @@ impl LegendRenderer for RectLegendRenderer {
             inner_height: 100.0,
             outer_margin: 0.0,
             text_padding: 2.0,
-            background_fill: match config.background_fill.as_ref() {
+            background_fill: match config.background_fill.as_option() {
                 Some(f) => Some(crate::utils::parse_color_string_strict(f)?),
                 None => None,
             },
-            background_stroke: match config.background_stroke.as_ref() {
+            background_stroke: match config.background_stroke.as_option() {
                 Some(s) => Some(crate::utils::parse_color_string_strict(s)?),
                 None => None,
             },
-            background_corner_radius: config.background_corner_radius,
-            background_padding: config.background_padding,
-            title_color: match config.title_color.as_ref() {
+            background_corner_radius: config.background_corner_radius.clone().into_option(),
+            background_padding: config.background_padding.clone().into_option(),
+            title_color: match config.title_color.as_option() {
                 Some(c) => {
                     let color = crate::utils::parse_color_string_strict(c)?;
                     match color {
@@ -148,7 +148,7 @@ impl LegendRenderer for RectLegendRenderer {
                 }
                 None => None,
             },
-            label_color: match config.label_color.as_ref() {
+            label_color: match config.label_color.as_option() {
                 Some(c) => {
                     let color = crate::utils::parse_color_string_strict(c)?;
                     match color {
@@ -172,23 +172,25 @@ impl LegendRenderer for RectLegendRenderer {
         };
 
         // Set typography from legend config
-        if let Some(ref family) = config.title_font_family {
+        if let Some(family) = config.title_font_family.as_option() {
             legend_config.title_font_family = Some(family.clone());
         }
-        if let Some(size) = config.title_font_size {
-            legend_config.title_font_size = Some(size);
+        if let Some(size) = config.title_font_size.as_option() {
+            legend_config.title_font_size = Some(*size);
         }
-        if let Some(weight) = config.title_font_weight {
-            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        if let Some(weight) = config.title_font_weight.as_option() {
+            legend_config.title_font_weight =
+                Some(avenger_text::types::FontWeight::Number(*weight));
         }
-        if let Some(ref family) = config.label_font_family {
+        if let Some(family) = config.label_font_family.as_option() {
             legend_config.label_font_family = Some(family.clone());
         }
-        if let Some(size) = config.label_font_size {
-            legend_config.label_font_size = Some(size);
+        if let Some(size) = config.label_font_size.as_option() {
+            legend_config.label_font_size = Some(*size);
         }
-        if let Some(weight) = config.label_font_weight {
-            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        if let Some(weight) = config.label_font_weight.as_option() {
+            legend_config.label_font_weight =
+                Some(avenger_text::types::FontWeight::Number(*weight));
         }
 
         // Use constant values from mark if available (and not the legend channel itself)

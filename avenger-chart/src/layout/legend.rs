@@ -13,7 +13,7 @@ pub fn measure_legend_size_with_channels(
     available_space: Size<f32>,
 ) -> Result<(Size<f32>, bool), AvengerChartError> {
     // Skip invisible legends
-    if !legend.visible {
+    if matches!(legend.visible, crate::maybe::Maybe::Set(false)) {
         return Ok((
             Size {
                 width: 0.0,

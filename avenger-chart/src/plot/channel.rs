@@ -92,10 +92,10 @@ impl<C: CoordinateSystem> Plot<C> {
                 let existing_legend = self.legends.shift_remove(channel_name.as_str());
                 let configured = if let Some(existing) = existing_legend {
                     // Apply new config on top of existing configured legend
-                    config(existing)
+                    existing.update(config.clone())
                 } else {
-                    // Apply config to default legend
-                    config(Legend::default())
+                    // Use the config as-is
+                    config.clone()
                 };
                 self.legends.insert(channel_name.clone(), configured);
             }
