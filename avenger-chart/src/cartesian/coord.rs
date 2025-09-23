@@ -56,17 +56,13 @@ impl CoordinateSystem for Cartesian {
                     _ => unreachable!(),
                 };
 
-                let axis = CartesianAxis {
-                    visible: true,
-                    position: Some(position),
-                    title,
-                    grid,
-                    tick_count: None,
-                    label_angle: 0.0,
-                    format_number: None,
-                    title_font_family: None,
-                    label_font_family: None,
-                };
+                let mut axis = CartesianAxis::new().visible(true).position(position);
+
+                if let Some(title) = title {
+                    axis = axis.title(title);
+                }
+
+                axis = axis.grid(grid);
 
                 default_axes.insert(channel.to_string(), axis);
             }
