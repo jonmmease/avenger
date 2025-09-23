@@ -10,23 +10,25 @@ use avenger_common::value::ScalarOrArray;
 use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
 use avenger_scenegraph::marks::group::SceneGroup;
 use datafusion_common::ScalarValue;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Symbol legend renderer for discrete channels
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct SymbolLegendRenderer {
     /// Plot reference for accessing mark data
-    #[allow(dead_code)]
-    plot_marks: Vec<Arc<dyn std::any::Any + Send + Sync>>,
-    /// Map of mark encodings from the plot  
+    /// Map of mark encodings from the plot
+    #[serde(skip)]
     mark_encodings: HashMap<String, crate::channel::ChannelValue>,
     /// Whether the plot has rect marks
     has_rect_mark: bool,
     /// Theme mark defaults for symbols
-    symbol_defaults: indexmap::IndexMap<String, datafusion_common::ScalarValue>,
+    #[serde(skip)]
+    symbol_defaults: indexmap::IndexMap<String, ScalarValue>,
     /// Theme mark defaults for rects
-    rect_defaults: indexmap::IndexMap<String, datafusion_common::ScalarValue>,
+    #[serde(skip)]
+    rect_defaults: indexmap::IndexMap<String, ScalarValue>,
 }
 
 impl SymbolLegendRenderer {
@@ -39,6 +41,7 @@ impl SymbolLegendRenderer {
     }
 }
 
+#[typetag::serde]
 impl LegendRenderer for SymbolLegendRenderer {
     fn name(&self) -> &'static str {
         "SymbolLegendRenderer"

@@ -16,9 +16,11 @@ use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::SceneGroup;
 use datafusion::logical_expr::Expr;
 use datafusion_common::ScalarValue;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Trait for implementing custom legend renderers
+#[typetag::serde(tag = "type")]
 pub trait LegendRenderer: Send + Sync + 'static {
     /// Get the name of this renderer for debugging
     fn name(&self) -> &'static str {

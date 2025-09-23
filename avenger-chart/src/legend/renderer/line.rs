@@ -10,12 +10,15 @@ use avenger_guides::legend::line::{LineLegendConfig, make_line_legend};
 use avenger_scenegraph::marks::group::SceneGroup;
 use datafusion::arrow::array::{ArrayRef, StringArray};
 use datafusion_common::ScalarValue;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Line legend renderer for stroke properties on line marks
+#[derive(Serialize, Deserialize)]
 pub struct LineLegendRenderer {
     /// Map of mark encodings from the plot
+    #[serde(skip)]
     mark_encodings: HashMap<String, crate::channel::ChannelValue>,
     /// Stroke cap and join settings from line marks
     stroke_cap: StrokeCap,
@@ -64,6 +67,7 @@ impl LineLegendRenderer {
     }
 }
 
+#[typetag::serde]
 impl LegendRenderer for LineLegendRenderer {
     fn name(&self) -> &'static str {
         "LineLegendRenderer"
