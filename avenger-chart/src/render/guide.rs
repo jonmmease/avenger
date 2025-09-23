@@ -4,7 +4,7 @@ use super::PlotRenderer;
 use crate::axis::AxisUpdate;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::OverflowSpaceRequirement;
+use crate::guide::{GuideUpdate, OverflowSpaceRequirement};
 use std::collections::HashMap;
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {
@@ -46,8 +46,8 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                 .create_default_guide(all_axes, scales, &self.plot.marks);
 
         // Apply user guide configuration if specified
-        if let Some(guide_config) = &self.plot.configure_guide_fn {
-            guide = guide_config(guide);
+        if let Some(guide_config) = &self.plot.guide_config {
+            guide = guide.update(guide_config.clone());
         }
 
         guide

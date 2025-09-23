@@ -1,4 +1,6 @@
 use super::helpers::assert_visual_match_default;
+use avenger_chart::cartesian::guide::CartesianGuide;
+use avenger_chart::polar::guide::PolarGuide;
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -29,7 +31,7 @@ async fn test_cartesian_plot_background() {
     // Create a plot with light blue background
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .configure_guide(|guide| guide.plot_background_color([0.9, 0.95, 1.0, 1.0])) // Light blue
+        .configure_guide(CartesianGuide::new().plot_background_color([0.9, 0.95, 1.0, 1.0])) // Light blue
         .mark(
             Line::new()
                 .x_with(col("x"), |c| c.scale(|s| s))
@@ -48,7 +50,7 @@ async fn test_cartesian_background_with_grid() {
     // Create a scatter plot with dark background to show grid lines clearly
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .configure_guide(|guide| guide.plot_background_color([0.2, 0.2, 0.3, 1.0])) // Dark blue-gray
+        .configure_guide(CartesianGuide::new().plot_background_color([0.2, 0.2, 0.3, 1.0])) // Dark blue-gray
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.scale(|s| s).axis(|a| a.grid(true)))
@@ -93,7 +95,7 @@ async fn test_polar_plot_background() {
     // Create a polar plot with light green background
     let plot = Plot::<Polar>::new()
         .data(df)
-        .configure_guide(|guide| guide.plot_background_color([0.9, 1.0, 0.9, 1.0])) // Light green
+        .configure_guide(PolarGuide::new().plot_background_color([0.9, 1.0, 0.9, 1.0])) // Light green
         .mark(
             Symbol::<Polar>::new()
                 .r(col("radius"))
@@ -139,7 +141,7 @@ async fn test_polar_background_with_grid() {
     // Create a polar plot with dark background to show grid lines
     let plot = Plot::<Polar>::new()
         .data(df)
-        .configure_guide(|guide| guide.plot_background_color([0.15, 0.15, 0.2, 1.0])) // Dark background
+        .configure_guide(PolarGuide::new().plot_background_color([0.15, 0.15, 0.2, 1.0])) // Dark background
         .mark(
             Symbol::<Polar>::new()
                 .r(col("r"))

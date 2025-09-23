@@ -2,7 +2,7 @@
 
 use crate::axis::AxisUpdate;
 use crate::error::AvengerChartError;
-use crate::guide::OverflowSpaceRequirement;
+use crate::guide::{GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -14,7 +14,7 @@ use std::collections::HashMap;
 /// This includes both axes (configured at the channel level) and coordinate-specific
 /// options (configured at the plot level).
 #[async_trait::async_trait]
-pub trait CoordinateGuide: Clone + Send + Sync + 'static {
+pub trait CoordinateGuide: Clone + Send + Sync + GuideUpdate + 'static {
     /// The axis type used by this guide (if any)
     type Axis: Clone + Send + Sync + Default + AxisUpdate + 'static;
 

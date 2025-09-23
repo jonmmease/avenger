@@ -11,3 +11,14 @@ mod overflow;
 pub use coordinate_guide::CoordinateGuide;
 pub use no_guide::NoGuide;
 pub use overflow::OverflowSpaceRequirement;
+
+/// Trait for composable guide updates
+///
+/// This trait allows guides to be composed by updating one with another,
+/// similar to how axes can be composed using the AxisUpdate trait.
+pub trait GuideUpdate: Clone + Default {
+    /// Update this guide with values from another guide
+    ///
+    /// Values from `other` take precedence over values in `self`.
+    fn update(self, other: Self) -> Self;
+}
