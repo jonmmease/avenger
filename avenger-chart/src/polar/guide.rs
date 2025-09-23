@@ -82,7 +82,7 @@ impl PolarGuide {
 
                 // Try to extract a title from the marks
                 if let Some(title) = extract_channel_title_from_marks(marks, channel_name) {
-                    axis.title = Some(title);
+                    axis = axis.title(title);
                 }
 
                 axes.insert(channel_name.clone(), axis);

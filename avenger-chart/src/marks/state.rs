@@ -4,7 +4,6 @@ use crate::coords::CoordinateSystem;
 use crate::guide::CoordinateGuide;
 use crate::marks::{DataContext, FacetStrategy};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// State shared by all mark types
 pub struct MarkState<C: CoordinateSystem> {
@@ -19,12 +18,5 @@ pub struct MarkState<C: CoordinateSystem> {
 
     // Store axis configurations from channels
     #[doc(hidden)]
-    pub axis_configs: HashMap<
-        String,
-        Arc<
-            dyn Fn(<C::Guide as CoordinateGuide>::Axis) -> <C::Guide as CoordinateGuide>::Axis
-                + Send
-                + Sync,
-        >,
-    >,
+    pub axis_configs: HashMap<String, <C::Guide as CoordinateGuide>::Axis>,
 }

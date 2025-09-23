@@ -2,21 +2,17 @@
 
 use super::value::ChannelValue;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
-use std::sync::Arc;
-
-/// Type alias for axis configuration function
-pub type AxisConfigFn<A> = Arc<dyn Fn(A) -> A + Send + Sync>;
 
 /// Trait for all position configuration types
 pub trait PositionConfig: Sized {
-    type Axis;
+    type Axis: Clone;
 
     /// Create a new position config from a channel value
     fn new(value: ChannelValue) -> Self;
 
     /// Extract the axis configuration, consuming self
     /// Returns None for coordinate systems that don't support axes
-    fn take_axis_config(self) -> (ChannelValue, Option<AxisConfigFn<Self::Axis>>);
+    fn take_axis_config(self) -> (ChannelValue, Option<Self::Axis>);
 
     /// Get the inner channel value without axis config
     fn into_inner(self) -> ChannelValue;
@@ -26,12 +22,12 @@ pub trait PositionConfig: Sized {
 /// This struct provides common functionality for position channels that support
 /// scales and axes in any coordinate system
 #[derive(Clone)]
-pub struct GenericPositionConfig<A: Clone + Send + Sync + 'static> {
+pub struct GenericPositionConfig<A: Clone + Default + Send + Sync + 'static> {
     pub(crate) inner: ChannelValue,
-    pub(crate) axis_config: Option<AxisConfigFn<A>>,
+    pub(crate) axis_config: Option<A>,
 }
 
-impl<A: Clone + Send + Sync + 'static> GenericPositionConfig<A> {
+impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
     /// Create a new position channel from a channel value
     pub fn new(value: ChannelValue) -> Self {
         Self {
@@ -73,9 +69,10 @@ impl<A: Clone + Send + Sync + 'static> GenericPositionConfig<A> {
     /// Configure the axis for this channel
     pub fn axis<F>(mut self, f: F) -> Self
     where
-        F: Fn(A) -> A + Send + Sync + 'static,
+        F: FnOnce(A) -> A,
     {
-        self.axis_config = Some(Arc::new(f));
+        let axis = self.axis_config.unwrap_or_default();
+        self.axis_config = Some(f(axis));
         self
     }
 
@@ -101,12 +98,12 @@ impl<A: Clone + Send + Sync + 'static> GenericPositionConfig<A> {
     }
 
     /// Get the axis configuration if present
-    pub fn axis_config(&self) -> Option<&AxisConfigFn<A>> {
+    pub fn axis_config(&self) -> Option<&A> {
         self.axis_config.as_ref()
     }
 }
 
-impl<A: Clone + Send + Sync + 'static> PositionConfig for GenericPositionConfig<A> {
+impl<A: Clone + Default + Send + Sync + 'static> PositionConfig for GenericPositionConfig<A> {
     type Axis = A;
 
     fn new(value: ChannelValue) -> Self {
@@ -116,7 +113,7 @@ impl<A: Clone + Send + Sync + 'static> PositionConfig for GenericPositionConfig<
         }
     }
 
-    fn take_axis_config(self) -> (ChannelValue, Option<AxisConfigFn<Self::Axis>>) {
+    fn take_axis_config(self) -> (ChannelValue, Option<Self::Axis>) {
         (self.inner, self.axis_config)
     }
 
@@ -126,13 +123,13 @@ impl<A: Clone + Send + Sync + 'static> PositionConfig for GenericPositionConfig<
 }
 
 // Implement From traits for common types
-impl<A: Clone + Send + Sync + 'static> From<ChannelValue> for GenericPositionConfig<A> {
+impl<A: Clone + Default + Send + Sync + 'static> From<ChannelValue> for GenericPositionConfig<A> {
     fn from(value: ChannelValue) -> Self {
         Self::new(value)
     }
 }
 
-impl<A: Clone + Send + Sync + 'static> From<datafusion::logical_expr::Expr>
+impl<A: Clone + Default + Send + Sync + 'static> From<datafusion::logical_expr::Expr>
     for GenericPositionConfig<A>
 {
     fn from(expr: datafusion::logical_expr::Expr) -> Self {
@@ -140,25 +137,25 @@ impl<A: Clone + Send + Sync + 'static> From<datafusion::logical_expr::Expr>
     }
 }
 
-impl<A: Clone + Send + Sync + 'static> From<&str> for GenericPositionConfig<A> {
+impl<A: Clone + Default + Send + Sync + 'static> From<&str> for GenericPositionConfig<A> {
     fn from(s: &str) -> Self {
         Self::new(ChannelValue::from(s))
     }
 }
 
-impl<A: Clone + Send + Sync + 'static> From<f64> for GenericPositionConfig<A> {
+impl<A: Clone + Default + Send + Sync + 'static> From<f64> for GenericPositionConfig<A> {
     fn from(v: f64) -> Self {
         Self::new(ChannelValue::from(v))
     }
 }
 
-impl<A: Clone + Send + Sync + 'static> From<f32> for GenericPositionConfig<A> {
+impl<A: Clone + Default + Send + Sync + 'static> From<f32> for GenericPositionConfig<A> {
     fn from(v: f32) -> Self {
         Self::new(ChannelValue::from(v))
     }
 }
 
-impl<A: Clone + Send + Sync + 'static> From<i32> for GenericPositionConfig<A> {
+impl<A: Clone + Default + Send + Sync + 'static> From<i32> for GenericPositionConfig<A> {
     fn from(v: i32) -> Self {
         Self::new(ChannelValue::from(v))
     }

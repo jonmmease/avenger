@@ -1,6 +1,7 @@
 //! Helper methods for rendering with the Guide API
 
 use super::PlotRenderer;
+use crate::axis::AxisUpdate;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::guide::OverflowSpaceRequirement;
@@ -23,25 +24,17 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         // Apply user axis customizations to defaults
         let mut all_axes = default_axes;
         for (channel, axis_spec) in &self.plot.axis_specs {
-            // Only apply customizations if there's a default axis
-            // Axes without scales won't be rendered anyway
-            if let Some(base_axis) = all_axes.get(channel).cloned() {
-                // Apply the customization function
-                match axis_spec {
-                    crate::plot::AxisSpec::Local(f) => {
-                        let customized = f(base_axis);
+            // Apply the customization (update the base axis with user-specified config)
+            match axis_spec {
+                crate::plot::AxisSpec::Local(axis_config) => {
+                    if let Some(base_axis) = all_axes.get(channel).cloned() {
+                        // Update base axis with user configuration
+                        let customized = base_axis.update(axis_config.clone());
                         all_axes.insert(channel.clone(), customized);
+                    } else {
+                        // No base axis exists - create one from the config
+                        all_axes.insert(channel.clone(), axis_config.clone());
                     }
-                }
-            }
-        }
-
-        // Apply axis configurations from mark channels (last mark wins for conflicts)
-        for mark in &self.plot.marks {
-            for (channel, axis_config) in mark.state().axis_configs.iter() {
-                if let Some(base_axis) = all_axes.get(channel).cloned() {
-                    let configured = axis_config(base_axis);
-                    all_axes.insert(channel.clone(), configured);
                 }
             }
         }

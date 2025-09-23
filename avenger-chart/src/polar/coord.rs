@@ -53,15 +53,12 @@ impl CoordinateSystem for Polar {
                     _ => continue,
                 };
 
-                let mut axis = PolarAxis::new().axis_type(axis_type);
+                let mut axis = PolarAxis::new().axis_type(axis_type).grid(true); // Both radial and angular axes should show grid by default
 
                 // Extract title from mark encodings
                 if let Some(title) = extract_channel_title_from_marks(marks, channel) {
-                    axis.title = Some(title);
+                    axis = axis.title(title);
                 }
-
-                // Both radial and angular axes should show grid by default
-                axis.grid = true;
 
                 default_axes.insert(channel.to_string(), axis);
             }

@@ -1,11 +1,12 @@
 //! Channel resolution and gathering methods for Plot
 
+use crate::axis::AxisUpdate;
 use crate::channel::ConditionalValue;
 use crate::channel::resolution::resolve_all_channel_refs;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
-use crate::plot::{Plot, ScaleSpec};
+use crate::plot::{AxisSpec, Plot, ScaleSpec};
 use crate::render::RenderContext;
 use crate::scales::{ConfiguredScaleDataFusionExt, Scale, create_default_scale_for_channel};
 use avenger_scales::scales::ConfiguredScale;
@@ -16,8 +17,23 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 impl<C: CoordinateSystem> Plot<C> {
-    /// Extract scale and legend configurations from a mark's channels
+    /// Extract scale, legend, and axis configurations from a mark's channels
     pub(crate) fn extract_channel_configs(&mut self, mark: &impl Mark<C>) {
+        // Extract axis configurations from the mark
+        for (channel_name, axis_config) in mark.state().axis_configs.iter() {
+            match self.axis_specs.entry(channel_name.clone()) {
+                Entry::Occupied(mut occupied) => {
+                    // Update existing axis with new configuration
+                    let AxisSpec::Local(existing) = occupied.get();
+                    let updated = existing.clone().update(axis_config.clone());
+                    occupied.insert(AxisSpec::Local(updated));
+                }
+                Entry::Vacant(vacant) => {
+                    vacant.insert(AxisSpec::Local(axis_config.clone()));
+                }
+            }
+        }
+
         // Get all channel encodings from the mark
         let encodings = mark.data_context().channels();
 

@@ -1,33 +1,36 @@
 use crate::error::AvengerChartError;
+use crate::maybe::Maybe;
 use avenger_scenegraph::marks::mark::SceneMark;
 
 /// Type of polar axis
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum PolarAxisType {
+    #[default]
     Radial,
     Angular,
 }
 
 /// Direction for angular axis
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum PolarDirection {
+    #[default]
     Clockwise,
     CounterClockwise,
 }
 
 /// Concrete struct for Polar axes
 /// Using a struct instead of a trait enables type inference in closure parameters
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PolarAxis {
-    pub visible: bool,
-    pub axis_type: PolarAxisType,
-    pub title: Option<String>,
-    pub grid: bool,
-    pub tick_count: Option<usize>,
-    pub format_number: Option<String>,
-    pub grid_levels: Option<usize>,
-    pub start_angle: f32,
-    pub direction: PolarDirection,
+    pub visible: Maybe<bool>,
+    pub axis_type: Maybe<PolarAxisType>,
+    pub title: Maybe<Option<String>>,
+    pub grid: Maybe<bool>,
+    pub tick_count: Maybe<Option<usize>>,
+    pub format_number: Maybe<Option<String>>,
+    pub grid_levels: Maybe<Option<usize>>,
+    pub start_angle: Maybe<f32>,
+    pub direction: Maybe<PolarDirection>,
 }
 
 impl PolarAxis {
@@ -36,47 +39,79 @@ impl PolarAxis {
     }
 
     pub fn visible(mut self, visible: bool) -> Self {
-        self.visible = visible;
+        self.visible = Maybe::Set(visible);
         self
     }
 
     pub fn axis_type(mut self, axis_type: PolarAxisType) -> Self {
-        self.axis_type = axis_type;
+        self.axis_type = Maybe::Set(axis_type);
         self
     }
 
     pub fn title<S: Into<String>>(mut self, title: S) -> Self {
-        self.title = Some(title.into());
+        self.title = Maybe::Set(Some(title.into()));
         self
     }
 
     pub fn grid(mut self, grid: bool) -> Self {
-        self.grid = grid;
+        self.grid = Maybe::Set(grid);
         self
     }
 
     pub fn tick_count(mut self, count: usize) -> Self {
-        self.tick_count = Some(count);
+        self.tick_count = Maybe::Set(Some(count));
         self
     }
 
     pub fn format(mut self, format: impl Into<String>) -> Self {
-        self.format_number = Some(format.into());
+        self.format_number = Maybe::Set(Some(format.into()));
         self
     }
 
     pub fn grid_levels(mut self, levels: usize) -> Self {
-        self.grid_levels = Some(levels);
+        self.grid_levels = Maybe::Set(Some(levels));
         self
     }
 
     pub fn start_angle(mut self, angle: f32) -> Self {
-        self.start_angle = angle;
+        self.start_angle = Maybe::Set(angle);
         self
     }
 
     pub fn direction(mut self, direction: PolarDirection) -> Self {
-        self.direction = direction;
+        self.direction = Maybe::Set(direction);
+        self
+    }
+
+    /// Update this axis configuration with another, applying all set fields
+    pub fn update(mut self, other: PolarAxis) -> Self {
+        if other.visible.is_set() {
+            self.visible = other.visible;
+        }
+        if other.axis_type.is_set() {
+            self.axis_type = other.axis_type;
+        }
+        if other.title.is_set() {
+            self.title = other.title;
+        }
+        if other.grid.is_set() {
+            self.grid = other.grid;
+        }
+        if other.tick_count.is_set() {
+            self.tick_count = other.tick_count;
+        }
+        if other.format_number.is_set() {
+            self.format_number = other.format_number;
+        }
+        if other.grid_levels.is_set() {
+            self.grid_levels = other.grid_levels;
+        }
+        if other.start_angle.is_set() {
+            self.start_angle = other.start_angle;
+        }
+        if other.direction.is_set() {
+            self.direction = other.direction;
+        }
         self
     }
 
@@ -91,8 +126,8 @@ impl PolarAxis {
         plot_bounds: &crate::layout::LayoutBounds,
         theme: &dyn crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Skip if invisible
-        if !self.visible {
+        // Skip if invisible (default to visible if not set)
+        if !self.visible.clone().unwrap_or(true) {
             return Ok(vec![]);
         }
 
@@ -101,7 +136,7 @@ impl PolarAxis {
         let center_y = plot_bounds.y + plot_height / 2.0;
         let radius = plot_width.min(plot_height) / 2.0;
 
-        match self.axis_type {
+        match self.axis_type.clone().unwrap_or(PolarAxisType::Radial) {
             PolarAxisType::Radial => {
                 // Render radial axis (circles from center)
                 self.render_radial_axis(scale, center_x, center_y, radius, theme)
@@ -126,12 +161,12 @@ impl PolarAxis {
         use avenger_scenegraph::marks::arc::SceneArcMark;
 
         let mut marks = Vec::new();
-        let _num_circles = self.grid_levels.unwrap_or(6);
+        let _num_circles = self.grid_levels.clone().flatten().unwrap_or(6);
 
         // Create concentric circles for the grid using actual scale ticks
-        if self.grid {
+        if self.grid.clone().unwrap_or(false) {
             // Get tick values from the scale
-            let tick_count = self.tick_count.map(|c| c as f32);
+            let tick_count = self.tick_count.clone().flatten().map(|c| c as f32);
             let ticks = _scale.ticks(tick_count.or(Some(5.0)))?;
 
             let mut radii = Vec::new();
@@ -211,12 +246,12 @@ impl PolarAxis {
         }
 
         // Add radial tick labels
-        if self.visible {
+        if self.visible.clone().unwrap_or(true) {
             use avenger_scenegraph::marks::text::SceneTextMark;
             use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
 
             // Get tick values from scale - use same as grid
-            let tick_count = self.tick_count.map(|c| c as f32);
+            let tick_count = self.tick_count.clone().flatten().map(|c| c as f32);
             let ticks = _scale.ticks(tick_count.or(Some(5.0)))?;
 
             // Format tick values as strings
@@ -349,9 +384,9 @@ impl PolarAxis {
         };
 
         // Render angular grid (radial lines) based on scale ticks
-        if self.grid {
+        if self.grid.clone().unwrap_or(false) {
             // Get tick values from the scale
-            let tick_count = self.tick_count.map(|c| c as f32);
+            let tick_count = self.tick_count.clone().flatten().map(|c| c as f32);
             let ticks = _scale.ticks(tick_count.or(Some(8.0)))?;
 
             let mut x_values = Vec::new();
@@ -425,7 +460,7 @@ impl PolarAxis {
         }
 
         // Add angular tick labels
-        if self.visible {
+        if self.visible.clone().unwrap_or(true) {
             use avenger_scenegraph::marks::text::SceneTextMark;
             use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
 
@@ -437,14 +472,14 @@ impl PolarAxis {
                     (0..arr.len()).map(|i| arr.value(i)).collect()
                 } else {
                     // Fallback if not float32
-                    let num_ticks = self.tick_count.unwrap_or(8);
+                    let num_ticks = self.tick_count.clone().flatten().unwrap_or(8);
                     (0..num_ticks)
                         .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
                         .collect()
                 }
             } else {
                 // Fallback to uniform distribution
-                let num_ticks = self.tick_count.unwrap_or(8);
+                let num_ticks = self.tick_count.clone().flatten().unwrap_or(8);
                 (0..num_ticks)
                     .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
                     .collect()
@@ -527,18 +562,8 @@ impl PolarAxis {
     }
 }
 
-impl Default for PolarAxis {
-    fn default() -> Self {
-        Self {
-            visible: true,
-            axis_type: PolarAxisType::Radial,
-            title: None,
-            grid: false,
-            tick_count: None,
-            format_number: None,
-            grid_levels: None,
-            start_angle: 0.0,
-            direction: PolarDirection::Clockwise,
-        }
+impl crate::axis::AxisUpdate for PolarAxis {
+    fn update(self, other: Self) -> Self {
+        self.update(other)
     }
 }

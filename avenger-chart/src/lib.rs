@@ -1,3 +1,4 @@
+pub mod axis;
 pub mod cartesian;
 pub mod channel;
 pub mod coords;

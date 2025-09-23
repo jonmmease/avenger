@@ -74,18 +74,18 @@ impl CartesianGuide {
         // Create default axes for all position channels that have scales
         for (channel_name, _scale) in scales {
             if channel_name == "x" || channel_name == "y" {
-                let mut axis = CartesianAxis::new();
-
                 // Set default position based on channel
-                axis.position = Some(match channel_name.as_str() {
+                let position = match channel_name.as_str() {
                     "x" => AxisPosition::Bottom,
                     "y" => AxisPosition::Left,
                     _ => AxisPosition::Bottom,
-                });
+                };
+
+                let mut axis = CartesianAxis::new().position(position);
 
                 // Try to extract a title from the marks
                 if let Some(title) = extract_channel_title_from_marks(marks, channel_name) {
-                    axis.title = Some(title);
+                    axis = axis.title(title);
                 }
 
                 axes.insert(channel_name.clone(), axis);

@@ -77,7 +77,6 @@ impl<S: ScaleSpec> Scale<S> {
         }
     }
 
-
     /// Update this scale with properties from another scale
     /// Properties that are Set in `other` override properties in `self`
     pub fn update(mut self, other: Scale<Auto>) -> Self {
