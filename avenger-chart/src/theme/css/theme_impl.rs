@@ -17,6 +17,7 @@ impl CssTheme {
     }
 }
 
+#[typetag::serde]
 impl Theme for CssTheme {
     fn query(&self, context: &ThemeContext, property: &str) -> ThemeValue {
         self.query_css(context, property)

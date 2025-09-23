@@ -7,6 +7,7 @@ use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 use std::sync::Arc;
+use crate::theme::Theme;
 
 /// Geometry type for point-based coordinate systems (Cartesian, Polar, ZeroD)
 #[derive(Debug, Clone)]
@@ -78,7 +79,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         width_estimate: f32,
         height_estimate: f32,
-        theme: &dyn crate::theme::Theme,
+        theme: &dyn Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         guide
             .measure_overflow(scales, width_estimate, height_estimate, theme)

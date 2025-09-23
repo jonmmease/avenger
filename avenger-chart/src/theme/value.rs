@@ -1,7 +1,9 @@
 //! Theme value types and color utilities
 
+use serde::{Deserialize, Serialize};
+
 /// Value types that themes can return
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ThemeValue {
     /// String value (keywords, identifiers, font families, etc.)
     String(String),
@@ -41,7 +43,7 @@ pub enum ThemeValue {
 }
 
 /// RGBA color representation
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rgba {
     pub red: u8,
     pub green: u8,
@@ -50,7 +52,7 @@ pub struct Rgba {
 }
 
 /// Length units
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum LengthUnit {
     Px,
     Rem,

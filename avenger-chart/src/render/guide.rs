@@ -64,7 +64,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         let theme = self.plot.get_theme();
         self.plot
             .coord_system()
-            .measure_guide_overflow(guide, scales, width_estimate, height_estimate, &theme)
+            .measure_guide_overflow(guide, scales, width_estimate, height_estimate, theme.as_ref())
             .await
     }
 }

@@ -5,17 +5,23 @@ mod parser;
 mod selector_impl;
 mod theme_impl;
 mod value;
+
+use std::collections::HashMap;
 pub use selector_impl::ChartString;
 
 use crate::theme::{LengthUnit, Rgba, ThemeValue};
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 use selectors::matching::SelectorCaches;
 
 /// CSS-based theme with full selector support
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CssTheme {
+    #[serde(skip)]
     rules: Vec<CompiledRule>,
+    #[serde(skip)]
     variables: IndexMap<String, ThemeValue>,
+    #[serde(skip)]
     inherited_properties: std::collections::HashSet<&'static str>,
     base_font_size: f32,
 }
@@ -488,5 +494,54 @@ impl CssTheme {
             "spacing" => ThemeValue::Number(10.0),
             _ => ThemeValue::Initial,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::Theme;
+
+    #[test]
+    fn test_css_theme_serialization() {
+        // Create a CssTheme
+        let theme = CssTheme::light();
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&theme).unwrap();
+
+        // Deserialize back
+        let _deserialized: CssTheme = serde_json::from_str(&json).unwrap();
+
+        // Basic check - just ensure it doesn't panic
+        assert!(json.contains("base_font_size"));
+    }
+
+    #[test]
+    fn test_theme_trait_object_serialization() {
+        // Create a theme as a trait object
+        let theme: Box<dyn Theme> = Box::new(CssTheme::dark());
+
+        // Serialize the trait object
+        let json = serde_json::to_string(&theme).unwrap();
+        println!("Serialized JSON: {}", json);
+
+        // Deserialize back as trait object
+        let deserialized: Box<dyn Theme> = serde_json::from_str(&json).unwrap();
+
+        // Test that it works - note that deserialized CssTheme will have empty rules
+        // because those fields are marked with #[serde(skip)]
+        let context = crate::theme::ThemeContext {
+            element_type: "axis".to_string(),
+            subtype: None,
+            classes: vec![],
+            id: None,
+            parent: None,
+        };
+
+        let value = deserialized.query(&context, "stroke");
+        // The value will be None (not Initial) because get_initial_value returns None for stroke
+        // when there's no specific context match (axis domain would return a color)
+        assert_eq!(value, ThemeValue::None);
     }
 }

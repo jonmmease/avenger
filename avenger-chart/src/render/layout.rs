@@ -68,7 +68,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
             layout_spec,
             self.plot.get_title(),
             self.plot.get_subtitle(),
-            &self.plot.get_theme(),
+            self.plot.get_theme().as_ref(),
             &legend_measurements,
         )?;
 
