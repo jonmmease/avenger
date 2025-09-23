@@ -2,9 +2,9 @@ use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
 use crate::marks::{Mark, RadiusExpression};
-use crate::scales::ScaleRange;
+use crate::scales::{ScaleRange, ScaleSpec};
 use arrow::array::RecordBatch;
-use avenger_scales::scales::{ScaleImpl, ordinal::OrdinalScale, point::PointScale, pow::PowScale};
+use avenger_scales::scales::ScaleImpl;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
@@ -75,11 +75,13 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         &self,
         channel: &str,
         data_type: &DataType,
-    ) -> Option<Arc<dyn ScaleImpl>> {
+    ) -> Option<Box<dyn ScaleSpec>> {
+        use crate::scales::spec::{Ordinal, Point, Sqrt};
+
         match (channel, data_type) {
             // Symbol marks use point scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(PointScale))
+                Some(Box::new(Point::default()))
             }
             // Size uses sqrt scale for numeric data (better for area perception)
             (
@@ -95,21 +97,21 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
                 | DataType::UInt32
                 | DataType::UInt64,
             ) => {
-                // Use PowScale as a Sqrt scale (it will be configured with exponent 0.5 later)
-                Some(Arc::new(PowScale))
+                // Use Sqrt scale for better area perception
+                Some(Box::new(Sqrt::default()))
             }
             // Size uses ordinal for categorical data
             ("size", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(OrdinalScale))
+                Some(Box::new(Ordinal::default()))
             }
             // Color and shape channels use ordinal scales for categorical data
             (
                 "fill" | "stroke" | "color" | "shape",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(Arc::new(OrdinalScale)),
+            ) => Some(Box::new(Ordinal::default())),
             // Stroke width uses ordinal scale only for categorical data
             ("stroke_width", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(OrdinalScale))
+                Some(Box::new(Ordinal::default()))
             }
             // Fall back to data type-based inference for other channels
             _ => crate::marks::default_scale_for_data_type(data_type),

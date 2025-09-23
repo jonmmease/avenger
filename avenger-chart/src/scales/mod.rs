@@ -8,7 +8,7 @@ mod domain;
 mod domain_inference;
 mod range;
 mod scale;
-mod spec;
+pub mod spec;
 
 // Re-export the main types
 pub use defaults::{

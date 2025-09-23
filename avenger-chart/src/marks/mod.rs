@@ -18,7 +18,7 @@ use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend::LegendRenderer;
 use crate::render::RenderContext;
-use crate::scales::ScaleRange;
+use crate::scales::{ScaleRange, ScaleSpec};
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::datatypes::DataType;
@@ -206,7 +206,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         &self,
         _channel: &str,
         data_type: &DataType,
-    ) -> Option<Arc<dyn ScaleImpl>> {
+    ) -> Option<Box<dyn ScaleSpec>> {
         default_scale_for_data_type(data_type)
     }
 

@@ -355,7 +355,7 @@ impl ChannelValue {
     }
 
     /// Configure the scale with explicit type
-    pub fn scale_with<S: ScaleTypeSpec>(
+    pub fn scale_with<S: ScaleTypeSpec + Default>(
         self,
         f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
     ) -> Self {

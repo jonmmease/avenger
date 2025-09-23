@@ -2,10 +2,10 @@
 
 use crate::error::AvengerChartError;
 use crate::render::RenderContext;
+use crate::scales::spec::ScaleSpec;
 use crate::scales::{Auto, Scale};
-use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
+use avenger_scales::scales::{DomainKind, RangeKind};
 use datafusion::arrow::datatypes::DataType;
-use std::sync::Arc;
 
 /// Channel characteristics for scale selection
 #[derive(Debug, Clone, Copy)]
@@ -64,13 +64,13 @@ pub fn get_channel_characteristics(channel: &str) -> ChannelCharacteristics {
 /// Create a default scale for a channel using theme and scale traits
 pub fn create_default_scale_for_channel(
     channel: &str,
-    scale_impl: Arc<dyn ScaleImpl>,
+    scale_spec: Box<dyn ScaleSpec>,
     context: &RenderContext,
 ) -> Result<Scale<Auto>, AvengerChartError> {
     let _characteristics = get_channel_characteristics(channel); // TODO: Use for validation
-    let range_kind = scale_impl.range_kind();
+    let range_kind = scale_spec.range_kind();
 
-    let mut scale = Scale::<Auto>::from_impl(scale_impl);
+    let mut scale = Scale::<Auto>::from_spec(scale_spec);
 
     // Use generic "mark" type for global scales
     // Individual marks will override with their specific type in default_channel_range

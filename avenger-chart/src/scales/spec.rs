@@ -5,131 +5,157 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Marker trait for scale types
-pub trait ScaleSpec: 'static {
+pub trait ScaleSpec: std::fmt::Debug + Send + Sync + 'static {
+    /// Clone this scale spec into a new boxed instance
+    fn clone_box(&self) -> Box<dyn ScaleSpec>;
+
     /// Create the scale implementation for this type
-    fn create_impl() -> Arc<dyn ScaleImpl>;
+    fn create_impl(&self) -> Arc<dyn ScaleImpl>;
 
     /// Get the name of this scale type
-    fn name() -> &'static str;
+    fn name(&self) -> &'static str;
 
     /// Get default options for this scale type
     /// Returns a map of option name to scalar value
-    fn default_options() -> HashMap<String, avenger_scales::scalar::Scalar> {
+    fn default_options(&self) -> HashMap<String, avenger_scales::scalar::Scalar> {
         HashMap::new()
     }
 
     /// Get the domain kind for this scale type
-    fn domain_kind() -> DomainKind {
-        Self::create_impl().domain_kind()
+    fn domain_kind(&self) -> DomainKind {
+        self.create_impl().domain_kind()
     }
 
     /// Get the range kind for this scale type
-    fn range_kind() -> RangeKind {
-        Self::create_impl().range_kind()
+    fn range_kind(&self) -> RangeKind {
+        self.create_impl().range_kind()
+    }
+}
+
+// Implement Clone for Box<dyn ScaleSpec>
+impl Clone for Box<dyn ScaleSpec> {
+    fn clone(&self) -> Self {
+        self.clone_box()
     }
 }
 
 // ===== Marker types for each scale =====
 
 /// Linear scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Linear;
 
 /// Logarithmic scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Log;
 
 /// Power scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Pow;
 
 /// Square root scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Sqrt;
 
 /// Symmetric log scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Symlog;
 
 /// Time scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Time;
 
 /// Band scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Band;
 
 /// Point scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Point;
 
 /// Ordinal scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Ordinal;
 
 /// Threshold scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Threshold;
 
 /// Quantile scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Quantile;
 
 /// Quantize scale marker type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Quantize;
 
 /// Auto scale marker type (for automatic type inference)
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Auto;
 
 // ===== ScaleSpec implementations =====
 
 impl ScaleSpec for Linear {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::linear::LinearScale;
         Arc::new(LinearScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "linear"
     }
 }
 
 impl ScaleSpec for Log {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::log::LogScale;
         Arc::new(LogScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "log"
     }
 }
 
 impl ScaleSpec for Pow {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::pow::PowScale;
         Arc::new(PowScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "pow"
     }
 }
 
 impl ScaleSpec for Sqrt {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         // Sqrt is not a separate scale in avenger_scales, use Pow with exponent 0.5
         use avenger_scales::scales::pow::PowScale;
         Arc::new(PowScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "sqrt"
     }
 
-    fn default_options() -> HashMap<String, avenger_scales::scalar::Scalar> {
+    fn default_options(&self) -> HashMap<String, avenger_scales::scalar::Scalar> {
         let mut options = HashMap::new();
         options.insert(
             "exponent".to_string(),
@@ -140,99 +166,135 @@ impl ScaleSpec for Sqrt {
 }
 
 impl ScaleSpec for Symlog {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::symlog::SymlogScale;
         Arc::new(SymlogScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "symlog"
     }
 }
 
 impl ScaleSpec for Time {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::time::TimeScale;
         Arc::new(TimeScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "time"
     }
 }
 
 impl ScaleSpec for Band {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::band::BandScale;
         Arc::new(BandScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "band"
     }
 }
 
 impl ScaleSpec for Point {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::point::PointScale;
         Arc::new(PointScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "point"
     }
 }
 
 impl ScaleSpec for Ordinal {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::ordinal::OrdinalScale;
         Arc::new(OrdinalScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "ordinal"
     }
 }
 
 impl ScaleSpec for Threshold {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::threshold::ThresholdScale;
         Arc::new(ThresholdScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "threshold"
     }
 }
 
 impl ScaleSpec for Quantile {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::quantile::QuantileScale;
         Arc::new(QuantileScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "quantile"
     }
 }
 
 impl ScaleSpec for Quantize {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         use avenger_scales::scales::quantize::QuantizeScale;
         Arc::new(QuantizeScale)
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "quantize"
     }
 }
 
 impl ScaleSpec for Auto {
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         unimplemented!("Auto scale type does not have a direct implementation");
     }
 
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "auto"
     }
 }
@@ -244,7 +306,8 @@ mod tests {
     #[test]
     fn test_sqrt_scale_default_options() {
         // Test that Sqrt scale has exponent = 0.5 as default
-        let options = Sqrt::default_options();
+        let sqrt = Sqrt::default();
+        let options = sqrt.default_options();
 
         assert!(
             options.contains_key("exponent"),
@@ -262,10 +325,39 @@ mod tests {
     #[test]
     fn test_linear_scale_default_options() {
         // Test that Linear scale has no default options
-        let options = Linear::default_options();
+        let linear = Linear::default();
+        let options = linear.default_options();
         assert!(
             options.is_empty(),
             "Linear scale should have no default options"
         );
+    }
+
+    #[test]
+    fn test_scale_spec_clone_box() {
+        // Test that we can clone a Box<dyn ScaleSpec>
+        let spec: Box<dyn ScaleSpec> = Box::new(Band::default());
+        let cloned = spec.clone();
+
+        // Both should have the same name
+        assert_eq!(spec.name(), cloned.name());
+        assert_eq!(spec.name(), "band");
+    }
+
+    #[test]
+    fn test_scale_spec_clone_different_types() {
+        // Test cloning different scale types
+        let specs: Vec<Box<dyn ScaleSpec>> = vec![
+            Box::new(Linear::default()),
+            Box::new(Log::default()),
+            Box::new(Sqrt::default()),
+            Box::new(Band::default()),
+            Box::new(Ordinal::default()),
+        ];
+
+        for spec in &specs {
+            let cloned = spec.clone();
+            assert_eq!(spec.name(), cloned.name());
+        }
     }
 }
