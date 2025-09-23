@@ -3,7 +3,7 @@
 use crate::channel::value::strip_trailing_numbers;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::CoordinateGuide;
+use crate::guide::{CoordinateGuide, GuideUpdate};
 use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
 use crate::marks::Mark;
@@ -46,8 +46,8 @@ pub struct Plot<C: CoordinateSystem> {
     /// Theme for visual styling
     pub(crate) theme: Option<Arc<dyn Theme>>,
 
-    /// Guide configuration function
-    pub(crate) configure_guide_fn: Option<Arc<dyn Fn(C::Guide) -> C::Guide + Send + Sync>>,
+    /// Guide configuration
+    pub(crate) guide_config: Option<C::Guide>,
 }
 
 impl<C: CoordinateSystem> Plot<C> {
@@ -64,7 +64,7 @@ impl<C: CoordinateSystem> Plot<C> {
             title: None,
             subtitle: None,
             theme: None,
-            configure_guide_fn: None,
+            guide_config: None,
         }
     }
 }
@@ -243,11 +243,11 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Configure the guide (coordinate system visual elements like axes and background)
-    pub fn configure_guide<F>(mut self, f: F) -> Self
-    where
-        F: Fn(C::Guide) -> C::Guide + Send + Sync + 'static,
-    {
-        self.configure_guide_fn = Some(Arc::new(f));
+    pub fn configure_guide(mut self, guide: C::Guide) -> Self {
+        self.guide_config = match self.guide_config {
+            Some(existing) => Some(existing.update(guide)),
+            None => Some(guide),
+        };
         self
     }
 

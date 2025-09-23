@@ -1,7 +1,7 @@
 //! Empty guide implementation for coordinate systems without visual guides
 
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -12,6 +12,13 @@ use std::collections::HashMap;
 pub struct NoGuide {
     // Store an empty map directly in the struct
     axes: HashMap<String, ()>,
+}
+
+impl GuideUpdate for NoGuide {
+    fn update(self, _other: Self) -> Self {
+        // NoGuide has no state to update
+        self
+    }
 }
 
 #[async_trait::async_trait]

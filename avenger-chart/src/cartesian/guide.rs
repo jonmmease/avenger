@@ -3,7 +3,7 @@
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::marks::Mark;
 use crate::theme::Theme;
@@ -99,6 +99,39 @@ impl CartesianGuide {
 impl Default for CartesianGuide {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl CartesianGuide {
+    /// Update this guide with values from another guide
+    pub fn update(mut self, other: Self) -> Self {
+        // Merge axes - other's axes take precedence
+        for (channel, axis) in other.axes {
+            match self.axes.get(&channel) {
+                Some(existing) => {
+                    // Update existing axis with new configuration
+                    let updated = existing.clone().update(axis);
+                    self.axes.insert(channel, updated);
+                }
+                None => {
+                    // Add new axis
+                    self.axes.insert(channel, axis);
+                }
+            }
+        }
+
+        // Update options - other's options take precedence when set
+        if other.options.plot_background_color.is_some() {
+            self.options.plot_background_color = other.options.plot_background_color;
+        }
+
+        self
+    }
+}
+
+impl GuideUpdate for CartesianGuide {
+    fn update(self, other: Self) -> Self {
+        self.update(other)
     }
 }
 
