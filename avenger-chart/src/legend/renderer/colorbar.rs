@@ -6,9 +6,10 @@ use crate::legend::Legend;
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation};
 use avenger_scenegraph::marks::group::SceneGroup;
+use serde::{Deserialize, Serialize};
 
 /// Colorbar legend renderer for continuous color scales
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct ColorbarRenderer;
 
 impl ColorbarRenderer {
@@ -17,6 +18,7 @@ impl ColorbarRenderer {
     }
 }
 
+#[typetag::serde]
 impl LegendRenderer for ColorbarRenderer {
     fn name(&self) -> &'static str {
         "ColorbarRenderer"

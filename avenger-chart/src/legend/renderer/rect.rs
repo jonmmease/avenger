@@ -10,12 +10,14 @@ use avenger_common::types::{ColorOrGradient, SymbolShape};
 use avenger_common::value::ScalarOrArray;
 use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
 use avenger_scenegraph::marks::group::SceneGroup;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Rectangle legend renderer for rect/bar marks
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct RectLegendRenderer {
     /// Map of mark encodings from the plot
+    #[serde(skip)]
     mark_encodings: HashMap<String, ChannelValue>,
 }
 
@@ -25,6 +27,7 @@ impl RectLegendRenderer {
     }
 }
 
+#[typetag::serde]
 impl LegendRenderer for RectLegendRenderer {
     fn name(&self) -> &'static str {
         "RectLegendRenderer"
