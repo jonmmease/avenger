@@ -4,7 +4,7 @@ use crate::impl_mark_trait_common;
 use crate::marks::{Mark, RadiusExpression};
 use arrow::array::{AsArray, RecordBatch};
 use avenger_common::value::ScalarOrArray;
-use avenger_scales::scales::{ScaleImpl, ordinal::OrdinalScale, point::PointScale};
+use avenger_scales::scales::ScaleImpl;
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::datatypes::DataType;
@@ -426,23 +426,25 @@ impl Mark<Cartesian> for Line<Cartesian> {
         &self,
         channel: &str,
         data_type: &DataType,
-    ) -> Option<Arc<dyn ScaleImpl>> {
+    ) -> Option<Box<dyn crate::scales::spec::ScaleSpec>> {
+        use crate::scales::spec::{Ordinal, Point};
+
         match (channel, data_type) {
             // Line marks use point scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(PointScale))
+                Some(Box::new(Point::default()))
             }
             // Stroke color uses ordinal scales for categorical data
             ("stroke", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(OrdinalScale))
+                Some(Box::new(Ordinal::default()))
             }
             // Stroke dash uses ordinal for categorical data
             ("stroke_dash", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(OrdinalScale))
+                Some(Box::new(Ordinal::default()))
             }
             // Stroke width uses ordinal scale only for categorical data
             ("stroke_width", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(OrdinalScale))
+                Some(Box::new(Ordinal::default()))
             }
             // Fall back to data type-based inference for other channels
             _ => crate::marks::default_scale_for_data_type(data_type),

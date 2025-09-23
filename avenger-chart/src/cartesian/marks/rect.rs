@@ -10,8 +10,8 @@ use crate::error::AvengerChartError;
 pub use crate::marks::rect::Rect;
 use crate::marks::util::{coerce_color_channel_with_mark, coerce_numeric_channel_with_mark};
 use crate::render::RenderContext;
-use crate::scales::ScaleRange;
-use avenger_scales::scales::{ScaleImpl, band::BandScale, ordinal::OrdinalScale};
+use crate::scales::{ScaleRange, ScaleSpec};
+use avenger_scales::scales::ScaleImpl;
 use datafusion::arrow::datatypes::DataType;
 use datafusion_common::ScalarValue;
 use std::sync::Arc;
@@ -114,20 +114,22 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         &self,
         channel: &str,
         data_type: &DataType,
-    ) -> Option<Arc<dyn ScaleImpl>> {
+    ) -> Option<Box<dyn ScaleSpec>> {
+        use crate::scales::spec::{Band, Ordinal};
+
         match (channel, data_type) {
             // Rect marks use band scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(BandScale))
+                Some(Box::new(Band::default()))
             }
             // Color channels use ordinal scales for categorical data
             (
                 "fill" | "stroke" | "color",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(Arc::new(OrdinalScale)),
+            ) => Some(Box::new(Ordinal::default())),
             // Stroke width uses ordinal scale only for categorical data
             ("stroke_width", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(OrdinalScale))
+                Some(Box::new(Ordinal::default()))
             }
             // Fall back to data type-based inference for other channels
             _ => crate::marks::default_scale_for_data_type(data_type),

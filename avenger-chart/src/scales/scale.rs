@@ -34,9 +34,9 @@ fn infer_default_domain(scale_impl: &Arc<dyn ScaleImpl>) -> ScaleDomain {
 }
 
 /// Type-safe scale with compile-time method resolution
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Scale<S: ScaleSpec = Auto> {
-    pub(crate) scale_impl: Maybe<Arc<dyn ScaleImpl>>,
+    pub(crate) scale_spec: Maybe<Box<dyn ScaleSpec>>,
     pub(crate) domain: Maybe<ScaleDomain>,
     pub(crate) range: Maybe<ScaleRange>,
     options: HashMap<String, Expr>,
@@ -44,29 +44,53 @@ pub struct Scale<S: ScaleSpec = Auto> {
 }
 
 // ===== Generic methods available on ALL scales =====
-impl<S: ScaleSpec> Default for Scale<S> {
+impl<S: ScaleSpec + Default> Default for Scale<S> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<S: ScaleSpec> Clone for Scale<S> {
+    fn clone(&self) -> Self {
+        // Clone the scale_spec using clone_box
+        let scale_spec = self.scale_spec.as_option().map(|spec| spec.clone_box());
+
+        Scale {
+            scale_spec: match scale_spec {
+                Some(spec) => Maybe::Set(spec),
+                None => Maybe::Unset,
+            },
+            domain: self.domain.clone(),
+            range: self.range.clone(),
+            options: self.options.clone(),
+            _phantom: PhantomData,
+        }
     }
 }
 
 impl<S: ScaleSpec> Scale<S> {
     /// Create a new scale for user configuration (all fields unset except typed scale_impl)
     /// This is called when users configure scales via closures
-    pub fn new() -> Self {
+    pub fn new() -> Self
+    where
+        S: Default,
+    {
+        // Create a default instance of the scale spec
+        let spec = S::default();
+
         // Get default options for the scale type
         // These are necessary for certain scales to function correctly (e.g., Sqrt needs exponent=0.5)
         let mut options = HashMap::new();
-        for (key, value) in S::default_options() {
+        for (key, value) in spec.default_options() {
             let scalar_value = scalar_to_scalar_value(&value);
             options.insert(key, lit(scalar_value));
         }
 
         Self {
-            // For typed scales (e.g., Scale<Linear>), set the implementation
+            // For typed scales (e.g., Scale<Linear>), set the spec
             // For Scale<Auto>, leave unset to be determined later
-            scale_impl: if S::name() != "auto" {
-                Maybe::Set(S::create_impl())
+            scale_spec: if spec.name() != "auto" {
+                Maybe::Set(Box::new(spec) as Box<dyn ScaleSpec>)
             } else {
                 Maybe::Unset
             },
@@ -81,11 +105,11 @@ impl<S: ScaleSpec> Scale<S> {
     /// Properties that are Set in `other` override properties in `self`
     pub fn update(mut self, other: Scale<Auto>) -> Self {
         // Check if scale type is changing
-        let scale_type_changed = other.scale_impl.is_set();
+        let scale_type_changed = other.scale_spec.is_set();
 
-        // Update scale_impl only if explicitly set in other
+        // Update scale_spec only if explicitly set in other
         if scale_type_changed {
-            self.scale_impl = other.scale_impl;
+            self.scale_spec = other.scale_spec;
         }
 
         // Update domain if set
@@ -106,7 +130,8 @@ impl<S: ScaleSpec> Scale<S> {
 
         // If scale type changed, filter options to only keep supported ones
         if scale_type_changed {
-            if let Some(scale_impl) = self.scale_impl.as_option() {
+            if let Some(scale_spec) = self.scale_spec.as_option() {
+                let scale_impl = scale_spec.create_impl();
                 // Get supported options for the new scale type
                 let option_definitions = scale_impl.option_definitions();
                 let supported_options: std::collections::HashSet<&str> = option_definitions
@@ -222,14 +247,8 @@ impl<S: ScaleSpec> Scale<S> {
         self
     }
 
-    /// Change the scale type by providing a new implementation
-    pub fn scale_type(mut self, scale_impl: impl ScaleImpl + 'static) -> Self {
-        self.scale_impl = Maybe::Set(Arc::new(scale_impl));
-        self
-    }
-
     pub fn get_scale_type(&self) -> Option<&str> {
-        self.scale_impl.as_option().map(|impl_| impl_.scale_type())
+        self.scale_spec.as_option().map(|spec| spec.name())
     }
 
     /// Internal method for setting options
@@ -243,15 +262,17 @@ impl<S: ScaleSpec> Scale<S> {
     }
 
     /// Convert to a different scale type
-    pub fn into_type<T: ScaleSpec>(self) -> Scale<T> {
-        // For Auto, preserve the existing scale implementation
-        // For other types, create the appropriate implementation
-        let scale_impl = if T::name() == "auto" {
-            // Preserve the existing scale implementation for Auto
-            self.scale_impl
+    pub fn into_type<T: ScaleSpec + Default>(self) -> Scale<T> {
+        let spec = T::default();
+
+        // For Auto, preserve the existing scale spec
+        // For other types, create the appropriate spec
+        let scale_spec = if spec.name() == "auto" {
+            // Preserve the existing scale spec for Auto
+            self.scale_spec
         } else {
-            // Set new implementation for specific types
-            Maybe::Set(T::create_impl())
+            // Set new spec for specific types
+            Maybe::Set(Box::new(T::default()) as Box<dyn ScaleSpec>)
         };
 
         // When changing scale types, we need to add the new type's default options
@@ -259,8 +280,8 @@ impl<S: ScaleSpec> Scale<S> {
         let mut options = self.options;
 
         // Add scale type defaults for options not already set
-        if T::name() != "auto" {
-            for (key, value) in T::default_options() {
+        if spec.name() != "auto" {
+            for (key, value) in spec.default_options() {
                 // Only add if not already present
                 if !options.contains_key(&key) {
                     let scalar_value = scalar_to_scalar_value(&value);
@@ -270,7 +291,7 @@ impl<S: ScaleSpec> Scale<S> {
         }
 
         Scale {
-            scale_impl,
+            scale_spec,
             domain: self.domain,
             range: self.range,
             options,
@@ -281,7 +302,7 @@ impl<S: ScaleSpec> Scale<S> {
     /// Convert to Auto type for storage
     pub fn into_auto(self) -> Scale<Auto> {
         Scale {
-            scale_impl: self.scale_impl,
+            scale_spec: self.scale_spec,
             domain: self.domain,
             range: self.range,
             options: self.options,
@@ -291,14 +312,14 @@ impl<S: ScaleSpec> Scale<S> {
 
     // ===== Getters =====
 
-    pub fn get_scale_impl(&self) -> Option<&Arc<dyn ScaleImpl>> {
-        self.scale_impl.as_option()
+    pub fn get_scale_impl(&self) -> Option<Arc<dyn ScaleImpl>> {
+        self.scale_spec.as_option().map(|spec| spec.create_impl())
     }
 
     pub fn get_scale_impl_or_err(&self) -> Result<Arc<dyn ScaleImpl>, AvengerChartError> {
-        self.scale_impl.as_option().cloned().ok_or_else(|| {
+        self.get_scale_impl().ok_or_else(|| {
             AvengerChartError::InternalError(
-                "Scale implementation not set - this is a bug".to_string(),
+                "Scale specification not set - this is a bug".to_string(),
             )
         })
     }
@@ -317,25 +338,25 @@ impl<S: ScaleSpec> Scale<S> {
 
     /// Get the domain kind for this scale instance
     pub fn domain_kind(&self) -> Option<DomainKind> {
-        self.scale_impl.as_option().map(|impl_| impl_.domain_kind())
+        self.scale_spec.as_option().map(|spec| spec.domain_kind())
     }
 
     /// Get the range kind for this scale instance
     pub fn range_kind(&self) -> Option<RangeKind> {
-        self.scale_impl.as_option().map(|impl_| impl_.range_kind())
+        self.scale_spec.as_option().map(|spec| spec.range_kind())
     }
 
     /// Check if this scale has bands (true for band scales, false for point scales)
     pub fn has_bands(&self) -> bool {
-        self.scale_impl
+        self.scale_spec
             .as_option()
-            .map(|impl_| impl_.scale_type() == "band")
+            .map(|spec| spec.name() == "band")
             .unwrap_or(false)
     }
 
     /// Get the scale type name
     pub fn scale_type_name(&self) -> Option<&str> {
-        self.scale_impl.as_option().map(|impl_| impl_.scale_type())
+        self.scale_spec.as_option().map(|spec| spec.name())
     }
 
     // ===== Domain inference and configuration =====
@@ -800,10 +821,10 @@ impl Scale<Auto> {
         self._option(key, value)
     }
 
-    /// Create a scale from a dynamic ScaleImpl (used when type is not known at compile time)
-    pub fn from_impl(scale_impl: Arc<dyn ScaleImpl>) -> Self {
+    /// Create a scale from a dynamic ScaleSpec (used when type is not known at compile time)
+    pub fn from_spec(scale_spec: Box<dyn ScaleSpec>) -> Self {
         Self {
-            scale_impl: Maybe::Set(scale_impl),
+            scale_spec: Maybe::Set(scale_spec),
             domain: Maybe::Unset,
             range: Maybe::Unset,
             options: HashMap::new(), // Start empty, not pre-populated with defaults

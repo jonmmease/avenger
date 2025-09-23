@@ -374,19 +374,18 @@ pub fn is_continuous_scale(scale_impl: &dyn avenger_scales::scales::ScaleImpl) -
 /// to provide fallback behavior for unhandled channels.
 pub fn default_scale_for_data_type(
     data_type: &datafusion::arrow::datatypes::DataType,
-) -> Option<std::sync::Arc<dyn avenger_scales::scales::ScaleImpl>> {
-    use avenger_scales::scales::{linear::LinearScale, ordinal::OrdinalScale, time::TimeScale};
+) -> Option<Box<dyn crate::scales::spec::ScaleSpec>> {
+    use crate::scales::spec::{Linear, Ordinal, Time};
     use datafusion::arrow::datatypes::DataType;
-    use std::sync::Arc;
 
     match data_type {
         // Categorical data uses ordinal scale
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean => {
-            Some(Arc::new(OrdinalScale))
+            Some(Box::new(Ordinal::default()))
         }
         // Temporal data uses time scale
         DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => {
-            Some(Arc::new(TimeScale))
+            Some(Box::new(Time::default()))
         }
         // Numeric data defaults to linear
         DataType::Float32
@@ -398,7 +397,7 @@ pub fn default_scale_for_data_type(
         | DataType::UInt8
         | DataType::UInt16
         | DataType::UInt32
-        | DataType::UInt64 => Some(Arc::new(LinearScale)),
+        | DataType::UInt64 => Some(Box::new(Linear::default())),
         // Default to None for unknown types
         _ => None,
     }

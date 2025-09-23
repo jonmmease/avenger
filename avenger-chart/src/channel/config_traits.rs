@@ -76,7 +76,7 @@ pub trait ChannelConfig: Sized {
     }
 
     /// Configure the scale with explicit type
-    fn scale_with<S: ScaleSpec>(
+    fn scale_with<S: ScaleSpec + Default>(
         self,
         f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
     ) -> Self {

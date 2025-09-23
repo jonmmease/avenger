@@ -185,7 +185,7 @@ impl<C: CoordinateSystem> Plot<C> {
         channel: &str,
     ) -> Result<Scale, AvengerChartError> {
         // Try to infer the data type and use mark-based scale preferences
-        let mut scale_impl = None;
+        let mut scale_spec = None;
         let mut data_type = None;
         let mut found_mark = None;
 
@@ -219,7 +219,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     let schema = df.schema();
                     if let Some(dt) = channel_value.get_data_type(schema) {
                         data_type = Some(dt.clone());
-                        scale_impl = mark.preferred_scale_type(channel, &dt);
+                        scale_spec = mark.preferred_scale_type(channel, &dt);
                         found_mark = Some(mark);
                         break;
                     }
@@ -227,9 +227,9 @@ impl<C: CoordinateSystem> Plot<C> {
             }
         }
 
-        let scale_impl = scale_impl.ok_or_else(|| {
+        let scale_spec = scale_spec.ok_or_else(|| {
             AvengerChartError::InternalError(format!(
-                "Failed to infer scale implementation for channel '{}'",
+                "Failed to infer scale specification for channel '{}'",
                 channel
             ))
         })?;
@@ -240,12 +240,20 @@ impl<C: CoordinateSystem> Plot<C> {
         let context = RenderContext::new(theme, 0.0, 0.0);
 
         // Create scale with theme-based defaults
-        let mut scale = create_default_scale_for_channel(channel, scale_impl.clone(), &context)?;
+        let mut scale = create_default_scale_for_channel(channel, scale_spec, &context)?;
 
         // Apply coordinate system and mark-specific scale options
         // These override theme defaults
         if let (Some(dt), Some(mark)) = (&data_type, found_mark) {
             let mut default_options = HashMap::new();
+
+            // Create ScaleImpl from ScaleSpec for methods that need it
+            let scale_impl = scale.get_scale_impl().ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Failed to create scale implementation for channel '{}'",
+                    channel
+                ))
+            })?;
 
             // First get coordinate system defaults (for all channels, not just position)
             // Pass the scale implementation directly

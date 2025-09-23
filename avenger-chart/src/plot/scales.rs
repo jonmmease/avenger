@@ -21,7 +21,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Configure a scale with explicit scale type
-    pub fn scale_with<S: ScaleTypeSpec>(
+    pub fn scale_with<S: ScaleTypeSpec + Default>(
         mut self,
         channel: &str,
         f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
