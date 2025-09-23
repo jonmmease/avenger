@@ -4,7 +4,6 @@ use crate::channel::ConditionalValue;
 use crate::channel::resolution::resolve_all_channel_refs;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::plot::{Plot, ScaleSpec};
 use crate::render::RenderContext;
@@ -70,18 +69,16 @@ impl<C: CoordinateSystem> Plot<C> {
                     Entry::Occupied(mut occupied) => {
                         let existing_spec = occupied.get().clone();
                         match existing_spec {
-                            ScaleSpec::Local(existing_scale_config) => {
-                                // Compose the two scale configuration functions
+                            ScaleSpec::Local(existing_scale) => {
+                                // Compose the two scale configurations using update()
                                 // Apply existing config first, then the new config
-                                occupied.insert(ScaleSpec::Local(Arc::new(move |scale| {
-                                    let scale_with_existing = existing_scale_config(scale);
-                                    config(scale_with_existing)
-                                })));
+                                let updated_scale = existing_scale.update(config);
+                                occupied.insert(ScaleSpec::Local(updated_scale));
                             }
                         }
                     }
                     Entry::Vacant(vacant) => {
-                        vacant.insert(ScaleSpec::Local(config.clone()));
+                        vacant.insert(ScaleSpec::Local(config));
                     }
                 }
             }
@@ -247,8 +244,18 @@ impl<C: CoordinateSystem> Plot<C> {
             // Mark preferences override coordinate system defaults
             default_options.extend(mark_options);
 
+            // Get the supported options for this scale type
+            let option_definitions = scale_impl.option_definitions();
+            let supported_options: std::collections::HashSet<&str> = option_definitions
+                .iter()
+                .map(|def| def.name.as_str())
+                .collect();
+
+            // Only apply options that are supported by this scale
             for (key, value) in default_options {
-                scale = scale.option(&key, value);
+                if supported_options.contains(key.as_str()) {
+                    scale = scale.option(&key, value);
+                }
             }
         }
 

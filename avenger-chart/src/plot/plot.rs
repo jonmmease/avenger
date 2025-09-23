@@ -129,8 +129,9 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         match self.scale_specs.get(base_name) {
-            Some(ScaleSpec::Local(f)) => {
-                let user_scale = f(base_scale);
+            Some(ScaleSpec::Local(scale_changes)) => {
+                // Apply the plot-level scale configuration using update()
+                let user_scale = base_scale.update(scale_changes.clone());
                 Ok(user_scale)
             }
             None => Ok(base_scale),
