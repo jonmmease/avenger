@@ -24,7 +24,9 @@ palette = { workspace = true }
 thiserror = { workspace = true }
 image = { workspace = true }
 indexmap = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+typetag = "0.2"
 taffy = "0.8.3"
 tracing = { workspace = true }
 strsim = "0.11"

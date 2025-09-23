@@ -1,10 +1,12 @@
 //! Scale type specifications for compile-time type safety
 
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Marker trait for scale types
+#[typetag::serde(tag = "type")]
 pub trait ScaleSpec: std::fmt::Debug + Send + Sync + 'static {
     /// Clone this scale spec into a new boxed instance
     fn clone_box(&self) -> Box<dyn ScaleSpec>;
@@ -42,59 +44,60 @@ impl Clone for Box<dyn ScaleSpec> {
 // ===== Marker types for each scale =====
 
 /// Linear scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Linear;
 
 /// Logarithmic scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Log;
 
 /// Power scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Pow;
 
 /// Square root scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Sqrt;
 
 /// Symmetric log scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Symlog;
 
 /// Time scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Time;
 
 /// Band scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Band;
 
 /// Point scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Point;
 
 /// Ordinal scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Ordinal;
 
 /// Threshold scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Threshold;
 
 /// Quantile scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Quantile;
 
 /// Quantize scale marker type
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Quantize;
 
 /// Auto scale marker type (for automatic type inference)
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Auto;
 
 // ===== ScaleSpec implementations =====
 
+#[typetag::serde]
 impl ScaleSpec for Linear {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -110,6 +113,7 @@ impl ScaleSpec for Linear {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Log {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -125,6 +129,7 @@ impl ScaleSpec for Log {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Pow {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -140,6 +145,7 @@ impl ScaleSpec for Pow {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Sqrt {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -165,6 +171,7 @@ impl ScaleSpec for Sqrt {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Symlog {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -180,6 +187,7 @@ impl ScaleSpec for Symlog {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Time {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -195,6 +203,7 @@ impl ScaleSpec for Time {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Band {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -210,6 +219,7 @@ impl ScaleSpec for Band {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Point {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -225,6 +235,7 @@ impl ScaleSpec for Point {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Ordinal {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -240,6 +251,7 @@ impl ScaleSpec for Ordinal {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Threshold {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -255,6 +267,7 @@ impl ScaleSpec for Threshold {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Quantile {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -270,6 +283,7 @@ impl ScaleSpec for Quantile {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Quantize {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
@@ -285,6 +299,7 @@ impl ScaleSpec for Quantize {
     }
 }
 
+#[typetag::serde]
 impl ScaleSpec for Auto {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(self.clone())
