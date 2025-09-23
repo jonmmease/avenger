@@ -54,6 +54,6 @@ fn main() {
 
     // All scales can report their type
     for scale in &scales {
-        println!("Scale type: {}", scale.get_scale_type());
+        println!("Scale type: {:?}", scale.get_scale_type());
     }
 }

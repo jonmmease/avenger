@@ -259,10 +259,17 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         let mut scale = scale;
 
         // Step 1: Process domain with radius if applicable
-        if matches!(
-            &scale.domain.default_domain,
-            crate::scales::ScaleDefaultDomain::DomainExprs(_)
-        ) {
+        if scale
+            .domain
+            .as_ref()
+            .map(|d| {
+                matches!(
+                    &d.default_domain,
+                    crate::scales::ScaleDefaultDomain::DomainExprs(_)
+                )
+            })
+            .unwrap_or(false)
+        {
             // Only use radius-aware gathering for positional scales that support it
             if let Some(configured_non_positional) = configured_non_positional {
                 // Check if this is a positional channel (including interval variants)
@@ -273,7 +280,12 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                     .iter()
                     .any(|&ch| name == ch || name == format!("{}2", ch));
 
-                if scale.get_scale_impl().supports_radius_expansion() && is_positional {
+                if scale
+                    .get_scale_impl()
+                    .map(|impl_| impl_.supports_radius_expansion())
+                    .unwrap_or(false)
+                    && is_positional
+                {
                     // Use the method that gathers radius information
                     let data_expressions_with_radius =
                         self.plot.gather_scale_domain_expressions_with_radius(
@@ -330,10 +342,17 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         }
 
         // Step 3: Infer domain from data if needed
-        if matches!(
-            &scale.domain.default_domain,
-            crate::scales::ScaleDefaultDomain::DomainExprs(_)
-        ) {
+        if scale
+            .domain
+            .as_ref()
+            .map(|d| {
+                matches!(
+                    &d.default_domain,
+                    crate::scales::ScaleDefaultDomain::DomainExprs(_)
+                )
+            })
+            .unwrap_or(false)
+        {
             // Infer domain from data
             scale = scale
                 .infer_domain_from_data(context.plot_width, context.plot_height)
@@ -356,9 +375,9 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         // Check if scale already has a user-specified range
         // The default range is [0, 1], so check if it's been customized from that
         let has_user_range = match scale.get_range() {
-            crate::scales::ScaleRange::Color(_) => true, // Custom color range
-            crate::scales::ScaleRange::Discrete(_) => true, // Custom discrete values
-            crate::scales::ScaleRange::Numeric(start, end) => {
+            Some(crate::scales::ScaleRange::Color(_)) => true, // Custom color range
+            Some(crate::scales::ScaleRange::Discrete(_)) => true, // Custom discrete values
+            Some(crate::scales::ScaleRange::Numeric(start, end)) => {
                 // Check if it's not the default [0, 1] range
                 use datafusion::logical_expr::Expr;
                 use datafusion_common::ScalarValue;
@@ -375,6 +394,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                 };
                 !is_default
             }
+            None => false, // No range set, use default
         };
 
         if !is_position && !has_user_range {
@@ -404,17 +424,21 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
 
                     if let Some(dt) = data_type {
                         let theme = self.plot.get_theme();
-                        // Convert domain to ResolvedDomain
-                        let resolved_domain = scale.get_domain().to_resolved()?;
-                        if let Some(mark_range) = mark.default_channel_range(
-                            name,
-                            scale.scale_impl.as_ref(),
-                            &resolved_domain,
-                            &dt,
-                            theme.as_ref(),
-                        ) {
-                            scale = scale.range(mark_range);
-                            break;
+                        // Convert domain to ResolvedDomain if available
+                        if let (Some(scale_impl), Some(domain)) =
+                            (scale.get_scale_impl(), scale.get_domain())
+                        {
+                            let resolved_domain = domain.to_resolved()?;
+                            if let Some(mark_range) = mark.default_channel_range(
+                                name,
+                                scale_impl.as_ref(),
+                                &resolved_domain,
+                                &dt,
+                                theme.as_ref(),
+                            ) {
+                                scale = scale.range(mark_range);
+                                break;
+                            }
                         }
                     }
                 }

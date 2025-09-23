@@ -1,7 +1,6 @@
 use crate::legend::Legend;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use datafusion::logical_expr::{Expr, lit};
-use std::sync::Arc;
 
 /// Helper to format floats nicely (avoid unnecessary decimals)
 fn format_float(f: f64) -> String {
@@ -85,9 +84,6 @@ fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
     }
 }
 
-/// Type alias for scale configuration function
-pub type ScaleConfig = Arc<dyn Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync>;
-
 /// Value for conditional encoding branches
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConditionalValue {
@@ -122,7 +118,7 @@ pub enum ChannelValue {
         /// Band parameter for band scales (0.0 = start of band, 1.0 = end of band)
         band: Option<f64>,
         /// Optional scale configuration
-        scale_config: Option<ScaleConfig>,
+        scale_config: Option<Scale<Auto>>,
         /// Optional legend configuration
         legend_config: Option<Legend>,
     },
@@ -135,7 +131,7 @@ pub enum ChannelValue {
         /// Default value when no conditions match
         otherwise: ConditionalValue,
         /// Optional scale configuration (applies to all Field branches)
-        scale_config: Option<ScaleConfig>,
+        scale_config: Option<Scale<Auto>>,
         /// Optional legend configuration (applies to all Field branches)
         legend_config: Option<Legend>,
     },
@@ -193,7 +189,7 @@ impl ChannelValue {
     }
 
     /// Get the scale configuration if present
-    pub fn get_scale_config(&self) -> Option<&ScaleConfig> {
+    pub fn get_scale_config(&self) -> Option<&Scale<Auto>> {
         match self {
             ChannelValue::Scaled { scale_config, .. }
             | ChannelValue::Conditional { scale_config, .. } => scale_config.as_ref(),
@@ -317,6 +313,9 @@ impl ChannelValue {
     where
         F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
+        // Create a Scale and apply the configuration
+        let scale_changes = f(Scale::new());
+
         match self {
             ChannelValue::Scaled {
                 expr,
@@ -328,7 +327,7 @@ impl ChannelValue {
                 expr,
                 scale_name,
                 band,
-                scale_config: Some(Arc::new(f)),
+                scale_config: Some(scale_changes),
                 legend_config,
             },
             ChannelValue::Value { expr } => {
@@ -337,7 +336,7 @@ impl ChannelValue {
                     expr,
                     scale_name: None,
                     band: None,
-                    scale_config: Some(Arc::new(f)),
+                    scale_config: Some(scale_changes),
                     legend_config: None,
                 }
             }
@@ -349,7 +348,7 @@ impl ChannelValue {
             } => ChannelValue::Conditional {
                 conditions,
                 otherwise,
-                scale_config: Some(Arc::new(f)),
+                scale_config: Some(scale_changes),
                 legend_config,
             },
         }

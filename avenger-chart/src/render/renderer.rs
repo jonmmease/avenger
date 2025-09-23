@@ -180,7 +180,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         layout: &LayoutSolution,
-        width: f32,
+        _width: f32,
         _height: f32,
     ) -> Result<
         (

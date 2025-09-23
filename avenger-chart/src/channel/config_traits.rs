@@ -3,11 +3,10 @@
 //! This module provides traits that reduce duplication across channel configs
 //! by implementing common behavior once and allowing configs to opt into capabilities.
 
-use crate::channel::{ChannelValue, ConditionalValue, ScaleConfig};
+use crate::channel::{ChannelValue, ConditionalValue};
 use crate::legend::{Legend, LegendBuilder};
 use crate::scales::{Auto, Scale, ScaleSpec};
 use datafusion::logical_expr::Expr;
-use std::sync::Arc;
 
 /// Base trait that all channel configs implement (includes scaling and conditionals)
 pub trait ChannelConfig: Sized {
@@ -69,8 +68,9 @@ pub trait ChannelConfig: Sized {
     where
         F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
-        let scale_config: ScaleConfig = Arc::new(f);
-        let new_value = apply_scale_config(self.get_value().clone(), scale_config);
+        // Create a Scale and apply the configuration
+        let scale_changes = f(Scale::new());
+        let new_value = apply_scale_config(self.get_value().clone(), scale_changes);
         self.set_value(new_value);
         self
     }
@@ -203,7 +203,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
 }
 
 /// Apply scale configuration to a ChannelValue
-fn apply_scale_config(value: ChannelValue, scale_config: ScaleConfig) -> ChannelValue {
+fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> ChannelValue {
     match value {
         ChannelValue::Scaled {
             expr,

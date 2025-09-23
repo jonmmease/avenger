@@ -3,7 +3,6 @@
 use crate::coords::CoordinateSystem;
 use crate::plot::Plot;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
-use std::sync::Arc;
 
 use super::specs::ScaleSpec;
 
@@ -14,8 +13,10 @@ impl<C: CoordinateSystem> Plot<C> {
     where
         F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
+        // Create a Scale and apply the configuration
+        let scale_changes = f(Scale::new());
         self.scale_specs
-            .insert(channel.to_string(), ScaleSpec::Local(Arc::new(f)));
+            .insert(channel.to_string(), ScaleSpec::Local(scale_changes));
         self
     }
 
@@ -25,13 +26,11 @@ impl<C: CoordinateSystem> Plot<C> {
         channel: &str,
         f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
     ) -> Self {
-        self.scale_specs.insert(
-            channel.to_string(),
-            ScaleSpec::Local(Arc::new(move |default_scale| {
-                let typed_scale = default_scale.into_type::<S>();
-                f(typed_scale).into_auto()
-            })),
-        );
+        // Create a typed scale and apply the configuration
+        let typed_scale = Scale::<S>::new();
+        let scale_changes = f(typed_scale).into_auto();
+        self.scale_specs
+            .insert(channel.to_string(), ScaleSpec::Local(scale_changes));
         self
     }
 }
