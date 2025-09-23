@@ -80,7 +80,7 @@ impl LegendRenderer for ColorbarRenderer {
         // When using Taffy layout, height is the allocated height
         // We should use this directly as the total colorbar height
         let colorbar_height = height;
-        let colorbar_width = config.gradient_thickness.unwrap_or(15.0) as f32;
+        let colorbar_width = config.gradient_thickness.clone().unwrap_or(15.0) as f32;
 
         let mut legend_config = ColorbarConfig {
             orientation: ColorbarOrientation::Right,
@@ -88,7 +88,7 @@ impl LegendRenderer for ColorbarRenderer {
             colorbar_width: Some(colorbar_width),
             colorbar_height: Some(colorbar_height),
             colorbar_margin: Some(0.0), // No margin - align exactly with axis
-            format_number: config.format_number.clone(),
+            format_number: config.format_number.clone().into_option(),
             background_fill: None,
             background_stroke: None,
             background_corner_radius: None,
@@ -106,7 +106,7 @@ impl LegendRenderer for ColorbarRenderer {
         };
 
         // Apply legend colors and typography from config
-        if let Some(ref title_color) = config.title_color {
+        if let Some(title_color) = config.title_color.as_option() {
             if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
                 crate::utils::parse_color_string_strict(title_color)
             {
@@ -114,7 +114,7 @@ impl LegendRenderer for ColorbarRenderer {
             }
         }
         // Use tick_color for colorbar axis labels (not label_color which is for discrete legends)
-        if let Some(ref tick_color) = config.tick_color {
+        if let Some(tick_color) = config.tick_color.as_option() {
             if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
                 crate::utils::parse_color_string_strict(tick_color)
             {
@@ -123,39 +123,41 @@ impl LegendRenderer for ColorbarRenderer {
         }
 
         // Set typography from legend config
-        if let Some(ref family) = config.title_font_family {
+        if let Some(family) = config.title_font_family.as_option() {
             legend_config.title_font_family = Some(family.clone());
         }
-        if let Some(size) = config.title_font_size {
-            legend_config.title_font_size = Some(size);
+        if let Some(size) = config.title_font_size.as_option() {
+            legend_config.title_font_size = Some(*size);
         }
-        if let Some(weight) = config.title_font_weight {
-            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        if let Some(weight) = config.title_font_weight.as_option() {
+            legend_config.title_font_weight =
+                Some(avenger_text::types::FontWeight::Number(*weight));
         }
         // Use tick typography for colorbar axis labels
-        if let Some(ref family) = config.tick_font_family {
+        if let Some(family) = config.tick_font_family.as_option() {
             legend_config.label_font_family = Some(family.clone());
         }
-        if let Some(size) = config.tick_font_size {
-            legend_config.label_font_size = Some(size);
+        if let Some(size) = config.tick_font_size.as_option() {
+            legend_config.label_font_size = Some(*size);
         }
-        if let Some(weight) = config.tick_font_weight {
-            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        if let Some(weight) = config.tick_font_weight.as_option() {
+            legend_config.label_font_weight =
+                Some(avenger_text::types::FontWeight::Number(*weight));
         }
 
         // Apply legend background styling if provided
-        if let Some(pad) = config.background_padding {
-            legend_config.background_padding = Some(pad);
+        if let Some(pad) = config.background_padding.as_option() {
+            legend_config.background_padding = Some(*pad);
         }
-        if let Some(r) = config.background_corner_radius {
-            legend_config.background_corner_radius = Some(r);
+        if let Some(r) = config.background_corner_radius.as_option() {
+            legend_config.background_corner_radius = Some(*r);
         }
-        if let Some(ref fill_str) = config.background_fill {
+        if let Some(fill_str) = config.background_fill.as_option() {
             if let Some(color) = crate::utils::parse_color_string(fill_str) {
                 legend_config.background_fill = Some(color);
             }
         }
-        if let Some(ref stroke_str) = config.background_stroke {
+        if let Some(stroke_str) = config.background_stroke.as_option() {
             if let Some(color) = crate::utils::parse_color_string(stroke_str) {
                 legend_config.background_stroke = Some(color);
             }
@@ -163,7 +165,7 @@ impl LegendRenderer for ColorbarRenderer {
 
         // Create the colorbar marks at origin [0, 0] (will be positioned by group origin)
         let plot_origin = [0.0, 0.0];
-        let title = config.title.as_deref().unwrap_or("");
+        let title = config.title.as_option().map(|s| s.as_str()).unwrap_or("");
 
         let mut colorbar_group =
             make_colorbar_marks(configured_scale, title, plot_origin, &legend_config)?;

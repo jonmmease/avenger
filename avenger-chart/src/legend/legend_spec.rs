@@ -1,49 +1,50 @@
 use super::LegendRenderer;
+use crate::maybe::Maybe;
 use std::sync::Arc;
 
 /// Legend configuration for visualizations
 #[derive(Clone)]
 pub struct Legend {
-    pub visible: bool,
-    pub title: Option<String>,
-    pub position: Option<LegendPosition>,
-    pub orientation: Option<LegendOrientation>,
-    pub symbol_size: Option<f64>,
-    pub gradient_length: Option<f64>,
-    pub gradient_thickness: Option<f64>,
-    pub columns: Option<usize>,
-    pub label_limit: Option<f64>,
-    pub format_number: Option<String>,
-    pub background_fill: Option<String>,
-    pub background_stroke: Option<String>,
-    pub background_corner_radius: Option<f32>,
-    pub background_padding: Option<f32>,
-    pub order: Option<i32>,
+    pub visible: Maybe<bool>,
+    pub title: Maybe<String>,
+    pub position: Maybe<LegendPosition>,
+    pub orientation: Maybe<LegendOrientation>,
+    pub symbol_size: Maybe<f64>,
+    pub gradient_length: Maybe<f64>,
+    pub gradient_thickness: Maybe<f64>,
+    pub columns: Maybe<usize>,
+    pub label_limit: Maybe<f64>,
+    pub format_number: Maybe<String>,
+    pub background_fill: Maybe<String>,
+    pub background_stroke: Maybe<String>,
+    pub background_corner_radius: Maybe<f32>,
+    pub background_padding: Maybe<f32>,
+    pub order: Maybe<i32>,
     pub contributing_marks: Vec<String>,
     /// Optional custom renderer override
     pub renderer: Option<Arc<dyn LegendRenderer>>,
     /// Channels that have been merged into this legend (for layout width calculation)
     pub merged_channels: Vec<String>,
     /// Text colors from theme
-    pub title_color: Option<String>,
-    pub label_color: Option<String>,
+    pub title_color: Maybe<String>,
+    pub label_color: Maybe<String>,
     /// Theme mark defaults (for legend symbol rendering)
     pub theme_mark_defaults: Option<
         indexmap::IndexMap<String, indexmap::IndexMap<String, datafusion_common::ScalarValue>>,
     >,
     /// Typography from theme
-    pub title_font_family: Option<String>,
-    pub title_font_size: Option<f32>,
-    pub title_font_weight: Option<f32>,
+    pub title_font_family: Maybe<String>,
+    pub title_font_size: Maybe<f32>,
+    pub title_font_weight: Maybe<f32>,
     /// Item label typography (for discrete legends: symbol, line, rect)
-    pub label_font_family: Option<String>,
-    pub label_font_size: Option<f32>,
-    pub label_font_weight: Option<f32>,
+    pub label_font_family: Maybe<String>,
+    pub label_font_size: Maybe<f32>,
+    pub label_font_weight: Maybe<f32>,
     /// Tick label typography (for continuous legends: colorbar)
-    pub tick_font_family: Option<String>,
-    pub tick_font_size: Option<f32>,
-    pub tick_font_weight: Option<f32>,
-    pub tick_color: Option<String>,
+    pub tick_font_family: Maybe<String>,
+    pub tick_font_size: Maybe<f32>,
+    pub tick_font_weight: Maybe<f32>,
+    pub tick_color: Maybe<String>,
 }
 
 // Custom Debug implementation since LegendRenderer doesn't implement Debug
@@ -102,113 +103,211 @@ pub enum LegendOrientation {
 impl Legend {
     pub fn new() -> Self {
         Self {
-            visible: true,
-            position: None,
-            title: None,
-            orientation: None,
-            symbol_size: None,
-            gradient_length: None,
-            gradient_thickness: None,
-            columns: None,
-            label_limit: None,
-            format_number: None,
-            background_fill: None,
-            background_stroke: None,
-            background_corner_radius: None,
-            background_padding: None,
-            order: None,
+            visible: Maybe::Set(true),
+            position: Maybe::Unset,
+            title: Maybe::Unset,
+            orientation: Maybe::Unset,
+            symbol_size: Maybe::Unset,
+            gradient_length: Maybe::Unset,
+            gradient_thickness: Maybe::Unset,
+            columns: Maybe::Unset,
+            label_limit: Maybe::Unset,
+            format_number: Maybe::Unset,
+            background_fill: Maybe::Unset,
+            background_stroke: Maybe::Unset,
+            background_corner_radius: Maybe::Unset,
+            background_padding: Maybe::Unset,
+            order: Maybe::Unset,
             contributing_marks: Vec::new(),
             renderer: None,
             merged_channels: Vec::new(),
-            title_color: None,
-            label_color: None,
+            title_color: Maybe::Unset,
+            label_color: Maybe::Unset,
             theme_mark_defaults: None,
-            title_font_family: None,
-            title_font_size: None,
-            title_font_weight: None,
-            label_font_family: None,
-            label_font_size: None,
-            label_font_weight: None,
-            tick_font_family: None,
-            tick_font_size: None,
-            tick_font_weight: None,
-            tick_color: None,
+            title_font_family: Maybe::Unset,
+            title_font_size: Maybe::Unset,
+            title_font_weight: Maybe::Unset,
+            label_font_family: Maybe::Unset,
+            label_font_size: Maybe::Unset,
+            label_font_weight: Maybe::Unset,
+            tick_font_family: Maybe::Unset,
+            tick_font_size: Maybe::Unset,
+            tick_font_weight: Maybe::Unset,
+            tick_color: Maybe::Unset,
         }
     }
 
+    /// Apply updates from another Legend, overriding only Set properties
+    pub fn update(mut self, other: Legend) -> Self {
+        if other.visible.is_set() {
+            self.visible = other.visible;
+        }
+        if other.title.is_set() {
+            self.title = other.title;
+        }
+        if other.position.is_set() {
+            self.position = other.position;
+        }
+        if other.orientation.is_set() {
+            self.orientation = other.orientation;
+        }
+        if other.symbol_size.is_set() {
+            self.symbol_size = other.symbol_size;
+        }
+        if other.gradient_length.is_set() {
+            self.gradient_length = other.gradient_length;
+        }
+        if other.gradient_thickness.is_set() {
+            self.gradient_thickness = other.gradient_thickness;
+        }
+        if other.columns.is_set() {
+            self.columns = other.columns;
+        }
+        if other.label_limit.is_set() {
+            self.label_limit = other.label_limit;
+        }
+        if other.format_number.is_set() {
+            self.format_number = other.format_number;
+        }
+        if other.background_fill.is_set() {
+            self.background_fill = other.background_fill;
+        }
+        if other.background_stroke.is_set() {
+            self.background_stroke = other.background_stroke;
+        }
+        if other.background_corner_radius.is_set() {
+            self.background_corner_radius = other.background_corner_radius;
+        }
+        if other.background_padding.is_set() {
+            self.background_padding = other.background_padding;
+        }
+        if other.order.is_set() {
+            self.order = other.order;
+        }
+        // Merge contributing marks
+        self.contributing_marks.extend(other.contributing_marks);
+        // Override renderer if provided
+        if other.renderer.is_some() {
+            self.renderer = other.renderer;
+        }
+        // Merge merged_channels
+        self.merged_channels.extend(other.merged_channels);
+        // Apply theme properties
+        if other.title_color.is_set() {
+            self.title_color = other.title_color;
+        }
+        if other.label_color.is_set() {
+            self.label_color = other.label_color;
+        }
+        if other.theme_mark_defaults.is_some() {
+            self.theme_mark_defaults = other.theme_mark_defaults;
+        }
+        if other.title_font_family.is_set() {
+            self.title_font_family = other.title_font_family;
+        }
+        if other.title_font_size.is_set() {
+            self.title_font_size = other.title_font_size;
+        }
+        if other.title_font_weight.is_set() {
+            self.title_font_weight = other.title_font_weight;
+        }
+        if other.label_font_family.is_set() {
+            self.label_font_family = other.label_font_family;
+        }
+        if other.label_font_size.is_set() {
+            self.label_font_size = other.label_font_size;
+        }
+        if other.label_font_weight.is_set() {
+            self.label_font_weight = other.label_font_weight;
+        }
+        if other.tick_font_family.is_set() {
+            self.tick_font_family = other.tick_font_family;
+        }
+        if other.tick_font_size.is_set() {
+            self.tick_font_size = other.tick_font_size;
+        }
+        if other.tick_font_weight.is_set() {
+            self.tick_font_weight = other.tick_font_weight;
+        }
+        if other.tick_color.is_set() {
+            self.tick_color = other.tick_color;
+        }
+        self
+    }
+
     pub fn visible(mut self, visible: bool) -> Self {
-        self.visible = visible;
+        self.visible = Maybe::Set(visible);
         self
     }
 
     pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = Some(title.into());
+        self.title = Maybe::Set(title.into());
         self
     }
 
     pub fn position(mut self, position: LegendPosition) -> Self {
-        self.position = Some(position);
+        self.position = Maybe::Set(position);
         self
     }
 
     pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.orientation = Some(orientation);
+        self.orientation = Maybe::Set(orientation);
         self
     }
 
     pub fn symbol_size(mut self, size: f64) -> Self {
-        self.symbol_size = Some(size);
+        self.symbol_size = Maybe::Set(size);
         self
     }
 
     pub fn gradient_length(mut self, length: f64) -> Self {
-        self.gradient_length = Some(length);
+        self.gradient_length = Maybe::Set(length);
         self
     }
 
     pub fn gradient_thickness(mut self, thickness: f64) -> Self {
-        self.gradient_thickness = Some(thickness);
+        self.gradient_thickness = Maybe::Set(thickness);
         self
     }
 
     pub fn columns(mut self, columns: usize) -> Self {
-        self.columns = Some(columns);
+        self.columns = Maybe::Set(columns);
         self
     }
 
     pub fn label_limit(mut self, limit: f64) -> Self {
-        self.label_limit = Some(limit);
+        self.label_limit = Maybe::Set(limit);
         self
     }
 
     /// Set a numeric formatting string for legend labels.
     pub fn format_number(mut self, pattern: impl Into<String>) -> Self {
-        self.format_number = Some(pattern.into());
+        self.format_number = Maybe::Set(pattern.into());
         self
     }
 
     pub fn background_fill(mut self, color: impl Into<String>) -> Self {
-        self.background_fill = Some(color.into());
+        self.background_fill = Maybe::Set(color.into());
         self
     }
 
     pub fn background_stroke(mut self, color: impl Into<String>) -> Self {
-        self.background_stroke = Some(color.into());
+        self.background_stroke = Maybe::Set(color.into());
         self
     }
 
     pub fn background_corner_radius(mut self, r: f32) -> Self {
-        self.background_corner_radius = Some(r);
+        self.background_corner_radius = Maybe::Set(r);
         self
     }
 
     pub fn background_padding(mut self, pad: f32) -> Self {
-        self.background_padding = Some(pad);
+        self.background_padding = Maybe::Set(pad);
         self
     }
 
     pub fn order(mut self, order: i32) -> Self {
-        self.order = Some(order);
+        self.order = Maybe::Set(order);
         self
     }
 
@@ -233,6 +332,7 @@ impl Default for Legend {
 #[cfg(test)]
 mod tests {
     use crate::legend::{LegendOrientation, LegendPosition};
+    use crate::maybe::Maybe;
     use crate::plot::Plot;
     use crate::zerod::ZeroDCoord;
 
@@ -245,8 +345,8 @@ mod tests {
         // Should have legend configured
         assert!(plot.legends.contains_key("fill"));
         let legend = &plot.legends["fill"];
-        assert_eq!(legend.title, Some("Temperature".to_string()));
-        assert_eq!(legend.position, Some(LegendPosition::Right));
+        assert_eq!(legend.title, Maybe::Set("Temperature".to_string()));
+        assert_eq!(legend.position, Maybe::Set(LegendPosition::Right));
     }
 
     #[test]
@@ -256,7 +356,7 @@ mod tests {
         // Legend exists but is marked invisible
         assert!(plot.legends.contains_key("fill"));
         let legend = &plot.legends["fill"];
-        assert!(!legend.visible);
+        assert_eq!(legend.visible, Maybe::Set(false));
     }
 
     #[test]
@@ -270,9 +370,12 @@ mod tests {
 
         assert!(plot.legends.contains_key("stroke"));
         let legend = &plot.legends["stroke"];
-        assert_eq!(legend.title, Some("Category".to_string()));
-        assert_eq!(legend.orientation, Some(LegendOrientation::Horizontal));
-        assert_eq!(legend.columns, Some(3));
+        assert_eq!(legend.title, Maybe::Set("Category".to_string()));
+        assert_eq!(
+            legend.orientation,
+            Maybe::Set(LegendOrientation::Horizontal)
+        );
+        assert_eq!(legend.columns, Maybe::Set(3));
     }
 
     #[test]
@@ -283,8 +386,8 @@ mod tests {
 
         assert!(plot.legends.contains_key("size"));
         let legend = &plot.legends["size"];
-        assert_eq!(legend.title, Some("Population".to_string()));
-        assert_eq!(legend.symbol_size, Some(20.0));
+        assert_eq!(legend.title, Maybe::Set("Population".to_string()));
+        assert_eq!(legend.symbol_size, Maybe::Set(20.0));
     }
 
     #[test]
@@ -298,9 +401,9 @@ mod tests {
 
         assert!(plot.legends.contains_key("opacity"));
         let legend = &plot.legends["opacity"];
-        assert_eq!(legend.title, Some("Confidence".to_string()));
-        assert_eq!(legend.gradient_length, Some(150.0));
-        assert_eq!(legend.gradient_thickness, Some(15.0));
+        assert_eq!(legend.title, Maybe::Set("Confidence".to_string()));
+        assert_eq!(legend.gradient_length, Maybe::Set(150.0));
+        assert_eq!(legend.gradient_thickness, Maybe::Set(15.0));
     }
 
     #[test]
@@ -327,6 +430,6 @@ mod tests {
         // Second call should update the existing legend
         assert_eq!(plot.legends.len(), 1);
         let legend = &plot.legends["fill"];
-        assert_eq!(legend.title, Some("Updated Title".to_string()));
+        assert_eq!(legend.title, Maybe::Set("Updated Title".to_string()));
     }
 }

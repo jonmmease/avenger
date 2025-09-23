@@ -92,7 +92,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
 
             // Account for stroke width on background if present
             // Background strokes extend 0.5 pixels outside on each side (total 1.0 pixel)
-            let stroke_adjustment = if config.background_stroke.is_some() {
+            let stroke_adjustment = if config.background_stroke.is_set() {
                 1.0 // Total stroke width that extends beyond the fill
             } else {
                 0.0

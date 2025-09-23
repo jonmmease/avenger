@@ -154,18 +154,18 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
             }
 
             // Set text colors and typography from theme
-            legend.title_color = Some(theme.legend_title_color());
-            legend.label_color = Some(theme.legend_label_color());
-            legend.title_font_family = Some(theme.legend_title_font_family());
-            legend.title_font_size = Some(theme.legend_title_font_size());
-            legend.title_font_weight = Some(theme.legend_title_font_weight());
-            legend.label_font_family = Some(theme.legend_label_font_family());
-            legend.label_font_size = Some(theme.legend_label_font_size());
-            legend.label_font_weight = Some(theme.legend_label_font_weight());
-            legend.tick_font_family = Some(theme.legend_tick_font_family());
-            legend.tick_font_size = Some(theme.legend_tick_font_size());
-            legend.tick_font_weight = Some(theme.legend_tick_font_weight());
-            legend.tick_color = Some(theme.legend_tick_color());
+            legend.title_color = crate::maybe::Maybe::Set(theme.legend_title_color());
+            legend.label_color = crate::maybe::Maybe::Set(theme.legend_label_color());
+            legend.title_font_family = crate::maybe::Maybe::Set(theme.legend_title_font_family());
+            legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size());
+            legend.title_font_weight = crate::maybe::Maybe::Set(theme.legend_title_font_weight());
+            legend.label_font_family = crate::maybe::Maybe::Set(theme.legend_label_font_family());
+            legend.label_font_size = crate::maybe::Maybe::Set(theme.legend_label_font_size());
+            legend.label_font_weight = crate::maybe::Maybe::Set(theme.legend_label_font_weight());
+            legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family());
+            legend.tick_font_size = crate::maybe::Maybe::Set(theme.legend_tick_font_size());
+            legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight());
+            legend.tick_color = crate::maybe::Maybe::Set(theme.legend_tick_color());
 
             default_legends.insert(channel.clone(), legend);
         }
@@ -403,7 +403,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                 }
 
                 let legend_config = &all_legends[channel_name];
-                if !legend_config.visible {
+                if matches!(legend_config.visible, crate::maybe::Maybe::Set(false)) {
                     continue;
                 }
 
@@ -462,7 +462,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
             if !channels.is_empty() {
                 let primary_channel = &channels[0];
                 if let Some(legend_config) = all_legends.get(&primary_channel.name) {
-                    let order = legend_config.order.unwrap_or(i32::MAX);
+                    let order = legend_config.order.clone().unwrap_or(i32::MAX);
                     groups_with_order.push((channels, order));
                 }
             }
@@ -483,7 +483,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
             if !channels.is_empty() {
                 let primary_channel = &channels[0];
                 if let Some(legend_config) = all_legends.get(&primary_channel.name) {
-                    if legend_config.visible {
+                    if !matches!(legend_config.visible, crate::maybe::Maybe::Set(false)) {
                         // Clone the legend config and add merged channel information
                         let mut legend_with_merged = legend_config.clone();
                         // Populate merged_channels with all channel types in this group
@@ -503,62 +503,70 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         &self,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> IndexMap<String, Legend> {
-        // Get default legends for channels with ConfiguredScale
-        let default_legends = self.create_default_legends(configured_scales);
+        // 1. Start with plot-level legends
         let mut all_legends = self.plot.legends.clone();
-        for (channel, default_legend) in default_legends {
-            all_legends.entry(channel).or_insert(default_legend);
+
+        // 2. Apply channel-level legend configs
+        for mark in &self.plot.marks {
+            for (channel_name, channel_value) in mark.data_context().channels() {
+                if let Some(channel_legend) = channel_value.get_legend_config() {
+                    all_legends
+                        .entry(channel_name.clone())
+                        .and_modify(|legend| {
+                            *legend = legend.clone().update(channel_legend.clone())
+                        })
+                        .or_insert_with(|| channel_legend.clone());
+                }
+            }
         }
 
-        // Get theme for legend text colors and typography
-        let theme = self.plot.get_theme();
+        // 3. Apply defaults for channels with scales but no legend config
+        let default_legends = self.create_default_legends(configured_scales);
+        for (channel, default_legend) in default_legends {
+            all_legends
+                .entry(channel)
+                .and_modify(|legend| *legend = default_legend.clone().update(legend.clone()))
+                .or_insert(default_legend);
+        }
 
-        // Apply theme colors, typography and mark defaults to all legends
-        // This ensures accurate text measurement during layout and consistent rendering
+        // 4. Apply theme (only for Unset properties)
+        let theme = self.plot.get_theme();
         for legend in all_legends.values_mut() {
-            // Only set colors if not already explicitly set by user
-            if legend.title_color.is_none() {
-                legend.title_color = Some(theme.legend_title_color());
-            }
-            if legend.label_color.is_none() {
-                legend.label_color = Some(theme.legend_label_color());
-            }
-            // Set typography from theme
-            if legend.title_font_family.is_none() {
-                legend.title_font_family = Some(theme.legend_title_font_family());
-            }
-            if legend.title_font_size.is_none() {
-                legend.title_font_size = Some(theme.legend_title_font_size());
-            }
-            if legend.title_font_weight.is_none() {
-                legend.title_font_weight = Some(theme.legend_title_font_weight());
-            }
-            if legend.label_font_family.is_none() {
-                legend.label_font_family = Some(theme.legend_label_font_family());
-            }
-            if legend.label_font_size.is_none() {
-                legend.label_font_size = Some(theme.legend_label_font_size());
-            }
-            if legend.label_font_weight.is_none() {
-                legend.label_font_weight = Some(theme.legend_label_font_weight());
-            }
-            // Set tick label typography (for colorbar legends)
-            if legend.tick_font_family.is_none() {
-                legend.tick_font_family = Some(theme.legend_tick_font_family());
-            }
-            if legend.tick_font_size.is_none() {
-                legend.tick_font_size = Some(theme.legend_tick_font_size());
-            }
-            if legend.tick_font_weight.is_none() {
-                legend.tick_font_weight = Some(theme.legend_tick_font_weight());
-            }
-            if legend.tick_color.is_none() {
-                legend.tick_color = Some(theme.legend_tick_color());
-            }
-            // Always pass theme mark defaults for legend rendering
-            if legend.theme_mark_defaults.is_none() {
-                legend.theme_mark_defaults = Some(theme.mark_defaults_map());
-            }
+            // Theme only fills in Unset values using the update pattern
+            let theme_legend = Legend {
+                visible: crate::maybe::Maybe::Unset,
+                title: crate::maybe::Maybe::Unset,
+                position: crate::maybe::Maybe::Unset,
+                orientation: crate::maybe::Maybe::Unset,
+                symbol_size: crate::maybe::Maybe::Unset,
+                gradient_length: crate::maybe::Maybe::Unset,
+                gradient_thickness: crate::maybe::Maybe::Unset,
+                columns: crate::maybe::Maybe::Unset,
+                label_limit: crate::maybe::Maybe::Unset,
+                format_number: crate::maybe::Maybe::Unset,
+                background_fill: crate::maybe::Maybe::Unset,
+                background_stroke: crate::maybe::Maybe::Unset,
+                background_corner_radius: crate::maybe::Maybe::Unset,
+                background_padding: crate::maybe::Maybe::Unset,
+                order: crate::maybe::Maybe::Unset,
+                contributing_marks: Vec::new(),
+                renderer: None,
+                merged_channels: Vec::new(),
+                title_color: crate::maybe::Maybe::Set(theme.legend_title_color()),
+                label_color: crate::maybe::Maybe::Set(theme.legend_label_color()),
+                theme_mark_defaults: Some(theme.mark_defaults_map()),
+                title_font_family: crate::maybe::Maybe::Set(theme.legend_title_font_family()),
+                title_font_size: crate::maybe::Maybe::Set(theme.legend_title_font_size()),
+                title_font_weight: crate::maybe::Maybe::Set(theme.legend_title_font_weight()),
+                label_font_family: crate::maybe::Maybe::Set(theme.legend_label_font_family()),
+                label_font_size: crate::maybe::Maybe::Set(theme.legend_label_font_size()),
+                label_font_weight: crate::maybe::Maybe::Set(theme.legend_label_font_weight()),
+                tick_font_family: crate::maybe::Maybe::Set(theme.legend_tick_font_family()),
+                tick_font_size: crate::maybe::Maybe::Set(theme.legend_tick_font_size()),
+                tick_font_weight: crate::maybe::Maybe::Set(theme.legend_tick_font_weight()),
+                tick_color: crate::maybe::Maybe::Set(theme.legend_tick_color()),
+            };
+            *legend = theme_legend.update(legend.clone());
         }
 
         all_legends
