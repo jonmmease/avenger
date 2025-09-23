@@ -26,7 +26,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         let theme = self.plot.get_theme();
         self.plot
             .coord_system()
-            .render_guide(&guide, scales, plot_width, plot_height, plot_bounds, &theme)
+            .render_guide(&guide, scales, plot_width, plot_height, plot_bounds, theme.as_ref())
             .await
     }
 }

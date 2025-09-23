@@ -3,6 +3,8 @@
 //! The theme system provides a centralized way to control the visual appearance
 //! of charts, including colors, fonts, shapes, and other styling properties.
 
+use serde::{Deserialize, Serialize};
+
 // Core theme modules
 mod context;
 mod value;
@@ -17,6 +19,7 @@ pub use value::{
 };
 
 /// Main theme trait that can be implemented by different backends
+#[typetag::serde(tag = "type")]
 pub trait Theme: Send + Sync {
     /// Query a theme property for a given context
     fn query(&self, context: &ThemeContext, property: &str) -> ThemeValue;
@@ -635,15 +638,4 @@ fn select_available_font(fonts: Vec<String>) -> String {
 
     let resolver = default_font_resolver();
     resolver.select_available_font(fonts)
-}
-
-// Implement Theme for Arc<dyn Theme> to allow passing around shared references
-impl Theme for std::sync::Arc<dyn Theme> {
-    fn query(&self, context: &ThemeContext, property: &str) -> ThemeValue {
-        (**self).query(context, property)
-    }
-
-    fn clone_box(&self) -> Box<dyn Theme> {
-        (**self).clone_box()
-    }
 }
