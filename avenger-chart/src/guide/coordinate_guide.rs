@@ -1,6 +1,6 @@
 //! Core trait for coordinate system guides
 
-use crate::axis::AxisUpdate;
+use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use crate::guide::{GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
@@ -16,7 +16,7 @@ use std::collections::HashMap;
 #[async_trait::async_trait]
 pub trait CoordinateGuide: Clone + Send + Sync + GuideUpdate + 'static {
     /// The axis type used by this guide (if any)
-    type Axis: Clone + Send + Sync + Default + AxisUpdate + 'static;
+    type Axis: Axis;
 
     /// Set axes that were configured at the channel level
     ///

@@ -1,7 +1,7 @@
 //! Helper methods for rendering with the Guide API
 
 use super::PlotRenderer;
-use crate::axis::AxisUpdate;
+use crate::axis::Axis;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::guide::{GuideUpdate, OverflowSpaceRequirement};

@@ -562,7 +562,7 @@ impl PolarAxis {
     }
 }
 
-impl crate::axis::AxisUpdate for PolarAxis {
+impl crate::axis::Axis for PolarAxis {
     fn update(self, other: Self) -> Self {
         self.update(other)
     }
