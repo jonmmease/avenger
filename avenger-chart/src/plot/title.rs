@@ -1,10 +1,11 @@
 //! Title and subtitle configuration for plots
 
+use serde::{Deserialize, Serialize};
 use crate::coords::CoordinateSystem;
 use crate::plot::Plot;
 
 /// Alignment options for title and subtitle
-#[derive(Clone, Debug, Copy, PartialEq, Default)]
+#[derive(Clone, Debug, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum TitleAlign {
     /// Title/subtitle spans entire width minus padding columns
     #[default]
@@ -14,7 +15,7 @@ pub enum TitleAlign {
 }
 
 /// Minimal plot title configuration
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlotTitle {
     pub text: String,
     pub font_size: Option<f32>,
@@ -23,7 +24,7 @@ pub struct PlotTitle {
 }
 
 /// Minimal plot subtitle configuration
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlotSubtitle {
     pub text: String,
     pub font_size: Option<f32>,

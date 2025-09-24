@@ -13,10 +13,8 @@ use std::collections::HashMap;
 /// A CoordinateGuide represents the visual reference elements for a coordinate system.
 /// This includes both axes (configured at the channel level) and coordinate-specific
 /// options (configured at the plot level).
-#[async_trait::async_trait]
-pub trait CoordinateGuide: Clone + Send + Sync + GuideUpdate + 'static {
-    /// The axis type used by this guide (if any)
-    type Axis: Axis;
+pub trait CoordinateGuideBuilder: Clone + Default {
+    type Axis: Axis + Clone;
 
     /// Set axes that were configured at the channel level
     ///
@@ -24,10 +22,15 @@ pub trait CoordinateGuide: Clone + Send + Sync + GuideUpdate + 'static {
     /// from both plot-level and mark-level specifications.
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>);
 
-    /// Get the configured axes
-    ///
-    /// Returns a reference to the map of channel names to axis configurations.
-    fn axes(&self) -> &HashMap<String, Self::Axis>;
+    fn update(&mut self, other: Self);
+
+    fn build(self) -> Box<dyn CoordinateGuideRender>;
+
+}
+
+#[async_trait::async_trait]
+#[typetag::serde(tag = "type")]
+pub trait CoordinateGuideRender: Send + Sync + 'static {
 
     /// Measure how much space this guide needs outside the plot area
     async fn measure_overflow(

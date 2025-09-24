@@ -3,18 +3,22 @@
 //! Only Symbol marks are supported in zero-dimensional coordinate systems.
 //! Line and Rect marks don't make sense without spatial extent.
 
+use std::sync::Arc;
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
-use crate::marks::Mark;
+use crate::marks::{DataContext, Mark, MarkRenderer, MarkState};
 use crate::render::RenderContext;
 use crate::zerod::ZeroDCoord;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion_common::ScalarValue;
-
+use serde::{Deserialize, Serialize};
+use crate::cartesian::Cartesian;
+use crate::channel::ChannelDescriptor;
+use crate::coords::CoordinateSystemTransform;
 // Only Symbol marks are supported in ZeroDCoord
 pub use crate::marks::symbol::Symbol;
-
+use crate::prelude::Line;
 // Implement position channel methods for ZeroDCoord marks
 // Since ZeroDCoord has no position channels (0D space), these implementations are minimal
 
@@ -32,7 +36,7 @@ impl Symbol<ZeroDCoord> {
 
 // Implement Mark trait for ZeroDCoord Symbol
 impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
-    impl_mark_trait_common!(Symbol, ZeroDCoord, "symbol");
+    impl_mark_trait_common!(Symbol, "symbol");
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         Symbol::<ZeroDCoord>::common_mark_specific_default(channel)
@@ -59,3 +63,15 @@ impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
         Symbol::<ZeroDCoord>::common_preferred_legend_renderer(channel, scale, &[])
     }
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ZeroDSymbol {
+    pub(crate) state: MarkState,
+}
+
+impl From<Symbol<ZeroDCoord>> for ZeroDSymbol {
+    fn from(line: Symbol<ZeroDCoord>) -> Self {
+        Self { state: line.state }
+    }
+}
+

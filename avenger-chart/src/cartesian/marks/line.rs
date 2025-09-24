@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{Mark, RadiusExpression};
+use crate::marks::{DataContext, Mark, MarkRenderer, MarkState, RadiusExpression};
 use arrow::array::{AsArray, RecordBatch};
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
@@ -21,6 +21,9 @@ use crate::marks::util::{
 use crate::render::RenderContext;
 use crate::scales::ScaleRange;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use crate::channel::ChannelDescriptor;
+use crate::coords::{CoordinateSystem, CoordinateSystemTransform};
 
 // Define position channels for Cartesian Line using the macro
 define_position_channels! {
@@ -36,7 +39,7 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Line with any axis type
 impl Mark<Cartesian> for Line<Cartesian> {
-    impl_mark_trait_common!(Line, Cartesian, "line");
+    impl_mark_trait_common!(Line, "line");
 
     fn supports_order(&self) -> bool {
         true
@@ -512,5 +515,16 @@ impl Mark<Cartesian> for Line<Cartesian> {
             // For other channels like opacity, use line legend
             _ => Some(Arc::new(LineLegendRenderer::new())),
         }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CartesianLine {
+    pub(crate) state: MarkState,
+}
+
+impl From<Line<Cartesian>> for CartesianLine {
+    fn from(line: Line<Cartesian>) -> Self {
+        Self { state: line.state }
     }
 }

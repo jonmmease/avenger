@@ -1,7 +1,8 @@
+use std::sync::Arc;
 use crate::define_position_channels;
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
-use crate::marks::{Mark, RadiusExpression};
+use crate::marks::{DataContext, Mark, MarkRenderer, MarkState, RadiusExpression};
 
 use crate::polar::Polar;
 use crate::render::RenderContext;
@@ -11,6 +12,10 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
+use serde::{Deserialize, Serialize};
+use crate::cartesian::Cartesian;
+use crate::channel::ChannelDescriptor;
+use crate::coords::CoordinateSystemTransform;
 // Import Symbol for the macro, then re-export it
 use crate::marks::symbol::Symbol;
 
@@ -28,7 +33,7 @@ define_position_channels! {
 
 // Implement Mark trait for PolarGeneral Symbol with any axis type
 impl Mark<Polar> for Symbol<Polar> {
-    impl_mark_trait_common!(Symbol, Polar, "symbol");
+    impl_mark_trait_common!(Symbol, "symbol");
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         Symbol::<Polar>::common_mark_specific_default(channel)
@@ -85,5 +90,16 @@ impl Mark<Polar> for Symbol<Polar> {
         scale: &avenger_scales::scales::ConfiguredScale,
     ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
         Symbol::<Polar>::common_preferred_legend_renderer(channel, scale, &["r", "theta"])
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PolarSymbol {
+    pub(crate) state: MarkState,
+}
+
+impl From<Symbol<Polar>> for PolarSymbol {
+    fn from(line: Symbol<Polar>) -> Self {
+        Self { state: line.state }
     }
 }

@@ -64,6 +64,9 @@ pub enum AvengerChartError {
     #[error("Layout error: `{0}`")]
     LayoutError(String),
 
+    #[error("Coordinate system error: `{0}`")]
+    CoordinateSystemError(String),
+    
     #[error("Channel resolution error: `{0}`")]
     ChannelResolutionError(#[from] ChannelResolutionError),
 

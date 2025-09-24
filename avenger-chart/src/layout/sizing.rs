@@ -45,6 +45,8 @@
 //! - Canvas aspect ratio is "preferred" - it may be overridden if content requires more space
 //! - Canvas and plot aspect ratios cannot be used together (creates conflicting constraints)
 
+use serde::{Deserialize, Serialize};
+
 /// Constraints that can be applied to the canvas
 #[derive(Clone, Debug, PartialEq)]
 pub enum CanvasConstraint {
@@ -91,7 +93,7 @@ impl Default for PlotConstraint {
 }
 
 // Internal representation for layout computation
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum SizeMode {
     Fixed { width: f32, height: f32 },
     Width(f32),
@@ -123,7 +125,7 @@ impl From<PlotConstraint> for SizeMode {
 }
 
 /// Complete layout specification
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LayoutSpec {
     /// Canvas sizing mode (internal representation)
     pub(crate) canvas: SizeMode,
@@ -168,7 +170,7 @@ impl LayoutSpec {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Margins {
     pub top: f32,
     pub right: f32,

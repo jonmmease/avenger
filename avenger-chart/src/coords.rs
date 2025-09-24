@@ -1,5 +1,4 @@
 use crate::error::AvengerChartError;
-use crate::guide::CoordinateGuide;
 pub use crate::guide::OverflowSpaceRequirement;
 use crate::marks::Mark;
 use avenger_common::value::ScalarOrArray;
@@ -7,13 +6,27 @@ use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use crate::guide::{CoordinateGuideRender, CoordinateGuideBuilder};
 use crate::theme::Theme;
 
+#[typetag::serde(tag = "type")]
+pub trait PlotGeometry: Send + Sync + 'static {
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
 /// Geometry type for point-based coordinate systems (Cartesian, Polar, ZeroD)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PointGeometry {
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
+}
+
+#[typetag::serde]
+impl PlotGeometry for PointGeometry {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -22,10 +35,10 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ///
     /// This could be axes (Cartesian), geographic features (Geo),
     /// camera controls (3D), or no guide at all (ZeroD)
-    type Guide: CoordinateGuide;
+    type Guide: CoordinateGuideRender + CoordinateGuideBuilder;
 
     /// The plot geometry type produced by this coordinate system's transform
-    type PlotGeometry: Send + Sync + 'static;
+    type PlotGeometry: PlotGeometry;
 
     /// Get the names of position channels required by this coordinate system
     fn required_channels(&self) -> &'static [&'static str];
@@ -45,7 +58,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// The default guide configuration for this coordinate system with axes set
     fn create_default_guide(
         &self,
-        axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
+        axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         marks: &[Arc<dyn Mark<Self>>],
     ) -> Self::Guide;
@@ -68,7 +81,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         marks: &[Arc<dyn Mark<Self>>],
-    ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis>;
+    ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>;
 
     /// Measure how much space the coordinate system's guide needs outside the plot area
     ///
@@ -201,4 +214,31 @@ pub fn extract_channel_title_from_marks<C: CoordinateSystem>(
     }
 
     None
+}
+
+
+pub trait CoordinateSystemTransform {
+    fn required_channels(&self) -> &'static [&'static str];
+
+    /// Transform position channels to coordinate system geometry
+    ///
+    /// Takes position data in the coordinate system's native space (after scaling)
+    /// and transforms it to the coordinate system's geometry type.
+    ///
+    /// # Arguments
+    /// * `position_channels` - Map of position channel names to their scaled data
+    /// * `plot_width` - Width of the plot area
+    /// * `plot_height` - Height of the plot area
+    ///
+    /// # Returns
+    /// The coordinate system's plot geometry type containing transformed positions
+    fn transform(
+        &self,
+        position_channels: &HashMap<
+            &str,
+            ScalarOrArray<f32>,
+        >,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError>;
 }

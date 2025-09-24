@@ -1,9 +1,12 @@
+use std::any::Any;
+use serde::{Deserialize, Serialize};
 use crate::error::AvengerChartError;
 use crate::maybe::Maybe;
 use avenger_scenegraph::marks::mark::SceneMark;
+use crate::axis::Axis;
 
 /// Position for Cartesian axes
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AxisPosition {
     Top,
     Right,
@@ -13,7 +16,7 @@ pub enum AxisPosition {
 
 /// Concrete struct for Cartesian axes
 /// Using a struct instead of a trait enables type inference in closure parameters
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CartesianAxis {
     pub visible: Maybe<bool>,
     pub position: Maybe<AxisPosition>,
@@ -247,8 +250,19 @@ impl CartesianAxis {
     }
 }
 
-impl crate::axis::Axis for CartesianAxis {
-    fn update(self, other: Self) -> Self {
-        self.update(other)
+#[typetag::serde]
+impl Axis for CartesianAxis {
+    fn update(&mut self, other: &dyn Axis) {
+        other.as_any().downcast_ref::<CartesianAxis>().map(|o| {
+            *self = self.clone().update(o.clone());
+        });
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn box_clone(&self) -> Box<dyn Axis> {
+        Box::new(self.clone())
     }
 }

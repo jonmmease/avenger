@@ -1,14 +1,15 @@
 //! Empty guide implementation for coordinate systems without visual guides
 
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuideRender, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 
 /// Empty guide for coordinate systems without visual guides
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NoGuide {
     // Store an empty map directly in the struct
     axes: HashMap<String, ()>,
@@ -21,19 +22,25 @@ impl GuideUpdate for NoGuide {
     }
 }
 
-#[async_trait::async_trait]
-impl CoordinateGuide for NoGuide {
+impl CoordinateGuideBuilder for NoGuide {
     type Axis = ();
 
     fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {
         // No-op for systems without axes
     }
 
-    fn axes(&self) -> &HashMap<String, Self::Axis> {
-        // Return reference to our empty map
-        &self.axes
+    fn update(&mut self, other: Self) {
+        // No-op for systems without state
     }
 
+    fn build(self) -> Box<dyn CoordinateGuideRender> {
+        Box::new(self)
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CoordinateGuideRender for NoGuide {
     async fn measure_overflow(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,

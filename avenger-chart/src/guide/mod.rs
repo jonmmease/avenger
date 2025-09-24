@@ -8,9 +8,9 @@ mod coordinate_guide;
 mod no_guide;
 mod overflow;
 
-pub use coordinate_guide::CoordinateGuide;
 pub use no_guide::NoGuide;
 pub use overflow::OverflowSpaceRequirement;
+pub use coordinate_guide::{CoordinateGuideRender, CoordinateGuideBuilder};
 
 /// Trait for composable guide updates
 ///

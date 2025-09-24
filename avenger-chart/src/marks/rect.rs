@@ -4,7 +4,7 @@ use crate::marks::MarkState;
 use crate::{define_common_mark_channels, impl_mark_base};
 
 pub struct Rect<C: CoordinateSystem> {
-    pub(crate) state: MarkState<C>,
+    pub(crate) state: MarkState,
     pub(crate) _phantom: std::marker::PhantomData<C>,
 }
 

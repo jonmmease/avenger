@@ -10,7 +10,7 @@ use datafusion::arrow::compute::kernels::cast::cast;
 use datafusion::arrow::datatypes::DataType;
 
 pub struct Line<C: CoordinateSystem> {
-    pub(crate) state: MarkState<C>,
+    pub(crate) state: MarkState,
     pub(crate) _phantom: std::marker::PhantomData<C>,
 }
 

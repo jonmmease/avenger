@@ -15,6 +15,7 @@ use indexmap::IndexMap;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use crate::guide::{CoordinateGuideBuilder, GuideUpdate};
 
 impl<C: CoordinateSystem> Plot<C> {
     /// Extract scale, legend, and axis configurations from a mark's channels
@@ -25,11 +26,12 @@ impl<C: CoordinateSystem> Plot<C> {
                 Entry::Occupied(mut occupied) => {
                     // Update existing axis with new configuration
                     let AxisSpec::Local(existing) = occupied.get();
-                    let updated = existing.clone().update(axis_config.clone());
-                    occupied.insert(AxisSpec::Local(updated));
+                    let mut updated = existing.box_clone();
+                    updated.update(axis_config.as_ref());
+                    occupied.insert(AxisSpec::Local(updated.box_clone()));
                 }
                 Entry::Vacant(vacant) => {
-                    vacant.insert(AxisSpec::Local(axis_config.clone()));
+                    vacant.insert(AxisSpec::Local(axis_config.box_clone()));
                 }
             }
         }
