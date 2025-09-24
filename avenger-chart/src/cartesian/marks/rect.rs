@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::Mark;
+use crate::marks::{DataContext, Mark, MarkRenderer, MarkState};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -15,6 +15,10 @@ use avenger_scales::scales::ScaleImpl;
 use datafusion::arrow::datatypes::DataType;
 use datafusion_common::ScalarValue;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use crate::channel::ChannelDescriptor;
+use crate::coords::CoordinateSystemTransform;
+use crate::prelude::{Line, Symbol, ZeroDCoord};
 
 // Define position channels for Cartesian Rect using the macro
 define_position_channels! {
@@ -36,7 +40,7 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Rect with any axis type
 impl Mark<Cartesian> for Rect<Cartesian> {
-    impl_mark_trait_common!(Rect, Cartesian, "rect");
+    impl_mark_trait_common!(Rect, "rect");
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
@@ -182,5 +186,16 @@ impl Mark<Cartesian> for Rect<Cartesian> {
             // For any other channel, default to RectLegendRenderer
             _ => Some(Arc::new(RectLegendRenderer::new())),
         }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CartesianRect {
+    pub(crate) state: MarkState,
+}
+
+impl From<Rect<Cartesian>> for CartesianRect {
+    fn from(line: Rect<Cartesian>) -> Self {
+        Self { state: line.state }
     }
 }

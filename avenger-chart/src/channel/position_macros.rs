@@ -42,7 +42,7 @@ macro_rules! define_position_channels {
             where
                 V: Into<$crate::marks::ChannelValue>,
                 F: FnOnce($config_type) -> $config_type,
-                $config_type: $crate::channel::PositionConfig<Axis = <<$coord as $crate::coords::CoordinateSystem>::Guide as $crate::guide::CoordinateGuide>::Axis>,
+                $config_type: $crate::channel::PositionConfig<Axis = <<$coord as $crate::coords::CoordinateSystem>::Guide as $crate::guide::CoordinateGuideBuilder>::Axis>,
             {
                 use $crate::channel::PositionConfig;
 
@@ -61,7 +61,7 @@ macro_rules! define_position_channels {
                     // Types match due to the trait bound above
                     mark.state_mut()
                         .axis_configs
-                        .insert(stringify!($name).to_string(), axis_config);
+                        .insert(stringify!($name).to_string(), std::sync::Arc::new(axis_config));
                 }
 
                 mark

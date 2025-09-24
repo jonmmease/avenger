@@ -7,8 +7,11 @@
 //! This allows configuration objects to act as "patches" that can be
 //! applied to computed defaults during rendering.
 
+use serde::{Deserialize, Serialize};
+use erased_serde::Deserializer;
+
 /// Three-state enum for tracking configuration values
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Maybe<T> {
     /// Field has not been set by user
     Unset,

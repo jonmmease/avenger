@@ -390,7 +390,7 @@ define_position_channels! {
 
 // Implement the Mark trait for Isometric
 impl Mark<Isometric> for Cube<Isometric> {
-    impl_mark_trait_common!(Cube, Isometric, "cube");
+    impl_mark_trait_common!(Cube, "cube");
 
     fn render_from_data(
         &self,

@@ -5,7 +5,7 @@
 
 use crate::coords::{CoordinateSystem, PointGeometry};
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuide, NoGuide, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuideBuilder, NoGuide, OverflowSpaceRequirement};
 use crate::marks::Mark;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -45,14 +45,14 @@ impl CoordinateSystem for ZeroDCoord {
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _marks: &[Arc<dyn Mark<Self>>],
-    ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis> {
+    ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         // No axes exist in zero-dimensional space
         HashMap::new()
     }
 
     fn create_default_guide(
         &self,
-        _axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
+        _axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _marks: &[Arc<dyn Mark<Self>>],
     ) -> Self::Guide {

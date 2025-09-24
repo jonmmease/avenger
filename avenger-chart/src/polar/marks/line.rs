@@ -27,7 +27,7 @@ define_position_channels! {
 
 // Implement Mark trait for PolarGeneral Line with any axis type
 impl Mark<Polar> for Line<Polar> {
-    impl_mark_trait_common!(Line, Polar, "line");
+    impl_mark_trait_common!(Line, "line");
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {

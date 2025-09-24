@@ -1,7 +1,9 @@
 //! Faceting strategies for marks
 
+use serde::{Deserialize, Serialize};
+
 /// Strategy for handling mark data in faceted plots
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FacetStrategy {
     /// Filter mark data by facet values (default)
     Filter,

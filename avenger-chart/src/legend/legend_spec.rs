@@ -1,9 +1,10 @@
 use super::LegendRenderer;
 use crate::maybe::Maybe;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 
 /// Legend configuration for visualizations
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Legend {
     pub visible: Maybe<bool>,
     pub title: Maybe<String>,
@@ -29,6 +30,7 @@ pub struct Legend {
     pub title_color: Maybe<String>,
     pub label_color: Maybe<String>,
     /// Theme mark defaults (for legend symbol rendering)
+    #[serde(skip)]
     pub theme_mark_defaults: Option<
         indexmap::IndexMap<String, indexmap::IndexMap<String, datafusion_common::ScalarValue>>,
     >,
@@ -86,7 +88,7 @@ impl std::fmt::Debug for Legend {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LegendPosition {
     Top,
     Right,
@@ -94,7 +96,7 @@ pub enum LegendPosition {
     Left,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LegendOrientation {
     Horizontal,
     Vertical,

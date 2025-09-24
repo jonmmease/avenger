@@ -2,7 +2,7 @@
 
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuideRender, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::marks::Mark;
 use crate::polar::{PolarAxis, PolarAxisType};
@@ -10,9 +10,11 @@ use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use crate::cartesian::CartesianGuide;
 
 /// Options for polar coordinate system
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PolarOptions {
     /// Background color for the plot area
     pub plot_background_color: Option<[f32; 4]>,
@@ -31,7 +33,7 @@ impl Default for PolarOptions {
 /// Combines:
 /// - Axes configured at the channel level (r, theta)
 /// - Coordinate-level options (start angle, clockwise, inner radius)
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PolarGuide {
     /// Axes configured at the channel level
     pub axes: HashMap<String, PolarAxis>,
@@ -132,18 +134,25 @@ impl GuideUpdate for PolarGuide {
     }
 }
 
-#[async_trait::async_trait]
-impl CoordinateGuide for PolarGuide {
+impl CoordinateGuideBuilder for PolarGuide {
     type Axis = PolarAxis;
 
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
         self.axes = axes;
     }
 
-    fn axes(&self) -> &HashMap<String, Self::Axis> {
-        &self.axes
+    fn update(&mut self, other: Self) {
+        *self = PolarGuide::update(self.clone(), other);
     }
 
+    fn build(self) -> Box<dyn CoordinateGuideRender> {
+        Box::new(self)
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CoordinateGuideRender for PolarGuide {
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,

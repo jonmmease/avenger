@@ -4,7 +4,7 @@ use super::PlotRenderer;
 use crate::axis::Axis;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::{GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
 use std::collections::HashMap;
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {
@@ -29,10 +29,12 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                 crate::plot::AxisSpec::Local(axis_config) => {
                     if let Some(base_axis) = all_axes.get(channel).cloned() {
                         // Update base axis with user configuration
-                        let customized = base_axis.update(axis_config.clone());
+                        let mut customized = base_axis.clone();
+                        customized.update(axis_config.as_ref());
                         all_axes.insert(channel.clone(), customized);
                     } else {
                         // No base axis exists - create one from the config
+                        let axis_config = axis_config.as_any().downcast_ref::<<<C as CoordinateSystem>::Guide as CoordinateGuideBuilder>::Axis>().unwrap();
                         all_axes.insert(channel.clone(), axis_config.clone());
                     }
                 }
@@ -47,7 +49,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
 
         // Apply user guide configuration if specified
         if let Some(guide_config) = &self.plot.guide_config {
-            guide = guide.update(guide_config.clone());
+            guide.update(guide_config.clone());
         }
 
         guide

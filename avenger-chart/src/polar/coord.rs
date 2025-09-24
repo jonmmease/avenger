@@ -1,11 +1,11 @@
 use crate::coords::{CoordinateSystem, PointGeometry, extract_channel_title_from_marks};
 use crate::error::AvengerChartError;
-use crate::guide::CoordinateGuide;
 use crate::marks::Mark;
 use crate::polar::{PolarAxis, PolarAxisType, PolarGuide};
 use avenger_scenegraph::marks::group::Clip;
 use std::collections::HashMap;
 use std::sync::Arc;
+use crate::guide::CoordinateGuideBuilder;
 
 /// Polar coordinate system with radial and angular axes
 #[derive(Clone, Default)]
@@ -41,7 +41,7 @@ impl CoordinateSystem for Polar {
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         marks: &[Arc<dyn Mark<Self>>],
-    ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis> {
+    ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         let mut default_axes = HashMap::new();
 
         // Create default axes for r and theta channels if they have scales
@@ -69,7 +69,7 @@ impl CoordinateSystem for Polar {
 
     fn create_default_guide(
         &self,
-        axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
+        axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _marks: &[Arc<dyn Mark<Self>>],
     ) -> Self::Guide {

@@ -1,9 +1,13 @@
+use std::any::Any;
+use serde::{Deserialize, Serialize};
 use crate::error::AvengerChartError;
 use crate::maybe::Maybe;
 use avenger_scenegraph::marks::mark::SceneMark;
+use crate::axis::Axis;
+use crate::cartesian::CartesianAxis;
 
 /// Type of polar axis
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum PolarAxisType {
     #[default]
     Radial,
@@ -11,7 +15,7 @@ pub enum PolarAxisType {
 }
 
 /// Direction for angular axis
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum PolarDirection {
     #[default]
     Clockwise,
@@ -20,7 +24,7 @@ pub enum PolarDirection {
 
 /// Concrete struct for Polar axes
 /// Using a struct instead of a trait enables type inference in closure parameters
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolarAxis {
     pub visible: Maybe<bool>,
     pub axis_type: Maybe<PolarAxisType>,
@@ -562,8 +566,19 @@ impl PolarAxis {
     }
 }
 
-impl crate::axis::Axis for PolarAxis {
-    fn update(self, other: Self) -> Self {
-        self.update(other)
+#[typetag::serde]
+impl Axis for PolarAxis {
+    fn update(&mut self, other: &dyn Axis) {
+        other.as_any().downcast_ref::<PolarAxis>().map(|o| {
+            *self = self.clone().update(o.clone());
+        });
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn box_clone(&self) -> Box<dyn Axis> {
+        Box::new(self.clone())
     }
 }

@@ -7,7 +7,6 @@ macro_rules! impl_mark_base {
             fn default() -> Self {
                 Self {
                     state: $crate::marks::MarkState {
-                        _phantom: std::marker::PhantomData,
                         data: $crate::marks::DataContext::default(),
                         facet_strategy: $crate::marks::FacetStrategy::Filter,
                         details: None,
@@ -82,7 +81,7 @@ macro_rules! impl_mark_base {
 
             /// Get mutable access to state (for use by coordinate-specific implementations)
             #[doc(hidden)]
-            pub fn state_mut(&mut self) -> &mut $crate::marks::MarkState<C> {
+            pub fn state_mut(&mut self) -> &mut $crate::marks::MarkState {
                 &mut self.state
             }
         }
@@ -93,12 +92,12 @@ macro_rules! impl_mark_base {
 /// Usage: impl_mark_trait_common!(MarkType, CoordSystem, "mark_name")
 #[macro_export]
 macro_rules! impl_mark_trait_common {
-    ($mark_type:ident, $coord:ty, $mark_name:literal) => {
-        fn state(&self) -> &$crate::marks::MarkState<$coord> {
+    ($mark_type:ident, $mark_name:literal) => {
+        fn state(&self) -> &$crate::marks::MarkState {
             &self.state
         }
 
-        fn state_mut(&mut self) -> &mut $crate::marks::MarkState<$coord> {
+        fn state_mut(&mut self) -> &mut $crate::marks::MarkState {
             &mut self.state
         }
 
@@ -115,3 +114,4 @@ macro_rules! impl_mark_trait_common {
         }
     };
 }
+

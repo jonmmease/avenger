@@ -449,6 +449,7 @@ dependencies = [
  "cssparser",
  "datafusion",
  "datafusion-common",
+ "erased-serde",
  "image",
  "image-compare",
  "indexmap",

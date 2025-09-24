@@ -3,16 +3,17 @@
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuideRender, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::marks::Mark;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 
 /// Options for Cartesian coordinate system (beyond axes)
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CartesianOptions {
     /// Background color for the plot area
     pub plot_background_color: Option<[f32; 4]>,
@@ -31,7 +32,7 @@ impl Default for CartesianOptions {
 /// Combines:
 /// - Axes configured at the channel level (x, y)
 /// - Coordinate-level options (background color)
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CartesianGuide {
     /// Axes configured at the channel level
     pub axes: HashMap<String, CartesianAxis>,
@@ -135,18 +136,26 @@ impl GuideUpdate for CartesianGuide {
     }
 }
 
-#[async_trait::async_trait]
-impl CoordinateGuide for CartesianGuide {
+impl CoordinateGuideBuilder for CartesianGuide {
     type Axis = CartesianAxis;
 
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
         self.axes = axes;
     }
 
-    fn axes(&self) -> &HashMap<String, Self::Axis> {
-        &self.axes
+    fn update(&mut self, other: Self) {
+        *self = CartesianGuide::update(self.clone(), other);
     }
 
+    fn build(self) -> Box<dyn CoordinateGuideRender> {
+        Box::new(self)
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CoordinateGuideRender for CartesianGuide {
+    /// Measure how much space this guide needs outside the plot area
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,

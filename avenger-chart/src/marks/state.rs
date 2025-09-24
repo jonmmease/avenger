@@ -1,13 +1,17 @@
 //! State for marks
 
 use crate::coords::CoordinateSystem;
-use crate::guide::CoordinateGuide;
 use crate::marks::{DataContext, FacetStrategy};
 use std::collections::HashMap;
+use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use crate::axis::Axis;
+use crate::guide::CoordinateGuideBuilder;
 
 /// State shared by all mark types
-pub struct MarkState<C: CoordinateSystem> {
-    pub _phantom: std::marker::PhantomData<C>,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct MarkState {
+    #[serde(skip)]
     pub data: DataContext,
 
     // Faceting behavior for this mark
@@ -17,6 +21,5 @@ pub struct MarkState<C: CoordinateSystem> {
     pub zindex: Option<i32>,
 
     // Store axis configurations from channels
-    #[doc(hidden)]
-    pub axis_configs: HashMap<String, <C::Guide as CoordinateGuide>::Axis>,
+    pub axis_configs: HashMap<String, Arc<dyn Axis>>,
 }

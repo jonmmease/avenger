@@ -31,7 +31,7 @@ define_position_channels! {
 
 // Implement Mark trait for PolarGeneral Rect with any axis type
 impl Mark<Polar> for Rect<Polar> {
-    impl_mark_trait_common!(Rect, Polar, "rect");
+    impl_mark_trait_common!(Rect, "rect");
 
     fn render_from_data(
         &self,

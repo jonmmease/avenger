@@ -3,24 +3,61 @@
 use crate::channel::value::strip_trailing_numbers;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuide, GuideUpdate};
+use crate::guide::{CoordinateGuideBuilder, CoordinateGuideRender, GuideUpdate};
 use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
-use crate::marks::Mark;
+use crate::marks::{Mark, MarkRenderer};
 use crate::scales::Scale;
 use crate::theme::{Theme, css::CssTheme};
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
-
+use serde::{Deserialize, Serialize};
+use crate::axis::Axis;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Plot2<C: CoordinateSystem> {
+    coord_system: C,
+    pub(crate) axis_specs: HashMap<String, AxisSpec>,
+
+    pub(crate) legends: IndexMap<String, Legend>,
+
+    pub(crate) marks: Vec<Arc<dyn MarkRenderer>>,
+    //
+    // /// Plot-level data for mark inheritance
+    // pub(crate) data: Option<DataFrame>,
+    //
+    // /// Scale specifications (local or referenced)
+    // pub(crate) scale_specs: HashMap<String, ScaleSpec>,
+
+    /// Mapping from scale names to their coordinate channel
+    /// e.g., "y2" -> "y", "x2" -> "x"
+    pub(crate) scale_to_coord_channel: HashMap<String, String>,
+
+    /// Layout specification for sizing and margins
+    pub(crate) layout_spec: LayoutSpec,
+
+    /// Optional plot title rendered by the layout system
+    pub(crate) title: Option<PlotTitle>,
+
+    /// Optional plot subtitle rendered by the layout system
+    pub(crate) subtitle: Option<PlotSubtitle>,
+
+    /// Theme for visual styling
+    pub(crate) theme: Option<Arc<dyn Theme>>,
+
+    /// Guide configuration
+    pub(crate) guide_config: Option<Arc<dyn CoordinateGuideRender>>,
+}
 
 #[derive(Clone)]
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
-    pub(crate) axis_specs: HashMap<String, AxisSpec<<C::Guide as CoordinateGuide>::Axis>>,
+    pub(crate) axis_specs: HashMap<String, AxisSpec>,
     pub(crate) legends: IndexMap<String, Legend>,
     pub(crate) marks: Vec<Arc<dyn Mark<C>>>,
 
@@ -93,7 +130,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Get a reference to the axis specifications
-    pub fn axis_specs(&self) -> &HashMap<String, AxisSpec<<C::Guide as CoordinateGuide>::Axis>> {
+    pub fn axis_specs(&self) -> &HashMap<String, AxisSpec> {
         &self.axis_specs
     }
 
@@ -245,7 +282,11 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Configure the guide (coordinate system visual elements like axes and background)
     pub fn configure_guide(mut self, guide: C::Guide) -> Self {
         self.guide_config = match self.guide_config {
-            Some(existing) => Some(existing.update(guide)),
+            Some(existing) => {
+                let mut updated = existing.clone();
+                updated.update(guide);
+                Some(updated)
+            },
             None => Some(guide),
         };
         self

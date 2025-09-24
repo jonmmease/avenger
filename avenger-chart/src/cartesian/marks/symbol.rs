@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{Mark, RadiusExpression};
+use crate::marks::{DataContext, Mark, MarkRenderer, MarkState, RadiusExpression};
 use crate::scales::{ScaleRange, ScaleSpec};
 use arrow::array::RecordBatch;
 use avenger_scales::scales::ScaleImpl;
@@ -15,6 +15,10 @@ use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
 use crate::render::RenderContext;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+// use crate::channel::ChannelDescriptor;
+use crate::coords::CoordinateSystemTransform;
+use crate::prelude::{Rect, ZeroDCoord};
 
 // Define position channels for Cartesian Symbol using the macro
 define_position_channels! {
@@ -30,7 +34,7 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Symbol
 impl Mark<Cartesian> for Symbol<Cartesian> {
-    impl_mark_trait_common!(Symbol, Cartesian, "symbol");
+    impl_mark_trait_common!(Symbol, "symbol");
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         Symbol::<Cartesian>::common_mark_specific_default(channel)
@@ -155,5 +159,17 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
             scale,
             &["x", "y", "x2", "y2"],
         )
+    }
+}
+
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CartesianSymbol {
+    pub(crate) state: MarkState,
+}
+
+impl From<Symbol<Cartesian>> for CartesianSymbol {
+    fn from(line: Symbol<Cartesian>) -> Self {
+        Self { state: line.state }
     }
 }
