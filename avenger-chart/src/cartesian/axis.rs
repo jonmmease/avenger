@@ -247,7 +247,7 @@ impl CartesianAxis {
     }
 }
 
-impl crate::axis::AxisUpdate for CartesianAxis {
+impl crate::axis::Axis for CartesianAxis {
     fn update(self, other: Self) -> Self {
         self.update(other)
     }

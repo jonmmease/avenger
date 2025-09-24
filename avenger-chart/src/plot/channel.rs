@@ -1,6 +1,6 @@
 //! Channel resolution and gathering methods for Plot
 
-use crate::axis::AxisUpdate;
+use crate::axis::Axis;
 use crate::channel::ConditionalValue;
 use crate::channel::resolution::resolve_all_channel_refs;
 use crate::coords::CoordinateSystem;
