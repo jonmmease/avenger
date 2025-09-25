@@ -41,6 +41,12 @@ define_position_channels! {
 impl Mark<Cartesian> for Line<Cartesian> {
     impl_mark_trait_common!(Line, "line");
 
+    fn build(&self) -> std::sync::Arc<dyn MarkRenderer> {
+        std::sync::Arc::new(CartesianLine {
+            state: self.state.clone()
+        })
+    }
+
     fn supports_order(&self) -> bool {
         true
     }
@@ -526,5 +532,259 @@ pub struct CartesianLine {
 impl From<Line<Cartesian>> for CartesianLine {
     fn from(line: Line<Cartesian>) -> Self {
         Self { state: line.state }
+    }
+}
+
+// MarkRenderer implementation
+#[typetag::serde]
+impl MarkRenderer for CartesianLine {
+    fn state(&self) -> &MarkState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut MarkState {
+        &mut self.state
+    }
+
+    fn data_context(&self) -> &DataContext {
+        &self.state.data
+    }
+
+    fn mark_type(&self) -> &str {
+        "line"
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        vec![]  // TODO: Implement channel descriptors properly
+    }
+
+    fn supports_order(&self) -> bool {
+        true
+    }
+
+    fn render_from_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &RenderContext,
+        coord: Box<dyn CoordinateSystemTransform>,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        use crate::marks::util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer, coerce_bool_channel_with_renderer};
+        use avenger_common::value::ScalarOrArrayValue;
+        use avenger_scales::scales::coerce::Coercer;
+        use avenger_scenegraph::marks::line::SceneLineMark;
+        use std::collections::BTreeMap;
+
+        // For lines, we need array data for positions
+        let data = data.ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Line mark requires array data for x and y positions".to_string(),
+            )
+        })?;
+
+        let len = data.num_rows();
+        let coercer = Coercer::default();
+
+        // Extract position channels
+        let mut position_channels = std::collections::HashMap::new();
+        for channel_name in coord.required_channels() {
+            let value =
+                coerce_numeric_channel_with_renderer(self, Some(data), scalars, channel_name, context, 0.0)?;
+            position_channels.insert(*channel_name, value);
+        }
+
+        // Transform position channels to plot coordinates
+        let geometry = coord.transform(&position_channels, context.plot_width, context.plot_height)?;
+        let geometry = geometry.as_any().downcast_ref::<crate::coords::PointGeometry>().ok_or_else(
+            || AvengerChartError::CoordinateSystemError("Failed to downcast to PointGeometry".to_string())
+        )?;
+
+        let x = geometry.x.clone();
+        let y = geometry.y.clone();
+
+        // Extract defined array (for gaps in the line)
+        let defined = coerce_bool_channel_with_renderer(self, Some(data), scalars, "defined", context, true)?;
+
+        // Extract style channels - check if they vary or are scalar
+        let stroke_array = data.column_by_name("stroke");
+        let width_array = data.column_by_name("stroke_width");
+        let dash_array = data.column_by_name("stroke_dash");
+
+        let has_varying_stroke = stroke_array.is_some();
+        let has_varying_width = width_array.is_some();
+        let has_varying_dash = dash_array.is_some();
+
+        // Extract scalar style properties
+        // TODO: Implement proper coercion for stroke_cap and stroke_join when available
+        let stroke_cap = self.default_channel_value("stroke_cap", context)
+            .and_then(|v| match v {
+                ScalarValue::Utf8(Some(s)) => {
+                    match s.as_str() {
+                        "butt" => Some(avenger_common::types::StrokeCap::Butt),
+                        "round" => Some(avenger_common::types::StrokeCap::Round),
+                        "square" => Some(avenger_common::types::StrokeCap::Square),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .unwrap_or(avenger_common::types::StrokeCap::Round);
+
+        let stroke_join = self.default_channel_value("stroke_join", context)
+            .and_then(|v| match v {
+                ScalarValue::Utf8(Some(s)) => {
+                    match s.as_str() {
+                        "miter" => Some(avenger_common::types::StrokeJoin::Miter),
+                        "round" => Some(avenger_common::types::StrokeJoin::Round),
+                        "bevel" => Some(avenger_common::types::StrokeJoin::Bevel),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .unwrap_or(avenger_common::types::StrokeJoin::Miter);
+
+        // Simple case: all style properties are uniform
+        if !has_varying_stroke && !has_varying_width && !has_varying_dash {
+            let stroke_scalar = coerce_color_channel_with_renderer(
+                self, None, scalars, "stroke", context, [0.0, 0.0, 0.0, 1.0]
+            )?;
+            let stroke = match stroke_scalar.value() {
+                ScalarOrArrayValue::Scalar(c) => c.clone(),
+                ScalarOrArrayValue::Array(arr) => arr[0].clone(),
+            };
+
+            let stroke_width_scalar = coerce_numeric_channel_with_renderer(
+                self, None, scalars, "stroke_width", context, 2.0
+            )?;
+            let stroke_width = match stroke_width_scalar.value() {
+                ScalarOrArrayValue::Scalar(w) => *w,
+                ScalarOrArrayValue::Array(arr) => arr[0],
+            };
+
+            let stroke_dash = if let Some(dash_scalar) = scalars.column_by_name("stroke_dash") {
+                let dash_vec = coercer.to_stroke_dash(dash_scalar)?.first().unwrap().clone();
+                if dash_vec.is_empty() { None } else { Some(dash_vec) }
+            } else {
+                None
+            };
+
+            let line_mark = SceneLineMark {
+                name: "line".to_string(),
+                clip: true,
+                len: len as u32,
+                x,
+                y,
+                gradients: vec![],
+                stroke,
+                stroke_width,
+                stroke_dash,
+                stroke_cap,
+                stroke_join,
+                defined,
+                zindex: self.state.zindex,
+            };
+
+            return Ok(vec![SceneMark::Line(line_mark)]);
+        }
+
+        // Complex case: need to partition based on varying style properties
+        // This is a simplified version - full implementation would need proper partitioning
+        // For now, just use the first values
+        let stroke_scalar = coerce_color_channel_with_renderer(
+            self, Some(data), scalars, "stroke", context, [0.0, 0.0, 0.0, 1.0]
+        )?;
+        let stroke = match stroke_scalar.value() {
+            ScalarOrArrayValue::Scalar(c) => c.clone(),
+            ScalarOrArrayValue::Array(arr) => arr[0].clone(),
+        };
+
+        let stroke_width_scalar = coerce_numeric_channel_with_renderer(
+            self, Some(data), scalars, "stroke_width", context, 2.0
+        )?;
+        let stroke_width = match stroke_width_scalar.value() {
+            ScalarOrArrayValue::Scalar(w) => *w,
+            ScalarOrArrayValue::Array(arr) => arr[0],
+        };
+
+        let stroke_dash = if dash_array.is_some() {
+            // For simplicity, just take the first value
+            let dashes = coercer.to_stroke_dash(dash_array.unwrap())?;
+            match dashes.value() {
+                ScalarOrArrayValue::Scalar(v) => {
+                    if v.is_empty() { None } else { Some(v.clone()) }
+                }
+                ScalarOrArrayValue::Array(arr) => {
+                    if !arr.is_empty() && !arr[0].is_empty() {
+                        Some(arr[0].clone())
+                    } else {
+                        None
+                    }
+                }
+            }
+        } else if let Some(dash_scalar) = scalars.column_by_name("stroke_dash") {
+            let dash_result = coercer.to_stroke_dash(dash_scalar)?;
+            match dash_result.value() {
+                ScalarOrArrayValue::Scalar(v) => {
+                    if v.is_empty() { None } else { Some(v.clone()) }
+                }
+                ScalarOrArrayValue::Array(arr) => {
+                    if !arr.is_empty() && !arr[0].is_empty() {
+                        Some(arr[0].clone())
+                    } else {
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        };
+
+        let line_mark = SceneLineMark {
+            name: "line".to_string(),
+            clip: true,
+            len: len as u32,
+            x,
+            y,
+            gradients: vec![],
+            stroke,
+            stroke_width,
+            stroke_dash,
+            stroke_cap,
+            stroke_join,
+            defined,
+            zindex: self.state.zindex,
+        };
+
+        Ok(vec![SceneMark::Line(line_mark)])
+    }
+
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
+        match channel {
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
+            "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),
+            "stroke_cap" => Some(ScalarValue::Utf8(Some("round".to_string()))),
+            "stroke_join" => Some(ScalarValue::Utf8(Some("round".to_string()))),
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
+            "interpolate" => Some(ScalarValue::Utf8(Some("linear".to_string()))),
+            "defined" => Some(ScalarValue::Boolean(Some(true))),
+            _ => None,
+        }
+    }
+
+    fn radius_expression(
+        &self,
+        dimension: &str,
+        resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        match dimension {
+            "y" => {
+                let stroke_width_expr = resolve_channel("stroke_width");
+                let radius_expr = stroke_width_expr * lit(2.0);
+                Some(RadiusExpression::Symmetric(radius_expr))
+            }
+            "x" => None,
+            _ => None,
+        }
     }
 }

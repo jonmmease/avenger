@@ -1,6 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
+use crate::impl_supported_channels;
 use crate::marks::{DataContext, Mark, MarkRenderer, MarkState};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -41,6 +42,12 @@ define_position_channels! {
 // Implement Mark trait for Cartesian Rect with any axis type
 impl Mark<Cartesian> for Rect<Cartesian> {
     impl_mark_trait_common!(Rect, "rect");
+
+    fn build(&self) -> std::sync::Arc<dyn MarkRenderer> {
+        std::sync::Arc::new(CartesianRect {
+            state: self.state.clone()
+        })
+    }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
@@ -197,5 +204,127 @@ pub struct CartesianRect {
 impl From<Rect<Cartesian>> for CartesianRect {
     fn from(line: Rect<Cartesian>) -> Self {
         Self { state: line.state }
+    }
+}
+
+// MarkRenderer implementation
+#[typetag::serde]
+impl MarkRenderer for CartesianRect {
+    fn state(&self) -> &MarkState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut MarkState {
+        &mut self.state
+    }
+
+    fn data_context(&self) -> &DataContext {
+        &self.state.data
+    }
+
+    fn mark_type(&self) -> &str {
+        "rect"
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        vec![]  // TODO: Implement channel descriptors properly
+    }
+
+    fn render_from_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &RenderContext,
+        coord: Box<dyn CoordinateSystemTransform>,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        use crate::marks::util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer};
+        use avenger_scenegraph::marks::rect::SceneRectMark;
+
+        // Determine number of marks from data batch or default to 1
+        let len = data.map_or(1, |data| data.num_rows()) as u32;
+
+        // Extract position channels - need all 4 for rectangles
+        let mut position_channels = std::collections::HashMap::new();
+
+        // For rectangles, we need x, x2, y, y2
+        let x = coerce_numeric_channel_with_renderer(self, data, scalars, "x", context, 0.0)?;
+        let x2 = coerce_numeric_channel_with_renderer(self, data, scalars, "x2", context, 0.0)?;
+        let y = coerce_numeric_channel_with_renderer(self, data, scalars, "y", context, 0.0)?;
+        let y2 = coerce_numeric_channel_with_renderer(self, data, scalars, "y2", context, 0.0)?;
+
+        position_channels.insert("x", x.clone());
+        position_channels.insert("x2", x2.clone());
+        position_channels.insert("y", y.clone());
+        position_channels.insert("y2", y2.clone());
+
+        // Extract style values using Coercer with mark defaults
+        let fill = coerce_color_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "fill",
+            context,
+            [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0], // Fallback steel blue
+        )?;
+        let stroke = coerce_color_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "stroke",
+            context,
+            [0.0, 0.0, 0.0, 1.0],
+        )?;
+        let stroke_width =
+            coerce_numeric_channel_with_renderer(self, data, scalars, "stroke_width", context, 1.0)?;
+        let corner_radius =
+            coerce_numeric_channel_with_renderer(self, data, scalars, "corner_radius", context, 0.0)?;
+
+        // Create SceneRectMark
+        let rect_mark = SceneRectMark {
+            name: "rect".to_string(),
+            clip: true,
+            len,
+            gradients: vec![],
+            x,
+            y,
+            width: None,
+            height: None,
+            x2: Some(x2),
+            y2: Some(y2),
+            fill,
+            stroke,
+            stroke_width,
+            corner_radius,
+            indices: None,
+            zindex: self.state.zindex,
+        };
+
+        Ok(vec![SceneMark::Rect(rect_mark)])
+    }
+
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
+        match channel {
+            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
+            "stroke_width" => Some(ScalarValue::Float32(Some(1.0))),
+            "corner_radius" => Some(ScalarValue::Float32(Some(0.0))),
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
+            _ => None,
+        }
+    }
+
+    fn preferred_legend_renderer(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
+        use crate::legend::renderer::rect::RectLegendRenderer;
+
+        match channel {
+            "fill" | "stroke" | "color" | "opacity" => {
+                Some(std::sync::Arc::new(RectLegendRenderer::new()))
+            }
+            _ => None,
+        }
     }
 }
