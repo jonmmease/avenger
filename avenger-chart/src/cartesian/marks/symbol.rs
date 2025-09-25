@@ -37,12 +37,6 @@ pub struct CartesianSymbol {
     pub(crate) state: MarkState,
 }
 
-impl From<Symbol<Cartesian>> for CartesianSymbol {
-    fn from(mark: Symbol<Cartesian>) -> Self {
-        Self { state: mark.state }
-    }
-}
-
 #[typetag::serde]
 impl MarkRenderer for CartesianSymbol {
     fn state(&self) -> &MarkState {

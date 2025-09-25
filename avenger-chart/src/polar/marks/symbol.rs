@@ -38,12 +38,6 @@ pub struct PolarSymbol {
     pub(crate) state: MarkState,
 }
 
-impl From<Symbol<Polar>> for PolarSymbol {
-    fn from(line: Symbol<Polar>) -> Self {
-        Self { state: line.state }
-    }
-}
-
 // MarkRenderer implementation
 #[typetag::serde]
 impl MarkRenderer for PolarSymbol {
