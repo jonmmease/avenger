@@ -987,75 +987,80 @@ impl SerializablePlotRenderer {
     }
 
 
-    /// Get legends with theme applied
+    /// Get legends with theme applied (matching PlotRenderer behavior)
     fn get_legends_with_theme(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> IndexMap<String, Legend> {
-        // Create default legends for channels that don't have explicit configuration
+        // 1. Start with plot-level legends
+        let mut all_legends = self.legends.clone();
+
+        // 2. Apply channel-level legend configs (from mark encodings)
+        for mark in &self.marks {
+            for (channel_name, channel_value) in mark.data_context().channels() {
+                if let Some(channel_legend) = channel_value.get_legend_config() {
+                    all_legends
+                        .entry(channel_name.clone())
+                        .and_modify(|legend| {
+                            *legend = legend.clone().update(channel_legend.clone())
+                        })
+                        .or_insert_with(|| channel_legend.clone());
+                }
+            }
+        }
+
+        // 3. Apply defaults for channels with scales but no legend config
         let default_legends = self.create_default_legends(scales);
-
-        // Merge with user-configured legends
-        // Apply defaults under user settings (defaults provide values for unset properties)
-        let mut all_legends = default_legends;
-        let theme = self.get_theme();
-
-        for (channel, user_legend) in &self.legends {
+        for (channel, default_legend) in default_legends {
             all_legends
-                .entry(channel.clone())
-                .and_modify(|legend| {
-                    // Apply user settings on top of defaults
-                    // This preserves theme defaults for properties not explicitly set by user
-                    *legend = legend.clone().update(user_legend.clone())
-                })
-                .or_insert_with(|| {
-                    // User configured a legend for a channel that wasn't in defaults
-                    // Apply theme defaults to it
-                    let mut legend = user_legend.clone();
+                .entry(channel)
+                .and_modify(|legend| *legend = default_legend.clone().update(legend.clone()))
+                .or_insert(default_legend);
+        }
 
-                    // Apply theme fonts if not explicitly set
-                    if matches!(legend.title_color, crate::maybe::Maybe::Unset) {
-                        legend.title_color = crate::maybe::Maybe::Set(theme.legend_title_color());
-                    }
-                    if matches!(legend.label_color, crate::maybe::Maybe::Unset) {
-                        legend.label_color = crate::maybe::Maybe::Set(theme.legend_label_color());
-                    }
-                    if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
-                        legend.title_font_family = crate::maybe::Maybe::Set(theme.legend_title_font_family());
-                    }
-                    if matches!(legend.title_font_size, crate::maybe::Maybe::Unset) {
-                        legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size());
-                    }
-                    if matches!(legend.title_font_weight, crate::maybe::Maybe::Unset) {
-                        legend.title_font_weight = crate::maybe::Maybe::Set(theme.legend_title_font_weight());
-                    }
-                    if matches!(legend.label_font_family, crate::maybe::Maybe::Unset) {
-                        legend.label_font_family = crate::maybe::Maybe::Set(theme.legend_label_font_family());
-                    }
-                    if matches!(legend.label_font_size, crate::maybe::Maybe::Unset) {
-                        legend.label_font_size = crate::maybe::Maybe::Set(theme.legend_label_font_size());
-                    }
-                    if matches!(legend.label_font_weight, crate::maybe::Maybe::Unset) {
-                        legend.label_font_weight = crate::maybe::Maybe::Set(theme.legend_label_font_weight());
-                    }
-                    if matches!(legend.tick_font_family, crate::maybe::Maybe::Unset) {
-                        legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family());
-                    }
-                    if matches!(legend.tick_font_size, crate::maybe::Maybe::Unset) {
-                        legend.tick_font_size = crate::maybe::Maybe::Set(theme.legend_tick_font_size());
-                    }
-                    if matches!(legend.tick_font_weight, crate::maybe::Maybe::Unset) {
-                        legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight());
-                    }
-                    if matches!(legend.tick_color, crate::maybe::Maybe::Unset) {
-                        legend.tick_color = crate::maybe::Maybe::Set(theme.legend_tick_color());
-                    }
-
-                    // Don't apply theme background settings here - they're only for default legends
-                    // This matches PlotRenderer behavior
-
-                    legend
-                });
+        // 4. Apply theme (only for Unset properties)
+        let theme = self.get_theme();
+        for legend in all_legends.values_mut() {
+            // Theme only fills in Unset values
+            // Apply theme fonts if not explicitly set
+            if matches!(legend.title_color, crate::maybe::Maybe::Unset) {
+                legend.title_color = crate::maybe::Maybe::Set(theme.legend_title_color());
+            }
+            if matches!(legend.label_color, crate::maybe::Maybe::Unset) {
+                legend.label_color = crate::maybe::Maybe::Set(theme.legend_label_color());
+            }
+            if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
+                legend.title_font_family = crate::maybe::Maybe::Set(theme.legend_title_font_family());
+            }
+            if matches!(legend.title_font_size, crate::maybe::Maybe::Unset) {
+                legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size());
+            }
+            if matches!(legend.title_font_weight, crate::maybe::Maybe::Unset) {
+                legend.title_font_weight = crate::maybe::Maybe::Set(theme.legend_title_font_weight());
+            }
+            if matches!(legend.label_font_family, crate::maybe::Maybe::Unset) {
+                legend.label_font_family = crate::maybe::Maybe::Set(theme.legend_label_font_family());
+            }
+            if matches!(legend.label_font_size, crate::maybe::Maybe::Unset) {
+                legend.label_font_size = crate::maybe::Maybe::Set(theme.legend_label_font_size());
+            }
+            if matches!(legend.label_font_weight, crate::maybe::Maybe::Unset) {
+                legend.label_font_weight = crate::maybe::Maybe::Set(theme.legend_label_font_weight());
+            }
+            if matches!(legend.tick_font_family, crate::maybe::Maybe::Unset) {
+                legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family());
+            }
+            if matches!(legend.tick_font_size, crate::maybe::Maybe::Unset) {
+                legend.tick_font_size = crate::maybe::Maybe::Set(theme.legend_tick_font_size());
+            }
+            if matches!(legend.tick_font_weight, crate::maybe::Maybe::Unset) {
+                legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight());
+            }
+            if matches!(legend.tick_color, crate::maybe::Maybe::Unset) {
+                legend.tick_color = crate::maybe::Maybe::Set(theme.legend_tick_color());
+            }
+            // Note: Don't apply theme background settings - they're only for default legends
+            // This matches PlotRenderer behavior
         }
 
         all_legends
