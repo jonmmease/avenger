@@ -109,7 +109,7 @@ impl SerializablePlotRenderer {
         let base_name = strip_trailing_numbers(name);
 
         // Build the default scale for the base name
-        let mut base_scale = self.create_default_scale_for_channel(base_name)?;
+        let mut base_scale = self.create_default_scale_for_channel_internal(base_name)?;
 
         // Apply coordinate-specific default range if applicable
         if let Some(range) = self.get_coordinate_default_range(name, plot_width, plot_height) {
@@ -151,28 +151,41 @@ impl SerializablePlotRenderer {
     }
 
     /// Create a default scale for a channel based on mark data types and preferences
-    fn create_default_scale_for_channel(&self, channel: &str) -> Result<Scale, AvengerChartError> {
+    fn create_default_scale_for_channel_internal(&self, channel: &str) -> Result<Scale, AvengerChartError> {
         use crate::scales::create_default_scale_for_channel;
         use crate::render::RenderContext;
         use crate::channel::resolution::resolve_all_channel_refs;
         use datafusion::logical_expr::lit;
+        use std::collections::HashMap;
 
-        // Look through marks to find the expression and data type for this channel
+        // Try to infer the data type and use mark-based scale preferences
         let mut scale_spec = None;
         let mut data_type = None;
-        let mut found_scale_type = None;
+        let mut found_mark = None;
 
+        // Look through marks to find the expression for this channel
         for mark in &self.marks {
             let channels = mark.data_context().channels();
 
-            // Try to resolve channel references
+            // Try to resolve channel references first
             let resolved_channels = match resolve_all_channel_refs(channels) {
                 Ok(resolved) => resolved,
-                Err(_) => continue,
+                Err(e) => {
+                    // If resolution failed (e.g., due to cycles), return an error
+                    if channels.contains_key(channel) {
+                        return Err(AvengerChartError::InternalError(format!(
+                            "Cannot create scale for channel '{}': {}",
+                            channel, e
+                        )));
+                    }
+                    // Channel doesn't exist in this mark, continue to next
+                    continue;
+                }
             };
 
             if let Some(channel_value) = resolved_channels.get(channel) {
                 // Get the dataframe for this mark
+                // Use mark's explicit data if available, otherwise inherit from plot
                 let df = mark.data_context().dataframe().or(self.data.as_ref());
 
                 // Try to get the data type of the channel
@@ -181,9 +194,7 @@ impl SerializablePlotRenderer {
                     if let Some(dt) = channel_value.get_data_type(schema) {
                         data_type = Some(dt.clone());
                         scale_spec = mark.preferred_scale_type(channel, &dt);
-                        if let Some(ref spec) = scale_spec {
-                            found_scale_type = Some(spec.name().to_string());
-                        }
+                        found_mark = Some(mark);
                         break;
                     }
                 }
@@ -198,23 +209,75 @@ impl SerializablePlotRenderer {
         })?;
 
         // Create render context with theme for scale defaults
+        // Use placeholder dimensions since we're not rendering yet
         let theme = self.get_theme();
         let context = RenderContext::new(theme, 0.0, 0.0);
 
         // Create scale with theme-based defaults
         let mut scale = create_default_scale_for_channel(channel, scale_spec, &context)?;
 
-        // Apply coordinate system scale options if we have a scale type
-        if let Some(scale_type) = found_scale_type {
-            let coord_options = self.coord_transform.default_scale_options(channel, &scale_type);
+        // Apply coordinate system and mark-specific scale options
+        // These override theme defaults
+        if let (Some(dt), Some(mark)) = (&data_type, found_mark) {
+            let mut default_options = HashMap::new();
 
-            // Convert ScalarValue to Expr and apply supported options
-            for (key, value) in coord_options {
-                scale = scale.option(&key, lit(value));
+            // Create ScaleImpl from ScaleSpec for methods that need it
+            let scale_impl = scale.get_scale_impl().ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Failed to create scale implementation for channel '{}'",
+                    channel
+                ))
+            })?;
+
+            // First get coordinate system defaults (for all channels, not just position)
+            // The coord_transform has a default_scale_options method that returns ScalarValue
+            let coord_options = self.coord_transform.default_scale_options(
+                channel,
+                scale_impl.scale_type()
+            );
+
+            // Convert ScalarValue to Expr for compatibility
+            let coord_options_expr: HashMap<String, datafusion::logical_expr::Expr> =
+                coord_options.into_iter()
+                    .map(|(k, v)| (k, lit(v)))
+                    .collect();
+            default_options.extend(coord_options_expr);
+
+            // Then get mark-specific scale option preferences
+            // We already know this mark has the channel since we found it above
+            let mark_options = mark.default_scale_options(channel, scale_impl.as_ref(), dt);
+            // Mark preferences override coordinate system defaults
+            default_options.extend(mark_options);
+
+            // Get the supported options for this scale type
+            let option_definitions = scale_impl.option_definitions();
+            let supported_options: std::collections::HashSet<&str> = option_definitions
+                .iter()
+                .map(|def| def.name.as_str())
+                .collect();
+
+            // Only apply options that are supported by this scale
+            for (key, value) in default_options {
+                if supported_options.contains(key.as_str()) {
+                    scale = scale.option(&key, value);
+                }
             }
         }
 
         Ok(scale)
+    }
+
+    /// Gather mark data and encoding expressions that use this scale with radius information
+    fn gather_scale_domain_expressions_with_radius(
+        &self,
+        scale_name: &str,
+        _configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _context: &crate::render::RenderContext,
+    ) -> Result<Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr, Option<crate::marks::RadiusExpression>)>, AvengerChartError> {
+        // For now, just use the regular gather method and add None for radius
+        // A full implementation would need to check for radius channels and compute radius expressions
+        let regular_exprs = self.gather_scale_domain_expressions(scale_name)?;
+        Ok(regular_exprs.into_iter().map(|(df, expr)| (df, expr, None)).collect())
     }
 
     /// Gather mark data and encoding expressions that use this scale
@@ -223,29 +286,73 @@ impl SerializablePlotRenderer {
         scale_name: &str,
     ) -> Result<Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)>, AvengerChartError> {
         use crate::channel::resolution::resolve_all_channel_refs;
+        use crate::channel::value::ChannelValue;
 
         let mut data_expressions = Vec::new();
 
         for mark in &self.marks {
+            // Get channels and resolve references first to check if columns are referenced
             let channels = mark.data_context().channels();
             let resolved_channels = resolve_all_channel_refs(channels)?;
 
-            // Check if this mark uses the scale
-            let uses_scale = resolved_channels.iter().any(|(ch_name, ch_value)| {
-                ch_value.get_scale_name(ch_name) == Some(scale_name.to_string())
-            });
+            // Check if any expressions reference columns
+            let references_columns =
+                resolved_channels
+                    .values()
+                    .any(|channel_value| match channel_value {
+                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                            !expr.column_refs().is_empty()
+                        }
+                        ChannelValue::Conditional {
+                            conditions,
+                            otherwise,
+                            ..
+                        } => {
+                            conditions.iter().any(|(condition, value)| {
+                                !condition.column_refs().is_empty()
+                                    || !value.expr().column_refs().is_empty()
+                            }) || !otherwise.expr().column_refs().is_empty()
+                        }
+                    });
 
-            if !uses_scale {
+            // Determine DataFrame for this mark
+            let df = if let Some(mark_df) = mark.data_context().dataframe() {
+                // Mark has explicit data
+                Arc::new(mark_df.clone())
+            } else if !references_columns {
+                // No column references - skip domain inference for unit marks
                 continue;
-            }
+            } else if let Some(plot_data) = &self.data {
+                // Inherit from plot
+                Arc::new(plot_data.clone())
+            } else {
+                // No data available - skip this mark
+                continue;
+            };
 
-            // Get the dataframe for this mark
-            let df = mark.data_context().dataframe().or(self.data.as_ref());
-            if let Some(df) = df {
-                // Get the expression for this channel
-                if let Some(channel_value) = resolved_channels.get(scale_name) {
-                    if let Some(expr) = channel_value.expr() {
-                        data_expressions.push((Arc::new(df.clone()), expr.clone()));
+            // Check all encodings in the mark's data context
+            for (channel, channel_value) in &resolved_channels {
+                // Check if this channel uses our scale
+                // Get the scale name this channel would use
+                if let Some(channel_scale_name) = channel_value.get_scale_name(channel) {
+                    if channel_scale_name == scale_name {
+                        // Get the expressions - handle conditional values properly
+                        match channel_value {
+                            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                                data_expressions.push((df.clone(), expr.clone()));
+                            }
+                            ChannelValue::Conditional {
+                                conditions,
+                                otherwise,
+                                ..
+                            } => {
+                                // Add expressions from all conditions and the otherwise branch
+                                for (_, value) in conditions {
+                                    data_expressions.push((df.clone(), value.expr().clone()));
+                                }
+                                data_expressions.push((df.clone(), otherwise.expr().clone()));
+                            }
+                        }
                     }
                 }
             }
@@ -911,14 +1018,49 @@ impl SerializablePlotRenderer {
                     .iter()
                     .any(|&ch| ch == name || name == &format!("{}2", ch));
 
-                if is_positional && (name == "size" || name == "strokeWidth") {
-                    // For size and strokeWidth positional scales, gather radius values
-                    if let Some(_radius_scale) = configured_non_positional.get("radius") {
-                        // Apply radius context to domain gathering
-                        // This is a simplified version - actual implementation would need
-                        // to properly handle radius-aware domain computation
-                        // For now, we'll skip this as it requires DataFrame context
+                if scale
+                    .get_scale_impl()
+                    .map(|impl_| impl_.supports_radius_expansion())
+                    .unwrap_or(false)
+                    && is_positional
+                {
+                    // Use the method that gathers radius information
+                    let data_expressions_with_radius =
+                        self.gather_scale_domain_expressions_with_radius(
+                            name,
+                            configured_non_positional,
+                            context,
+                        )?;
+
+                    // Check if any expressions actually have radius
+                    let has_radius = data_expressions_with_radius
+                        .iter()
+                        .any(|(_, _, radius)| radius.is_some());
+
+                    if !data_expressions_with_radius.is_empty() && has_radius {
+                        // Use the method that accepts radius
+                        scale = scale.domain_data_fields_with_radius(data_expressions_with_radius);
+                    } else if !data_expressions_with_radius.is_empty() {
+                        // Convert to standard expressions (without radius)
+                        let data_expressions: Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)> =
+                            data_expressions_with_radius
+                                .into_iter()
+                                .map(|(df, expr, _)| (df, expr))
+                                .collect();
+                        scale = scale.domain_data_fields(data_expressions);
                     }
+                } else {
+                    // Use standard domain gathering for non-linear scales
+                    let data_expressions = self.gather_scale_domain_expressions(name)?;
+                    if !data_expressions.is_empty() {
+                        scale = scale.domain_data_fields(data_expressions);
+                    }
+                }
+            } else {
+                // No radius context - use standard domain gathering
+                let data_expressions = self.gather_scale_domain_expressions(name)?;
+                if !data_expressions.is_empty() {
+                    scale = scale.domain_data_fields(data_expressions);
                 }
             }
         }
@@ -933,6 +1075,28 @@ impl SerializablePlotRenderer {
             use datafusion::prelude::lit;
             scale = scale.range_interval(lit(min), lit(max));
         }
+
+        // Step 3: Infer domain from data if needed (resolve DomainExprs)
+        if scale
+            .domain
+            .as_ref()
+            .map(|d| {
+                matches!(
+                    &d.default_domain,
+                    crate::scales::ScaleDefaultDomain::DomainExprs(_)
+                )
+            })
+            .unwrap_or(false)
+        {
+            scale = scale
+                .infer_domain_from_data(context.plot_width, context.plot_height)
+                .await?;
+        }
+
+        // Step 4: Normalize domain (apply zero, nice, padding)
+        scale = scale
+            .normalize_domain(context.plot_width, context.plot_height)
+            .await?;
 
         // Create the configured scale
         scale.create_configured_scale(context.plot_width, context.plot_height).await
@@ -993,7 +1157,14 @@ impl SerializablePlotRenderer {
         // Build configured non-positional scales first (they don't depend on plot dimensions)
         let mut configured_non_positional = HashMap::new();
         for (name, scale) in non_positional_scales {
-            let configured = scale.create_configured_scale(context.plot_width, context.plot_height).await?;
+            let configured = self
+                .build_configured_scale_with_radius_context(
+                    scale,
+                    &name,
+                    context,
+                    None, // No radius context for non-positional scales
+                )
+                .await?;
             configured_non_positional.insert(name, configured);
         }
 
@@ -1887,7 +2058,7 @@ impl<C: CoordinateSystem + Default> Plot<C> {
 }
 
 impl<C: CoordinateSystem> Plot<C> {
-    /// Build a serializable plot renderer from this plot
+    /// Build a serializable plot renderer from this plot (consuming self)
     pub fn build(mut self) -> SerializablePlotRenderer {
         // Always build guide renderer - either from config or default
         if self.guide_renderer.is_none() {
@@ -1914,6 +2085,39 @@ impl<C: CoordinateSystem> Plot<C> {
             scale_specs: self.scale_specs,
             data: self.data,
         }
+    }
+
+    /// Build a serializable plot renderer from a reference to this plot
+    /// This clones the necessary internal data structures
+    /// NOTE: This method rebuilds the guide from scratch, which might result in slightly
+    /// different behavior than the consuming build() method if the guide was manually modified.
+    pub fn build_ref(&self) -> SerializablePlotRenderer
+    where
+        C: Clone,
+    {
+        // For now, we'll create a mutable clone of self and use the regular build method
+        // This is a workaround until we can properly handle guide cloning
+        // The main use case (tests) doesn't modify plots after creation, so this should be safe
+
+        // Clone all the internal data
+        let mut cloned = Plot {
+            coord_system: self.coord_system.clone(),
+            axis_specs: self.axis_specs.clone(),
+            legends: self.legends.clone(),
+            mark_renderers: self.mark_renderers.clone(),
+            data: self.data.clone(),
+            scale_specs: self.scale_specs.clone(),
+            scale_to_coord_channel: self.scale_to_coord_channel.clone(),
+            layout_spec: self.layout_spec.clone(),
+            title: self.title.clone(),
+            subtitle: self.subtitle.clone(),
+            theme: self.theme.clone(),
+            guide_config: self.guide_config.clone(),
+            guide_renderer: None, // Will be built fresh
+        };
+
+        // Use the regular build method
+        cloned.build()
     }
 
     /// Get a reference to the coordinate system
