@@ -1051,23 +1051,8 @@ impl SerializablePlotRenderer {
                         legend.tick_color = crate::maybe::Maybe::Set(theme.legend_tick_color());
                     }
 
-                    // Apply theme background settings if not set
-                    if matches!(legend.background_padding, crate::maybe::Maybe::Unset) {
-                        legend.background_padding = crate::maybe::Maybe::Set(theme.legend_background_padding());
-                    }
-                    if matches!(legend.background_corner_radius, crate::maybe::Maybe::Unset) {
-                        legend.background_corner_radius = crate::maybe::Maybe::Set(theme.legend_background_corner_radius());
-                    }
-                    if matches!(legend.background_fill, crate::maybe::Maybe::Unset) {
-                        if let Some(fill) = theme.legend_background_fill() {
-                            legend.background_fill = crate::maybe::Maybe::Set(fill);
-                        }
-                    }
-                    if matches!(legend.background_stroke, crate::maybe::Maybe::Unset) {
-                        if let Some(stroke) = theme.legend_background_stroke() {
-                            legend.background_stroke = crate::maybe::Maybe::Set(stroke);
-                        }
-                    }
+                    // Don't apply theme background settings here - they're only for default legends
+                    // This matches PlotRenderer behavior
 
                     legend
                 });
