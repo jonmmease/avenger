@@ -5,9 +5,10 @@ use crate::scales::{Auto, Scale};
 use serde::{Deserialize, Serialize};
 
 /// How a scale is defined for a channel
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ScaleSpec {
     /// Scale defined locally on this plot with configuration
+    #[serde(skip)]
     Local(Scale<Auto>),
 }
 
