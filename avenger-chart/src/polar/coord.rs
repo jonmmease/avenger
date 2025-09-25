@@ -5,11 +5,12 @@ use crate::error::AvengerChartError;
 use crate::guide::CoordinateGuideBuilder;
 use crate::polar::{PolarAxis, PolarAxisType, PolarGuide};
 use avenger_scenegraph::marks::group::Clip;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Polar coordinate system with radial and angular axes
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Polar {}
 
 impl Polar {
@@ -171,6 +172,7 @@ impl CoordinateSystem for Polar {
     }
 }
 
+#[typetag::serde]
 impl CoordinateSystemTransform for Polar {
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]

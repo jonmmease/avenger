@@ -188,7 +188,8 @@ pub fn extract_channel_title_from_marks(
     None
 }
 
-pub trait CoordinateSystemTransform {
+#[typetag::serde(tag = "type")]
+pub trait CoordinateSystemTransform: Send + Sync {
     fn required_channels(&self) -> &'static [&'static str];
 
     /// Transform position channels to coordinate system geometry
@@ -209,4 +210,28 @@ pub trait CoordinateSystemTransform {
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn PlotGeometry>, AvengerChartError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cartesian::Cartesian;
+
+    #[test]
+    fn test_coordinate_transform_serialization() {
+        // Create a coordinate system transform
+        let cartesian = Cartesian::default();
+        let transform: Box<dyn CoordinateSystemTransform> = Box::new(cartesian);
+
+        // Serialize it
+        let json = serde_json::to_string(&transform).unwrap();
+        assert!(json.contains("\"type\":\"Cartesian\""));
+
+        // Deserialize it
+        let deserialized: Box<dyn CoordinateSystemTransform> =
+            serde_json::from_str(&json).unwrap();
+
+        // Check that required channels match
+        assert_eq!(deserialized.required_channels(), &["x", "y"]);
+    }
 }

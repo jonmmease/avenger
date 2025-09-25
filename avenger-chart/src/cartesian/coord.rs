@@ -179,6 +179,7 @@ impl CoordinateSystem for Cartesian {
     }
 }
 
+#[typetag::serde]
 impl CoordinateSystemTransform for Cartesian {
     fn required_channels(&self) -> &'static [&'static str] {
         &["x", "y"]
