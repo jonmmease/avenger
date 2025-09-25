@@ -33,17 +33,17 @@ impl Symbol<ZeroDCoord> {
 
 // Implement Mark trait for ZeroDCoord Symbol
 impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
-    impl_mark_trait_common!(Symbol, ZeroDSymbol);
+    impl_mark_trait_common!(Symbol, ZeroDSymbolRenderer);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct ZeroDSymbol {
+pub struct ZeroDSymbolRenderer {
     pub(crate) state: MarkState,
 }
 
 // MarkRenderer implementation
 #[typetag::serde]
-impl MarkRenderer for ZeroDSymbol {
+impl MarkRenderer for ZeroDSymbolRenderer {
     fn state(&self) -> &MarkState {
         &self.state
     }

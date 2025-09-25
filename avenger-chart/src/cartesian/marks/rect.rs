@@ -33,17 +33,17 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Rect with any axis type
 impl Mark<Cartesian> for Rect<Cartesian> {
-    impl_mark_trait_common!(Rect, CartesianRect);
+    impl_mark_trait_common!(Rect, CartesianRectRenderer);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CartesianRect {
+pub struct CartesianRectRenderer {
     pub(crate) state: MarkState,
 }
 
 // MarkRenderer implementation
 #[typetag::serde]
-impl MarkRenderer for CartesianRect {
+impl MarkRenderer for CartesianRectRenderer {
     fn state(&self) -> &MarkState {
         &self.state
     }
