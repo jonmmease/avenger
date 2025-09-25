@@ -249,14 +249,7 @@ impl MarkRenderer for CartesianRectRenderer {
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        match channel {
-            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
-            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
-            "stroke_width" => Some(ScalarValue::Float32(Some(1.0))),
-            "corner_radius" => Some(ScalarValue::Float32(Some(0.0))),
-            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
-            _ => None,
-        }
+        crate::marks::rect::rect_channel_defaults(channel)
     }
 
     fn preferred_scale_type(

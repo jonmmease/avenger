@@ -8,6 +8,7 @@ use crate::{define_common_mark_channels, impl_mark_base};
 use datafusion::arrow::array::ArrayRef;
 use datafusion::arrow::compute::kernels::cast::cast;
 use datafusion::arrow::datatypes::DataType;
+use datafusion_common::ScalarValue;
 
 pub struct Line<C: CoordinateSystem> {
     pub(crate) state: MarkState,
@@ -77,5 +78,19 @@ pub fn ensure_dictionary_array(array: &ArrayRef) -> Result<ArrayRef, AvengerChar
             );
             Ok(cast(array, &dict_type)?)
         }
+    }
+}
+
+/// Get default values for Line mark channels
+pub fn line_channel_defaults(channel: &str) -> Option<ScalarValue> {
+    match channel {
+        "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
+        "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),
+        "stroke_cap" => Some(ScalarValue::Utf8(Some("round".to_string()))),
+        "stroke_join" => Some(ScalarValue::Utf8(Some("round".to_string()))),
+        "opacity" => Some(ScalarValue::Float32(Some(1.0))),
+        "interpolate" => Some(ScalarValue::Utf8(Some("linear".to_string()))),
+        "defined" => Some(ScalarValue::Boolean(Some(true))),
+        _ => None,
     }
 }

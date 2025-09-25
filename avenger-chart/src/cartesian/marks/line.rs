@@ -508,16 +508,7 @@ impl MarkRenderer for CartesianLineRenderer {
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        match channel {
-            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
-            "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),
-            "stroke_cap" => Some(ScalarValue::Utf8(Some("round".to_string()))),
-            "stroke_join" => Some(ScalarValue::Utf8(Some("round".to_string()))),
-            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
-            "interpolate" => Some(ScalarValue::Utf8(Some("linear".to_string()))),
-            "defined" => Some(ScalarValue::Boolean(Some(true))),
-            _ => None,
-        }
+        crate::marks::line::line_channel_defaults(channel)
     }
 
     fn radius_expression(
