@@ -56,9 +56,6 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Get the data context for this mark (for accessing encodings and data)
     fn data_context(&self) -> &DataContext;
 
-    /// Get the mark type name (e.g., "rect", "line", "symbol")
-    fn mark_type(&self) -> &str;
-
     /// Build a MarkRenderer from this Mark
     /// This enables type-erased rendering without the coordinate system generic
     fn build(&self) -> Arc<dyn MarkRenderer>;

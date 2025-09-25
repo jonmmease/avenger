@@ -28,7 +28,7 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Line with any axis type
 impl Mark<Cartesian> for Line<Cartesian> {
-    impl_mark_trait_common!(Line, "line", CartesianLine);
+    impl_mark_trait_common!(Line, CartesianLine);
 }
 
 #[derive(Clone, Serialize, Deserialize)]

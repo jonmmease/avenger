@@ -29,7 +29,7 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Symbol
 impl Mark<Cartesian> for Symbol<Cartesian> {
-    impl_mark_trait_common!(Symbol, "symbol", CartesianSymbol);
+    impl_mark_trait_common!(Symbol, CartesianSymbol);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
