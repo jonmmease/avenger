@@ -227,7 +227,7 @@ impl MarkRenderer for ZeroDSymbolRenderer {
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        Symbol::<ZeroDCoord>::common_mark_specific_default(channel)
+        crate::marks::symbol::symbol_channel_defaults(channel)
     }
 
     fn preferred_legend_renderer(
@@ -236,6 +236,6 @@ impl MarkRenderer for ZeroDSymbolRenderer {
         scale: &avenger_scales::scales::ConfiguredScale,
     ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
         // Use the same logic as the Symbol mark, with no position channels
-        Symbol::<ZeroDCoord>::common_preferred_legend_renderer(channel, scale, &[])
+        crate::marks::symbol::symbol_legend_renderer(channel, scale, &[])
     }
 }

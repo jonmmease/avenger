@@ -247,7 +247,7 @@ impl MarkRenderer for CartesianSymbolRenderer {
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        Symbol::<Cartesian>::common_mark_specific_default(channel)
+        crate::marks::symbol::symbol_channel_defaults(channel)
     }
 
     fn radius_expression(
@@ -280,11 +280,7 @@ impl MarkRenderer for CartesianSymbolRenderer {
         scale: &avenger_scales::scales::ConfiguredScale,
     ) -> Option<Arc<dyn crate::legend::LegendRenderer>> {
         // Use the same logic as the Symbol mark
-        Symbol::<Cartesian>::common_preferred_legend_renderer(
-            channel,
-            scale,
-            &["x", "y", "x2", "y2"],
-        )
+        crate::marks::symbol::symbol_legend_renderer(channel, scale, &["x", "y", "x2", "y2"])
     }
 
     fn preferred_scale_type(
