@@ -192,6 +192,9 @@ pub fn extract_channel_title_from_marks(
 pub trait CoordinateSystemTransform: Send + Sync {
     fn required_channels(&self) -> &'static [&'static str];
 
+    /// Clone this transform into a new boxed instance
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform>;
+
     /// Transform position channels to coordinate system geometry
     ///
     /// Takes position data in the coordinate system's native space (after scaling)
