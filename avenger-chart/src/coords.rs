@@ -210,6 +210,42 @@ pub trait CoordinateSystemTransform: Send + Sync {
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn PlotGeometry>, AvengerChartError>;
+
+    /// Get the default range for a coordinate channel
+    ///
+    /// Returns the default range for a given channel based on plot dimensions.
+    /// This is used for positional scales like x, y, r, theta.
+    ///
+    /// # Arguments
+    /// * `channel` - The channel name (e.g., "x", "y", "r", "theta")
+    /// * `plot_area_width` - Width of the plot area
+    /// * `plot_area_height` - Height of the plot area
+    ///
+    /// # Returns
+    /// The default range as (min, max) or None if not a coordinate channel
+    fn default_range(
+        &self,
+        channel: &str,
+        plot_area_width: f64,
+        plot_area_height: f64,
+    ) -> Option<(f64, f64)>;
+
+    /// Get default scale options for a coordinate channel
+    ///
+    /// Returns coordinate-specific scale options that should be applied
+    /// to scales for this channel.
+    ///
+    /// # Arguments
+    /// * `channel` - The channel name
+    /// * `scale_type` - The type of scale being configured
+    ///
+    /// # Returns
+    /// Map of option names to their values
+    fn default_scale_options(
+        &self,
+        channel: &str,
+        scale_type: &str,
+    ) -> HashMap<String, datafusion::scalar::ScalarValue>;
 }
 
 #[cfg(test)]

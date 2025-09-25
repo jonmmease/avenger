@@ -280,4 +280,21 @@ impl CoordinateGuideRender for CartesianGuide {
 
         Ok(marks)
     }
+
+    fn get_clip(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> avenger_scenegraph::marks::group::Clip {
+        use avenger_scenegraph::marks::group::Clip;
+
+        // Cartesian coordinates use a rectangular clip
+        Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: plot_width,
+            height: plot_height,
+        }
+    }
 }
