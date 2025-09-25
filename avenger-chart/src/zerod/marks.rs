@@ -41,12 +41,6 @@ pub struct ZeroDSymbol {
     pub(crate) state: MarkState,
 }
 
-impl From<Symbol<ZeroDCoord>> for ZeroDSymbol {
-    fn from(line: Symbol<ZeroDCoord>) -> Self {
-        Self { state: line.state }
-    }
-}
-
 // MarkRenderer implementation
 #[typetag::serde]
 impl MarkRenderer for ZeroDSymbol {

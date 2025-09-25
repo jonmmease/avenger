@@ -41,12 +41,6 @@ pub struct CartesianRect {
     pub(crate) state: MarkState,
 }
 
-impl From<Rect<Cartesian>> for CartesianRect {
-    fn from(line: Rect<Cartesian>) -> Self {
-        Self { state: line.state }
-    }
-}
-
 // MarkRenderer implementation
 #[typetag::serde]
 impl MarkRenderer for CartesianRect {
