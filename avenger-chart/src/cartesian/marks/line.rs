@@ -28,13 +28,7 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Line with any axis type
 impl Mark<Cartesian> for Line<Cartesian> {
-    impl_mark_trait_common!(Line, "line");
-
-    fn build(&self) -> std::sync::Arc<dyn MarkRenderer> {
-        std::sync::Arc::new(CartesianLine {
-            state: self.state.clone(),
-        })
-    }
+    impl_mark_trait_common!(Line, "line", CartesianLine);
 }
 
 #[derive(Clone, Serialize, Deserialize)]

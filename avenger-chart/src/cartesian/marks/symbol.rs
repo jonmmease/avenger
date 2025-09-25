@@ -29,13 +29,7 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Symbol
 impl Mark<Cartesian> for Symbol<Cartesian> {
-    impl_mark_trait_common!(Symbol, "symbol");
-
-    fn build(&self) -> Arc<dyn MarkRenderer> {
-        Arc::new(CartesianSymbol {
-            state: self.state.clone(),
-        })
-    }
+    impl_mark_trait_common!(Symbol, "symbol", CartesianSymbol);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
