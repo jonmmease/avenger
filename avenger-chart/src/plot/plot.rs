@@ -10,12 +10,14 @@ use crate::guide::{CoordinateGuideBuilder, CoordinateGuideRender};
 use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
 use crate::marks::{Mark, MarkRenderer};
+use crate::render::RenderContext;
 use crate::scales::Scale;
 use crate::theme::{Theme, css::CssTheme};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -1060,9 +1062,12 @@ impl SerializablePlotRenderer {
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> crate::legend::LegendChannel {
         use crate::legend::{ChannelInfo, LegendChannel};
+        use datafusion::logical_expr::lit;
 
         // Collect related channels from the mark
         let mut related_channels = HashMap::new();
+
+        // First add explicitly set channels
         for (other_name, other_value) in mark.data_context().channels() {
             if other_name != channel_name {
                 // Check if this channel has a scale or is constant
@@ -1080,6 +1085,30 @@ impl SerializablePlotRenderer {
                     continue;
                 };
                 related_channels.insert(other_name.clone(), channel_info);
+            }
+        }
+
+        // For channels not explicitly set, check if they have theme defaults
+        // This ensures legend symbols match the chart's actual appearance
+        let context = RenderContext {
+            plot_width: 100.0, // Dummy values for getting defaults
+            plot_height: 100.0,
+            theme: self.get_theme(),
+        };
+
+        // Iterate through all supported channels of this mark
+        for channel_desc in mark.supported_channels() {
+            let other_name = channel_desc.name;
+            if other_name != channel_name && !related_channels.contains_key(other_name) {
+                // Channel not explicitly set - check for theme default
+                if let Some(default_value) = mark.default_channel_value(other_name, &context) {
+                    // Add as a constant channel
+                    let expr = lit(default_value);
+                    related_channels.insert(
+                        other_name.to_string(),
+                        ChannelInfo::Constant { expr }
+                    );
+                }
             }
         }
 
@@ -2209,13 +2238,12 @@ impl<C: CoordinateSystem> Plot<C> {
             // We need to populate axes from axis_specs before building
             // This mirrors what PlotRenderer does in render/guide.rs
             use crate::guide::CoordinateGuideBuilder;
-
-            // Note: We can't create default axes here because we don't have scales yet
-            // The guide will need to handle creating defaults when it renders
-            // For now, just transfer the user-specified axes from axis_specs
+            use crate::coords::extract_channel_title_from_marks;
 
             // Create axes map for the guide
             let mut guide_axes = HashMap::new();
+
+            // First, add user-specified axes from axis_specs
             for (channel, axis_spec) in &self.axis_specs {
                 if let crate::plot::AxisSpec::Local(axis_config) = axis_spec {
                     // The axis_config is already the correct type for this coordinate system
@@ -2226,6 +2254,42 @@ impl<C: CoordinateSystem> Plot<C> {
                         .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
                     {
                         guide_axes.insert(channel.clone(), typed_axis.clone());
+                    }
+                }
+            }
+
+            // For Cartesian coordinates, create default axes with titles for x and y channels
+            // This ensures axes get titles extracted from mark encodings
+            if std::any::TypeId::of::<C>() == std::any::TypeId::of::<crate::cartesian::Cartesian>() {
+                use crate::cartesian::axis::{CartesianAxis, AxisPosition};
+
+                for channel in ["x", "y"] {
+                    // Only create default if user hasn't specified one
+                    if !guide_axes.contains_key(channel) && !self.axis_specs.contains_key(channel) {
+                        // Set default position based on channel
+                        let position = match channel {
+                            "x" => AxisPosition::Bottom,
+                            "y" => AxisPosition::Left,
+                            _ => AxisPosition::Bottom,
+                        };
+
+                        let mut axis = CartesianAxis::new()
+                            .position(position)
+                            .visible(true);
+
+                        // Extract title from mark encodings
+                        if let Some(title) = extract_channel_title_from_marks(&self.mark_renderers, channel) {
+                            axis = axis.title(title);
+                        }
+
+                        // Downcast and insert if successful
+                        let boxed_axis: Box<dyn crate::axis::Axis> = Box::new(axis);
+                        if let Some(typed_axis) = boxed_axis
+                            .as_any()
+                            .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
+                        {
+                            guide_axes.insert(channel.to_string(), typed_axis.clone());
+                        }
                     }
                 }
             }

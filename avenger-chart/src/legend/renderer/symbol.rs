@@ -462,12 +462,34 @@ impl LegendRenderer for SymbolLegendRenderer {
 
         if channels.iter().all(|c| c.channel_type != "size") {
             // Size not varying - use constant if available
+            if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
+                eprintln!("DEBUG: Checking for constant size in legend");
+                eprintln!("  related_channels keys: {:?}", primary_channel.related_channels.keys().collect::<Vec<_>>());
+                eprintln!("  mark_encodings keys: {:?}", self.mark_encodings.keys().collect::<Vec<_>>());
+                eprintln!("  default_size from theme: {}", default_size);
+            }
+
             if let Some(size_value) = helpers::get_constant_f32(
                 "size",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
             ) {
+                if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
+                    eprintln!("  Found constant size: {}", size_value);
+                }
                 legend_config.size = ScalarOrArray::new_scalar(size_value);
+            } else {
+                // No explicit size channel - use theme default if it's not the standard default
+                if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
+                    eprintln!("  No constant size found, checking if theme default {} is different from standard 64.0", default_size);
+                }
+                // If the theme has set a non-standard size, use it
+                if default_size != 64.0 {
+                    if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
+                        eprintln!("  Using theme default size: {}", default_size);
+                    }
+                    legend_config.size = ScalarOrArray::new_scalar(default_size);
+                }
             }
         }
 
