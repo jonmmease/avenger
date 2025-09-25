@@ -2,14 +2,10 @@ use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
 use crate::marks::{DataContext, Mark, MarkRenderer, MarkState, RadiusExpression};
-use crate::scales::{ScaleRange, ScaleSpec};
 use arrow::array::RecordBatch;
-use avenger_scales::scales::ScaleImpl;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
-use std::collections::HashMap;
 // Import Symbol for the macro, then re-export it
 use crate::channel::ChannelDescriptor;
 use crate::coords::CoordinateSystemTransform;
@@ -35,140 +31,10 @@ define_position_channels! {
 impl Mark<Cartesian> for Symbol<Cartesian> {
     impl_mark_trait_common!(Symbol, "symbol");
 
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        Symbol::<Cartesian>::common_mark_specific_default(channel)
-    }
-
     fn build(&self) -> Arc<dyn MarkRenderer> {
         Arc::new(CartesianSymbol {
             state: self.state.clone(),
         })
-    }
-
-    fn preferred_scale_type(
-        &self,
-        channel: &str,
-        data_type: &DataType,
-    ) -> Option<Box<dyn ScaleSpec>> {
-        use crate::scales::spec::{Ordinal, Point, Sqrt};
-
-        match (channel, data_type) {
-            // Symbol marks use point scales for categorical position data
-            ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Point::default()))
-            }
-            // Size uses sqrt scale for numeric data (better for area perception)
-            (
-                "size",
-                DataType::Float32
-                | DataType::Float64
-                | DataType::Int8
-                | DataType::Int16
-                | DataType::Int32
-                | DataType::Int64
-                | DataType::UInt8
-                | DataType::UInt16
-                | DataType::UInt32
-                | DataType::UInt64,
-            ) => {
-                // Use Sqrt scale for better area perception
-                Some(Box::new(Sqrt::default()))
-            }
-            // Size uses ordinal for categorical data
-            ("size", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal::default()))
-            }
-            // Color and shape channels use ordinal scales for categorical data
-            (
-                "fill" | "stroke" | "color" | "shape",
-                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            ) => Some(Box::new(Ordinal::default())),
-            // Stroke width uses ordinal scale only for categorical data
-            ("stroke_width", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal::default()))
-            }
-            // Fall back to data type-based inference for other channels
-            _ => crate::marks::default_scale_for_data_type(data_type),
-        }
-    }
-
-    fn default_scale_options(
-        &self,
-        channel: &str,
-        scale_impl: &dyn ScaleImpl,
-        _data_type: &DataType,
-    ) -> HashMap<String, Expr> {
-        use datafusion::logical_expr::lit;
-        let mut options = HashMap::new();
-
-        // Configure PowScale as Sqrt scale for size channel
-        if channel == "size" && scale_impl.scale_type() == "pow" {
-            options.insert("exponent".to_string(), lit(0.5f32));
-        }
-
-        // For color channels, use the parent implementation
-        if matches!(channel, "fill" | "stroke" | "color")
-            && crate::marks::util::is_continuous_scale(scale_impl)
-        {
-            options.insert("nice".to_string(), lit(true));
-        }
-
-        options
-    }
-
-    fn default_channel_range(
-        &self,
-        channel: &str,
-        scale_impl: &dyn ScaleImpl,
-        domain: &crate::scales::ResolvedDomain,
-        _data_type: &DataType,
-        theme: &dyn crate::theme::Theme,
-    ) -> Option<ScaleRange> {
-        use crate::scales::ScaleRange;
-        use datafusion::logical_expr::lit;
-        use datafusion_common::ScalarValue;
-
-        match channel {
-            "size" => {
-                // Size range depends on discrete vs continuous domain
-                match domain {
-                    crate::scales::ResolvedDomain::Discrete(count) => {
-                        let min = 40.0;
-                        let max = 400.0;
-                        if *count == 1 {
-                            Some(ScaleRange::new_discrete(vec![ScalarValue::Float32(Some(
-                                max,
-                            ))]))
-                        } else {
-                            Some(ScaleRange::new_linspace_discrete(min, max, *count))
-                        }
-                    }
-                    crate::scales::ResolvedDomain::Interval => {
-                        Some(ScaleRange::new_interval(lit(0.0), lit(400.0)))
-                    }
-                }
-            }
-            "angle" => Some(domain.make_interval_or_linspaced_range(0.0, 360.0)),
-            "opacity" => Some(domain.make_interval_or_linspaced_range(0.0, 1.0)),
-            "stroke_width" => Some(domain.make_interval_or_linspaced_range(0.5, 5.0)),
-            "fill" | "stroke" | "color" => {
-                let range_kind = scale_impl.range_kind();
-                Some(theme.get_range_for_channel("symbol", channel, range_kind, None))
-            }
-            _ => None,
-        }
-    }
-
-    fn preferred_legend_renderer(
-        &self,
-        channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        Symbol::<Cartesian>::common_preferred_legend_renderer(
-            channel,
-            scale,
-            &["x", "y", "x2", "y2"],
-        )
     }
 }
 

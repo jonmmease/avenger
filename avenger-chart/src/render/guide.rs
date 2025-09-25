@@ -4,7 +4,7 @@ use super::PlotRenderer;
 use crate::axis::Axis;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuideBuilder, OverflowSpaceRequirement};
 use std::collections::HashMap;
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {

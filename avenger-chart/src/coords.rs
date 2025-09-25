@@ -1,7 +1,7 @@
 use crate::error::AvengerChartError;
 pub use crate::guide::OverflowSpaceRequirement;
 use crate::guide::{CoordinateGuideBuilder, CoordinateGuideRender};
-use crate::marks::{Mark, MarkRenderer};
+use crate::marks::MarkRenderer;
 use crate::theme::Theme;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::Clip;

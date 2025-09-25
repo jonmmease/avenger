@@ -3,7 +3,6 @@ use crate::coords::{
 };
 use crate::error::AvengerChartError;
 use crate::guide::CoordinateGuideBuilder;
-use crate::marks::Mark;
 use crate::polar::{PolarAxis, PolarAxisType, PolarGuide};
 use avenger_scenegraph::marks::group::Clip;
 use std::collections::HashMap;

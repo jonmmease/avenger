@@ -8,10 +8,8 @@ use crate::channel::ChannelDescriptor;
 use crate::coords::CoordinateSystemTransform;
 use crate::polar::Polar;
 use crate::render::RenderContext;
-use crate::scales::ScaleRange;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
@@ -38,29 +36,6 @@ impl Mark<Polar> for Symbol<Polar> {
         std::sync::Arc::new(PolarSymbol {
             state: self.state.clone(),
         })
-    }
-
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        Symbol::<Polar>::common_mark_specific_default(channel)
-    }
-
-    fn default_channel_range(
-        &self,
-        channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-        domain: &crate::scales::ResolvedDomain,
-        _data_type: &DataType,
-        theme: &dyn crate::theme::Theme,
-    ) -> Option<ScaleRange> {
-        Symbol::<Polar>::common_default_channel_range(channel, scale_impl, domain, theme)
-    }
-
-    fn preferred_legend_renderer(
-        &self,
-        channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        Symbol::<Polar>::common_preferred_legend_renderer(channel, scale, &["r", "theta"])
     }
 }
 

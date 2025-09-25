@@ -3,21 +3,15 @@ use crate::define_position_channels;
 use crate::impl_mark_trait_common;
 use crate::marks::{DataContext, Mark, MarkRenderer, MarkState, RadiusExpression};
 use arrow::array::{AsArray, RecordBatch};
-use avenger_common::value::ScalarOrArray;
-use avenger_scales::scales::ScaleImpl;
-use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
-use indexmap::IndexMap;
 // Import Line for the macro, then re-export it
 use crate::channel::ChannelDescriptor;
-use crate::coords::{CoordinateSystem, CoordinateSystemTransform};
+use crate::coords::CoordinateSystemTransform;
 use crate::error::AvengerChartError;
 pub use crate::marks::line::{Line, ensure_dictionary_array};
 use crate::render::RenderContext;
-use crate::scales::ScaleRange;
 use serde::{Deserialize, Serialize};
 
 // Define position channels for Cartesian Line using the macro
@@ -40,115 +34,6 @@ impl Mark<Cartesian> for Line<Cartesian> {
         std::sync::Arc::new(CartesianLine {
             state: self.state.clone(),
         })
-    }
-
-    fn supports_order(&self) -> bool {
-        true
-    }
-
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        match channel {
-            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
-            "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),          // Default line width
-            "stroke_cap" => Some(ScalarValue::Utf8(Some("round".to_string()))), // Default cap style
-            "stroke_join" => Some(ScalarValue::Utf8(Some("round".to_string()))), // Default join style
-            "opacity" => Some(ScalarValue::Float32(Some(1.0))),                  // Fully opaque
-            "interpolate" => Some(ScalarValue::Utf8(Some("linear".to_string()))), // Linear interpolation
-            "defined" => Some(ScalarValue::Boolean(Some(true))), // All points defined
-            _ => None,
-        }
-    }
-
-    fn preferred_scale_type(
-        &self,
-        channel: &str,
-        data_type: &DataType,
-    ) -> Option<Box<dyn crate::scales::spec::ScaleSpec>> {
-        use crate::scales::spec::{Ordinal, Point};
-
-        match (channel, data_type) {
-            // Line marks use point scales for categorical position data
-            ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Point::default()))
-            }
-            // Stroke color uses ordinal scales for categorical data
-            ("stroke", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal::default()))
-            }
-            // Stroke dash uses ordinal for categorical data
-            ("stroke_dash", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal::default()))
-            }
-            // Stroke width uses ordinal scale only for categorical data
-            ("stroke_width", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal::default()))
-            }
-            // Fall back to data type-based inference for other channels
-            _ => crate::marks::default_scale_for_data_type(data_type),
-        }
-    }
-
-    fn default_channel_range(
-        &self,
-        channel: &str,
-        scale_impl: &dyn ScaleImpl,
-        _domain: &crate::scales::ResolvedDomain,
-        _data_type: &DataType,
-        theme: &dyn crate::theme::Theme,
-    ) -> Option<ScaleRange> {
-        use avenger_scales::scales::DomainKind;
-
-        match channel {
-            "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
-            "stroke_width" => {
-                // Use discrete range for categorical domains
-                if scale_impl.domain_kind() == DomainKind::Categorical {
-                    let widths: Vec<f32> = (1..=5).map(|i| i as f32).collect();
-                    Some(ScaleRange::new_discrete(widths))
-                } else {
-                    Some(ScaleRange::new_interval(lit(0.5), lit(5.0)))
-                }
-            }
-            "stroke_dash" => {
-                // Only provide dash patterns for categorical domains
-                if scale_impl.domain_kind() == DomainKind::Categorical {
-                    // Use theme dash patterns
-                    Some(theme.get_dash_range(None))
-                } else {
-                    None
-                }
-            }
-            "stroke" => {
-                // Use theme color system
-                let range_kind = scale_impl.range_kind();
-                Some(theme.get_range_for_channel("line", channel, range_kind, None))
-            }
-            _ => None,
-        }
-    }
-
-    fn preferred_legend_renderer(
-        &self,
-        channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        use crate::legend::{ColorbarRenderer, LineLegendRenderer};
-        use crate::marks::util::is_continuous_scale;
-        use std::sync::Arc;
-
-        // Check if scale is continuous (for colorbar)
-        let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
-
-        match channel {
-            // Use colorbar for continuous color scales
-            "stroke" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
-            // Line marks use line legend for stroke properties
-            "stroke" | "stroke_width" | "stroke_dash" => Some(Arc::new(LineLegendRenderer::new())),
-            // No legend for position channels and other non-visual channels
-            "x" | "y" | "x2" | "y2" | "defined" | "order" => None,
-            // For other channels like opacity, use line legend
-            _ => Some(Arc::new(LineLegendRenderer::new())),
-        }
     }
 }
 
