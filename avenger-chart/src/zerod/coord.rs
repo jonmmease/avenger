@@ -7,6 +7,7 @@ use crate::coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry};
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuideBuilder, NoGuide};
 use avenger_scenegraph::marks::group::Clip;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -14,7 +15,7 @@ use std::sync::Arc;
 ///
 /// Represents a 0D space (a single point) where marks have no spatial extent
 /// or position channels. Useful for legends and other non-spatial mark rendering.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ZeroDCoord;
 
 impl ZeroDCoord {
@@ -111,6 +112,7 @@ impl CoordinateSystem for ZeroDCoord {
     }
 }
 
+#[typetag::serde]
 impl CoordinateSystemTransform for ZeroDCoord {
     fn required_channels(&self) -> &'static [&'static str] {
         &[]
