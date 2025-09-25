@@ -5,9 +5,8 @@
 
 use crate::coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry};
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuideBuilder, NoGuide, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuideBuilder, NoGuide};
 use avenger_scenegraph::marks::group::Clip;
-use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -58,35 +57,6 @@ impl CoordinateSystem for ZeroDCoord {
         NoGuide::default()
     }
 
-    async fn measure_guide_overflow(
-        &self,
-        _guide: &Self::Guide,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _width_estimate: f32,
-        _height_estimate: f32,
-        _theme: &dyn crate::theme::Theme,
-    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        // No guides exist in 0D space, so no overflow
-        Ok(OverflowSpaceRequirement {
-            top: 0.0,
-            bottom: 0.0,
-            left: 0.0,
-            right: 0.0,
-        })
-    }
-
-    async fn render_guide(
-        &self,
-        _guide: &Self::Guide,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _plot_width: f32,
-        _plot_height: f32,
-        _plot_bounds: &crate::layout::LayoutBounds,
-        _theme: &dyn crate::theme::Theme,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // No guides exist in 0D space
-        Ok(Vec::new())
-    }
 
     fn get_clip(
         &self,

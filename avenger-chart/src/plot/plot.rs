@@ -52,7 +52,6 @@ pub struct Plot2<C: CoordinateSystem> {
     pub(crate) guide_config: Option<Arc<dyn CoordinateGuideRender>>,
 }
 
-#[derive(Clone)]
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
@@ -83,6 +82,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Guide configuration
     pub(crate) guide_config: Option<C::Guide>,
+
+    /// Built guide renderer (for serialization)
+    pub(crate) guide_renderer: Option<Box<dyn CoordinateGuideRender>>,
 }
 
 impl<C: CoordinateSystem> Plot<C> {
@@ -100,6 +102,7 @@ impl<C: CoordinateSystem> Plot<C> {
             subtitle: None,
             theme: None,
             guide_config: None,
+            guide_renderer: None,
         }
     }
 }

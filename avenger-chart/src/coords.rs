@@ -1,11 +1,9 @@
 use crate::error::AvengerChartError;
 pub use crate::guide::OverflowSpaceRequirement;
-use crate::guide::{CoordinateGuideBuilder, CoordinateGuideRender};
+use crate::guide::CoordinateGuideBuilder;
 use crate::marks::MarkRenderer;
-use crate::theme::Theme;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::Clip;
-use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,7 +33,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ///
     /// This could be axes (Cartesian), geographic features (Geo),
     /// camera controls (3D), or no guide at all (ZeroD)
-    type Guide: CoordinateGuideRender + CoordinateGuideBuilder;
+    type Guide: CoordinateGuideBuilder;
 
     /// The plot geometry type produced by this coordinate system's transform
     type PlotGeometry: PlotGeometry;
@@ -83,38 +81,6 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         marks: &[Arc<dyn MarkRenderer>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>;
 
-    /// Measure how much space the coordinate system's guide needs outside the plot area
-    ///
-    /// This delegates to the Guide's measure_overflow method
-    async fn measure_guide_overflow(
-        &self,
-        guide: &Self::Guide,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        width_estimate: f32,
-        height_estimate: f32,
-        theme: &dyn Theme,
-    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        guide
-            .measure_overflow(scales, width_estimate, height_estimate, theme)
-            .await
-    }
-
-    /// Render the guide for this coordinate system
-    ///
-    /// This delegates to the Guide's render method
-    async fn render_guide(
-        &self,
-        guide: &Self::Guide,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        plot_width: f32,
-        plot_height: f32,
-        plot_bounds: &crate::layout::LayoutBounds,
-        theme: &dyn crate::theme::Theme,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        guide
-            .render(scales, plot_width, plot_height, plot_bounds, theme)
-            .await
-    }
 
     /// Get default scale options for channels in this coordinate system
     /// Each coordinate system knows its own position channels and their optimal defaults

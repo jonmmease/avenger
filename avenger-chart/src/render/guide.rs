@@ -3,8 +3,7 @@
 use super::PlotRenderer;
 use crate::axis::Axis;
 use crate::coords::CoordinateSystem;
-use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuideBuilder, OverflowSpaceRequirement};
+use crate::guide::CoordinateGuideBuilder;
 use std::collections::HashMap;
 
 impl<C: CoordinateSystem> PlotRenderer<'_, C> {
@@ -56,24 +55,4 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         guide
     }
 
-    /// Measure guide overflow for layout calculation
-    pub(crate) async fn measure_guide_overflow(
-        &self,
-        guide: &C::Guide,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        width_estimate: f32,
-        height_estimate: f32,
-    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        let theme = self.plot.get_theme();
-        self.plot
-            .coord_system()
-            .measure_guide_overflow(
-                guide,
-                scales,
-                width_estimate,
-                height_estimate,
-                theme.as_ref(),
-            )
-            .await
-    }
 }

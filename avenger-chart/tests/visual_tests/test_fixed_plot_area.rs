@@ -99,8 +99,18 @@ async fn test_comparison_canvas_vs_plot_area() {
                 .stroke_width(2.0),
         );
 
-    // Fixed plot area - canvas expands
-    let plot_area = plot_canvas.clone().plot_size(400.0, 300.0);
+    // Fixed plot area - canvas expands (build plot again)
+    let plot_area = Plot::<Cartesian>::new()
+        .canvas_size(400.0, 300.0)
+        .plot_size(400.0, 300.0)
+        .data(df.clone())
+        .mark(
+            Line::new()
+                .x_with(col("x"), |c| c.scale(|s| s).axis(|a| a.title("X Axis")))
+                .y_with(col("y"), |c| c.scale(|s| s).axis(|a| a.title("Y Axis")))
+                .stroke("#3498db")
+                .stroke_width(2.0),
+        );
 
     // Canvas mode uses standard renderer (produces 800x600 at 2x scale)
     assert_visual_match_default(plot_canvas, "fixed_plot_area", "canvas_mode_400x300").await;
