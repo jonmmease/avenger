@@ -33,13 +33,7 @@ impl Symbol<ZeroDCoord> {
 
 // Implement Mark trait for ZeroDCoord Symbol
 impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
-    impl_mark_trait_common!(Symbol, "symbol");
-
-    fn build(&self) -> std::sync::Arc<dyn MarkRenderer> {
-        std::sync::Arc::new(ZeroDSymbol {
-            state: self.state.clone(),
-        })
-    }
+    impl_mark_trait_common!(Symbol, "symbol", ZeroDSymbol);
 }
 
 #[derive(Clone, Serialize, Deserialize)]

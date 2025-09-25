@@ -30,13 +30,7 @@ define_position_channels! {
 
 // Implement Mark trait for PolarGeneral Symbol with any axis type
 impl Mark<Polar> for Symbol<Polar> {
-    impl_mark_trait_common!(Symbol, "symbol");
-
-    fn build(&self) -> std::sync::Arc<dyn MarkRenderer> {
-        std::sync::Arc::new(PolarSymbol {
-            state: self.state.clone(),
-        })
-    }
+    impl_mark_trait_common!(Symbol, "symbol", PolarSymbol);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
