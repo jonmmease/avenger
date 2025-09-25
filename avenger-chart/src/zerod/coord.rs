@@ -118,6 +118,10 @@ impl CoordinateSystemTransform for ZeroDCoord {
         &[]
     }
 
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+
     fn transform(
         &self,
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
