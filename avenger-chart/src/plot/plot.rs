@@ -4,7 +4,7 @@ use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
 
 use crate::channel::value::strip_trailing_numbers;
-use crate::coords::CoordinateSystem;
+use crate::coords::{CoordinateSystem, CoordinateSystemTransform};
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuideBuilder, CoordinateGuideRender};
 use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
@@ -18,38 +18,67 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Plot2<C: CoordinateSystem> {
-    coord_system: C,
+#[derive(Serialize, Deserialize)]
+pub struct SerializablePlotRenderer {
+    /// Coordinate system transform for position mapping
+    pub(crate) coord_transform: Box<dyn CoordinateSystemTransform>,
+
+    /// Guide renderer for axes/grids
+    pub(crate) guide_renderer: Option<Box<dyn CoordinateGuideRender>>,
+
+    /// Mark renderers
+    pub(crate) marks: Vec<Arc<dyn MarkRenderer>>,
+
+    /// Axis specifications
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
 
+    /// Legends
     pub(crate) legends: IndexMap<String, Legend>,
 
-    pub(crate) marks: Vec<Arc<dyn MarkRenderer>>,
-    //
-    // /// Plot-level data for mark inheritance
-    // pub(crate) data: Option<DataFrame>,
-    //
-    // /// Scale specifications (local or referenced)
-    // pub(crate) scale_specs: HashMap<String, ScaleSpec>,
-    /// Mapping from scale names to their coordinate channel
-    /// e.g., "y2" -> "y", "x2" -> "x"
-    pub(crate) scale_to_coord_channel: HashMap<String, String>,
-
-    /// Layout specification for sizing and margins
+    /// Layout specification
     pub(crate) layout_spec: LayoutSpec,
 
-    /// Optional plot title rendered by the layout system
+    /// Plot title
     pub(crate) title: Option<PlotTitle>,
 
-    /// Optional plot subtitle rendered by the layout system
+    /// Plot subtitle
     pub(crate) subtitle: Option<PlotSubtitle>,
 
-    /// Theme for visual styling
+    /// Theme
     pub(crate) theme: Option<Arc<dyn Theme>>,
 
-    /// Guide configuration
-    pub(crate) guide_config: Option<Arc<dyn CoordinateGuideRender>>,
+    /// Mapping from scale names to coordinate channel
+    pub(crate) scale_to_coord_channel: HashMap<String, String>,
+
+    /// Scale specifications (temporarily kept for building scales)
+    #[serde(skip)]
+    pub(crate) scale_specs: HashMap<String, ScaleSpec>,
+
+    /// Plot-level data (temporarily kept for mark inheritance)
+    #[serde(skip)]
+    pub(crate) data: Option<DataFrame>,
+}
+
+impl SerializablePlotRenderer {
+    /// Get the theme or create default if not set
+    pub fn get_theme(&self) -> Arc<dyn Theme> {
+        self.theme.clone().unwrap_or_else(|| Arc::new(CssTheme::light()))
+    }
+
+    /// Get title if configured
+    pub fn get_title(&self) -> Option<&PlotTitle> {
+        self.title.as_ref()
+    }
+
+    /// Get subtitle if configured
+    pub fn get_subtitle(&self) -> Option<&PlotSubtitle> {
+        self.subtitle.as_ref()
+    }
+
+    /// Get layout spec
+    pub fn get_layout_spec(&self) -> &LayoutSpec {
+        &self.layout_spec
+    }
 }
 
 pub struct Plot<C: CoordinateSystem> {
@@ -120,6 +149,29 @@ impl<C: CoordinateSystem + Default> Plot<C> {
 }
 
 impl<C: CoordinateSystem> Plot<C> {
+    /// Build a serializable plot renderer from this plot
+    pub fn build(mut self) -> SerializablePlotRenderer {
+        // Build guide if configured
+        if self.guide_renderer.is_none() && self.guide_config.is_some() {
+            self.guide_renderer = Some(self.guide_config.as_ref().unwrap().clone().build());
+        }
+
+        SerializablePlotRenderer {
+            coord_transform: self.coord_system.create_transform(),
+            guide_renderer: self.guide_renderer,
+            marks: self.mark_renderers,
+            axis_specs: self.axis_specs,
+            legends: self.legends,
+            layout_spec: self.layout_spec,
+            title: self.title,
+            subtitle: self.subtitle,
+            theme: self.theme,
+            scale_to_coord_channel: self.scale_to_coord_channel,
+            scale_specs: self.scale_specs,
+            data: self.data,
+        }
+    }
+
     /// Get a reference to the coordinate system
     pub fn coord_system(&self) -> &C {
         &self.coord_system

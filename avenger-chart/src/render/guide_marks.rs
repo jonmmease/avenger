@@ -20,22 +20,37 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         plot_height: f32,
         plot_bounds: &LayoutBounds,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Create guide with all configurations applied
-        let guide = self.create_configured_guide(scales);
+        // Use the pre-built guide renderer if available
+        if let Some(guide_renderer) = &self.plot.guide_renderer {
+            let theme = self.plot.get_theme();
+            guide_renderer
+                .render(
+                    scales,
+                    plot_width,
+                    plot_height,
+                    plot_bounds,
+                    theme.as_ref(),
+                )
+                .await
+        } else {
+            // Fallback to creating guide on the fly
+            // Create guide with all configurations applied
+            let guide = self.create_configured_guide(scales);
 
-        // Build the guide into a renderer
-        let guide_renderer = guide.build();
+            // Build the guide into a renderer
+            let guide_renderer = guide.build();
 
-        // Render using the built guide renderer directly
-        let theme = self.plot.get_theme();
-        guide_renderer
-            .render(
-                scales,
-                plot_width,
-                plot_height,
-                plot_bounds,
-                theme.as_ref(),
-            )
-            .await
+            // Render using the built guide renderer directly
+            let theme = self.plot.get_theme();
+            guide_renderer
+                .render(
+                    scales,
+                    plot_width,
+                    plot_height,
+                    plot_bounds,
+                    theme.as_ref(),
+                )
+                .await
+        }
     }
 }
