@@ -30,17 +30,17 @@ define_position_channels! {
 
 // Implement Mark trait for PolarGeneral Symbol with any axis type
 impl Mark<Polar> for Symbol<Polar> {
-    impl_mark_trait_common!(Symbol, PolarSymbol);
+    impl_mark_trait_common!(Symbol, PolarSymbolRenderer);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PolarSymbol {
+pub struct PolarSymbolRenderer {
     pub(crate) state: MarkState,
 }
 
 // MarkRenderer implementation
 #[typetag::serde]
-impl MarkRenderer for PolarSymbol {
+impl MarkRenderer for PolarSymbolRenderer {
     fn state(&self) -> &MarkState {
         &self.state
     }
