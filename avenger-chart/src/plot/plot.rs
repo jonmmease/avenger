@@ -271,13 +271,114 @@ impl SerializablePlotRenderer {
     fn gather_scale_domain_expressions_with_radius(
         &self,
         scale_name: &str,
-        _configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _context: &crate::render::RenderContext,
+        configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        context: &crate::render::RenderContext,
     ) -> Result<Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr, Option<crate::marks::RadiusExpression>)>, AvengerChartError> {
-        // For now, just use the regular gather method and add None for radius
-        // A full implementation would need to check for radius channels and compute radius expressions
-        let regular_exprs = self.gather_scale_domain_expressions(scale_name)?;
-        Ok(regular_exprs.into_iter().map(|(df, expr)| (df, expr, None)).collect())
+        use crate::channel::resolution::resolve_all_channel_refs;
+        use crate::channel::value::ChannelValue;
+
+        let mut data_expressions = Vec::new();
+
+        for mark in &self.marks {
+            // Get channels and resolve references first to check if columns are referenced
+            let channels = mark.data_context().channels();
+            let resolved_channels = resolve_all_channel_refs(channels)?;
+
+            // Check if any expressions reference columns
+            let references_columns =
+                resolved_channels
+                    .values()
+                    .any(|channel_value| match channel_value {
+                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                            !expr.column_refs().is_empty()
+                        }
+                        ChannelValue::Conditional {
+                            conditions,
+                            otherwise,
+                            ..
+                        } => {
+                            conditions.iter().any(|(condition, value)| {
+                                !condition.column_refs().is_empty()
+                                    || !value.expr().column_refs().is_empty()
+                            }) || !otherwise.expr().column_refs().is_empty()
+                        }
+                    });
+
+            // Determine DataFrame for this mark
+            let df = if let Some(mark_df) = mark.data_context().dataframe() {
+                // Mark has explicit data
+                Arc::new(mark_df.clone())
+            } else if !references_columns {
+                // No column references - skip domain inference for unit marks
+                continue;
+            } else if let Some(plot_data) = &self.data {
+                // Inherit from plot
+                Arc::new(plot_data.clone())
+            } else {
+                // No data available - skip this mark
+                continue;
+            };
+
+            // Create channel resolver for this mark (uses configured non-positional scales)
+            // This resolver looks up the channel value and applies scaling if needed
+            let resolve_channel = |channel_name: &str| -> datafusion::logical_expr::Expr {
+                // Look for the channel in resolved_channels
+                if let Some(channel_value) = resolved_channels.get(channel_name) {
+                    // For now, just return the expression without scaling
+                    // A full implementation would apply the configured scale transform
+                    if let Some(expr) = channel_value.expr() {
+                        return expr.clone();
+                    }
+                }
+
+                // Check if it's a size-related channel with a configured scale
+                if channel_name == "size" || channel_name == "strokeWidth" {
+                    if let Some(scale) = configured_scales.get(channel_name) {
+                        // The scale has already been configured, but we need the input expression
+                        // For now, return a default size value
+                        return datafusion::logical_expr::lit(100.0);
+                    }
+                }
+
+                // Default fallback
+                datafusion::logical_expr::lit(0.0)
+            };
+
+            // Check all encodings in the mark's data context
+            for (channel, channel_value) in &resolved_channels {
+                // Check if this channel uses our scale
+                if let Some(channel_scale_name) = channel_value.get_scale_name(channel) {
+                    if channel_scale_name == scale_name {
+                        // Get radius expression from the mark
+                        let radius_expr = mark.radius_expression(scale_name, &resolve_channel);
+
+                        // Get the expressions - handle conditional values properly
+                        match channel_value {
+                            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                                data_expressions.push((df.clone(), expr.clone(), radius_expr));
+                            }
+                            ChannelValue::Conditional {
+                                conditions,
+                                otherwise,
+                                ..
+                            } => {
+                                // For conditional values, we use the mark's radius for all branches
+                                // since radius doesn't vary by condition
+                                let radius_expr_cond = mark.radius_expression(scale_name, &resolve_channel);
+
+                                // Add expressions from all conditions and the otherwise branch
+                                for (_, value) in conditions {
+                                    data_expressions.push((df.clone(), value.expr().clone(), radius_expr_cond.clone()));
+                                }
+                                data_expressions.push((df.clone(), otherwise.expr().clone(), radius_expr_cond));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(data_expressions)
     }
 
     /// Gather mark data and encoding expressions that use this scale
@@ -2062,12 +2163,40 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn build(mut self) -> SerializablePlotRenderer {
         // Always build guide renderer - either from config or default
         if self.guide_renderer.is_none() {
-            let guide = if let Some(config) = &self.guide_config {
+            let mut guide = if let Some(config) = &self.guide_config {
                 config.clone()
             } else {
                 // Create default guide for the coordinate system
                 C::Guide::default()
             };
+
+            // We need to populate axes from axis_specs before building
+            // This mirrors what PlotRenderer does in render/guide.rs
+            use crate::guide::CoordinateGuideBuilder;
+
+            // Note: We can't create default axes here because we don't have scales yet
+            // The guide will need to handle creating defaults when it renders
+            // For now, just transfer the user-specified axes from axis_specs
+
+            // Create axes map for the guide
+            let mut guide_axes = HashMap::new();
+            for (channel, axis_spec) in &self.axis_specs {
+                if let crate::plot::AxisSpec::Local(axis_config) = axis_spec {
+                    // The axis_config is already the correct type for this coordinate system
+                    // We need to downcast it to the specific axis type for the guide
+                    // This is safe because the axis type matches the coordinate system
+                    if let Some(typed_axis) = axis_config
+                        .as_any()
+                        .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
+                    {
+                        guide_axes.insert(channel.clone(), typed_axis.clone());
+                    }
+                }
+            }
+
+            // Set the axes on the guide
+            guide.set_axes(guide_axes);
+
             self.guide_renderer = Some(guide.build());
         }
 
