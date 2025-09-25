@@ -1,10 +1,9 @@
-use std::any::Any;
-use serde::{Deserialize, Serialize};
+use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use crate::maybe::Maybe;
 use avenger_scenegraph::marks::mark::SceneMark;
-use crate::axis::Axis;
-use crate::cartesian::CartesianAxis;
+use serde::{Deserialize, Serialize};
+use std::any::Any;
 
 /// Type of polar axis
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]

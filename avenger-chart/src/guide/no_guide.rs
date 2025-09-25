@@ -1,12 +1,14 @@
 //! Empty guide implementation for coordinate systems without visual guides
 
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuideRender, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{
+    CoordinateGuideBuilder, CoordinateGuideRender, GuideUpdate, OverflowSpaceRequirement,
+};
 use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Empty guide for coordinate systems without visual guides
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -29,7 +31,7 @@ impl CoordinateGuideBuilder for NoGuide {
         // No-op for systems without axes
     }
 
-    fn update(&mut self, other: Self) {
+    fn update(&mut self, _other: Self) {
         // No-op for systems without state
     }
 

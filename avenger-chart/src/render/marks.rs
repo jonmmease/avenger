@@ -11,7 +11,7 @@ use super::PlotRenderer;
 use crate::channel::ChannelValue;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::marks::Mark;
+use crate::marks::{Mark, MarkRenderer};
 use crate::render::RenderContext;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::array::RecordBatch;
@@ -23,7 +23,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
     /// Render a mark with full data processing and sorting support
     pub(super) async fn render_mark(
         &self,
-        mark: &dyn Mark<C>,
+        mark: &dyn MarkRenderer,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
@@ -184,11 +184,13 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         let context = RenderContext::new(theme, plot_width, plot_height);
 
         // Call the mark's render_from_data method with context and coordinate system
+        // Create a boxed coordinate transform for the MarkRenderer
+        let coord_transform = self.plot.coord_system().create_transform();
         mark.render_from_data(
             data_batch.as_ref(),
             &scalar_batch,
             &context,
-            self.plot.coord_system(),
+            coord_transform,
         )
     }
 
@@ -225,20 +227,24 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
     /// Check if a data type is numeric
     fn is_numeric_type(dtype: &datafusion::arrow::datatypes::DataType) -> bool {
         use datafusion::arrow::datatypes::DataType;
-        matches!(
-            dtype,
+        match dtype {
+            // Standard numeric types
             DataType::Int8
-                | DataType::Int16
-                | DataType::Int32
-                | DataType::Int64
-                | DataType::UInt8
-                | DataType::UInt16
-                | DataType::UInt32
-                | DataType::UInt64
-                | DataType::Float16
-                | DataType::Float32
-                | DataType::Float64
-        )
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Float16
+            | DataType::Float32
+            | DataType::Float64 => true,
+            // Dictionary types are allowed if their value type is numeric
+            // (This happens when categorical data goes through an ordinal scale)
+            DataType::Dictionary(_, value_type) => Self::is_numeric_type(value_type),
+            _ => false,
+        }
     }
 
     /// Create error for non-numeric positional channel

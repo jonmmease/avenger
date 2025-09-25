@@ -1,8 +1,8 @@
 //! Specification types for scales and axes
 
-use serde::{Deserialize, Serialize};
 use crate::axis::Axis;
 use crate::scales::{Auto, Scale};
+use serde::{Deserialize, Serialize};
 
 /// How a scale is defined for a channel
 #[derive(Clone)]
@@ -21,7 +21,7 @@ pub enum AxisSpec {
 impl Clone for AxisSpec {
     fn clone(&self) -> Self {
         match self {
-            AxisSpec::Local(axis) => AxisSpec::Local(axis.box_clone())
+            AxisSpec::Local(axis) => AxisSpec::Local(axis.box_clone()),
         }
     }
 }

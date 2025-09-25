@@ -8,7 +8,6 @@
 //! applied to computed defaults during rendering.
 
 use serde::{Deserialize, Serialize};
-use erased_serde::Deserializer;
 
 /// Three-state enum for tracking configuration values
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

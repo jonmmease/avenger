@@ -12,7 +12,6 @@ use avenger_scenegraph::marks::group::SceneGroup;
 use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Symbol legend renderer for discrete channels
 #[derive(Default, Serialize, Deserialize)]

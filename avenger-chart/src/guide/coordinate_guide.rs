@@ -2,7 +2,7 @@
 
 use crate::axis::Axis;
 use crate::error::AvengerChartError;
-use crate::guide::{GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::OverflowSpaceRequirement;
 use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -25,13 +25,11 @@ pub trait CoordinateGuideBuilder: Clone + Default {
     fn update(&mut self, other: Self);
 
     fn build(self) -> Box<dyn CoordinateGuideRender>;
-
 }
 
 #[async_trait::async_trait]
 #[typetag::serde(tag = "type")]
 pub trait CoordinateGuideRender: Send + Sync + 'static {
-
     /// Measure how much space this guide needs outside the plot area
     async fn measure_overflow(
         &self,

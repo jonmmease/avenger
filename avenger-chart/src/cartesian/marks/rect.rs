@@ -1,12 +1,13 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::impl_supported_channels;
 use crate::marks::{DataContext, Mark, MarkRenderer, MarkState};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 // Import Rect for the macro, then re-export it
+use crate::channel::ChannelDescriptor;
+use crate::coords::CoordinateSystemTransform;
 use crate::error::AvengerChartError;
 pub use crate::marks::rect::Rect;
 use crate::marks::util::{coerce_color_channel_with_mark, coerce_numeric_channel_with_mark};
@@ -15,11 +16,7 @@ use crate::scales::{ScaleRange, ScaleSpec};
 use avenger_scales::scales::ScaleImpl;
 use datafusion::arrow::datatypes::DataType;
 use datafusion_common::ScalarValue;
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
-use crate::channel::ChannelDescriptor;
-use crate::coords::CoordinateSystemTransform;
-use crate::prelude::{Line, Symbol, ZeroDCoord};
 
 // Define position channels for Cartesian Rect using the macro
 define_position_channels! {
@@ -45,7 +42,7 @@ impl Mark<Cartesian> for Rect<Cartesian> {
 
     fn build(&self) -> std::sync::Arc<dyn MarkRenderer> {
         std::sync::Arc::new(CartesianRect {
-            state: self.state.clone()
+            state: self.state.clone(),
         })
     }
 
@@ -227,7 +224,64 @@ impl MarkRenderer for CartesianRect {
     }
 
     fn supported_channels(&self) -> Vec<ChannelDescriptor> {
-        vec![]  // TODO: Implement channel descriptors properly
+        vec![
+            // Position channels - rectangles need all four corners
+            ChannelDescriptor {
+                name: "x",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "x2",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "y",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "y2",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            // Style channels
+            ChannelDescriptor {
+                name: "fill",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "stroke",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "stroke_width",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "corner_radius",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "opacity",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+        ]
     }
 
     fn render_from_data(
@@ -237,25 +291,68 @@ impl MarkRenderer for CartesianRect {
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::marks::util::{coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer};
+        use crate::marks::util::{
+            coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+        };
         use avenger_scenegraph::marks::rect::SceneRectMark;
 
         // Determine number of marks from data batch or default to 1
         let len = data.map_or(1, |data| data.num_rows()) as u32;
 
-        // Extract position channels - need all 4 for rectangles
-        let mut position_channels = std::collections::HashMap::new();
+        // Extract position channels for the coordinate system
+        // For Cartesian rectangles, we need to transform both corners
+        let mut position_channels_corner1 = std::collections::HashMap::new();
+        let mut position_channels_corner2 = std::collections::HashMap::new();
 
-        // For rectangles, we need x, x2, y, y2
-        let x = coerce_numeric_channel_with_renderer(self, data, scalars, "x", context, 0.0)?;
-        let x2 = coerce_numeric_channel_with_renderer(self, data, scalars, "x2", context, 0.0)?;
-        let y = coerce_numeric_channel_with_renderer(self, data, scalars, "y", context, 0.0)?;
-        let y2 = coerce_numeric_channel_with_renderer(self, data, scalars, "y2", context, 0.0)?;
+        // Extract raw position values
+        let x_raw = coerce_numeric_channel_with_renderer(self, data, scalars, "x", context, 0.0)?;
+        let x2_raw = coerce_numeric_channel_with_renderer(self, data, scalars, "x2", context, 0.0)?;
+        let y_raw = coerce_numeric_channel_with_renderer(self, data, scalars, "y", context, 0.0)?;
+        let y2_raw = coerce_numeric_channel_with_renderer(self, data, scalars, "y2", context, 0.0)?;
 
-        position_channels.insert("x", x.clone());
-        position_channels.insert("x2", x2.clone());
-        position_channels.insert("y", y.clone());
-        position_channels.insert("y2", y2.clone());
+        // Set up position channels for first corner (x, y)
+        position_channels_corner1.insert("x", x_raw.clone());
+        position_channels_corner1.insert("y", y_raw.clone());
+
+        // Set up position channels for second corner (x2, y2)
+        position_channels_corner2.insert("x", x2_raw.clone());
+        position_channels_corner2.insert("y", y2_raw.clone());
+
+        // Transform both corners through the coordinate system
+        let geometry1 = coord.transform(
+            &position_channels_corner1,
+            context.plot_width,
+            context.plot_height,
+        )?;
+        let geometry2 = coord.transform(
+            &position_channels_corner2,
+            context.plot_width,
+            context.plot_height,
+        )?;
+
+        // Extract transformed coordinates as PointGeometry
+        let point1 = geometry1
+            .as_any()
+            .downcast_ref::<crate::coords::PointGeometry>()
+            .ok_or_else(|| {
+                AvengerChartError::CoordinateSystemError(
+                    "Failed to downcast corner1 to PointGeometry".to_string(),
+                )
+            })?;
+        let point2 = geometry2
+            .as_any()
+            .downcast_ref::<crate::coords::PointGeometry>()
+            .ok_or_else(|| {
+                AvengerChartError::CoordinateSystemError(
+                    "Failed to downcast corner2 to PointGeometry".to_string(),
+                )
+            })?;
+
+        // Use the transformed coordinates
+        let x = point1.x.clone();
+        let y = point1.y.clone();
+        let x2 = point2.x.clone();
+        let y2 = point2.y.clone();
 
         // Extract style values using Coercer with mark defaults
         let fill = coerce_color_channel_with_renderer(
@@ -274,10 +371,22 @@ impl MarkRenderer for CartesianRect {
             context,
             [0.0, 0.0, 0.0, 1.0],
         )?;
-        let stroke_width =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "stroke_width", context, 1.0)?;
-        let corner_radius =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "corner_radius", context, 0.0)?;
+        let stroke_width = coerce_numeric_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "stroke_width",
+            context,
+            1.0,
+        )?;
+        let corner_radius = coerce_numeric_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "corner_radius",
+            context,
+            0.0,
+        )?;
 
         // Create SceneRectMark
         let rect_mark = SceneRectMark {
@@ -313,18 +422,54 @@ impl MarkRenderer for CartesianRect {
         }
     }
 
+    fn preferred_scale_type(
+        &self,
+        channel: &str,
+        data_type: &datafusion::arrow::datatypes::DataType,
+    ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
+        use crate::scales::spec::{Band, Ordinal};
+        use datafusion::arrow::datatypes::DataType;
+
+        match (channel, data_type) {
+            // Rect marks use band scales for categorical position data
+            (
+                "x" | "x2" | "y" | "y2",
+                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
+            ) => Some(Box::new(Band::default())),
+            // Color channels use ordinal scales for categorical data
+            (
+                "fill" | "stroke" | "color",
+                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
+            ) => Some(Box::new(Ordinal::default())),
+            // Fall back to data type-based inference for other channels
+            _ => crate::marks::default_scale_for_data_type(data_type),
+        }
+    }
+
     fn preferred_legend_renderer(
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
     ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        use crate::legend::renderer::rect::RectLegendRenderer;
+        use crate::legend::{ColorbarRenderer, renderer::rect::RectLegendRenderer};
+        use crate::marks::util::is_continuous_scale;
+        use std::sync::Arc;
+
+        // Check if scale is continuous (for colorbar)
+        let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 
         match channel {
-            "fill" | "stroke" | "color" | "opacity" => {
-                Some(std::sync::Arc::new(RectLegendRenderer::new()))
+            // Use colorbar for continuous color scales
+            "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
+            // Rect marks use RectLegendRenderer for discrete scales and other visual properties
+            "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
+                Some(Arc::new(RectLegendRenderer::new()))
             }
-            _ => None,
+            // No legend for position channels and other non-visual channels
+            "x" | "y" | "x2" | "y2" | "width" | "height" | "defined" | "order"
+            | "corner_radius" => None,
+            // For any other channel, default to RectLegendRenderer
+            _ => Some(Arc::new(RectLegendRenderer::new())),
         }
     }
 }

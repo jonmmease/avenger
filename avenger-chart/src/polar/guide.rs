@@ -2,16 +2,16 @@
 
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuideRender, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{
+    CoordinateGuideBuilder, CoordinateGuideRender, GuideUpdate, OverflowSpaceRequirement,
+};
 use crate::layout::LayoutBounds;
-use crate::marks::Mark;
 use crate::polar::{PolarAxis, PolarAxisType};
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use crate::cartesian::CartesianGuide;
 
 /// Options for polar coordinate system
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -62,13 +62,10 @@ impl PolarGuide {
     }
 
     /// Create default axes for channels that have scales
-    pub fn create_default_axes<C>(
+    pub fn create_default_axes(
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn Mark<C>>],
-    ) -> HashMap<String, PolarAxis>
-    where
-        C: crate::coords::CoordinateSystem,
-    {
+        marks: &[Arc<dyn crate::marks::MarkRenderer>],
+    ) -> HashMap<String, PolarAxis> {
         let mut axes = HashMap::new();
 
         // Create default axes for polar position channels that have scales

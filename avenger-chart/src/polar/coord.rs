@@ -1,11 +1,13 @@
-use crate::coords::{CoordinateSystem, PointGeometry, extract_channel_title_from_marks};
+use crate::coords::{
+    CoordinateSystem, CoordinateSystemTransform, PointGeometry, extract_channel_title_from_marks,
+};
 use crate::error::AvengerChartError;
+use crate::guide::CoordinateGuideBuilder;
 use crate::marks::Mark;
 use crate::polar::{PolarAxis, PolarAxisType, PolarGuide};
 use avenger_scenegraph::marks::group::Clip;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::guide::CoordinateGuideBuilder;
 
 /// Polar coordinate system with radial and angular axes
 #[derive(Clone, Default)]
@@ -40,7 +42,7 @@ impl CoordinateSystem for Polar {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn Mark<Self>>],
+        marks: &[Arc<dyn crate::marks::MarkRenderer>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         let mut default_axes = HashMap::new();
 
@@ -71,7 +73,7 @@ impl CoordinateSystem for Polar {
         &self,
         axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn Mark<Self>>],
+        _marks: &[Arc<dyn crate::marks::MarkRenderer>],
     ) -> Self::Guide {
         let mut guide = PolarGuide::new();
         guide.set_axes(axes);
@@ -163,5 +165,30 @@ impl CoordinateSystem for Polar {
         };
 
         Ok(PointGeometry { x, y })
+    }
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+}
+
+impl CoordinateSystemTransform for Polar {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &["r", "theta"]
+    }
+
+    fn transform(
+        &self,
+        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+        let geom = <Self as CoordinateSystem>::transform(
+            self,
+            position_channels,
+            plot_width,
+            plot_height,
+        )?;
+        Ok(Box::new(geom))
     }
 }

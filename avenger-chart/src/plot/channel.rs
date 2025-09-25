@@ -5,6 +5,7 @@ use crate::channel::ConditionalValue;
 use crate::channel::resolution::resolve_all_channel_refs;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::guide::{CoordinateGuideBuilder, GuideUpdate};
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::plot::{AxisSpec, Plot, ScaleSpec};
 use crate::render::RenderContext;
@@ -15,7 +16,6 @@ use indexmap::IndexMap;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use crate::guide::{CoordinateGuideBuilder, GuideUpdate};
 
 impl<C: CoordinateSystem> Plot<C> {
     /// Extract scale, legend, and axis configurations from a mark's channels
@@ -120,7 +120,7 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Create a channel resolver function for non-positional channels
     /// This is used primarily for radius calculations that need size/stroke_width expressions
     pub(crate) fn create_channel_resolver<'a>(
-        mark: &'a dyn Mark<C>,
+        mark: &'a dyn crate::marks::MarkRenderer,
         encodings: &'a IndexMap<String, ChannelValue>,
         configured_scales: &'a HashMap<String, ConfiguredScale>,
         context: &'a RenderContext,
@@ -192,7 +192,7 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut found_mark = None;
 
         // Look through marks to find the expression for this channel
-        for mark in &self.marks {
+        for mark in &self.mark_renderers {
             let channels = mark.data_context().channels();
 
             // Try to resolve channel references first
@@ -295,7 +295,7 @@ impl<C: CoordinateSystem> Plot<C> {
     ) -> Result<Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)>, AvengerChartError> {
         let mut data_expressions = Vec::new();
 
-        for mark in &self.marks {
+        for mark in &self.mark_renderers {
             // Get channels and resolve references first to check if columns are referenced
             let channels = mark.data_context().channels();
             let resolved_channels = resolve_all_channel_refs(channels)?;
@@ -399,7 +399,7 @@ impl<C: CoordinateSystem> Plot<C> {
             return Ok(data_expressions);
         }
 
-        for mark in &self.marks {
+        for mark in &self.mark_renderers {
             // Get channels and resolve references first
             let encodings = mark.data_context().channels();
             let resolved_encodings =
@@ -500,7 +500,7 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Collect all channels that need scales
     pub fn collect_channels_needing_scales(&self) -> HashSet<String> {
         let mut used_channels = HashSet::new();
-        for mark in &self.marks {
+        for mark in &self.mark_renderers {
             // Get channels and resolve references first
             let encodings = mark.data_context().channels();
             // Try to resolve, but use original channels if resolution fails

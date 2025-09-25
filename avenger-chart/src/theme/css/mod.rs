@@ -6,13 +6,12 @@ mod selector_impl;
 mod theme_impl;
 mod value;
 
-use std::collections::HashMap;
 pub use selector_impl::ChartString;
 
 use crate::theme::{LengthUnit, Rgba, ThemeValue};
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
 use selectors::matching::SelectorCaches;
+use serde::{Deserialize, Serialize};
 
 /// CSS-based theme with full selector support
 #[derive(Debug, Clone, Serialize, Deserialize)]

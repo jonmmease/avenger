@@ -19,7 +19,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         let default_axes = self
             .plot
             .coord_system()
-            .create_default_axes(scales, &self.plot.marks);
+            .create_default_axes(scales, &self.plot.mark_renderers);
 
         // Apply user axis customizations to defaults
         let mut all_axes = default_axes;
@@ -42,10 +42,11 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         }
 
         // Create the guide with the configured axes
-        let mut guide =
-            self.plot
-                .coord_system()
-                .create_default_guide(all_axes, scales, &self.plot.marks);
+        let mut guide = self.plot.coord_system().create_default_guide(
+            all_axes,
+            scales,
+            &self.plot.mark_renderers,
+        );
 
         // Apply user guide configuration if specified
         if let Some(guide_config) = &self.plot.guide_config {
@@ -66,7 +67,13 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         let theme = self.plot.get_theme();
         self.plot
             .coord_system()
-            .measure_guide_overflow(guide, scales, width_estimate, height_estimate, theme.as_ref())
+            .measure_guide_overflow(
+                guide,
+                scales,
+                width_estimate,
+                height_estimate,
+                theme.as_ref(),
+            )
             .await
     }
 }

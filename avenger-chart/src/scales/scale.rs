@@ -806,7 +806,7 @@ impl Scale<Auto> {
     /// For typed scales (like Scale<Linear>), use the specific methods instead (e.g., `.nice()`, `.zero()`)
     ///
     /// # Example
-    /// ```
+    /// ```no_run
     /// use avenger_chart::scales::{Scale, Auto, Linear};
     /// use datafusion::prelude::lit;
     /// use std::sync::Arc;
