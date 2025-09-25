@@ -63,4 +63,14 @@ impl CoordinateGuideRender for NoGuide {
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }
+
+    fn get_clip(
+        &self,
+        _plot_width: f32,
+        _plot_height: f32,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> avenger_scenegraph::marks::group::Clip {
+        // No clipping for zero-dimensional coordinate systems
+        avenger_scenegraph::marks::group::Clip::None
+    }
 }

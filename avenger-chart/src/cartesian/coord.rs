@@ -199,4 +199,64 @@ impl CoordinateSystemTransform for Cartesian {
         )?;
         Ok(Box::new(geom))
     }
+
+    fn default_range(
+        &self,
+        channel: &str,
+        plot_area_width: f64,
+        plot_area_height: f64,
+    ) -> Option<(f64, f64)> {
+        <Self as CoordinateSystem>::default_range(self, channel, plot_area_width, plot_area_height)
+    }
+
+    fn default_scale_options(
+        &self,
+        channel: &str,
+        scale_type: &str,
+    ) -> HashMap<String, datafusion::scalar::ScalarValue> {
+        // Get the scale implementation to query its properties
+        // For now, we'll use a simplified version that just checks the scale type name
+        use avenger_scales::scales::{DomainKind, RangeKind};
+        use crate::scales::infer_scale_type_from_name;
+
+        // Determine domain and range kinds from scale type
+        let scale_spec = infer_scale_type_from_name(scale_type);
+        let (domain_kind, range_kind) = (scale_spec.domain_kind(), scale_spec.range_kind());
+
+        // Use the same logic as the CoordinateSystem implementation
+        let mut options = HashMap::new();
+        use datafusion::scalar::ScalarValue;
+
+        // Apply coordinate-specific defaults
+        if channel == "x" || channel == "y" {
+            // For quantitative scales (linear, log, etc.)
+            if domain_kind == DomainKind::Numeric && range_kind == RangeKind::Continuous {
+                // Include zero for y-axis by default (bar charts)
+                if channel == "y" {
+                    options.insert("zero".to_string(), ScalarValue::Boolean(Some(true)));
+                }
+
+                // Nice domain for better tick values
+                options.insert("nice".to_string(), ScalarValue::Boolean(Some(true)));
+
+                // Pixel-aligned positions for crisp rendering
+                options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
+            }
+            // For temporal scales
+            else if domain_kind == DomainKind::Temporal && range_kind == RangeKind::Continuous {
+                // Pixel-aligned positions
+                options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
+            }
+            // For categorical scales
+            else if domain_kind == DomainKind::Categorical && range_kind == RangeKind::Continuous
+            {
+                // Only band scales support padding, not point scales
+                if scale_type == "band" {
+                    options.insert("padding".to_string(), ScalarValue::Float64(Some(0.1)));
+                }
+            }
+        }
+
+        options
+    }
 }

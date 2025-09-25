@@ -192,4 +192,48 @@ impl CoordinateSystemTransform for Polar {
         )?;
         Ok(Box::new(geom))
     }
+
+    fn default_range(
+        &self,
+        channel: &str,
+        plot_area_width: f64,
+        plot_area_height: f64,
+    ) -> Option<(f64, f64)> {
+        <Self as CoordinateSystem>::default_range(self, channel, plot_area_width, plot_area_height)
+    }
+
+    fn default_scale_options(
+        &self,
+        channel: &str,
+        scale_type: &str,
+    ) -> HashMap<String, datafusion::scalar::ScalarValue> {
+        // Use the same logic as the CoordinateSystem implementation
+        use avenger_scales::scales::{DomainKind, RangeKind};
+        use crate::scales::infer_scale_type_from_name;
+        use datafusion::scalar::ScalarValue;
+
+        let mut options = HashMap::new();
+
+        // Determine domain and range kinds from scale type
+        let scale_spec = infer_scale_type_from_name(scale_type);
+        let (domain_kind, range_kind) = (scale_spec.domain_kind(), scale_spec.range_kind());
+
+        // Apply polar-specific defaults
+        if channel == "r" {
+            // Radial axis typically starts at zero unless explicitly overridden
+            if domain_kind == DomainKind::Numeric && range_kind == RangeKind::Continuous {
+                options.insert("zero".to_string(), ScalarValue::Boolean(Some(true)));
+                options.insert("nice".to_string(), ScalarValue::Boolean(Some(true)));
+                options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
+            }
+        } else if channel == "theta" {
+            // Angular values are typically in radians or degrees
+            if domain_kind == DomainKind::Numeric && range_kind == RangeKind::Continuous {
+                // Nice domain for better tick values
+                options.insert("nice".to_string(), ScalarValue::Boolean(Some(true)));
+            }
+        }
+
+        options
+    }
 }

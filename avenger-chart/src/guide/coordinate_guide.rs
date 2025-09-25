@@ -48,4 +48,23 @@ pub trait CoordinateGuideRender: Send + Sync + 'static {
         plot_bounds: &LayoutBounds,
         theme: &dyn Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
+
+    /// Get the clipping region for the coordinate system
+    ///
+    /// Returns the appropriate clip region for marks in this coordinate system.
+    /// This is used to ensure marks don't overflow the plot area.
+    ///
+    /// # Arguments
+    /// * `plot_width` - Width of the plot area
+    /// * `plot_height` - Height of the plot area
+    /// * `scales` - Configured scales for the plot
+    ///
+    /// # Returns
+    /// The clip region for the coordinate system
+    fn get_clip(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> avenger_scenegraph::marks::group::Clip;
 }

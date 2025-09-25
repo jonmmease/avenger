@@ -132,6 +132,24 @@ impl CoordinateSystemTransform for ZeroDCoord {
         )?;
         Ok(Box::new(geom))
     }
+
+    fn default_range(
+        &self,
+        channel: &str,
+        plot_area_width: f64,
+        plot_area_height: f64,
+    ) -> Option<(f64, f64)> {
+        <Self as CoordinateSystem>::default_range(self, channel, plot_area_width, plot_area_height)
+    }
+
+    fn default_scale_options(
+        &self,
+        _channel: &str,
+        _scale_type: &str,
+    ) -> HashMap<String, datafusion::scalar::ScalarValue> {
+        // Zero-dimensional coordinate system has no positional channels
+        HashMap::new()
+    }
 }
 
 #[cfg(test)]

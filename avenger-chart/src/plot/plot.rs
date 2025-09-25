@@ -12,10 +12,11 @@ use crate::legend::Legend;
 use crate::marks::{Mark, MarkRenderer};
 use crate::scales::Scale;
 use crate::theme::{Theme, css::CssTheme};
+use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
@@ -80,14 +81,188 @@ impl SerializablePlotRenderer {
         &self.layout_spec
     }
 
+    /// Collect all channels that need scales from marks
+    pub fn collect_channels_needing_scales(&self) -> HashSet<String> {
+        use crate::channel::resolution::resolve_all_channel_refs;
+
+        let mut used_channels = HashSet::new();
+        for mark in &self.marks {
+            // Get channels and resolve references first
+            let encodings = mark.data_context().channels();
+            // Try to resolve, but use original channels if resolution fails
+            let resolved_encodings =
+                resolve_all_channel_refs(encodings).unwrap_or_else(|_| encodings.clone());
+            for (channel_name, channel_value) in resolved_encodings {
+                if channel_value.get_scale_name(&channel_name).is_some() {
+                    used_channels.insert(channel_name.clone());
+                }
+            }
+        }
+        used_channels
+    }
+
+    /// Build a scale by name, applying any configured transformations
+    pub fn build_scale(&self, name: &str, plot_width: f64, plot_height: f64) -> Result<Scale, AvengerChartError> {
+        use crate::channel::value::strip_trailing_numbers;
+
+        // Strip trailing numbers to get the base scale name
+        let base_name = strip_trailing_numbers(name);
+
+        // Build the default scale for the base name
+        let mut base_scale = self.create_default_scale_for_channel(base_name)?;
+
+        // Apply coordinate-specific default range if applicable
+        if let Some(range) = self.get_coordinate_default_range(name, plot_width, plot_height) {
+            use datafusion::prelude::lit;
+            base_scale = base_scale.range_interval(lit(range.0), lit(range.1));
+        }
+
+        // Gather domain expressions from marks
+        if let Ok(domain_exprs) = self.gather_scale_domain_expressions(base_name) {
+            if !domain_exprs.is_empty() {
+                base_scale = base_scale.domain_data_fields(domain_exprs);
+            }
+        }
+
+        // Apply user-configured scale options
+        match self.scale_specs.get(base_name) {
+            Some(ScaleSpec::Local(scale_changes)) => {
+                Ok(base_scale.update(scale_changes.clone()))
+            }
+            None => Ok(base_scale),
+        }
+    }
+
+    /// Get the default range for a coordinate channel based on plot area dimensions
+    fn get_coordinate_default_range(
+        &self,
+        name: &str,
+        plot_area_width: f64,
+        plot_area_height: f64,
+    ) -> Option<(f64, f64)> {
+        // Check if this scale is mapped to a coordinate channel
+        let coord_channel = self
+            .scale_to_coord_channel
+            .get(name)
+            .map(|s| s.as_str())
+            .unwrap_or(name);
+
+        self.coord_transform.default_range(coord_channel, plot_area_width, plot_area_height)
+    }
+
+    /// Create a default scale for a channel based on mark data types and preferences
+    fn create_default_scale_for_channel(&self, channel: &str) -> Result<Scale, AvengerChartError> {
+        use crate::scales::create_default_scale_for_channel;
+        use crate::render::RenderContext;
+        use crate::channel::resolution::resolve_all_channel_refs;
+        use datafusion::logical_expr::lit;
+
+        // Look through marks to find the expression and data type for this channel
+        let mut scale_spec = None;
+        let mut data_type = None;
+        let mut found_scale_type = None;
+
+        for mark in &self.marks {
+            let channels = mark.data_context().channels();
+
+            // Try to resolve channel references
+            let resolved_channels = match resolve_all_channel_refs(channels) {
+                Ok(resolved) => resolved,
+                Err(_) => continue,
+            };
+
+            if let Some(channel_value) = resolved_channels.get(channel) {
+                // Get the dataframe for this mark
+                let df = mark.data_context().dataframe().or(self.data.as_ref());
+
+                // Try to get the data type of the channel
+                if let Some(df) = df {
+                    let schema = df.schema();
+                    if let Some(dt) = channel_value.get_data_type(schema) {
+                        data_type = Some(dt.clone());
+                        scale_spec = mark.preferred_scale_type(channel, &dt);
+                        if let Some(ref spec) = scale_spec {
+                            found_scale_type = Some(spec.name().to_string());
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        let scale_spec = scale_spec.ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Failed to infer scale specification for channel '{}'",
+                channel
+            ))
+        })?;
+
+        // Create render context with theme for scale defaults
+        let theme = self.get_theme();
+        let context = RenderContext::new(theme, 0.0, 0.0);
+
+        // Create scale with theme-based defaults
+        let mut scale = create_default_scale_for_channel(channel, scale_spec, &context)?;
+
+        // Apply coordinate system scale options if we have a scale type
+        if let Some(scale_type) = found_scale_type {
+            let coord_options = self.coord_transform.default_scale_options(channel, &scale_type);
+
+            // Convert ScalarValue to Expr and apply supported options
+            for (key, value) in coord_options {
+                scale = scale.option(&key, lit(value));
+            }
+        }
+
+        Ok(scale)
+    }
+
+    /// Gather mark data and encoding expressions that use this scale
+    fn gather_scale_domain_expressions(
+        &self,
+        scale_name: &str,
+    ) -> Result<Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)>, AvengerChartError> {
+        use crate::channel::resolution::resolve_all_channel_refs;
+
+        let mut data_expressions = Vec::new();
+
+        for mark in &self.marks {
+            let channels = mark.data_context().channels();
+            let resolved_channels = resolve_all_channel_refs(channels)?;
+
+            // Check if this mark uses the scale
+            let uses_scale = resolved_channels.iter().any(|(ch_name, ch_value)| {
+                ch_value.get_scale_name(ch_name) == Some(scale_name.to_string())
+            });
+
+            if !uses_scale {
+                continue;
+            }
+
+            // Get the dataframe for this mark
+            let df = mark.data_context().dataframe().or(self.data.as_ref());
+            if let Some(df) = df {
+                // Get the expression for this channel
+                if let Some(channel_value) = resolved_channels.get(scale_name) {
+                    if let Some(expr) = channel_value.expr() {
+                        data_expressions.push((Arc::new(df.clone()), expr.clone()));
+                    }
+                }
+            }
+        }
+
+        Ok(data_expressions)
+    }
+
+
     /// Render the plot to a scene graph
     pub async fn render(&self) -> Result<crate::render::RenderResult, AvengerChartError> {
-        // This is a temporary implementation that shows we can't fully render
-        // from just the SerializablePlotRenderer yet - we need the original Plot
-        // to access methods like get_scale, collect_channels_needing_scales, etc.
-        // This will be addressed in future refactoring.
+        // TODO: Implement full rendering from SerializablePlotRenderer
+        // For now, this is a placeholder that shows the structure is in place
+        // The actual rendering will be migrated from PlotRenderer incrementally
         Err(AvengerChartError::InternalError(
-            "Direct rendering from SerializablePlotRenderer not yet implemented".to_string()
+            "Direct rendering from SerializablePlotRenderer is not yet fully implemented. \
+             Use Plot::render() which creates a PlotRenderer internally.".to_string()
         ))
     }
 }
@@ -162,9 +337,15 @@ impl<C: CoordinateSystem + Default> Plot<C> {
 impl<C: CoordinateSystem> Plot<C> {
     /// Build a serializable plot renderer from this plot
     pub fn build(mut self) -> SerializablePlotRenderer {
-        // Build guide if configured
-        if self.guide_renderer.is_none() && self.guide_config.is_some() {
-            self.guide_renderer = Some(self.guide_config.as_ref().unwrap().clone().build());
+        // Always build guide renderer - either from config or default
+        if self.guide_renderer.is_none() {
+            let guide = if let Some(config) = &self.guide_config {
+                config.clone()
+            } else {
+                // Create default guide for the coordinate system
+                C::Guide::default()
+            };
+            self.guide_renderer = Some(guide.build());
         }
 
         SerializablePlotRenderer {

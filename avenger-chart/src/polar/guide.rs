@@ -283,4 +283,29 @@ impl CoordinateGuideRender for PolarGuide {
 
         Ok(marks)
     }
+
+    fn get_clip(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> avenger_scenegraph::marks::group::Clip {
+        use avenger_scenegraph::marks::group::Clip;
+
+        // Polar coordinates use circular clipping
+        let radius = plot_width.min(plot_height) / 2.0;
+        let center_x = plot_width / 2.0;
+        let center_y = plot_height / 2.0;
+
+        // Create a circular clip path
+        let mut builder = lyon_path::Path::builder();
+        builder.add_circle(
+            lyon_path::geom::point(center_x, center_y),
+            radius,
+            lyon_path::Winding::Positive,
+        );
+        let path = builder.build();
+
+        Clip::Path(path)
+    }
 }
