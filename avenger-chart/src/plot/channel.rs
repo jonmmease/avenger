@@ -1,11 +1,9 @@
 //! Channel resolution and gathering methods for Plot
 
-use crate::axis::Axis;
 use crate::channel::ConditionalValue;
 use crate::channel::resolution::resolve_all_channel_refs;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuideBuilder, GuideUpdate};
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::plot::{AxisSpec, Plot, ScaleSpec};
 use crate::render::RenderContext;

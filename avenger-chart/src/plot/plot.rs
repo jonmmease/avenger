@@ -2,11 +2,11 @@
 
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
-use crate::axis::Axis;
+
 use crate::channel::value::strip_trailing_numbers;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuideBuilder, CoordinateGuideRender, GuideUpdate};
+use crate::guide::{CoordinateGuideBuilder, CoordinateGuideRender};
 use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
 use crate::marks::{Mark, MarkRenderer};

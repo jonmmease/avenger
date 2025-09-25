@@ -108,10 +108,6 @@ macro_rules! impl_mark_trait_common {
         fn mark_type(&self) -> &str {
             $mark_name
         }
-
-        fn supported_channels(&self) -> Vec<$crate::marks::ChannelDescriptor> {
-            Self::all_channel_descriptors()
-        }
     };
 }
 

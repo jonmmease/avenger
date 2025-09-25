@@ -11,7 +11,7 @@ use super::PlotRenderer;
 use crate::channel::ChannelValue;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::marks::{Mark, MarkRenderer};
+use crate::marks::MarkRenderer;
 use crate::render::RenderContext;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::array::RecordBatch;

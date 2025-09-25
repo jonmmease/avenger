@@ -2,15 +2,10 @@ use crate::channel::{
     AngleChannelConfig, ColorChannelConfig, ShapeChannelConfig, SizeChannelConfig,
     StrokeWidthChannelConfig,
 };
-use crate::coords::{CoordinateSystem, CoordinateSystemTransform};
-use crate::error::AvengerChartError;
-use crate::marks::{Mark, MarkState};
-use crate::render::RenderContext;
+use crate::coords::CoordinateSystem;
+use crate::marks::MarkState;
 use crate::scales::{ResolvedDomain, ScaleRange};
 use crate::{define_common_mark_channels, impl_mark_base};
-use arrow::array::RecordBatch;
-use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::logical_expr::UserDefinedLogicalNode;
 use datafusion_common::ScalarValue;
 
 pub struct Symbol<C: CoordinateSystem> {

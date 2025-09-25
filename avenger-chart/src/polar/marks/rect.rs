@@ -46,28 +46,4 @@ impl Mark<Polar> for Rect<Polar> {
         ))
     }
 
-    fn preferred_legend_renderer(
-        &self,
-        channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        use crate::legend::{ColorbarRenderer, RectLegendRenderer};
-        use std::sync::Arc;
-
-        // Check if scale is continuous (for colorbar)
-        let is_continuous = crate::marks::util::is_continuous_scale(scale.scale_impl.as_ref());
-
-        match channel {
-            // Use colorbar for continuous color scales
-            "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
-            // Rect marks use RectLegendRenderer for discrete scales and other visual properties
-            "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
-                Some(Arc::new(RectLegendRenderer::new()))
-            }
-            // No legend for position channels and other non-visual channels
-            "r" | "theta" | "r2" | "theta2" | "corner_radius" | "defined" | "order" => None,
-            // For any other channel, default to RectLegendRenderer
-            _ => Some(Arc::new(RectLegendRenderer::new())),
-        }
-    }
 }

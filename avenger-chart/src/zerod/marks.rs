@@ -35,23 +35,10 @@ impl Symbol<ZeroDCoord> {
 impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
     impl_mark_trait_common!(Symbol, "symbol");
 
-    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        Symbol::<ZeroDCoord>::common_mark_specific_default(channel)
-    }
-
     fn build(&self) -> std::sync::Arc<dyn MarkRenderer> {
         std::sync::Arc::new(ZeroDSymbol {
             state: self.state.clone(),
         })
-    }
-
-    fn preferred_legend_renderer(
-        &self,
-        channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        // ZeroD has no position channels
-        Symbol::<ZeroDCoord>::common_preferred_legend_renderer(channel, scale, &[])
     }
 }
 
