@@ -242,7 +242,7 @@ impl MarkRenderer for PolarSymbolRenderer {
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        Symbol::<Polar>::common_mark_specific_default(channel)
+        crate::marks::symbol::symbol_channel_defaults(channel)
     }
 
     fn radius_expression(
@@ -270,7 +270,7 @@ impl MarkRenderer for PolarSymbolRenderer {
         scale: &avenger_scales::scales::ConfiguredScale,
     ) -> Option<Arc<dyn crate::legend::LegendRenderer>> {
         // Use the same logic as the Symbol mark
-        Symbol::<Polar>::common_preferred_legend_renderer(channel, scale, &["r", "theta"])
+        crate::marks::symbol::symbol_legend_renderer(channel, scale, &["r", "theta"])
     }
 
     fn preferred_scale_type(
