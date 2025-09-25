@@ -276,6 +276,7 @@ impl SerializablePlotRenderer {
     ) -> Result<Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr, Option<crate::marks::RadiusExpression>)>, AvengerChartError> {
         use crate::channel::resolution::resolve_all_channel_refs;
         use crate::channel::value::ChannelValue;
+        use crate::scales::extensions::ConfiguredScaleDataFusionExt;
 
         let mut data_expressions = Vec::new();
 
@@ -319,29 +320,64 @@ impl SerializablePlotRenderer {
                 continue;
             };
 
-            // Create channel resolver for this mark (uses configured non-positional scales)
+            // Create channel resolver for this mark (uses configured non-positional scales and theme)
             // This resolver looks up the channel value and applies scaling if needed
             let resolve_channel = |channel_name: &str| -> datafusion::logical_expr::Expr {
-                // Look for the channel in resolved_channels
+                use datafusion::prelude::lit;
+
+                // First check explicit mapping
                 if let Some(channel_value) = resolved_channels.get(channel_name) {
-                    // For now, just return the expression without scaling
-                    // A full implementation would apply the configured scale transform
-                    if let Some(expr) = channel_value.expr() {
-                        return expr.clone();
+                    // Apply scaling if needed
+                    match channel_value {
+                        ChannelValue::Value { expr } => {
+                            // No scaling requested
+                            return expr.clone();
+                        }
+                        ChannelValue::Scaled { expr, scale_name: custom_scale_name, band, .. } => {
+                            // Determine scale name
+                            let scale_key = custom_scale_name
+                                .as_ref()
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    use crate::channel::value::strip_trailing_numbers;
+                                    strip_trailing_numbers(channel_name).to_string()
+                                });
+
+                            // Use configured scales if available
+                            if let Some(configured) = configured_scales.get(&scale_key) {
+                                // Apply the scale transform
+                                if let Some(band_value) = band {
+                                    return configured
+                                        .to_expr_with_band(expr.clone(), *band_value)
+                                        .unwrap_or_else(|_| expr.clone());
+                                } else {
+                                    return configured
+                                        .to_expr(expr.clone())
+                                        .unwrap_or_else(|_| expr.clone());
+                                }
+                            } else {
+                                // No scale configured - use raw expression
+                                return expr.clone();
+                            }
+                        }
+                        ChannelValue::Conditional { .. } => {
+                            // Conditional values are not supported for radius calculations
+                            return lit(datafusion::scalar::ScalarValue::Null);
+                        }
                     }
                 }
 
-                // Check if it's a size-related channel with a configured scale
-                if channel_name == "size" || channel_name == "strokeWidth" {
-                    if let Some(scale) = configured_scales.get(channel_name) {
-                        // The scale has already been configured, but we need the input expression
-                        // For now, return a default size value
-                        return datafusion::logical_expr::lit(100.0);
+                // No explicit mapping - check for mark-provided defaults (including theme)
+                if let Some(default_scalar) = mark.default_channel_value(channel_name, context) {
+                    // Use mark-provided default (which includes theme defaults)
+                    if std::env::var("AVENGER_DEBUG_RADIUS").is_ok() {
+                        eprintln!("DEBUG: Using default for channel '{}': {:?}", channel_name, default_scalar);
                     }
+                    return lit(default_scalar);
                 }
 
-                // Default fallback
-                datafusion::logical_expr::lit(0.0)
+                // No mapping and no default
+                lit(datafusion::scalar::ScalarValue::Null)
             };
 
             // Check all encodings in the mark's data context
