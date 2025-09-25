@@ -90,12 +90,12 @@ macro_rules! impl_mark_base {
 
 /// Macro to implement common Mark trait methods
 /// Usage:
-///   - impl_mark_trait_common!(MarkType, "mark_name") - Without build method
-///   - impl_mark_trait_common!(MarkType, "mark_name", RendererType) - With build method
+///   - impl_mark_trait_common!(MarkType) - Without build method
+///   - impl_mark_trait_common!(MarkType, RendererType) - With build method
 #[macro_export]
 macro_rules! impl_mark_trait_common {
     // Pattern with RendererType - generates build method
-    ($mark_type:ident, $mark_name:literal, $renderer_type:ident) => {
+    ($mark_type:ident, $renderer_type:ident) => {
         fn state(&self) -> &$crate::marks::MarkState {
             &self.state
         }
@@ -106,10 +106,6 @@ macro_rules! impl_mark_trait_common {
 
         fn data_context(&self) -> &$crate::marks::DataContext {
             self.get_data_context()
-        }
-
-        fn mark_type(&self) -> &str {
-            $mark_name
         }
 
         fn build(&self) -> std::sync::Arc<dyn $crate::marks::MarkRenderer> {
@@ -120,7 +116,7 @@ macro_rules! impl_mark_trait_common {
     };
 
     // Pattern without RendererType - no build method generated
-    ($mark_type:ident, $mark_name:literal) => {
+    ($mark_type:ident) => {
         fn state(&self) -> &$crate::marks::MarkState {
             &self.state
         }
@@ -131,10 +127,6 @@ macro_rules! impl_mark_trait_common {
 
         fn data_context(&self) -> &$crate::marks::DataContext {
             self.get_data_context()
-        }
-
-        fn mark_type(&self) -> &str {
-            $mark_name
         }
     };
 }

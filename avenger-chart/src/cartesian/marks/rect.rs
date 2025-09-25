@@ -33,7 +33,7 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Rect with any axis type
 impl Mark<Cartesian> for Rect<Cartesian> {
-    impl_mark_trait_common!(Rect, "rect", CartesianRect);
+    impl_mark_trait_common!(Rect, CartesianRect);
 }
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -33,7 +33,7 @@ impl Symbol<ZeroDCoord> {
 
 // Implement Mark trait for ZeroDCoord Symbol
 impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
-    impl_mark_trait_common!(Symbol, "symbol", ZeroDSymbol);
+    impl_mark_trait_common!(Symbol, ZeroDSymbol);
 }
 
 #[derive(Clone, Serialize, Deserialize)]

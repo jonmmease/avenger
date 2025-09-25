@@ -30,7 +30,7 @@ define_position_channels! {
 
 // Implement Mark trait for PolarGeneral Symbol with any axis type
 impl Mark<Polar> for Symbol<Polar> {
-    impl_mark_trait_common!(Symbol, "symbol", PolarSymbol);
+    impl_mark_trait_common!(Symbol, PolarSymbol);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
