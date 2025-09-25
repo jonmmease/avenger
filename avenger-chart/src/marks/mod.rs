@@ -263,6 +263,10 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     ) -> Option<ScaleRange> {
         None
     }
+
+    /// Build a MarkRenderer from this Mark
+    /// This enables type-erased rendering without the coordinate system generic
+    fn build(&self) -> Arc<dyn MarkRenderer>;
 }
 
 #[typetag::serde(tag = "type")]

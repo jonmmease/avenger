@@ -60,6 +60,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
     pub(crate) legends: IndexMap<String, Legend>,
     pub(crate) marks: Vec<Arc<dyn Mark<C>>>,
+    pub(crate) mark_renderers: Vec<Arc<dyn MarkRenderer>>,
 
     /// Plot-level data for mark inheritance
     pub(crate) data: Option<DataFrame>,
@@ -94,6 +95,7 @@ impl<C: CoordinateSystem> Plot<C> {
             axis_specs: HashMap::new(),
             legends: IndexMap::new(),
             marks: Vec::new(),
+            mark_renderers: Vec::new(),
             data: None,
             scale_specs: HashMap::new(),
             scale_to_coord_channel: HashMap::new(),
@@ -198,8 +200,16 @@ impl<C: CoordinateSystem> Plot<C> {
         // Extract scale and legend configurations from the mark's channels
         self.extract_channel_configs(&mark);
 
-        // Add the mark
+        // Build the MarkRenderer from the Mark
+        let renderer = mark.build();
+
+        // Add the renderer
+        self.mark_renderers.push(renderer);
+
+        // Also keep the original mark for compatibility with existing code
+        // that still uses the marks field (e.g., scale extraction, rendering)
         self.marks.push(Arc::new(mark));
+
         self
     }
 

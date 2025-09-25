@@ -402,3 +402,81 @@ pub fn default_scale_for_data_type(
         _ => None,
     }
 }
+
+// ===== MarkRenderer versions of utility functions =====
+
+/// Get numeric channel values using Coercer with MarkRenderer defaults
+pub fn coerce_numeric_channel_with_renderer(
+    mark: &dyn crate::marks::MarkRenderer,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    context: &crate::render::RenderContext,
+    fallback_default: f32,
+) -> Result<ScalarOrArray<f32>, AvengerChartError> {
+    use crate::utils::ScalarValueHelpers;
+
+    // Get default from mark, falling back to provided default
+    let default = mark
+        .default_channel_value(channel, context)
+        .and_then(|scalar| scalar.as_f32().ok())
+        .unwrap_or(fallback_default);
+
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| c.to_numeric(a, Some(default)),
+        default,
+    )
+}
+
+/// Get color channel values using Coercer with MarkRenderer defaults
+pub fn coerce_color_channel_with_renderer(
+    mark: &dyn crate::marks::MarkRenderer,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    context: &crate::render::RenderContext,
+    fallback_default: [f32; 4],
+) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
+    // Get default from mark - the mark's default_channel_value returns a ScalarValue
+    // which for colors is typically a string like "#4682b4"
+    let default = if let Some(default_scalar) = mark.default_channel_value(channel, context) {
+        scalar_to_color(&default_scalar, fallback_default)?
+    } else {
+        ColorOrGradient::Color(fallback_default)
+    };
+
+    let default_for_closure = default.clone();
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        move |c, a| c.to_color(a, Some(default_for_closure.clone())),
+        default,
+    )
+}
+
+/// Get boolean channel values using Coercer with MarkRenderer defaults
+pub fn coerce_bool_channel_with_renderer(
+    mark: &dyn crate::marks::MarkRenderer,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    context: &crate::render::RenderContext,
+    fallback_default: bool,
+) -> Result<ScalarOrArray<bool>, AvengerChartError> {
+    use datafusion_common::ScalarValue;
+
+    // Get default from mark, falling back to provided default
+    let default = mark
+        .default_channel_value(channel, context)
+        .and_then(|scalar| match scalar {
+            ScalarValue::Boolean(Some(b)) => Some(b),
+            _ => None,
+        })
+        .unwrap_or(fallback_default);
+
+    coerce_channel(data, scalars, channel, |c, a| c.to_boolean(a), default)
+}
