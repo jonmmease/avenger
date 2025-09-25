@@ -2190,9 +2190,10 @@ impl SerializablePlotRenderer {
         // 5. Subtitle (can overflow, rendered on top)
         all_marks.extend(subtitle_marks);
 
-        // 6. Debug: Add Taffy layout bounds visualization if AVENGER_CHART_DEBUG_LAYOUT is set
-        // Note: debug module is private, so we can't use it directly here
-        // This would need to be exposed through a public API if needed
+        // 6. Debug: Add layout bounds visualization if AVENGER_CHART_DEBUG_LAYOUT is set
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            all_marks.extend(crate::render::debug::create_debug_layout_rects(&layout.taffy_layout));
+        }
 
         // Wrap everything in a single root group
         let root_group = SceneGroup {

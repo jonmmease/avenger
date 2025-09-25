@@ -4,7 +4,7 @@
 
 pub mod canvas;
 pub mod context;
-mod debug;
+pub mod debug;
 mod guide;
 mod guide_marks;
 mod layout;
