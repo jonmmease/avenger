@@ -1618,6 +1618,8 @@ impl SerializablePlotRenderer {
     }
 
     /// Prepare legend measurements for layout computation
+    /// Note: This should be called with the legends_map from merge_legend_channels
+    /// to ensure measurements match rendering
     pub fn prepare_legend_measurements(
         &self,
         legends: &IndexMap<String, Legend>,
@@ -1628,37 +1630,62 @@ impl SerializablePlotRenderer {
 
         let mut legend_measurements = crate::render::LegendMeasurements::new();
 
-        for (channel, legend) in legends.iter() {
-            if let Some(scale) = scales.get(channel) {
-                // Build legend channels for this channel
-                let legend_channels =
-                    self.build_legend_channels_for_channel(channel, legend, scales)?;
+        // Get all legends including channel-level configs
+        let all_legends = self.get_legends_with_theme(scales);
 
-                // Get the renderer
-                let renderer = if !legend_channels.is_empty() {
-                    self.get_legend_renderer(
-                        &legend_channels[0].channel_type,
-                        scale,
-                    )
-                    .ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "No legend renderer available for channel '{}'",
-                            channel
-                        ))
-                    })?
-                } else {
-                    continue;
-                };
+        // Merge channels to get the same groups that will be used for rendering
+        let (sorted_channel_groups, _) = self.merge_legend_channels(&all_legends, scales);
 
-                // Measure the legend
+
+        for channels in sorted_channel_groups {
+            if channels.is_empty() {
+                continue;
+            }
+
+            // Get the primary channel (first in group)
+            let primary_channel = &channels[0];
+
+            // Get legend config - first try the passed-in legends (from merge),
+            // then fall back to all_legends
+            let legend = legends
+                .get(&primary_channel.name)
+                .or_else(|| all_legends.get(&primary_channel.name))
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Legend configuration not found for channel '{}'",
+                        primary_channel.name
+                    ))
+                })?;
+
+            // Get scale for primary channel
+            let scale = scales.get(&primary_channel.name).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Scale not found for channel '{}'",
+                    primary_channel.name
+                ))
+            })?;
+
+            // Determine the appropriate renderer for this group of channels
+            let renderer = if channels.len() > 1 {
+                // Multiple channels - try to get a merged renderer
+                let mark_opt = self.marks.get(primary_channel.mark_index);
+                mark_opt
+                    .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, scales))
+                    .or_else(|| self.get_legend_renderer(&primary_channel.channel_type, scale))
+            } else {
+                // Single channel - use the unified renderer selection
+                self.get_legend_renderer(&primary_channel.channel_type, scale)
+            };
+
+            if let Some(renderer) = renderer {
+                // Measure the legend with the same channels that will be used for rendering
                 let (size, flexible) = measure_legend_size_with_channels(
-                    &legend_channels,
+                    &channels,
                     legend,
                     renderer,
                     available_space,
                 )?;
-
-                legend_measurements.insert(channel.clone(), (size, flexible));
+                legend_measurements.insert(primary_channel.name.clone(), (size, flexible));
             }
         }
 
