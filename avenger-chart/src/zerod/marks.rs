@@ -45,18 +45,6 @@ impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
         })
     }
 
-    fn render_from_data(
-        &self,
-        data: Option<&RecordBatch>,
-        scalars: &RecordBatch,
-        context: &RenderContext,
-        coord: &ZeroDCoord,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // In 0D space, symbols render at the center point
-        // Use the common rendering logic which handles all the channel processing
-        self.render_from_data_common(data, scalars, context, coord)
-    }
-
     fn preferred_legend_renderer(
         &self,
         channel: &str,
