@@ -9,6 +9,7 @@
 use super::PlotRenderer;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::guide::CoordinateGuideBuilder;
 use crate::layout::ChartLayout;
 use crate::render::LayoutSolution;
 use crate::render::types::INITIAL_PLOT_AREA_RATIO;
@@ -25,6 +26,9 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         // Create guide with all configurations applied
         let guide = self.create_configured_guide(scales);
 
+        // Build the guide into a renderer
+        let guide_renderer = guide.build();
+
         // Call the layout helper with the guide
         // Check for required positional scales before measuring overflow
         // This ensures we provide proper error messages for literal values
@@ -33,8 +37,10 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         // Measure how much space the guide needs
         let width_estimate = width * INITIAL_PLOT_AREA_RATIO;
         let height_estimate = height * INITIAL_PLOT_AREA_RATIO;
-        let overflow = self
-            .measure_guide_overflow(&guide, scales, width_estimate, height_estimate)
+
+        let theme = self.plot.get_theme();
+        let overflow = guide_renderer
+            .measure_overflow(scales, width_estimate, height_estimate, theme.as_ref())
             .await?;
 
         tracing::trace!(

@@ -6,6 +6,7 @@
 use super::PlotRenderer;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::guide::CoordinateGuideBuilder;
 use crate::layout::LayoutBounds;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
@@ -22,12 +23,13 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         // Create guide with all configurations applied
         let guide = self.create_configured_guide(scales);
 
-        // Render the guide using the coordinate system
+        // Build the guide into a renderer
+        let guide_renderer = guide.build();
+
+        // Render using the built guide renderer directly
         let theme = self.plot.get_theme();
-        self.plot
-            .coord_system()
-            .render_guide(
-                &guide,
+        guide_renderer
+            .render(
                 scales,
                 plot_width,
                 plot_height,
