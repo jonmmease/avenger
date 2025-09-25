@@ -1,12 +1,11 @@
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{Mark, RadiusExpression};
+use crate::marks::Mark;
 
 use crate::polar::Polar;
 use crate::render::RenderContext;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
 
 // Import Line for the macro, then re-export it
@@ -38,29 +37,6 @@ impl Mark<Polar> for Line<Polar> {
             "opacity" => Some(ScalarValue::Float32(Some(1.0))),                  // Fully opaque
             "interpolate" => Some(ScalarValue::Utf8(Some("linear".to_string()))), // Linear interpolation
             "defined" => Some(ScalarValue::Boolean(Some(true))), // All points defined
-            _ => None,
-        }
-    }
-
-    fn radius_expression(
-        &self,
-        dimension: &str,
-        resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        match dimension {
-            "r" => {
-                // Get stroke_width expression (either mapped or default)
-                let stroke_width_expr = resolve_channel("stroke_width");
-
-                // For lines: radial radius = stroke_width * 2
-                let radius_expr = stroke_width_expr * lit(2.0);
-
-                Some(RadiusExpression::Symmetric(radius_expr))
-            }
-            "theta" => {
-                // No angular radius for line marks
-                None
-            }
             _ => None,
         }
     }

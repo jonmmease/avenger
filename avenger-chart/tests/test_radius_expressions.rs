@@ -16,34 +16,41 @@ async fn test_symbol_default_channel_values() {
     let theme = CssTheme::light();
     let context = RenderContext::new(Arc::new(theme), 500.0, 400.0);
 
+    // Build the MarkRenderer
+    let renderer = symbol.build();
+
     // Test default channel values
     assert_eq!(
-        symbol.default_channel_value("size", &context).unwrap(),
+        renderer.default_channel_value("size", &context).unwrap(),
         ScalarValue::Float32(Some(64.0))
     );
     assert_eq!(
-        symbol.default_channel_value("shape", &context).unwrap(),
+        renderer.default_channel_value("shape", &context).unwrap(),
         ScalarValue::Utf8(Some("circle".to_string()))
     );
     assert_eq!(
-        symbol.default_channel_value("angle", &context).unwrap(),
+        renderer.default_channel_value("angle", &context).unwrap(),
         ScalarValue::Float32(Some(0.0))
     );
     assert_eq!(
-        symbol.default_channel_value("fill", &context).unwrap(),
+        renderer.default_channel_value("fill", &context).unwrap(),
         ScalarValue::Utf8(Some("#4682b4".to_string()))
     );
     assert_eq!(
-        symbol.default_channel_value("stroke", &context).unwrap(),
+        renderer.default_channel_value("stroke", &context).unwrap(),
         ScalarValue::Utf8(Some("#000000".to_string()))
     );
     assert_eq!(
-        symbol.default_channel_value("opacity", &context).unwrap(),
+        renderer.default_channel_value("opacity", &context).unwrap(),
         ScalarValue::Float32(Some(1.0))
     );
 
     // Test unknown channel returns None
-    assert!(symbol.default_channel_value("unknown", &context).is_none());
+    assert!(
+        renderer
+            .default_channel_value("unknown", &context)
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -52,6 +59,9 @@ async fn test_symbol_radius_expression() {
     let df = ctx.read_empty().unwrap();
 
     let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
+
+    // Build the MarkRenderer
+    let renderer = symbol.build();
 
     // Create a simple channel resolver that returns the size and stroke_width defaults
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
@@ -63,15 +73,15 @@ async fn test_symbol_radius_expression() {
     };
 
     // Test radius expression for x dimension
-    let radius_expr = symbol.radius_expression("x", &resolve_channel);
+    let radius_expr = renderer.radius_expression("x", &resolve_channel);
     assert!(matches!(radius_expr, Some(RadiusExpression::Symmetric(_))));
 
     // Test radius expression for y dimension
-    let radius_expr = symbol.radius_expression("y", &resolve_channel);
+    let radius_expr = renderer.radius_expression("y", &resolve_channel);
     assert!(matches!(radius_expr, Some(RadiusExpression::Symmetric(_))));
 
     // Test radius expression for z dimension (should return None)
-    let radius_expr = symbol.radius_expression("z", &resolve_channel);
+    let radius_expr = renderer.radius_expression("z", &resolve_channel);
     assert!(radius_expr.is_none());
 }
 
@@ -108,6 +118,9 @@ async fn test_symbol_radius_expression_with_mapped_size() {
         .y(col("y"))
         .size(col("size"));
 
+    // Build the MarkRenderer
+    let renderer = symbol.build();
+
     // Create a channel resolver that returns the size column
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
         match channel {
@@ -117,7 +130,7 @@ async fn test_symbol_radius_expression_with_mapped_size() {
     };
 
     // Test radius expression uses the mapped size
-    let radius_expr = symbol.radius_expression("x", &resolve_channel);
+    let radius_expr = renderer.radius_expression("x", &resolve_channel);
     assert!(matches!(radius_expr, Some(RadiusExpression::Symmetric(_))));
 }
 
@@ -127,6 +140,9 @@ async fn test_symbol_radius_includes_stroke_width() {
     let df = ctx.read_empty().unwrap();
 
     let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
+
+    // Build the MarkRenderer
+    let renderer = symbol.build();
 
     // Test with specific size and stroke_width values
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
@@ -138,7 +154,7 @@ async fn test_symbol_radius_includes_stroke_width() {
     };
 
     // Get radius expression
-    let radius_expr = symbol.radius_expression("x", &resolve_channel).unwrap();
+    let radius_expr = renderer.radius_expression("x", &resolve_channel).unwrap();
 
     // The expression should be: sqrt(100) * 0.5 + 4.0 / 2.0 = 5.0 + 2.0 = 7.0
     // We can't easily evaluate the expression here, but we can verify it includes both components
@@ -163,6 +179,9 @@ async fn test_line_radius_expression() {
 
     let line = Line::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
+    // Build the MarkRenderer
+    let renderer = line.build();
+
     // Create a channel resolver that returns stroke_width
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
         match channel {
@@ -172,7 +191,7 @@ async fn test_line_radius_expression() {
     };
 
     // Test radius expression for y dimension (should have radius)
-    let radius_expr = line.radius_expression("y", &resolve_channel);
+    let radius_expr = renderer.radius_expression("y", &resolve_channel);
     assert!(matches!(radius_expr, Some(RadiusExpression::Symmetric(_))));
 
     // Verify the expression multiplies stroke_width by 2
@@ -183,10 +202,10 @@ async fn test_line_radius_expression() {
     }
 
     // Test radius expression for x dimension (should return None)
-    let radius_expr = line.radius_expression("x", &resolve_channel);
+    let radius_expr = renderer.radius_expression("x", &resolve_channel);
     assert!(radius_expr.is_none());
 
     // Test radius expression for z dimension (should return None)
-    let radius_expr = line.radius_expression("z", &resolve_channel);
+    let radius_expr = renderer.radius_expression("z", &resolve_channel);
     assert!(radius_expr.is_none());
 }

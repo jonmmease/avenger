@@ -45,30 +45,6 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         })
     }
 
-    fn radius_expression(
-        &self,
-        dimension: &str,
-        resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        match dimension {
-            "x" | "y" => {
-                // Get size and stroke_width expressions (either mapped or default)
-                let size_expr = resolve_channel("size");
-                let stroke_width_expr = resolve_channel("stroke_width");
-
-                // For symbols: radius = sqrt(area) * 0.5 + stroke_width / 2
-                // The size channel represents the area of the bounding square
-                // The base circle SVG path has radius 0.5 for a unit square (size=1)
-                // Add half the stroke width since stroke extends both inward and outward
-                use datafusion::functions::expr_fn::sqrt;
-                let radius_expr = sqrt(size_expr) * lit(0.5) + stroke_width_expr / lit(2.0);
-
-                Some(RadiusExpression::Symmetric(radius_expr))
-            }
-            _ => None,
-        }
-    }
-
     fn preferred_scale_type(
         &self,
         channel: &str,

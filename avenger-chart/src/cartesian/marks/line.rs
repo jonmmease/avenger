@@ -59,30 +59,6 @@ impl Mark<Cartesian> for Line<Cartesian> {
         }
     }
 
-    fn radius_expression(
-        &self,
-        dimension: &str,
-        resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
-        match dimension {
-            "y" => {
-                // Get stroke_width expression (either mapped or default)
-                let stroke_width_expr = resolve_channel("stroke_width");
-
-                // For lines: vertical radius = stroke_width * 2
-                // This ensures the full line thickness is visible even at plot boundaries
-                let radius_expr = stroke_width_expr * lit(2.0);
-
-                Some(RadiusExpression::Symmetric(radius_expr))
-            }
-            "x" => {
-                // No horizontal radius for line marks
-                None
-            }
-            _ => None,
-        }
-    }
-
     fn preferred_scale_type(
         &self,
         channel: &str,
