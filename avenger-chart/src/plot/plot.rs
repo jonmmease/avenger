@@ -995,10 +995,82 @@ impl SerializablePlotRenderer {
         // Create default legends for channels that don't have explicit configuration
         let default_legends = self.create_default_legends(scales);
 
-        // Merge with user-configured legends (user config takes precedence)
+        // Merge with user-configured legends
+        // Apply defaults under user settings (defaults provide values for unset properties)
         let mut all_legends = default_legends;
-        for (channel, legend) in &self.legends {
-            all_legends.insert(channel.clone(), legend.clone());
+        let theme = self.get_theme();
+
+        for (channel, user_legend) in &self.legends {
+            all_legends
+                .entry(channel.clone())
+                .and_modify(|legend| {
+                    // Apply user settings on top of defaults
+                    // This preserves theme defaults for properties not explicitly set by user
+                    *legend = legend.clone().update(user_legend.clone())
+                })
+                .or_insert_with(|| {
+                    // User configured a legend for a channel that wasn't in defaults
+                    // Apply theme defaults to it
+                    let mut legend = user_legend.clone();
+
+                    // Apply theme fonts if not explicitly set
+                    if matches!(legend.title_color, crate::maybe::Maybe::Unset) {
+                        legend.title_color = crate::maybe::Maybe::Set(theme.legend_title_color());
+                    }
+                    if matches!(legend.label_color, crate::maybe::Maybe::Unset) {
+                        legend.label_color = crate::maybe::Maybe::Set(theme.legend_label_color());
+                    }
+                    if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
+                        legend.title_font_family = crate::maybe::Maybe::Set(theme.legend_title_font_family());
+                    }
+                    if matches!(legend.title_font_size, crate::maybe::Maybe::Unset) {
+                        legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size());
+                    }
+                    if matches!(legend.title_font_weight, crate::maybe::Maybe::Unset) {
+                        legend.title_font_weight = crate::maybe::Maybe::Set(theme.legend_title_font_weight());
+                    }
+                    if matches!(legend.label_font_family, crate::maybe::Maybe::Unset) {
+                        legend.label_font_family = crate::maybe::Maybe::Set(theme.legend_label_font_family());
+                    }
+                    if matches!(legend.label_font_size, crate::maybe::Maybe::Unset) {
+                        legend.label_font_size = crate::maybe::Maybe::Set(theme.legend_label_font_size());
+                    }
+                    if matches!(legend.label_font_weight, crate::maybe::Maybe::Unset) {
+                        legend.label_font_weight = crate::maybe::Maybe::Set(theme.legend_label_font_weight());
+                    }
+                    if matches!(legend.tick_font_family, crate::maybe::Maybe::Unset) {
+                        legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family());
+                    }
+                    if matches!(legend.tick_font_size, crate::maybe::Maybe::Unset) {
+                        legend.tick_font_size = crate::maybe::Maybe::Set(theme.legend_tick_font_size());
+                    }
+                    if matches!(legend.tick_font_weight, crate::maybe::Maybe::Unset) {
+                        legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight());
+                    }
+                    if matches!(legend.tick_color, crate::maybe::Maybe::Unset) {
+                        legend.tick_color = crate::maybe::Maybe::Set(theme.legend_tick_color());
+                    }
+
+                    // Apply theme background settings if not set
+                    if matches!(legend.background_padding, crate::maybe::Maybe::Unset) {
+                        legend.background_padding = crate::maybe::Maybe::Set(theme.legend_background_padding());
+                    }
+                    if matches!(legend.background_corner_radius, crate::maybe::Maybe::Unset) {
+                        legend.background_corner_radius = crate::maybe::Maybe::Set(theme.legend_background_corner_radius());
+                    }
+                    if matches!(legend.background_fill, crate::maybe::Maybe::Unset) {
+                        if let Some(fill) = theme.legend_background_fill() {
+                            legend.background_fill = crate::maybe::Maybe::Set(fill);
+                        }
+                    }
+                    if matches!(legend.background_stroke, crate::maybe::Maybe::Unset) {
+                        if let Some(stroke) = theme.legend_background_stroke() {
+                            legend.background_stroke = crate::maybe::Maybe::Set(stroke);
+                        }
+                    }
+
+                    legend
+                });
         }
 
         all_legends
