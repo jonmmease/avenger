@@ -269,8 +269,48 @@ impl CoordinateGuideRender for CartesianGuide {
             marks.push(SceneMark::Rect(bg_rect));
         }
 
-        // Render each axis
+        // Merge default axes with user-configured axes
+        // This ensures that x and y channels with scales always get axes
+        let mut all_axes = HashMap::new();
+
+        // Process all x and y channels that have scales
+        for channel in ["x", "y"] {
+            if let Some(scale) = scales.get(channel) {
+                // Start with a default axis
+                let position = match channel {
+                    "x" => AxisPosition::Bottom,
+                    "y" => AxisPosition::Left,
+                    _ => AxisPosition::Bottom,
+                };
+
+                // Determine if grid should be enabled based on scale type
+                let grid = scale.ticks(None).is_ok();
+
+                let mut axis = CartesianAxis::new()
+                    .position(position)
+                    .visible(true)
+                    .grid(grid);
+
+                // If user provided an axis configuration, merge it with the default
+                if let Some(user_axis) = self.axes.get(channel) {
+                    // Apply user settings on top of defaults
+                    // The update method preserves user settings while keeping defaults for unspecified fields
+                    axis = axis.update(user_axis.clone());
+                }
+
+                all_axes.insert(channel.to_string(), axis);
+            }
+        }
+
+        // Add any other user-configured axes that aren't x or y
         for (channel, axis) in &self.axes {
+            if channel != "x" && channel != "y" {
+                all_axes.insert(channel.clone(), axis.clone());
+            }
+        }
+
+        // Render each axis
+        for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
                 let axis_mark =
                     axis.render(channel, scale, plot_width, plot_height, plot_bounds, theme)?;
