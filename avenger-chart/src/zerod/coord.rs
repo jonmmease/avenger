@@ -3,10 +3,9 @@
 //! The ZeroDCoord type represents a zero-dimensional coordinate system - essentially
 //! a single point with no spatial extent.
 
-use crate::coords::{CoordinateSystem, PointGeometry};
+use crate::coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry};
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuideBuilder, NoGuide, OverflowSpaceRequirement};
-use crate::marks::Mark;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
@@ -44,7 +43,7 @@ impl CoordinateSystem for ZeroDCoord {
     fn create_default_axes(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn Mark<Self>>],
+        _marks: &[Arc<dyn crate::marks::MarkRenderer>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         // No axes exist in zero-dimensional space
         HashMap::new()
@@ -54,7 +53,7 @@ impl CoordinateSystem for ZeroDCoord {
         &self,
         _axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn Mark<Self>>],
+        _marks: &[Arc<dyn crate::marks::MarkRenderer>],
     ) -> Self::Guide {
         NoGuide::default()
     }
@@ -136,6 +135,31 @@ impl CoordinateSystem for ZeroDCoord {
 
         Ok(PointGeometry { x, y })
     }
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+}
+
+impl CoordinateSystemTransform for ZeroDCoord {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn transform(
+        &self,
+        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+        let geom = <Self as CoordinateSystem>::transform(
+            self,
+            position_channels,
+            plot_width,
+            plot_height,
+        )?;
+        Ok(Box::new(geom))
+    }
 }
 
 #[cfg(test)]
@@ -150,7 +174,9 @@ mod tests {
 
         // Test with empty position channels (single point)
         let position_channels = HashMap::new();
-        let geometry = coord.transform(&position_channels, 100.0, 100.0).unwrap();
+        let geometry =
+            <ZeroDCoord as CoordinateSystem>::transform(&coord, &position_channels, 100.0, 100.0)
+                .unwrap();
 
         // Verify single point is at center (50, 50)
         use avenger_common::value::ScalarOrArrayValue;
@@ -169,9 +195,13 @@ mod tests {
             avenger_common::value::ScalarOrArray::new_array(vec![1.0, 2.0, 3.0]),
         );
 
-        let geometry_arr = coord
-            .transform(&position_channels_with_data, 100.0, 100.0)
-            .unwrap();
+        let geometry_arr = <ZeroDCoord as CoordinateSystem>::transform(
+            &coord,
+            &position_channels_with_data,
+            100.0,
+            100.0,
+        )
+        .unwrap();
 
         match (geometry_arr.x.value(), geometry_arr.y.value()) {
             (ScalarOrArrayValue::Array(x_vals), ScalarOrArrayValue::Array(y_vals)) => {

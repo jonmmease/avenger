@@ -1,5 +1,8 @@
 //! Core Plot struct and its basic implementations
 
+use super::specs::{AxisSpec, ScaleSpec};
+use super::title::{PlotSubtitle, PlotTitle};
+use crate::axis::Axis;
 use crate::channel::value::strip_trailing_numbers;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
@@ -11,13 +14,9 @@ use crate::scales::Scale;
 use crate::theme::{Theme, css::CssTheme};
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
-use crate::axis::Axis;
-use super::specs::{AxisSpec, ScaleSpec};
-use super::title::{PlotSubtitle, PlotTitle};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Plot2<C: CoordinateSystem> {
@@ -33,7 +32,6 @@ pub struct Plot2<C: CoordinateSystem> {
     //
     // /// Scale specifications (local or referenced)
     // pub(crate) scale_specs: HashMap<String, ScaleSpec>,
-
     /// Mapping from scale names to their coordinate channel
     /// e.g., "y2" -> "y", "x2" -> "x"
     pub(crate) scale_to_coord_channel: HashMap<String, String>,
@@ -59,7 +57,6 @@ pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
     pub(crate) legends: IndexMap<String, Legend>,
-    pub(crate) marks: Vec<Arc<dyn Mark<C>>>,
     pub(crate) mark_renderers: Vec<Arc<dyn MarkRenderer>>,
 
     /// Plot-level data for mark inheritance
@@ -94,7 +91,6 @@ impl<C: CoordinateSystem> Plot<C> {
             coord_system,
             axis_specs: HashMap::new(),
             legends: IndexMap::new(),
-            marks: Vec::new(),
             mark_renderers: Vec::new(),
             data: None,
             scale_specs: HashMap::new(),
@@ -141,8 +137,9 @@ impl<C: CoordinateSystem> Plot<C> {
         &self.scale_to_coord_channel
     }
 
-    pub fn marks(&self) -> &[Arc<dyn Mark<C>>] {
-        &self.marks
+    /// Get a reference to the mark renderers
+    pub fn mark_renderers(&self) -> &[Arc<dyn MarkRenderer>] {
+        &self.mark_renderers
     }
 
     /// Get a reference to the legends
@@ -205,10 +202,6 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Add the renderer
         self.mark_renderers.push(renderer);
-
-        // Also keep the original mark for compatibility with existing code
-        // that still uses the marks field (e.g., scale extraction, rendering)
-        self.marks.push(Arc::new(mark));
 
         self
     }
@@ -296,7 +289,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 let mut updated = existing.clone();
                 updated.update(guide);
                 Some(updated)
-            },
+            }
             None => Some(guide),
         };
         self

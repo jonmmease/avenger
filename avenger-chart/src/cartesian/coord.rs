@@ -1,12 +1,13 @@
 use crate::cartesian::{CartesianAxis, CartesianGuide, axis::AxisPosition};
-use crate::coords::{CoordinateSystem, PointGeometry, extract_channel_title_from_marks};
+use crate::coords::{
+    CoordinateSystem, CoordinateSystemTransform, PointGeometry, extract_channel_title_from_marks,
+};
 use crate::error::AvengerChartError;
-use crate::marks::Mark;
+use crate::guide::CoordinateGuideBuilder;
 use avenger_scenegraph::marks::group::Clip;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use crate::guide::CoordinateGuideBuilder;
 
 /// Cartesian coordinate system with x and y axes
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -32,7 +33,7 @@ impl CoordinateSystem for Cartesian {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn Mark<Self>>],
+        marks: &[Arc<dyn crate::marks::MarkRenderer>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         let mut default_axes = HashMap::new();
 
@@ -76,7 +77,7 @@ impl CoordinateSystem for Cartesian {
         &self,
         axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn Mark<Self>>],
+        _marks: &[Arc<dyn crate::marks::MarkRenderer>],
     ) -> Self::Guide {
         let mut guide = CartesianGuide::new();
         guide.set_axes(axes);
@@ -171,5 +172,30 @@ impl CoordinateSystem for Cartesian {
         }
 
         options
+    }
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+}
+
+impl CoordinateSystemTransform for Cartesian {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &["x", "y"]
+    }
+
+    fn transform(
+        &self,
+        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+        let geom = <Self as CoordinateSystem>::transform(
+            self,
+            position_channels,
+            plot_width,
+            plot_height,
+        )?;
+        Ok(Box::new(geom))
     }
 }

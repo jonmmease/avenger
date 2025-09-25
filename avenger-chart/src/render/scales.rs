@@ -115,12 +115,23 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         }
 
         // Check if positional channels are being used with literal values
-        for mark in &self.plot.marks {
+        for mark in &self.plot.mark_renderers {
             for (channel_name, channel_value) in mark.data_context().channels() {
                 // Check if this is a positional channel
                 if positional_channels.contains(channel_name) {
                     // Check if this is a literal value (no scale needed)
                     if channel_value.get_scale_name(channel_name).is_none() {
+                        // Skip validation if this channel value contains channel references
+                        // Channel references (e.g., col(":x")) will be resolved later
+                        if let Some(expr) = channel_value.expr() {
+                            // Check if the expression contains a channel reference
+                            let expr_str = format!("{:?}", expr);
+                            if expr_str.contains("\":") {
+                                // This contains a channel reference, skip validation
+                                continue;
+                            }
+                        }
+
                         // Get the base scale name (e.g., "x" from "x2")
                         let base_scale_name = channel_name.trim_end_matches('2');
 
@@ -399,7 +410,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
 
         if !is_position && !has_user_range {
             // Find the first mark that uses this channel
-            for mark in &self.plot.marks {
+            for mark in &self.plot.mark_renderers {
                 if mark.data_context().channels().contains_key(name) {
                     // Get data type from the channel expression
                     // First resolve channel references

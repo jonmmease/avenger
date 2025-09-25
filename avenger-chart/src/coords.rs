@@ -1,14 +1,14 @@
 use crate::error::AvengerChartError;
 pub use crate::guide::OverflowSpaceRequirement;
-use crate::marks::Mark;
+use crate::guide::{CoordinateGuideBuilder, CoordinateGuideRender};
+use crate::marks::{Mark, MarkRenderer};
+use crate::theme::Theme;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use crate::guide::{CoordinateGuideRender, CoordinateGuideBuilder};
-use crate::theme::Theme;
 
 #[typetag::serde(tag = "type")]
 pub trait PlotGeometry: Send + Sync + 'static {
@@ -52,7 +52,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// # Arguments
     /// * `axes` - Axes that were configured at the channel level
     /// * `scales` - The scale registry containing all configured scales
-    /// * `marks` - The marks in the plot, used to extract information for guide configuration
+    /// * `marks` - The mark renderers in the plot, used to extract information for guide configuration
     ///
     /// # Returns
     /// The default guide configuration for this coordinate system with axes set
@@ -60,7 +60,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         &self,
         axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn Mark<Self>>],
+        marks: &[Arc<dyn MarkRenderer>],
     ) -> Self::Guide;
 
     /// Configure the guide with user-provided settings
@@ -80,7 +80,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn Mark<Self>>],
+        marks: &[Arc<dyn MarkRenderer>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>;
 
     /// Measure how much space the coordinate system's guide needs outside the plot area
@@ -159,6 +159,12 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Self::PlotGeometry, AvengerChartError>;
+
+    /// Create a boxed coordinate system transform for use with MarkRenderer
+    ///
+    /// This creates a type-erased version of the coordinate system that can be
+    /// used by the serializable MarkRenderer implementations.
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform>;
 }
 
 /// Helper function to extract channel title from mark encodings
@@ -172,8 +178,8 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 ///
 /// # Returns
 /// An optional string containing the column name if found
-pub fn extract_channel_title_from_marks<C: CoordinateSystem>(
-    marks: &[Arc<dyn Mark<C>>],
+pub fn extract_channel_title_from_marks(
+    marks: &[Arc<dyn MarkRenderer>],
     channel: &str,
 ) -> Option<String> {
     // Look through marks to find a column name for this channel
@@ -216,7 +222,6 @@ pub fn extract_channel_title_from_marks<C: CoordinateSystem>(
     None
 }
 
-
 pub trait CoordinateSystemTransform {
     fn required_channels(&self) -> &'static [&'static str];
 
@@ -234,10 +239,7 @@ pub trait CoordinateSystemTransform {
     /// The coordinate system's plot geometry type containing transformed positions
     fn transform(
         &self,
-        position_channels: &HashMap<
-            &str,
-            ScalarOrArray<f32>,
-        >,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn PlotGeometry>, AvengerChartError>;

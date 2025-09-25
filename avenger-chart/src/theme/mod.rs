@@ -3,8 +3,6 @@
 //! The theme system provides a centralized way to control the visual appearance
 //! of charts, including colors, fonts, shapes, and other styling properties.
 
-use serde::{Deserialize, Serialize};
-
 // Core theme modules
 mod context;
 mod value;

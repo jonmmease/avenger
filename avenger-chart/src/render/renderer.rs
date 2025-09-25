@@ -198,7 +198,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Render marks
         let mut mark_groups = Vec::new();
-        for mark in &self.plot.marks {
+        for mark in &self.plot.mark_renderers {
             let scene_marks = self
                 .render_mark(mark.as_ref(), scales, plot_area_width, plot_area_height)
                 .await?;

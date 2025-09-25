@@ -9,8 +9,8 @@ use crate::render::RenderContext;
 use crate::scales::{ResolvedDomain, ScaleRange};
 use crate::{define_common_mark_channels, impl_mark_base};
 use arrow::array::RecordBatch;
-use datafusion::logical_expr::UserDefinedLogicalNode;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::logical_expr::UserDefinedLogicalNode;
 use datafusion_common::ScalarValue;
 
 pub struct Symbol<C: CoordinateSystem> {
@@ -58,10 +58,10 @@ impl<C: CoordinateSystem> Symbol<C> {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
-        coord: Box<dyn CoordinateSystemTransform>
+        coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError>
     where
-        Self: Mark<C>
+        Self: Mark<C>,
     {
         use crate::marks::util::{
             coerce_color_channel_with_mark, coerce_numeric_channel_with_mark,
@@ -82,9 +82,14 @@ impl<C: CoordinateSystem> Symbol<C> {
         // Transform position channels to plot coordinates
         let geometry =
             coord.transform(&position_channels, context.plot_width, context.plot_height)?;
-        let geometry = geometry.as_any().downcast_ref::<crate::coords::PointGeometry>().ok_or_else(
-            || AvengerChartError::CoordinateSystemError("Failed to downcast to PointGeometry".to_string())
-        )?;
+        let geometry = geometry
+            .as_any()
+            .downcast_ref::<crate::coords::PointGeometry>()
+            .ok_or_else(|| {
+                AvengerChartError::CoordinateSystemError(
+                    "Failed to downcast to PointGeometry".to_string(),
+                )
+            })?;
 
         let x = geometry.x.clone();
         let y = geometry.y.clone();
@@ -178,7 +183,6 @@ impl<C: CoordinateSystem> Symbol<C> {
 
         Ok(vec![SceneMark::Symbol(symbol_mark)])
     }
-
 
     /// Common rendering logic for symbols in any coordinate system
     ///

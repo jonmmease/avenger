@@ -15,7 +15,7 @@ pub trait Axis: Send + Sync {
 // Implement for unit type (used by coordinate systems without axes like ZeroD)
 #[typetag::serde(name = "empty")]
 impl Axis for () {
-    fn update(&mut self, other: &dyn Axis) {
+    fn update(&mut self, _other: &dyn Axis) {
         ()
     }
 
@@ -26,5 +26,4 @@ impl Axis for () {
     fn box_clone(&self) -> Box<dyn Axis> {
         Box::new(())
     }
-
 }

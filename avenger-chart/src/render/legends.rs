@@ -56,7 +56,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
                 let renderer_opt = if channels.len() > 1 {
                     // Multiple channels - try to get a merged renderer
                     // Find the mark that these channels belong to
-                    let mark_opt = self.plot.marks.get(primary_channel.mark_index);
+                    let mark_opt = self.plot.mark_renderers.get(primary_channel.mark_index);
 
                     mark_opt
                         .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &scales))
@@ -113,8 +113,16 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
 
         // Add channels that marks indicate shouldn't have legends
         // (by returning None from preferred_legend_renderer)
-        for mark in &self.plot.marks {
-            for (channel, scale) in scales {
+        // Only check marks that actually have the channel
+        for (channel, scale) in scales {
+            // Find the mark that has this channel
+            if let Some(mark) = self
+                .plot
+                .mark_renderers
+                .iter()
+                .find(|m| m.data_context().channels().contains_key(channel))
+            {
+                // If the mark that has the channel says no legend, skip it
                 if mark.preferred_legend_renderer(channel, scale).is_none() {
                     skip_channels.insert(channel.clone());
                 }
@@ -177,7 +185,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
     fn infer_legend_title(&self, channel: &str) -> String {
         // First try to extract from marks (like we do for axes)
         use crate::coords::extract_channel_title_from_marks;
-        if let Some(title) = extract_channel_title_from_marks(&self.plot.marks, channel) {
+        if let Some(title) = extract_channel_title_from_marks(&self.plot.mark_renderers, channel) {
             return title;
         }
 
@@ -216,7 +224,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         } else if let Some(idx) = mark_index {
             // Find the mark and get its preference
             self.plot
-                .marks
+                .mark_renderers
                 .get(idx)
                 .and_then(|mark| mark.preferred_legend_renderer(channel, scale))
         } else {
@@ -230,7 +238,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         channel_name: &str,
         channel_value: &crate::marks::ChannelValue,
         scale: &avenger_scales::scales::ConfiguredScale,
-        mark: &dyn crate::marks::Mark<C>,
+        mark: &dyn crate::marks::MarkRenderer,
         mark_index: usize,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> LegendChannel {
@@ -326,7 +334,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         // Find the mark that has this channel
         let (mark_index, mark) = self
             .plot
-            .marks
+            .mark_renderers
             .iter()
             .enumerate()
             .find(|(_, m)| m.data_context().channels().contains_key(channel))
@@ -393,7 +401,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         // Collect all channels that need legends from all marks
         let mut all_channels = Vec::new();
 
-        for (mark_index, mark) in self.plot.marks.iter().enumerate() {
+        for (mark_index, mark) in self.plot.mark_renderers.iter().enumerate() {
             for (channel_name, channel_value) in mark.data_context().channels() {
                 // Skip if no scale or no legend config
                 if !configured_scales.contains_key(channel_name)
@@ -507,7 +515,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         let mut all_legends = self.plot.legends.clone();
 
         // 2. Apply channel-level legend configs
-        for mark in &self.plot.marks {
+        for mark in &self.plot.mark_renderers {
             for (channel_name, channel_value) in mark.data_context().channels() {
                 if let Some(channel_legend) = channel_value.get_legend_config() {
                     all_legends

@@ -1,12 +1,10 @@
 //! State for marks
 
-use crate::coords::CoordinateSystem;
+use crate::axis::Axis;
 use crate::marks::{DataContext, FacetStrategy};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use crate::axis::Axis;
-use crate::guide::CoordinateGuideBuilder;
 
 /// State shared by all mark types
 #[derive(Clone, Serialize, Deserialize)]

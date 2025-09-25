@@ -1,8 +1,8 @@
 //! Title and subtitle configuration for plots
 
-use serde::{Deserialize, Serialize};
 use crate::coords::CoordinateSystem;
 use crate::plot::Plot;
+use serde::{Deserialize, Serialize};
 
 /// Alignment options for title and subtitle
 #[derive(Clone, Debug, Copy, PartialEq, Default, Serialize, Deserialize)]

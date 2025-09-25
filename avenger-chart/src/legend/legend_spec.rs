@@ -1,7 +1,7 @@
 use super::LegendRenderer;
 use crate::maybe::Maybe;
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Legend configuration for visualizations
 #[derive(Clone, Serialize, Deserialize)]

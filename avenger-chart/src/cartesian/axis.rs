@@ -1,9 +1,9 @@
-use std::any::Any;
-use serde::{Deserialize, Serialize};
+use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use crate::maybe::Maybe;
 use avenger_scenegraph::marks::mark::SceneMark;
-use crate::axis::Axis;
+use serde::{Deserialize, Serialize};
+use std::any::Any;
 
 /// Position for Cartesian axes
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -203,16 +203,15 @@ impl CartesianAxis {
 
         // Generate axis marks based on scale characteristics
         // Use domain and range kinds to determine which axis maker to use
-        use avenger_scales::scales::{DomainKind, RangeKind};
+        use avenger_scales::scales::DomainKind;
 
         let domain_kind = scale.scale_impl.domain_kind();
-        let range_kind = scale.scale_impl.range_kind();
+        let _range_kind = scale.scale_impl.range_kind();
 
-        // For categorical domains with continuous ranges, check if it's band or point
-        let axis_group = match (domain_kind, range_kind) {
-            (DomainKind::Categorical, RangeKind::Continuous) => {
-                // Use scale_type to distinguish band from point
-                // TODO: Add a trait method to detect band vs point without string comparison
+        // For categorical domains, check the scale type
+        let axis_group = match domain_kind {
+            DomainKind::Categorical => {
+                // Use scale_type to distinguish band/point/ordinal
                 let scale_type = scale.scale_impl.scale_type();
                 match scale_type {
                     "band" => make_band_axis_marks(
@@ -227,16 +226,28 @@ impl CartesianAxis {
                         axis_origin,
                         &axis_config,
                     )?,
+                    "ordinal" => {
+                        // Ordinal scales with discrete ranges need band-like rendering
+                        // Convert to band scale for axis rendering
+                        use avenger_scales::scales::band::BandScale;
+                        let band_scale = BandScale::from_point_scale(scale);
+                        make_band_axis_marks(
+                            &band_scale,
+                            self.title.clone().flatten().as_deref().unwrap_or(""),
+                            axis_origin,
+                            &axis_config,
+                        )?
+                    }
                     _ => {
                         return Err(AvengerChartError::InternalError(format!(
-                            "Unsupported scale type '{}' for categorical domain with continuous range on axis '{}'",
+                            "Unsupported scale type '{}' for categorical domain on axis '{}'",
                             scale_type, channel
                         )));
                     }
                 }
             }
             _ => {
-                // All other scales use numeric axis
+                // All continuous domain scales use numeric axis
                 make_numeric_axis_marks(
                     scale,
                     self.title.clone().flatten().as_deref().unwrap_or(""),
