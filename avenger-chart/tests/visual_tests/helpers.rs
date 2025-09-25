@@ -2,7 +2,6 @@
 
 use avenger_chart::coords::CoordinateSystem;
 use avenger_chart::plot::Plot;
-use avenger_chart::render::PlotRenderer;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use image::RgbaImage;
@@ -29,18 +28,10 @@ impl Default for VisualTestConfig {
 }
 
 /// Render a plot to an image, automatically handling canvas sizing based on layout spec
-pub async fn render_plot<C: CoordinateSystem>(plot: &Plot<C>) -> RgbaImage {
-    // We can demonstrate that plot.build() works to create SerializablePlotRenderer
-    // But for now we still need to use PlotRenderer for actual rendering
-    // This is because PlotRenderer needs access to methods on Plot that aren't
-    // available on SerializablePlotRenderer yet (like get_scale, collect_channels_needing_scales, etc.)
-
-    // Build works - this creates a SerializablePlotRenderer (we just don't use it yet)
-    // let _serializable = plot.clone().build();
-
-    // For now, continue using PlotRenderer directly
-    let renderer = PlotRenderer::new(plot);
-    let render_result = renderer.render().await.expect("Failed to render plot");
+pub async fn render_plot<C: CoordinateSystem + Clone>(plot: &Plot<C>) -> RgbaImage {
+    // Use the new SerializablePlotRenderer for rendering!
+    let serializable = plot.build_ref();
+    let render_result = serializable.render().await.expect("Failed to render plot");
 
     // The scene graph contains the correct canvas dimensions for any mode
     let canvas_width = render_result.scene_graph.width;
@@ -71,7 +62,7 @@ pub trait PlotTestExt: Sized {
     async fn to_image(self) -> RgbaImage;
 }
 
-impl<C: CoordinateSystem> PlotTestExt for Plot<C> {
+impl<C: CoordinateSystem + Clone> PlotTestExt for Plot<C> {
     async fn to_image(self) -> RgbaImage {
         render_plot(&self).await
     }
@@ -212,7 +203,7 @@ pub fn compare_images(
 }
 
 /// Test a plot against its baseline with a given name and tolerance
-pub async fn assert_visual_match<C: CoordinateSystem>(
+pub async fn assert_visual_match<C: CoordinateSystem + Clone>(
     plot: Plot<C>,
     category: &str,
     baseline_name: &str,
@@ -232,7 +223,7 @@ pub async fn assert_visual_match<C: CoordinateSystem>(
 }
 
 /// Test a plot against its baseline with default tolerance (99.99%)
-pub async fn assert_visual_match_default<C: CoordinateSystem>(
+pub async fn assert_visual_match_default<C: CoordinateSystem + Clone>(
     plot: Plot<C>,
     category: &str,
     baseline_name: &str,
@@ -242,7 +233,7 @@ pub async fn assert_visual_match_default<C: CoordinateSystem>(
 
 /// Test a plot with a custom theme against its baseline
 pub async fn assert_visual_match_with_theme<
-    C: CoordinateSystem,
+    C: CoordinateSystem + Clone,
     T: avenger_chart::theme::Theme + 'static,
 >(
     plot: Plot<C>,
