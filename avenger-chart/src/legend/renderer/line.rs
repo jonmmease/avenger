@@ -469,6 +469,10 @@ impl LegendRenderer for LineLegendRenderer {
                 // Use default (solid)
                 legend_config.stroke_dash = ScalarOrArray::new_scalar(None);
             }
+
+            // Set a reasonable line length when not varying dash patterns
+            // This ensures consistent legend width with the dashed case
+            legend_config.line_length = ScalarOrArray::new_scalar(32.0);
         }
 
         tracing::debug!(
