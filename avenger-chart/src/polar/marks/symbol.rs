@@ -68,16 +68,6 @@ impl Mark<Polar> for Symbol<Polar> {
         }
     }
 
-    fn render_from_data(
-        &self,
-        data: Option<&RecordBatch>,
-        scalars: &RecordBatch,
-        context: &RenderContext,
-        coord: &Polar,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        self.render_from_data_common(data, scalars, context, coord)
-    }
-
     fn default_channel_range(
         &self,
         channel: &str,

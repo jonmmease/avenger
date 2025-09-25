@@ -57,67 +57,6 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         }
     }
 
-    fn render_from_data(
-        &self,
-        data: Option<&RecordBatch>,
-        scalars: &RecordBatch,
-        context: &RenderContext,
-        _coord: &Cartesian,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Determine number of marks from data batch or default to 1
-        let len = data.map_or(1, |data| data.num_rows()) as u32;
-
-        // Extract position values using Coercer with mark defaults
-        let x = coerce_numeric_channel_with_mark(self, data, scalars, "x", context, 0.0)?;
-        let x2 = coerce_numeric_channel_with_mark(self, data, scalars, "x2", context, 0.0)?;
-        let y = coerce_numeric_channel_with_mark(self, data, scalars, "y", context, 0.0)?;
-        let y2 = coerce_numeric_channel_with_mark(self, data, scalars, "y2", context, 0.0)?;
-
-        // Extract style values using Coercer with mark defaults
-        let fill = coerce_color_channel_with_mark(
-            self,
-            data,
-            scalars,
-            "fill",
-            context,
-            [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0], // Fallback steel blue
-        )?;
-        let stroke = coerce_color_channel_with_mark(
-            self,
-            data,
-            scalars,
-            "stroke",
-            context,
-            [0.0, 0.0, 0.0, 1.0],
-        )?;
-        let stroke_width =
-            coerce_numeric_channel_with_mark(self, data, scalars, "stroke_width", context, 1.0)?;
-        let corner_radius =
-            coerce_numeric_channel_with_mark(self, data, scalars, "corner_radius", context, 0.0)?;
-
-        // Create SceneRectMark
-        let rect_mark = SceneRectMark {
-            name: "rect".to_string(),
-            clip: true,
-            len,
-            gradients: vec![],
-            x,
-            y,
-            width: None,
-            height: None,
-            x2: Some(x2),
-            y2: Some(y2),
-            fill,
-            stroke,
-            stroke_width,
-            corner_radius,
-            indices: None,
-            zindex: self.get_zindex(),
-        };
-
-        Ok(vec![SceneMark::Rect(rect_mark)])
-    }
-
     fn preferred_scale_type(
         &self,
         channel: &str,

@@ -69,17 +69,6 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         }
     }
 
-    fn render_from_data(
-        &self,
-        data: Option<&RecordBatch>,
-        scalars: &RecordBatch,
-        context: &RenderContext,
-        coord: &Cartesian,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Use common rendering logic - it will extract x and y channels
-        self.render_from_data_common(data, scalars, context, coord)
-    }
-
     fn preferred_scale_type(
         &self,
         channel: &str,
