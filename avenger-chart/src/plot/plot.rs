@@ -79,6 +79,17 @@ impl SerializablePlotRenderer {
     pub fn get_layout_spec(&self) -> &LayoutSpec {
         &self.layout_spec
     }
+
+    /// Render the plot to a scene graph
+    pub async fn render(&self) -> Result<crate::render::RenderResult, AvengerChartError> {
+        // This is a temporary implementation that shows we can't fully render
+        // from just the SerializablePlotRenderer yet - we need the original Plot
+        // to access methods like get_scale, collect_channels_needing_scales, etc.
+        // This will be addressed in future refactoring.
+        Err(AvengerChartError::InternalError(
+            "Direct rendering from SerializablePlotRenderer not yet implemented".to_string()
+        ))
+    }
 }
 
 pub struct Plot<C: CoordinateSystem> {

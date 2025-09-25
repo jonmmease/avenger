@@ -30,8 +30,15 @@ impl Default for VisualTestConfig {
 
 /// Render a plot to an image, automatically handling canvas sizing based on layout spec
 pub async fn render_plot<C: CoordinateSystem>(plot: &Plot<C>) -> RgbaImage {
-    // Always use the renderer to compute the scene graph
-    // This works for both fixed canvas and fixed plot area modes
+    // We can demonstrate that plot.build() works to create SerializablePlotRenderer
+    // But for now we still need to use PlotRenderer for actual rendering
+    // This is because PlotRenderer needs access to methods on Plot that aren't
+    // available on SerializablePlotRenderer yet (like get_scale, collect_channels_needing_scales, etc.)
+
+    // Build works - this creates a SerializablePlotRenderer (we just don't use it yet)
+    // let _serializable = plot.clone().build();
+
+    // For now, continue using PlotRenderer directly
     let renderer = PlotRenderer::new(plot);
     let render_result = renderer.render().await.expect("Failed to render plot");
 
