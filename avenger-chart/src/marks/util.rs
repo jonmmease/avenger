@@ -82,7 +82,6 @@ pub fn coerce_numeric_channel(
     )
 }
 
-
 /// Get color channel values using Coercer
 pub fn coerce_color_channel(
     data: Option<&RecordBatch>,
@@ -114,7 +113,6 @@ fn scalar_to_color(
         .unwrap_or(ColorOrGradient::Color(fallback)))
 }
 
-
 /// Get boolean channel values using Coercer
 pub fn coerce_bool_channel(
     data: Option<&RecordBatch>,
@@ -124,7 +122,6 @@ pub fn coerce_bool_channel(
 ) -> Result<ScalarOrArray<bool>, AvengerChartError> {
     coerce_channel(data, scalars, channel, |c, a| c.to_boolean(a), default)
 }
-
 
 /// Get stroke cap channel value using Coercer
 /// Note: stroke_cap must be scalar (constant for entire mark)
@@ -139,7 +136,6 @@ pub fn coerce_stroke_cap_channel(
         .map(|v| v.first().cloned().unwrap_or(default))
 }
 
-
 /// Get stroke join channel value using Coercer
 /// Note: stroke_join must be scalar (constant for entire mark)
 /// If an array is provided, takes the first value
@@ -152,7 +148,6 @@ pub fn coerce_stroke_join_channel(
     coerce_channel(data, scalars, channel, |c, a| c.to_stroke_join(a), default)
         .map(|v| v.first().cloned().unwrap_or(default))
 }
-
 
 /// Get text channel values using Coercer
 pub fn coerce_text_channel(

@@ -67,43 +67,8 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         false
     }
 
-    /// Returns the default value for a channel if not explicitly mapped
-    /// First checks theme defaults, then falls back to mark-specific defaults
-    fn default_channel_value(&self, channel: &str, context: &RenderContext) -> Option<ScalarValue> {
-        // Check theme defaults first, using computed font properties for text marks
-        let mark_type = self.mark_type();
-
-        if let Some(default) = context.theme.mark_default_with_computed_fonts(
-            mark_type,
-            channel,
-            context.theme.text_mark_font_size(),
-            &context.theme.base_font_family(),
-        ) {
-            return Some(default);
-        }
-
-        self.mark_specific_default(channel)
-    }
-
     /// Mark-specific default values (to be overridden by marks)
     fn mark_specific_default(&self, _channel: &str) -> Option<ScalarValue> {
-        None
-    }
-
-    /// Returns expressions for computing the radius/padding needed for this mark
-    /// along the specified dimension.
-    ///
-    /// The `resolve_channel` function returns an expression for any channel,
-    /// including defaults if the channel is not explicitly mapped.
-    ///
-    /// # Example
-    /// For a symbol mark, this might return an expression like:
-    /// `sqrt(size) * 0.5 + stroke_width / 2`
-    fn radius_expression(
-        &self,
-        _dimension: &str,
-        _resolve_channel: &dyn Fn(&str) -> Expr,
-    ) -> Option<RadiusExpression> {
         None
     }
 
