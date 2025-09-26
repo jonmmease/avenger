@@ -1,6 +1,10 @@
 //! Core types for rendering pipeline
 
 use avenger_scenegraph::scene_graph::SceneGraph;
+use indexmap::IndexMap;
+
+/// Type for legend measurements used in layout computation
+pub type LegendMeasurements = IndexMap<String, (taffy::Size<f32>, bool)>;
 
 /// Estimated proportion of plot area relative to total size for initial scale computation.
 /// This is used before layout is calculated to build scales with approximate dimensions.
