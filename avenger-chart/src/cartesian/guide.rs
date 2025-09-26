@@ -33,12 +33,25 @@ impl Default for CartesianOptions {
 /// Combines:
 /// - Axes configured at the channel level (x, y)
 /// - Coordinate-level options (background color)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CartesianGuide {
     /// Axes configured at the channel level
     pub axes: HashMap<String, CartesianAxis>,
     /// Coordinate-system-level options
     pub options: CartesianOptions,
+    /// Channel titles extracted from mark renderers
+    #[serde(skip)]
+    pub channel_titles: HashMap<String, String>,
+}
+
+impl std::fmt::Debug for CartesianGuide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CartesianGuide")
+            .field("axes", &self.axes)
+            .field("options", &self.options)
+            .field("channel_titles", &self.channel_titles)
+            .finish()
+    }
 }
 
 impl CartesianGuide {
@@ -46,6 +59,7 @@ impl CartesianGuide {
         Self {
             axes: HashMap::new(),
             options: CartesianOptions::default(),
+            channel_titles: HashMap::new(),
         }
     }
 
@@ -61,38 +75,6 @@ impl CartesianGuide {
         self
     }
 
-    /// Create default axes for channels that have scales
-    /// This is called during plot construction to create axes for channels
-    /// that don't have explicit axis configuration
-    pub fn create_default_axes(
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn crate::marks::MarkRenderer>],
-    ) -> HashMap<String, CartesianAxis> {
-        let mut axes = HashMap::new();
-
-        // Create default axes for all position channels that have scales
-        for (channel_name, _scale) in scales {
-            if channel_name == "x" || channel_name == "y" {
-                // Set default position based on channel
-                let position = match channel_name.as_str() {
-                    "x" => AxisPosition::Bottom,
-                    "y" => AxisPosition::Left,
-                    _ => AxisPosition::Bottom,
-                };
-
-                let mut axis = CartesianAxis::new().position(position);
-
-                // Try to extract a title from the marks
-                if let Some(title) = extract_channel_title_from_marks(marks, channel_name) {
-                    axis = axis.title(title);
-                }
-
-                axes.insert(channel_name.clone(), axis);
-            }
-        }
-
-        axes
-    }
 }
 
 impl Default for CartesianGuide {
@@ -139,6 +121,15 @@ impl CoordinateGuideBuilder for CartesianGuide {
 
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
         self.axes = axes;
+    }
+
+    fn set_mark_renderers(&mut self, mark_renderers: Vec<Arc<dyn crate::marks::MarkRenderer>>) {
+        // Extract titles from mark renderers immediately
+        for channel in ["x", "y"] {
+            if let Some(title) = extract_channel_title_from_marks(&mark_renderers, channel) {
+                self.channel_titles.insert(channel.to_string(), title);
+            }
+        }
     }
 
     fn update(&mut self, other: Self) {
@@ -269,51 +260,58 @@ impl CoordinateGuideRender for CartesianGuide {
             marks.push(SceneMark::Rect(bg_rect));
         }
 
-        // Merge default axes with user-configured axes
-        // This ensures that x and y channels with scales always get axes
-        let mut all_axes = HashMap::new();
-
-        // Process all x and y channels that have scales
-        for channel in ["x", "y"] {
-            if let Some(scale) = scales.get(channel) {
-                // Start with a default axis
-                let position = match channel {
+        // Create default axes for all channels with scales at render time
+        let mut default_axes = HashMap::new();
+        for (channel_name, _scale) in scales {
+            if channel_name == "x" || channel_name == "y" {
+                // Set default position based on channel
+                let position = match channel_name.as_str() {
                     "x" => AxisPosition::Bottom,
                     "y" => AxisPosition::Left,
                     _ => AxisPosition::Bottom,
                 };
 
                 // Determine if grid should be enabled based on scale type
-                let grid = scale.ticks(None).is_ok();
+                let grid = scales.get(channel_name).map_or(false, |s| s.ticks(None).is_ok());
 
                 let mut axis = CartesianAxis::new()
                     .position(position)
                     .visible(true)
                     .grid(grid);
 
-                // If user provided an axis configuration, merge it with the default
-                if let Some(user_axis) = self.axes.get(channel) {
-                    // Apply user settings on top of defaults
-                    // The update method preserves user settings while keeping defaults for unspecified fields
-                    axis = axis.update(user_axis.clone());
+                // Use previously extracted title if available
+                if let Some(title) = self.channel_titles.get(channel_name) {
+                    axis = axis.title(title.clone());
                 }
 
-                all_axes.insert(channel.to_string(), axis);
+                default_axes.insert(channel_name.clone(), axis);
             }
         }
 
-        // Add any other user-configured axes that aren't x or y
-        for (channel, axis) in &self.axes {
-            if channel != "x" && channel != "y" {
-                all_axes.insert(channel.clone(), axis.clone());
+        // Merge with user-configured axes
+        let mut all_axes = default_axes;
+
+        // Apply user configurations on top of defaults
+        for (channel, user_axis) in &self.axes {
+            if let Some(default_axis) = all_axes.get_mut(channel) {
+                *default_axis = default_axis.clone().update(user_axis.clone());
+            } else {
+                all_axes.insert(channel.clone(), user_axis.clone());
             }
         }
+
 
         // Render each axis
         for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
-                let axis_mark =
-                    axis.render(channel, scale, plot_width, plot_height, plot_bounds, theme)?;
+                let axis_mark = axis.render(
+                    channel,
+                    scale,
+                    plot_width,
+                    plot_height,
+                    plot_bounds,
+                    theme,
+                )?;
                 marks.push(axis_mark);
             }
         }

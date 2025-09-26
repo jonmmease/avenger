@@ -31,6 +31,10 @@ impl CoordinateGuideBuilder for NoGuide {
         // No-op for systems without axes
     }
 
+    fn set_mark_renderers(&mut self, _mark_renderers: Vec<std::sync::Arc<dyn crate::marks::MarkRenderer>>) {
+        // No-op for systems without axes
+    }
+
     fn update(&mut self, _other: Self) {
         // No-op for systems without state
     }

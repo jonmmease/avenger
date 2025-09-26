@@ -18,7 +18,13 @@ pub struct ChannelCharacteristics {
 pub fn get_channel_characteristics(channel: &str) -> ChannelCharacteristics {
     match channel {
         // Position channels - typically continuous
-        "x" | "y" | "x2" | "y2" | "r" | "theta" | "radius" | "angle" => ChannelCharacteristics {
+        "x" | "y" | "x2" | "y2" | "r" | "theta" | "radius" => ChannelCharacteristics {
+            expected_domain: DomainKind::Numeric,
+            expected_range: RangeKind::Continuous,
+        },
+
+        // Angle channel - continuous but not a position
+        "angle" => ChannelCharacteristics {
             expected_domain: DomainKind::Numeric,
             expected_range: RangeKind::Continuous,
         },

@@ -22,6 +22,12 @@ pub trait CoordinateGuideBuilder: Clone + Default {
     /// from both plot-level and mark-level specifications.
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>);
 
+    /// Set mark renderers for extracting default axis titles
+    ///
+    /// This is called during guide creation to provide access to mark renderers
+    /// so that default axis titles can be extracted at render time.
+    fn set_mark_renderers(&mut self, mark_renderers: Vec<std::sync::Arc<dyn crate::marks::MarkRenderer>>);
+
     fn update(&mut self, other: Self);
 
     fn build(self) -> Box<dyn CoordinateGuideRender>;

@@ -17,7 +17,6 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -1326,6 +1325,86 @@ impl SerializablePlotRenderer {
             .normalize_domain(context.plot_width, context.plot_height)
             .await?;
 
+        // Step 5: Apply mark-specific range if not a position channel AND no range is set
+        // Position channels already have their ranges set
+        let is_position = self
+            .coord_transform
+            .required_channels()
+            .contains(&name.as_ref());
+
+        // Check if scale already has a user-specified range
+        // The default range is [0, 1], so check if it's been customized from that
+        let has_user_range = match scale.get_range() {
+            Some(crate::scales::ScaleRange::Color(_)) => true, // Custom color range
+            Some(crate::scales::ScaleRange::Discrete(_)) => true, // Custom discrete values
+            Some(crate::scales::ScaleRange::Numeric(start, end)) => {
+                // Check if it's not the default [0, 1] range
+                use datafusion::logical_expr::Expr;
+                use datafusion_common::ScalarValue;
+                let is_default = match (start, end.as_ref()) {
+                    (
+                        Expr::Literal(ScalarValue::Float64(Some(v1)), _),
+                        Expr::Literal(ScalarValue::Float64(Some(v2)), _),
+                    ) => (*v1 - 0.0).abs() < 0.001 && (*v2 - 1.0).abs() < 0.001,
+                    (
+                        Expr::Literal(ScalarValue::Float32(Some(v1)), _),
+                        Expr::Literal(ScalarValue::Float32(Some(v2)), _),
+                    ) => (*v1 as f64 - 0.0).abs() < 0.001 && (*v2 as f64 - 1.0).abs() < 0.001,
+                    _ => false,
+                };
+                !is_default
+            }
+            None => false, // No range set, use default
+        };
+
+        if !is_position && !has_user_range {
+            // Find the first mark that uses this channel
+            for mark in &self.marks {
+                if mark.data_context().channels().contains_key(name) {
+                    // Get data type from the channel expression
+                    // First resolve channel references
+                    let channels = mark.data_context().channels();
+                    let resolved_channels =
+                        crate::channel::resolution::resolve_all_channel_refs(channels)
+                            .ok()
+                            .unwrap_or_else(|| channels.clone());
+
+                    let data_type = resolved_channels
+                        .get(name)
+                        .and_then(|channel_value| channel_value.expr())
+                        .and_then(|expr| {
+                            // Try to get data type from mark's dataframe
+                            let df = mark
+                                .data_context()
+                                .dataframe()
+                                .or(self.data.as_ref())?;
+                            use datafusion::logical_expr::ExprSchemable;
+                            expr.get_type(df.schema()).ok()
+                        });
+
+                    if let Some(dt) = data_type {
+                        let theme = self.get_theme();
+                        // Convert domain to ResolvedDomain if available
+                        if let (Some(scale_impl), Some(domain)) =
+                            (scale.get_scale_impl(), scale.get_domain())
+                        {
+                            let resolved_domain = domain.to_resolved()?;
+                            if let Some(mark_range) = mark.default_channel_range(
+                                name,
+                                scale_impl.as_ref(),
+                                &resolved_domain,
+                                &dt,
+                                theme.as_ref(),
+                            ) {
+                                scale = scale.range(mark_range);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Create the configured scale
         scale.create_configured_scale(context.plot_width, context.plot_height).await
     }
@@ -2328,64 +2407,29 @@ impl<C: CoordinateSystem> Plot<C> {
             // We need to populate axes from axis_specs before building
             // This mirrors what PlotRenderer does in render/guide.rs
             use crate::guide::CoordinateGuideBuilder;
-            use crate::coords::extract_channel_title_from_marks;
 
             // Create axes map for the guide
             let mut guide_axes = HashMap::new();
 
-            // First, add user-specified axes from axis_specs
+            // Add user-specified axes from axis_specs
             for (channel, axis_spec) in &self.axis_specs {
-                if let crate::plot::AxisSpec::Local(axis_config) = axis_spec {
-                    // The axis_config is already the correct type for this coordinate system
-                    // We need to downcast it to the specific axis type for the guide
-                    // This is safe because the axis type matches the coordinate system
-                    if let Some(typed_axis) = axis_config
-                        .as_any()
-                        .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
-                    {
-                        guide_axes.insert(channel.clone(), typed_axis.clone());
-                    }
-                }
-            }
-
-            // For Cartesian coordinates, create default axes with titles for x and y channels
-            // This ensures axes get titles extracted from mark encodings
-            if std::any::TypeId::of::<C>() == std::any::TypeId::of::<crate::cartesian::Cartesian>() {
-                use crate::cartesian::axis::{CartesianAxis, AxisPosition};
-
-                for channel in ["x", "y"] {
-                    // Only create default if user hasn't specified one
-                    if !guide_axes.contains_key(channel) && !self.axis_specs.contains_key(channel) {
-                        // Set default position based on channel
-                        let position = match channel {
-                            "x" => AxisPosition::Bottom,
-                            "y" => AxisPosition::Left,
-                            _ => AxisPosition::Bottom,
-                        };
-
-                        let mut axis = CartesianAxis::new()
-                            .position(position)
-                            .visible(true);
-
-                        // Extract title from mark encodings
-                        if let Some(title) = extract_channel_title_from_marks(&self.mark_renderers, channel) {
-                            axis = axis.title(title);
-                        }
-
-                        // Downcast and insert if successful
-                        let boxed_axis: Box<dyn crate::axis::Axis> = Box::new(axis);
-                        if let Some(typed_axis) = boxed_axis
-                            .as_any()
-                            .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
-                        {
-                            guide_axes.insert(channel.to_string(), typed_axis.clone());
-                        }
-                    }
+                let crate::plot::AxisSpec::Local(axis_config) = axis_spec;
+                // The axis_config is already the correct type for this coordinate system
+                // We need to downcast it to the specific axis type for the guide
+                // This is safe because the axis type matches the coordinate system
+                if let Some(typed_axis) = axis_config
+                    .as_any()
+                    .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
+                {
+                    guide_axes.insert(channel.clone(), typed_axis.clone());
                 }
             }
 
             // Set the axes on the guide
             guide.set_axes(guide_axes);
+
+            // Pass mark renderers to the guide so it can extract titles at render time
+            guide.set_mark_renderers(self.mark_renderers.clone());
 
             self.guide_renderer = Some(guide.build());
         }
@@ -2407,36 +2451,52 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Build a serializable plot renderer from a reference to this plot
-    /// This clones the necessary internal data structures
-    /// NOTE: This method rebuilds the guide from scratch, which might result in slightly
-    /// different behavior than the consuming build() method if the guide was manually modified.
+    /// This builds the guide without consuming self
     pub fn build_ref(&self) -> SerializablePlotRenderer
     where
         C: Clone,
     {
-        // For now, we'll create a mutable clone of self and use the regular build method
-        // This is a workaround until we can properly handle guide cloning
-        // The main use case (tests) doesn't modify plots after creation, so this should be safe
+        // Use existing mark renderers
+        let mark_renderers = self.mark_renderers.clone();
 
-        // Clone all the internal data
-        let mut cloned = Plot {
-            coord_system: self.coord_system.clone(),
+        // Build guide
+        let mut guide = if let Some(config) = &self.guide_config {
+            config.clone()
+        } else {
+            C::Guide::default()
+        };
+
+        // Set axes from axis_specs
+        use crate::guide::CoordinateGuideBuilder;
+        let mut guide_axes = HashMap::new();
+        for (channel, axis_spec) in &self.axis_specs {
+            let crate::plot::AxisSpec::Local(axis_config) = axis_spec;
+            if let Some(typed_axis) = axis_config
+                .as_any()
+                .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
+            {
+                guide_axes.insert(channel.clone(), typed_axis.clone());
+            }
+        }
+        guide.set_axes(guide_axes);
+        guide.set_mark_renderers(mark_renderers.clone());
+
+        let guide_renderer = Some(guide.build());
+
+        SerializablePlotRenderer {
+            coord_transform: self.coord_system.clone().create_transform(),
+            guide_renderer,
+            marks: mark_renderers,
             axis_specs: self.axis_specs.clone(),
             legends: self.legends.clone(),
-            mark_renderers: self.mark_renderers.clone(),
-            data: self.data.clone(),
-            scale_specs: self.scale_specs.clone(),
-            scale_to_coord_channel: self.scale_to_coord_channel.clone(),
             layout_spec: self.layout_spec.clone(),
             title: self.title.clone(),
             subtitle: self.subtitle.clone(),
             theme: self.theme.clone(),
-            guide_config: self.guide_config.clone(),
-            guide_renderer: None, // Will be built fresh
-        };
-
-        // Use the regular build method
-        cloned.build()
+            scale_to_coord_channel: self.scale_to_coord_channel.clone(),
+            scale_specs: self.scale_specs.clone(),
+            data: self.data.clone(),
+        }
     }
 
     /// Get a reference to the coordinate system

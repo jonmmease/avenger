@@ -83,18 +83,34 @@ pub trait DataFrameChartHelpers {
 
 impl DataFrameChartHelpers for DataFrame {
     fn span(&self) -> Result<Expr, AvengerChartError> {
-        // Collect single column DataFrames for all numeric columns
+        // Collect single column DataFrames for all columns, attempting to cast to numeric
         let mut union_dfs: Vec<DataFrame> = Vec::new();
         let col_name = "span_col";
 
         for field in self.schema().fields() {
-            if field.data_type().is_numeric() {
-                use datafusion::arrow::datatypes::DataType;
-                use datafusion::logical_expr::cast;
+            use datafusion::arrow::datatypes::DataType;
+            use datafusion::logical_expr::{cast, try_cast};
 
+            // Try to handle columns that might contain numeric values
+            // For mixed-type columns (e.g., from conditional encoding), try_cast will convert
+            // non-numeric values to NULL, which we can then filter out
+            if field.data_type().is_numeric() {
+                // Already numeric, just cast to Float32
                 union_dfs.push(self.clone().select(vec![
                     cast(col(field.name()), DataType::Float32).alias(col_name),
                 ])?)
+            } else {
+                // Try to cast non-numeric columns to Float32 - this will produce NULLs for non-numeric values
+                // We'll filter those out later
+                if let Ok(df_with_cast) = self.clone().select(vec![
+                    try_cast(col(field.name()), DataType::Float32).alias(col_name),
+                ]) {
+                    // Filter out NULL values that resulted from failed casts
+                    if let Ok(filtered_df) = df_with_cast.filter(col(col_name).is_not_null()) {
+                        // Only add if there are any rows after filtering
+                        union_dfs.push(filtered_df);
+                    }
+                }
             }
         }
 

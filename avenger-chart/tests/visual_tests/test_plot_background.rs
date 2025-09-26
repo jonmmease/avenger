@@ -50,7 +50,9 @@ async fn test_cartesian_background_with_grid() {
     // Create a scatter plot with dark background to show grid lines clearly
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .configure_guide(CartesianGuide::new().plot_background_color([0.2, 0.2, 0.3, 1.0])) // Dark blue-gray
+        .configure_guide(
+            CartesianGuide::new().plot_background_color([0.2, 0.2, 0.3, 1.0])
+        ) // Dark blue-gray
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.scale(|s| s).axis(|a| a.grid(true)))
