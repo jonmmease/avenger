@@ -51,8 +51,8 @@ mod tests {
         );
 
         // Test rendering
-        let renderer = avenger_chart::render::PlotRenderer::new(&plot);
-        let result = renderer.render().await;
+        let built_plot = plot.build();
+        let result = built_plot.render().await;
         match &result {
             Ok(_) => println!("Render succeeded with automatic ordinal scale"),
             Err(e) => println!("Render failed with error: {:?}", e),
@@ -144,8 +144,8 @@ mod tests {
         );
 
         // Test rendering
-        let renderer = avenger_chart::render::PlotRenderer::new(&plot);
-        let result = renderer.render().await;
+        let built_plot = plot.build();
+        let result = built_plot.render().await;
         assert!(
             result.is_ok(),
             "Render should succeed with custom enumeration"

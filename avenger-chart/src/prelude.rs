@@ -70,7 +70,7 @@ pub use crate::cartesian::{AxisPosition, CartesianAxis};
 pub use crate::polar::PolarAxis;
 
 // Re-export rendering types
-pub use crate::render::{CanvasExt, PlotRenderer};
+pub use crate::render::CanvasExt;
 
 // Re-export error type
 pub use crate::error::AvengerChartError;

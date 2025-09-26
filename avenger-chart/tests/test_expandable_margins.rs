@@ -34,7 +34,8 @@ async fn test_margins_expand_with_fixed_canvas_and_plot() -> Result<(), Box<dyn 
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
     // This should succeed with the plot centered in the canvas
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     Ok(())
 }
@@ -68,7 +69,8 @@ async fn test_margins_with_canvas_and_plot_width() -> Result<(), Box<dyn std::er
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
     // This should succeed with horizontal margins expanded
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     Ok(())
 }
@@ -102,7 +104,8 @@ async fn test_margins_with_canvas_and_plot_height() -> Result<(), Box<dyn std::e
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
     // This should succeed with vertical margins expanded
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     Ok(())
 }

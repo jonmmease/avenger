@@ -61,7 +61,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Render the plot to the canvas
     println!("Rendering plot to canvas...");
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     // Render to PNG image
     println!("Rendering to PNG...");

@@ -35,7 +35,8 @@ async fn test_channel_resolution_in_rendering() -> Result<(), Box<dyn std::error
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     // If we get here without error, channel resolution worked
     Ok(())
@@ -74,7 +75,8 @@ async fn test_channel_resolution_with_scale() -> Result<(), Box<dyn std::error::
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     Ok(())
 }
@@ -102,7 +104,8 @@ async fn test_unresolved_channel_reference_fails() -> Result<(), Box<dyn std::er
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
-    let result = canvas.render_plot(&plot).await;
+    let built_plot = plot.build();
+    let result = canvas.render_plot(&built_plot).await;
 
     // We expect an error because :nonexistent can't be resolved
     assert!(result.is_err());
@@ -149,7 +152,8 @@ async fn test_simple_chained_channel_resolution() -> Result<(), Box<dyn std::err
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     Ok(())
 }
@@ -196,7 +200,8 @@ async fn test_complex_chained_channel_resolution() -> Result<(), Box<dyn std::er
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     Ok(())
 }
@@ -237,7 +242,8 @@ async fn test_multiple_level_chained_resolution() -> Result<(), Box<dyn std::err
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     Ok(())
 }
@@ -270,7 +276,8 @@ async fn test_cyclic_channel_reference_detection() -> Result<(), Box<dyn std::er
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
     // The render should complete (with an error logged) but not panic
-    let _result = canvas.render_plot(&plot).await;
+    let built_plot = plot.build();
+    let _result = canvas.render_plot(&built_plot).await;
 
     // The plot should still render (falling back to unresolved refs)
     // or fail gracefully
@@ -309,7 +316,8 @@ async fn test_complex_cycle_detection() -> Result<(), Box<dyn std::error::Error>
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
     // Should handle the cycle gracefully
-    let _result = canvas.render_plot(&plot).await;
+    let built_plot = plot.build();
+    let _result = canvas.render_plot(&built_plot).await;
 
     Ok(())
 }
@@ -352,7 +360,8 @@ async fn test_partial_cycle_with_valid_channels() -> Result<(), Box<dyn std::err
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
     // Should handle gracefully - valid channels work, cyclic ones don't resolve
-    let _result = canvas.render_plot(&plot).await;
+    let built_plot = plot.build();
+    let _result = canvas.render_plot(&built_plot).await;
 
     Ok(())
 }
@@ -390,7 +399,8 @@ async fn test_channel_resolution_with_expressions() -> Result<(), Box<dyn std::e
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
-    canvas.render_plot(&plot).await?;
+    let built_plot = plot.build();
+    canvas.render_plot(&built_plot).await?;
 
     Ok(())
 }
