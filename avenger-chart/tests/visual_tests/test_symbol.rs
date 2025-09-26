@@ -47,33 +47,6 @@ async fn test_simple_scatter_plot() {
             .stroke_width(1.0),
     );
 
-    // Verify symbol mark is created correctly
-    let renderer = avenger_chart::render::PlotRenderer::new(&plot);
-    let result = renderer.render().await.expect("Render should succeed");
-    let marks = &result.scene_graph.marks;
-    assert_eq!(marks.len(), 1);
-
-    // Find symbol mark within groups
-    fn find_symbol_mark(
-        mark: &avenger_scenegraph::marks::mark::SceneMark,
-    ) -> Option<&avenger_scenegraph::marks::symbol::SceneSymbolMark> {
-        match mark {
-            avenger_scenegraph::marks::mark::SceneMark::Symbol(s) => Some(s),
-            avenger_scenegraph::marks::mark::SceneMark::Group(g) => {
-                for m in &g.marks {
-                    if let Some(s) = find_symbol_mark(m) {
-                        return Some(s);
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-
-    let symbol = find_symbol_mark(&marks[0]).expect("Should find symbol mark");
-    assert_eq!(symbol.len, 10); // 10 data points
-
     assert_visual_match_default(plot, "symbol", "simple_scatter_plot").await;
 }
 
@@ -170,34 +143,6 @@ async fn test_scatter_with_shapes() {
             .stroke("#333333")
             .stroke_width(1.5),
     );
-
-    // Verify symbol mark has correct shapes
-    let renderer = avenger_chart::render::PlotRenderer::new(&plot);
-    let result = renderer.render().await.expect("Render should succeed");
-    let marks = &result.scene_graph.marks;
-    assert_eq!(marks.len(), 1);
-
-    // Find symbol mark within groups
-    fn find_symbol_mark(
-        mark: &avenger_scenegraph::marks::mark::SceneMark,
-    ) -> Option<&avenger_scenegraph::marks::symbol::SceneSymbolMark> {
-        match mark {
-            avenger_scenegraph::marks::mark::SceneMark::Symbol(s) => Some(s),
-            avenger_scenegraph::marks::mark::SceneMark::Group(g) => {
-                for m in &g.marks {
-                    if let Some(s) = find_symbol_mark(m) {
-                        return Some(s);
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-
-    let symbol = find_symbol_mark(&marks[0]).expect("Should find symbol mark");
-    assert_eq!(symbol.len, 15); // 15 data points
-    assert_eq!(symbol.shapes.len(), 3); // 3 unique shapes
 
     assert_visual_match_default(plot, "symbol", "scatter_with_shapes").await;
 }

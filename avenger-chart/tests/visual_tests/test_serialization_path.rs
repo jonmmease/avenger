@@ -4,7 +4,6 @@ use crate::visual_tests::datasets::simple_categories;
 use crate::visual_tests::helpers::{compare_images, get_baseline_path, VisualTestConfig};
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
-use avenger_chart::render::PlotRenderer;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::prelude::col;
@@ -29,15 +28,16 @@ async fn test_serialization_rendering_path() {
     // Serialize to JSON
     let json = serde_json::to_string_pretty(&serializable_renderer).unwrap();
 
-    // Deserialize back
+    // Deserialize back (just to verify serialization works)
+    // NOTE: The deserialized plot will NOT render identically due to serde(skip) fields
+    // like DataFrames, theme settings, and other non-serialized data.
+    // Full serialization support is still in development.
     let _deserialized: avenger_chart::plot::SerializablePlotRenderer =
         serde_json::from_str(&json).unwrap();
 
-    // For actual rendering, we still need to use the original plot with PlotRenderer
-    // because rendering needs access to methods like get_scale() that aren't on SerializablePlotRenderer yet
-    let plot = build_plot();
-    let renderer = PlotRenderer::new(&plot);
-    let render_result = renderer.render().await.expect("Failed to render plot");
+    // Render from the original built plot (not the deserialized one)
+    // to ensure consistent results for the visual test
+    let render_result = serializable_renderer.render().await.expect("Failed to render plot");
 
     // Create canvas and render
     let dimensions = CanvasDimensions {
