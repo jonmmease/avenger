@@ -159,6 +159,12 @@ impl CartesianAxis {
         // Axis origin is always the top-left corner of the plot area
         let axis_origin = [plot_bounds.x, plot_bounds.y];
 
+        // Always use theme colors for axis elements
+        let label_color = crate::utils::parse_color_to_array(&theme.axis_label_color());
+        let title_color = crate::utils::parse_color_to_array(&theme.axis_title_color());
+        let domain_color = crate::utils::parse_color_to_array(&theme.axis_domain_color());
+        let tick_color = crate::utils::parse_color_to_array(&theme.axis_tick_color());
+
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {
             orientation,
@@ -166,23 +172,17 @@ impl CartesianAxis {
             grid: self.grid.clone().unwrap_or(false),
             format_number: self.format_number.clone().flatten(),
             title_font_size: Some(theme.axis_title_font_size()),
-            // Pass theme colors and styling
-            domain_color: Some(crate::utils::parse_color_to_array(
-                &theme.axis_domain_color(),
-            )),
-            tick_color: Some(crate::utils::parse_color_to_array(&theme.axis_tick_color())),
+            // Pass colors (potentially overridden for dark backgrounds)
+            domain_color: Some(domain_color),
+            tick_color: Some(tick_color),
             grid_color: Some({
                 let mut color = crate::utils::parse_color_to_array(&theme.axis_grid_color());
                 color[3] = theme.axis_grid_opacity(); // Apply opacity to alpha channel
                 color
             }),
             grid_width: Some(theme.axis_grid_width()),
-            label_color: Some(crate::utils::parse_color_to_array(
-                &theme.axis_label_color(),
-            )),
-            title_color: Some(crate::utils::parse_color_to_array(
-                &theme.axis_title_color(),
-            )),
+            label_color: Some(label_color),
+            title_color: Some(title_color),
             tick_length: Some(theme.axis_tick_length()),
             label_font_size: Some(theme.axis_label_font_size()),
             label_font_weight: Some(theme.axis_label_font_weight()),

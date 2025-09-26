@@ -128,6 +128,7 @@ impl PolarAxis {
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
         theme: &dyn crate::theme::Theme,
+        _plot_background_color: Option<[f32; 4]>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Skip if invisible (default to visible if not set)
         if !self.visible.clone().unwrap_or(true) {
@@ -237,7 +238,11 @@ impl PolarAxis {
                     ), // Thin circles
                     pad_angle: ScalarOrArray::new_scalar(0.0),
                     corner_radius: ScalarOrArray::new_scalar(0.0),
-                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 0.8, 0.3])),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color({
+                        let mut color = crate::utils::parse_color_to_array(&theme.axis_grid_color());
+                        color[3] = theme.axis_grid_opacity();
+                        color
+                    })),
                     stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
                     stroke_width: ScalarOrArray::new_scalar(0.0),
                     indices: None,
@@ -451,8 +456,12 @@ impl PolarAxis {
                 y: ScalarOrArray::new_array(y_values),
                 x2: ScalarOrArray::new_array(x2_values),
                 y2: ScalarOrArray::new_array(y2_values),
-                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 0.8, 0.3])),
-                stroke_width: ScalarOrArray::new_scalar(1.0),
+                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color({
+                    let mut color = crate::utils::parse_color_to_array(&theme.axis_grid_color());
+                    color[3] = theme.axis_grid_opacity();
+                    color
+                })),
+                stroke_width: ScalarOrArray::new_scalar(theme.axis_grid_width()),
                 stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Butt),
                 stroke_dash: None,
                 indices: None,

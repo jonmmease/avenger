@@ -33,12 +33,25 @@ impl Default for PolarOptions {
 /// Combines:
 /// - Axes configured at the channel level (r, theta)
 /// - Coordinate-level options (start angle, clockwise, inner radius)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PolarGuide {
     /// Axes configured at the channel level
     pub axes: HashMap<String, PolarAxis>,
     /// Coordinate-system-level options
     pub options: PolarOptions,
+    /// Channel titles extracted from mark renderers
+    #[serde(skip)]
+    pub channel_titles: HashMap<String, String>,
+}
+
+impl std::fmt::Debug for PolarGuide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PolarGuide")
+            .field("axes", &self.axes)
+            .field("options", &self.options)
+            .field("channel_titles", &self.channel_titles)
+            .finish()
+    }
 }
 
 impl PolarGuide {
@@ -46,6 +59,7 @@ impl PolarGuide {
         Self {
             axes: HashMap::new(),
             options: PolarOptions::default(),
+            channel_titles: HashMap::new(),
         }
     }
 
@@ -61,35 +75,6 @@ impl PolarGuide {
         self
     }
 
-    /// Create default axes for channels that have scales
-    pub fn create_default_axes(
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn crate::marks::MarkRenderer>],
-    ) -> HashMap<String, PolarAxis> {
-        let mut axes = HashMap::new();
-
-        // Create default axes for polar position channels that have scales
-        for (channel_name, _scale) in scales {
-            if channel_name == "r" || channel_name == "theta" {
-                let axis_type = match channel_name.as_str() {
-                    "r" => PolarAxisType::Radial,
-                    "theta" => PolarAxisType::Angular,
-                    _ => continue,
-                };
-
-                let mut axis = PolarAxis::new().axis_type(axis_type);
-
-                // Try to extract a title from the marks
-                if let Some(title) = extract_channel_title_from_marks(marks, channel_name) {
-                    axis = axis.title(title);
-                }
-
-                axes.insert(channel_name.clone(), axis);
-            }
-        }
-
-        axes
-    }
 }
 
 impl Default for PolarGuide {
@@ -136,6 +121,15 @@ impl CoordinateGuideBuilder for PolarGuide {
 
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
         self.axes = axes;
+    }
+
+    fn set_mark_renderers(&mut self, mark_renderers: Vec<Arc<dyn crate::marks::MarkRenderer>>) {
+        // Extract titles from mark renderers immediately
+        for channel in ["r", "theta"] {
+            if let Some(title) = extract_channel_title_from_marks(&mark_renderers, channel) {
+                self.channel_titles.insert(channel.to_string(), title);
+            }
+        }
     }
 
     fn update(&mut self, other: Self) {
@@ -264,9 +258,43 @@ impl CoordinateGuideRender for PolarGuide {
             marks.push(SceneMark::Arc(bg_circle));
         }
 
-        // Render each axis using existing render method
-        // Note: The polar axis render method needs the channel name and all scales
-        for (channel, axis) in &self.axes {
+        // Create default axes at render time with full scale information
+        let mut default_axes = HashMap::new();
+        for (channel_name, _scale) in scales {
+            if channel_name == "r" || channel_name == "theta" {
+                let axis_type = match channel_name.as_str() {
+                    "r" => PolarAxisType::Radial,
+                    "theta" => PolarAxisType::Angular,
+                    _ => continue,
+                };
+
+                let mut axis = PolarAxis::new()
+                    .axis_type(axis_type)
+                    .grid(true);  // Polar axes should show grid by default
+
+                // Use previously extracted title if available
+                if let Some(title) = self.channel_titles.get(channel_name) {
+                    axis = axis.title(title.clone());
+                }
+
+                default_axes.insert(channel_name.clone(), axis);
+            }
+        }
+
+        // Merge with user-configured axes
+        let mut all_axes = default_axes;
+
+        // Apply user configurations on top of defaults
+        for (channel, user_axis) in &self.axes {
+            if let Some(default_axis) = all_axes.get_mut(channel) {
+                *default_axis = default_axis.clone().update(user_axis.clone());
+            } else {
+                all_axes.insert(channel.clone(), user_axis.clone());
+            }
+        }
+
+        // Render each axis
+        for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
                 let axis_marks = axis.render(
                     channel,
@@ -276,6 +304,7 @@ impl CoordinateGuideRender for PolarGuide {
                     plot_height,
                     plot_bounds,
                     theme,
+                    self.options.plot_background_color,
                 )?;
                 marks.extend(axis_marks);
             }
