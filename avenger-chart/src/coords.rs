@@ -61,15 +61,6 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         marks: &[Arc<dyn MarkRenderer>],
     ) -> Self::Guide;
 
-    /// Configure the guide with user-provided settings
-    ///
-    /// This allows users to customize coordinate-level options
-    fn configure_guide<F>(&self, guide: Self::Guide, f: F) -> Self::Guide
-    where
-        F: FnOnce(Self::Guide) -> Self::Guide,
-    {
-        f(guide)
-    }
 
     /// Create default axes for channels that don't have explicit axis configuration
     ///

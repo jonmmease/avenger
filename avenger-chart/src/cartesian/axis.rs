@@ -264,9 +264,9 @@ impl CartesianAxis {
 #[typetag::serde]
 impl Axis for CartesianAxis {
     fn update(&mut self, other: &dyn Axis) {
-        other.as_any().downcast_ref::<CartesianAxis>().map(|o| {
+        if let Some(o) = other.as_any().downcast_ref::<CartesianAxis>() {
             *self = self.clone().update(o.clone());
-        });
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

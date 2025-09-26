@@ -649,69 +649,6 @@ impl SerializablePlotRenderer {
         Ok(vec![SceneMark::Text(Arc::new(text_mark))])
     }
 
-    /// Create error for literal values in positional scales
-    fn create_positional_literal_error(
-        &self,
-        channel_name: &str,
-        channel_value: &ChannelValue,
-        coord_system_name: &str,
-    ) -> Result<(), AvengerChartError> {
-        use datafusion::logical_expr::Expr as DfExpr;
-
-        // Extract the literal value description
-        let literal_value = match channel_value {
-            ChannelValue::Value { expr } => {
-                // Check if the expression is a literal
-                match expr {
-                    DfExpr::Literal(scalar_value, _) => match scalar_value {
-                        datafusion_common::ScalarValue::Utf8(Some(_))
-                        | datafusion_common::ScalarValue::LargeUtf8(Some(_)) => {
-                            "string literal".to_string()
-                        }
-                        datafusion_common::ScalarValue::Float32(Some(_))
-                        | datafusion_common::ScalarValue::Float64(Some(_))
-                        | datafusion_common::ScalarValue::Int32(Some(_))
-                        | datafusion_common::ScalarValue::Int64(Some(_))
-                        | datafusion_common::ScalarValue::Int8(Some(_))
-                        | datafusion_common::ScalarValue::Int16(Some(_))
-                        | datafusion_common::ScalarValue::UInt8(Some(_))
-                        | datafusion_common::ScalarValue::UInt16(Some(_))
-                        | datafusion_common::ScalarValue::UInt32(Some(_))
-                        | datafusion_common::ScalarValue::UInt64(Some(_)) => {
-                            "numeric literal".to_string()
-                        }
-                        _ => "literal value".to_string(),
-                    },
-                    _ => "expression".to_string(),
-                }
-            }
-            _ => "literal value".to_string(),
-        };
-
-        // Create helpful suggestion based on the literal type
-        let suggestion = if literal_value.contains("string") {
-            "Did you mean to reference a column? Use col(\"column_name\") to reference a column."
-                .to_string()
-        } else {
-            "To use a literal value, provide an explicit domain using .scale_x() or .scale_y().\n\
-             Or use col(\"column_name\") to reference a data column."
-                .to_string()
-        };
-
-        // Extract coordinate system name (remove module path)
-        let coord_system = coord_system_name
-            .split("::")
-            .last()
-            .unwrap_or(coord_system_name);
-
-        Err(AvengerChartError::PositionalScaleLiteralError {
-            scale_name: channel_name.to_string(),
-            coord_system: coord_system.to_string(),
-            literal_value,
-            suggestion,
-        })
-    }
-
     /// Create error for non-numeric positional channel
     fn create_positional_type_error(
         &self,
@@ -1096,20 +1033,6 @@ impl SerializablePlotRenderer {
         }
 
         Ok(())
-    }
-
-    /// Get the configured guide for the coordinate system
-    fn create_configured_guide(
-        &self,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> &dyn crate::guide::CoordinateGuideRender {
-        // If we have a guide renderer already, use it
-        if let Some(guide) = &self.guide_renderer {
-            return guide.as_ref();
-        }
-
-        // This shouldn't happen if Plot::build() is working correctly
-        panic!("Guide renderer not initialized - Plot::build() should ensure guide_renderer is always set");
     }
 
     /// Build a legend channel for a specific channel in a mark
