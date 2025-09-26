@@ -239,7 +239,8 @@ impl PolarAxis {
                     pad_angle: ScalarOrArray::new_scalar(0.0),
                     corner_radius: ScalarOrArray::new_scalar(0.0),
                     fill: ScalarOrArray::new_scalar(ColorOrGradient::Color({
-                        let mut color = crate::utils::parse_color_to_array(&theme.axis_grid_color());
+                        let mut color =
+                            crate::utils::parse_color_to_array(&theme.axis_grid_color());
                         color[3] = theme.axis_grid_opacity();
                         color
                     })),

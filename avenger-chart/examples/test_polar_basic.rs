@@ -68,8 +68,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
         // Render the plot to the canvas
-        let built_plot = sized_plot.build();
-        canvas.render_plot(&built_plot).await?;
+        let compiled = sized_plot.compile().await.unwrap();
+        canvas.render_plot(&compiled).await?;
 
         // Render to PNG image
         let image = canvas.render().await?;

@@ -1,7 +1,7 @@
 use crate::define_position_channels;
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
-use crate::marks::{DataContext, Mark, MarkRenderer, MarkState, RadiusExpression};
+use crate::marks::{CompiledMark, DataContext, Mark, MarkState, RadiusExpression};
 use std::sync::Arc;
 
 use crate::channel::ChannelDescriptor;
@@ -30,17 +30,17 @@ define_position_channels! {
 
 // Implement Mark trait for PolarGeneral Symbol with any axis type
 impl Mark<Polar> for Symbol<Polar> {
-    impl_mark_trait_common!(Symbol, PolarSymbolRenderer);
+    impl_mark_trait_common!(Symbol, CompiledPolarSymbol);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PolarSymbolRenderer {
+pub struct CompiledPolarSymbol {
     pub(crate) state: MarkState,
 }
 
-// MarkRenderer implementation
+// CompiledMark implementation
 #[typetag::serde]
-impl MarkRenderer for PolarSymbolRenderer {
+impl CompiledMark for CompiledPolarSymbol {
     fn state(&self) -> &MarkState {
         &self.state
     }

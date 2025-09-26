@@ -80,14 +80,14 @@ mod tests {
             }
 
             let plot = Plot::<Cartesian>::new().mark(symbol);
-            let built_plot = plot.build();
+            let compiled = plot.compile().await.unwrap();
 
             let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
                 .await
                 .expect("Failed to create canvas");
 
             canvas
-                .render_plot(&built_plot)
+                .render_plot(&compiled)
                 .await
                 .expect("Failed to render plot");
 

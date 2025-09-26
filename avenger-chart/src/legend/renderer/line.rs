@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 /// Line legend renderer for stroke properties on line marks
 #[derive(Serialize, Deserialize)]
-pub struct LineLegendRenderer {
+pub struct CompiledLineLegend {
     /// Map of mark encodings from the plot
     #[serde(skip)]
     mark_encodings: HashMap<String, crate::channel::ChannelValue>,
@@ -25,7 +25,7 @@ pub struct LineLegendRenderer {
     stroke_join: StrokeJoin,
 }
 
-impl Default for LineLegendRenderer {
+impl Default for CompiledLineLegend {
     fn default() -> Self {
         Self {
             mark_encodings: HashMap::new(),
@@ -35,7 +35,7 @@ impl Default for LineLegendRenderer {
     }
 }
 
-impl LineLegendRenderer {
+impl CompiledLineLegend {
     pub fn new() -> Self {
         Self::default()
     }
@@ -68,9 +68,9 @@ impl LineLegendRenderer {
 }
 
 #[typetag::serde]
-impl LegendRenderer for LineLegendRenderer {
+impl LegendRenderer for CompiledLineLegend {
     fn name(&self) -> &'static str {
-        "LineLegendRenderer"
+        "CompiledLineLegend"
     }
 
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
@@ -470,7 +470,6 @@ impl LegendRenderer for LineLegendRenderer {
                 legend_config.stroke_dash = ScalarOrArray::new_scalar(None);
             }
         }
-
 
         tracing::debug!(
             channel = channel_name.as_str(),

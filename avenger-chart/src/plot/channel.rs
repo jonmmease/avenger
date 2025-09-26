@@ -118,7 +118,7 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Create a channel resolver function for non-positional channels
     /// This is used primarily for radius calculations that need size/stroke_width expressions
     pub(crate) fn create_channel_resolver<'a>(
-        mark: &'a dyn crate::marks::MarkRenderer,
+        mark: &'a dyn crate::marks::CompiledMark,
         encodings: &'a IndexMap<String, ChannelValue>,
         configured_scales: &'a HashMap<String, ConfiguredScale>,
         context: &'a RenderContext,

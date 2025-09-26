@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{DataContext, Mark, MarkRenderer, MarkState, RadiusExpression};
+use crate::marks::{CompiledMark, DataContext, Mark, MarkState, RadiusExpression};
 use arrow::array::{AsArray, RecordBatch};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::{Expr, lit};
@@ -28,17 +28,17 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Line with any axis type
 impl Mark<Cartesian> for Line<Cartesian> {
-    impl_mark_trait_common!(Line, CartesianLineRenderer);
+    impl_mark_trait_common!(Line, CompiledCartesianLine);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CartesianLineRenderer {
+pub struct CompiledCartesianLine {
     pub(crate) state: MarkState,
 }
 
-// MarkRenderer implementation
+// CompiledMark implementation
 #[typetag::serde]
-impl MarkRenderer for CartesianLineRenderer {
+impl CompiledMark for CompiledCartesianLine {
     fn state(&self) -> &MarkState {
         &self.state
     }
@@ -532,7 +532,7 @@ impl MarkRenderer for CartesianLineRenderer {
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
     ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        use crate::legend::{ColorbarRenderer, LineLegendRenderer};
+        use crate::legend::{CompiledColorbar, CompiledLineLegend};
         use crate::marks::util::is_continuous_scale;
         use std::sync::Arc;
 
@@ -541,15 +541,15 @@ impl MarkRenderer for CartesianLineRenderer {
 
         match channel {
             // Use colorbar for continuous color scales
-            "stroke" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
+            "stroke" if is_continuous => Some(Arc::new(CompiledColorbar::new())),
             // Line marks use line legend for stroke properties
             "stroke" | "stroke_width" | "stroke_dash" | "stroke_opacity" => {
-                Some(Arc::new(LineLegendRenderer::new()))
+                Some(Arc::new(CompiledLineLegend::new()))
             }
             // No legend for position channels
             "x" | "y" | "defined" | "order" | "stroke_cap" | "stroke_join" | "interpolate" => None,
-            // For any other channel, default to LineLegendRenderer
-            _ => Some(Arc::new(LineLegendRenderer::new())),
+            // For any other channel, default to CompiledLineLegend
+            _ => Some(Arc::new(CompiledLineLegend::new())),
         }
     }
 }

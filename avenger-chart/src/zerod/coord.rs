@@ -43,7 +43,7 @@ impl CoordinateSystem for ZeroDCoord {
     fn create_default_axes(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn crate::marks::MarkRenderer>],
+        _marks: &[Arc<dyn crate::marks::CompiledMark>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         // No axes exist in zero-dimensional space
         HashMap::new()
@@ -53,11 +53,10 @@ impl CoordinateSystem for ZeroDCoord {
         &self,
         _axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn crate::marks::MarkRenderer>],
+        _marks: &[Arc<dyn crate::marks::CompiledMark>],
     ) -> Self::Guide {
         NoGuide::default()
     }
-
 
     fn get_clip(
         &self,

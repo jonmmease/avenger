@@ -5,10 +5,10 @@ pub mod line;
 pub mod rect;
 pub mod symbol;
 
-pub use colorbar::ColorbarRenderer;
-pub use line::LineLegendRenderer;
-pub use rect::RectLegendRenderer;
-pub use symbol::SymbolLegendRenderer;
+pub use colorbar::CompiledColorbar;
+pub use line::CompiledLineLegend;
+pub use rect::CompiledRectLegend;
+pub use symbol::CompiledSymbolLegend;
 
 use crate::error::AvengerChartError;
 use crate::legend::Legend;

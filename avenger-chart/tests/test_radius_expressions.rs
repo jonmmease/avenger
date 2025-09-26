@@ -16,7 +16,7 @@ async fn test_symbol_default_channel_values() {
     let theme = CssTheme::light();
     let context = RenderContext::new(Arc::new(theme), 500.0, 400.0);
 
-    // Build the MarkRenderer
+    // Build the CompiledMark
     let renderer = symbol.build();
 
     // Test default channel values
@@ -60,7 +60,7 @@ async fn test_symbol_radius_expression() {
 
     let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
-    // Build the MarkRenderer
+    // Build the CompiledMark
     let renderer = symbol.build();
 
     // Create a simple channel resolver that returns the size and stroke_width defaults
@@ -118,7 +118,7 @@ async fn test_symbol_radius_expression_with_mapped_size() {
         .y(col("y"))
         .size(col("size"));
 
-    // Build the MarkRenderer
+    // Build the CompiledMark
     let renderer = symbol.build();
 
     // Create a channel resolver that returns the size column
@@ -141,7 +141,7 @@ async fn test_symbol_radius_includes_stroke_width() {
 
     let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
-    // Build the MarkRenderer
+    // Build the CompiledMark
     let renderer = symbol.build();
 
     // Test with specific size and stroke_width values
@@ -179,7 +179,7 @@ async fn test_line_radius_expression() {
 
     let line = Line::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
-    // Build the MarkRenderer
+    // Build the CompiledMark
     let renderer = line.build();
 
     // Create a channel resolver that returns stroke_width

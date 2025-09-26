@@ -20,6 +20,6 @@ pub use legend_spec::{Legend, LegendOrientation, LegendPosition};
 
 // Re-export renderer types
 pub use renderer::{
-    ChannelInfo, ChannelLegendCapability, ColorbarRenderer, LegendChannel, LegendRenderer,
-    LineLegendRenderer, MergeKey, RectLegendRenderer, SymbolLegendRenderer,
+    ChannelInfo, ChannelLegendCapability, CompiledColorbar, CompiledLineLegend, CompiledRectLegend,
+    CompiledSymbolLegend, LegendChannel, LegendRenderer, MergeKey,
 };

@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{DataContext, Mark, MarkRenderer, MarkState};
+use crate::marks::{CompiledMark, DataContext, Mark, MarkState};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 // Import Rect for the macro, then re-export it
@@ -33,17 +33,17 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Rect with any axis type
 impl Mark<Cartesian> for Rect<Cartesian> {
-    impl_mark_trait_common!(Rect, CartesianRectRenderer);
+    impl_mark_trait_common!(Rect, CompiledCartesianRect);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CartesianRectRenderer {
+pub struct CompiledCartesianRect {
     pub(crate) state: MarkState,
 }
 
-// MarkRenderer implementation
+// CompiledMark implementation
 #[typetag::serde]
-impl MarkRenderer for CartesianRectRenderer {
+impl CompiledMark for CompiledCartesianRect {
     fn state(&self) -> &MarkState {
         &self.state
     }
@@ -281,7 +281,7 @@ impl MarkRenderer for CartesianRectRenderer {
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
     ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        use crate::legend::{ColorbarRenderer, renderer::rect::RectLegendRenderer};
+        use crate::legend::{CompiledColorbar, renderer::rect::CompiledRectLegend};
         use crate::marks::util::is_continuous_scale;
         use std::sync::Arc;
 
@@ -290,16 +290,16 @@ impl MarkRenderer for CartesianRectRenderer {
 
         match channel {
             // Use colorbar for continuous color scales
-            "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
-            // Rect marks use RectLegendRenderer for discrete scales and other visual properties
+            "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(CompiledColorbar::new())),
+            // Rect marks use CompiledRectLegend for discrete scales and other visual properties
             "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
-                Some(Arc::new(RectLegendRenderer::new()))
+                Some(Arc::new(CompiledRectLegend::new()))
             }
             // No legend for position channels and other non-visual channels
             "x" | "y" | "x2" | "y2" | "width" | "height" | "defined" | "order"
             | "corner_radius" => None,
-            // For any other channel, default to RectLegendRenderer
-            _ => Some(Arc::new(RectLegendRenderer::new())),
+            // For any other channel, default to CompiledRectLegend
+            _ => Some(Arc::new(CompiledRectLegend::new())),
         }
     }
 }

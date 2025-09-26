@@ -1,25 +1,19 @@
 //! Canvas extension trait for rendering plots
 
 use crate::error::AvengerChartError;
-use crate::plot::SerializablePlotRenderer;
+use crate::plot::CompiledPlot;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
 
 /// Extension trait for Canvas to render Plot objects
 #[allow(async_fn_in_trait)]
 pub trait CanvasExt {
     /// Render a plot to this canvas
-    async fn render_plot(
-        &mut self,
-        plot: &SerializablePlotRenderer,
-    ) -> Result<(), AvengerChartError>;
+    async fn render_plot(&mut self, plot: &CompiledPlot) -> Result<(), AvengerChartError>;
 }
 
 // Implement CanvasExt for PngCanvas
 impl CanvasExt for PngCanvas {
-    async fn render_plot(
-        &mut self,
-        plot: &SerializablePlotRenderer,
-    ) -> Result<(), AvengerChartError> {
+    async fn render_plot(&mut self, plot: &CompiledPlot) -> Result<(), AvengerChartError> {
         // Render to scene graph
         let render_result = plot.render().await?;
 

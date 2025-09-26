@@ -15,22 +15,22 @@ use std::collections::HashMap;
 
 /// Rectangle legend renderer for rect/bar marks
 #[derive(Default, Serialize, Deserialize)]
-pub struct RectLegendRenderer {
+pub struct CompiledRectLegend {
     /// Map of mark encodings from the plot
     #[serde(skip)]
     mark_encodings: HashMap<String, ChannelValue>,
 }
 
-impl RectLegendRenderer {
+impl CompiledRectLegend {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
 #[typetag::serde]
-impl LegendRenderer for RectLegendRenderer {
+impl LegendRenderer for CompiledRectLegend {
     fn name(&self) -> &'static str {
-        "RectLegendRenderer"
+        "CompiledRectLegend"
     }
 
     fn can_render(&self, channels: &[LegendChannel]) -> bool {

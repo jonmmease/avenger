@@ -3,7 +3,6 @@ mod tests {
     use avenger_chart::cartesian::Cartesian;
     use avenger_chart::marks::symbol::Symbol;
     use avenger_chart::prelude::*;
-    use std::sync::Arc;
 
     #[test]
     fn test_cartesian_symbol_mark_renderer() {
