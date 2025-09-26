@@ -28,10 +28,10 @@ impl Default for VisualTestConfig {
 }
 
 /// Render a plot to an image, automatically handling canvas sizing based on layout spec
-pub async fn render_plot<C: CoordinateSystem + Clone>(plot: &Plot<C>) -> RgbaImage {
-    // Use the new SerializablePlotRenderer for rendering!
-    let serializable = plot.build_ref();
-    let render_result = serializable.render().await.expect("Failed to render plot");
+pub async fn render_plot<C: CoordinateSystem>(plot: Plot<C>) -> RgbaImage {
+    // Use the new CompiledPlot for rendering!
+    let compiled = plot.compile().await.expect("Failed to compile plot");
+    let render_result = compiled.render().await.expect("Failed to render plot");
 
     // The scene graph contains the correct canvas dimensions for any mode
     let canvas_width = render_result.scene_graph.width;
@@ -62,9 +62,9 @@ pub trait PlotTestExt: Sized {
     async fn to_image(self) -> RgbaImage;
 }
 
-impl<C: CoordinateSystem + Clone> PlotTestExt for Plot<C> {
+impl<C: CoordinateSystem> PlotTestExt for Plot<C> {
     async fn to_image(self) -> RgbaImage {
-        render_plot(&self).await
+        render_plot(self).await
     }
 }
 

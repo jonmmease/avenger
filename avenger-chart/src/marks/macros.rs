@@ -108,7 +108,7 @@ macro_rules! impl_mark_trait_common {
             self.get_data_context()
         }
 
-        fn build(&self) -> std::sync::Arc<dyn $crate::marks::MarkRenderer> {
+        fn build(&self) -> std::sync::Arc<dyn $crate::marks::CompiledMark> {
             std::sync::Arc::new($renderer_type {
                 state: self.state.clone(),
             })
@@ -131,7 +131,7 @@ macro_rules! impl_mark_trait_common {
     };
 }
 
-/// Macro to generate supported_channels method for MarkRenderer implementations
+/// Macro to generate supported_channels method for CompiledMark implementations
 ///
 /// This macro generates a Vec<ChannelDescriptor> from lists of common and position channels.
 ///

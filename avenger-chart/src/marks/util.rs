@@ -269,11 +269,11 @@ pub fn default_scale_for_data_type(
     }
 }
 
-// ===== MarkRenderer versions of utility functions =====
+// ===== CompiledMark versions of utility functions =====
 
-/// Get numeric channel values using Coercer with MarkRenderer defaults
+/// Get numeric channel values using Coercer with CompiledMark defaults
 pub fn coerce_numeric_channel_with_renderer(
-    mark: &dyn crate::marks::MarkRenderer,
+    mark: &dyn crate::marks::CompiledMark,
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
@@ -297,9 +297,9 @@ pub fn coerce_numeric_channel_with_renderer(
     )
 }
 
-/// Get color channel values using Coercer with MarkRenderer defaults
+/// Get color channel values using Coercer with CompiledMark defaults
 pub fn coerce_color_channel_with_renderer(
-    mark: &dyn crate::marks::MarkRenderer,
+    mark: &dyn crate::marks::CompiledMark,
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
@@ -324,9 +324,9 @@ pub fn coerce_color_channel_with_renderer(
     )
 }
 
-/// Get boolean channel values using Coercer with MarkRenderer defaults
+/// Get boolean channel values using Coercer with CompiledMark defaults
 pub fn coerce_bool_channel_with_renderer(
-    mark: &dyn crate::marks::MarkRenderer,
+    mark: &dyn crate::marks::CompiledMark,
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
@@ -347,9 +347,9 @@ pub fn coerce_bool_channel_with_renderer(
     coerce_channel(data, scalars, channel, |c, a| c.to_boolean(a), default)
 }
 
-/// Get stroke cap channel value using Coercer with MarkRenderer defaults
+/// Get stroke cap channel value using Coercer with CompiledMark defaults
 pub fn coerce_stroke_cap_channel_with_renderer(
-    mark: &dyn crate::marks::MarkRenderer,
+    mark: &dyn crate::marks::CompiledMark,
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
@@ -376,9 +376,9 @@ pub fn coerce_stroke_cap_channel_with_renderer(
         .map(|v| v.first().cloned().unwrap_or(default))
 }
 
-/// Get stroke join channel value using Coercer with MarkRenderer defaults
+/// Get stroke join channel value using Coercer with CompiledMark defaults
 pub fn coerce_stroke_join_channel_with_renderer(
-    mark: &dyn crate::marks::MarkRenderer,
+    mark: &dyn crate::marks::CompiledMark,
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,

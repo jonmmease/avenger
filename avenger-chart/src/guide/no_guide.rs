@@ -1,9 +1,7 @@
 //! Empty guide implementation for coordinate systems without visual guides
 
 use crate::error::AvengerChartError;
-use crate::guide::{
-    CoordinateGuideBuilder, CoordinateGuideRender, GuideUpdate, OverflowSpaceRequirement,
-};
+use crate::guide::{CompiledGuide, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -31,7 +29,10 @@ impl CoordinateGuideBuilder for NoGuide {
         // No-op for systems without axes
     }
 
-    fn set_mark_renderers(&mut self, _mark_renderers: Vec<std::sync::Arc<dyn crate::marks::MarkRenderer>>) {
+    fn set_mark_renderers(
+        &mut self,
+        _mark_renderers: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
+    ) {
         // No-op for systems without axes
     }
 
@@ -39,14 +40,14 @@ impl CoordinateGuideBuilder for NoGuide {
         // No-op for systems without state
     }
 
-    fn build(self) -> Box<dyn CoordinateGuideRender> {
+    fn build(self) -> Box<dyn CompiledGuide> {
         Box::new(self)
     }
 }
 
 #[async_trait::async_trait]
 #[typetag::serde]
-impl CoordinateGuideRender for NoGuide {
+impl CompiledGuide for NoGuide {
     async fn measure_overflow(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,

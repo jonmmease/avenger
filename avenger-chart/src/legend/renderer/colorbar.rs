@@ -10,18 +10,18 @@ use serde::{Deserialize, Serialize};
 
 /// Colorbar legend renderer for continuous color scales
 #[derive(Default, Serialize, Deserialize)]
-pub struct ColorbarRenderer;
+pub struct CompiledColorbar;
 
-impl ColorbarRenderer {
+impl CompiledColorbar {
     pub fn new() -> Self {
         Self
     }
 }
 
 #[typetag::serde]
-impl LegendRenderer for ColorbarRenderer {
+impl LegendRenderer for CompiledColorbar {
     fn name(&self) -> &'static str {
-        "ColorbarRenderer"
+        "CompiledColorbar"
     }
 
     fn prefers_flexible_layout(&self) -> bool {

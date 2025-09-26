@@ -33,7 +33,7 @@ impl CoordinateSystem for Cartesian {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn crate::marks::MarkRenderer>],
+        marks: &[Arc<dyn crate::marks::CompiledMark>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         let mut default_axes = HashMap::new();
 
@@ -77,7 +77,7 @@ impl CoordinateSystem for Cartesian {
         &self,
         axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn crate::marks::MarkRenderer>],
+        _marks: &[Arc<dyn crate::marks::CompiledMark>],
     ) -> Self::Guide {
         let mut guide = CartesianGuide::new();
         guide.set_axes(axes);
@@ -220,8 +220,8 @@ impl CoordinateSystemTransform for Cartesian {
     ) -> HashMap<String, datafusion::scalar::ScalarValue> {
         // Get the scale implementation to query its properties
         // For now, we'll use a simplified version that just checks the scale type name
-        use avenger_scales::scales::{DomainKind, RangeKind};
         use crate::scales::infer_scale_type_from_name;
+        use avenger_scales::scales::{DomainKind, RangeKind};
 
         // Determine domain and range kinds from scale type
         let scale_spec = infer_scale_type_from_name(scale_type);

@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 /// Symbol legend renderer for discrete channels
 #[derive(Default, Serialize, Deserialize)]
-pub struct SymbolLegendRenderer {
+pub struct CompiledSymbolLegend {
     /// Plot reference for accessing mark data
     /// Map of mark encodings from the plot
     #[serde(skip)]
@@ -30,7 +30,7 @@ pub struct SymbolLegendRenderer {
     rect_defaults: indexmap::IndexMap<String, ScalarValue>,
 }
 
-impl SymbolLegendRenderer {
+impl CompiledSymbolLegend {
     pub fn new() -> Self {
         Self::default()
     }
@@ -41,9 +41,9 @@ impl SymbolLegendRenderer {
 }
 
 #[typetag::serde]
-impl LegendRenderer for SymbolLegendRenderer {
+impl LegendRenderer for CompiledSymbolLegend {
     fn name(&self) -> &'static str {
-        "SymbolLegendRenderer"
+        "CompiledSymbolLegend"
     }
 
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
@@ -464,8 +464,14 @@ impl LegendRenderer for SymbolLegendRenderer {
             // Size not varying - use constant if available
             if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
                 eprintln!("DEBUG: Checking for constant size in legend");
-                eprintln!("  related_channels keys: {:?}", primary_channel.related_channels.keys().collect::<Vec<_>>());
-                eprintln!("  mark_encodings keys: {:?}", self.mark_encodings.keys().collect::<Vec<_>>());
+                eprintln!(
+                    "  related_channels keys: {:?}",
+                    primary_channel.related_channels.keys().collect::<Vec<_>>()
+                );
+                eprintln!(
+                    "  mark_encodings keys: {:?}",
+                    self.mark_encodings.keys().collect::<Vec<_>>()
+                );
                 eprintln!("  default_size from theme: {}", default_size);
             }
 
@@ -481,7 +487,10 @@ impl LegendRenderer for SymbolLegendRenderer {
             } else {
                 // No explicit size channel - use theme default if it's not the standard default
                 if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
-                    eprintln!("  No constant size found, checking if theme default {} is different from standard 64.0", default_size);
+                    eprintln!(
+                        "  No constant size found, checking if theme default {} is different from standard 64.0",
+                        default_size
+                    );
                 }
                 // If the theme has set a non-standard size, use it
                 if default_size != 64.0 {

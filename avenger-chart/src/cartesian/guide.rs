@@ -3,9 +3,7 @@
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{
-    CoordinateGuideBuilder, CoordinateGuideRender, GuideUpdate, OverflowSpaceRequirement,
-};
+use crate::guide::{CompiledGuide, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -74,7 +72,6 @@ impl CartesianGuide {
         self.options.plot_background_color = Some(color);
         self
     }
-
 }
 
 impl Default for CartesianGuide {
@@ -123,7 +120,7 @@ impl CoordinateGuideBuilder for CartesianGuide {
         self.axes = axes;
     }
 
-    fn set_mark_renderers(&mut self, mark_renderers: Vec<Arc<dyn crate::marks::MarkRenderer>>) {
+    fn set_mark_renderers(&mut self, mark_renderers: Vec<Arc<dyn crate::marks::CompiledMark>>) {
         // Extract titles from mark renderers immediately
         for channel in ["x", "y"] {
             if let Some(title) = extract_channel_title_from_marks(&mark_renderers, channel) {
@@ -136,14 +133,14 @@ impl CoordinateGuideBuilder for CartesianGuide {
         *self = CartesianGuide::update(self.clone(), other);
     }
 
-    fn build(self) -> Box<dyn CoordinateGuideRender> {
+    fn build(self) -> Box<dyn CompiledGuide> {
         Box::new(self)
     }
 }
 
 #[async_trait::async_trait]
 #[typetag::serde]
-impl CoordinateGuideRender for CartesianGuide {
+impl CompiledGuide for CartesianGuide {
     /// Measure how much space this guide needs outside the plot area
     async fn measure_overflow(
         &self,
@@ -272,7 +269,9 @@ impl CoordinateGuideRender for CartesianGuide {
                 };
 
                 // Determine if grid should be enabled based on scale type
-                let grid = scales.get(channel_name).map_or(false, |s| s.ticks(None).is_ok());
+                let grid = scales
+                    .get(channel_name)
+                    .map_or(false, |s| s.ticks(None).is_ok());
 
                 let mut axis = CartesianAxis::new()
                     .position(position)
@@ -300,18 +299,11 @@ impl CoordinateGuideRender for CartesianGuide {
             }
         }
 
-
         // Render each axis
         for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
-                let axis_mark = axis.render(
-                    channel,
-                    scale,
-                    plot_width,
-                    plot_height,
-                    plot_bounds,
-                    theme,
-                )?;
+                let axis_mark =
+                    axis.render(channel, scale, plot_width, plot_height, plot_bounds, theme)?;
                 marks.push(axis_mark);
             }
         }

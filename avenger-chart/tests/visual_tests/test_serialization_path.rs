@@ -1,7 +1,7 @@
 // Test that demonstrates the serialization path for visual tests
 
 use crate::visual_tests::datasets::simple_categories;
-use crate::visual_tests::helpers::{compare_images, get_baseline_path, VisualTestConfig};
+use crate::visual_tests::helpers::{VisualTestConfig, compare_images, get_baseline_path};
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_common::canvas::CanvasDimensions;
@@ -15,33 +15,31 @@ async fn test_serialization_rendering_path() {
         Plot::new()
             .canvas_size(400.0, 300.0)
             .data(simple_categories())
-            .mark(
-                Symbol::new()
-                    .x(col("category"))
-                    .y(col("value"))
-            )
+            .mark(Symbol::new().x(col("category")).y(col("value")))
     };
 
-    // Build to get SerializablePlotRenderer
-    let serializable_renderer = build_plot().build();
+    // Compile to get CompiledPlot
+    let compiled = build_plot().compile().await.unwrap();
 
     // Serialize to JSON
-    let json = serde_json::to_string_pretty(&serializable_renderer).unwrap();
+    let json = serde_json::to_string_pretty(&compiled).unwrap();
 
     // Deserialize back (just to verify serialization works)
     // NOTE: The deserialized plot will NOT render identically due to serde(skip) fields
     // like DataFrames, theme settings, and other non-serialized data.
     // Full serialization support is still in development.
-    let _deserialized: avenger_chart::plot::SerializablePlotRenderer =
-        serde_json::from_str(&json).unwrap();
+    let _deserialized: avenger_chart::plot::CompiledPlot = serde_json::from_str(&json).unwrap();
 
     // Render from the original built plot (not the deserialized one)
     // to ensure consistent results for the visual test
-    let render_result = serializable_renderer.render().await.expect("Failed to render plot");
+    let render_result = compiled.render().await.expect("Failed to render plot");
 
     // Create canvas and render
     let dimensions = CanvasDimensions {
-        size: [render_result.scene_graph.width, render_result.scene_graph.height],
+        size: [
+            render_result.scene_graph.width,
+            render_result.scene_graph.height,
+        ],
         scale: 2.0,
     };
     let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())

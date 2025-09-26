@@ -2,9 +2,7 @@
 
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{
-    CoordinateGuideBuilder, CoordinateGuideRender, GuideUpdate, OverflowSpaceRequirement,
-};
+use crate::guide::{CompiledGuide, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::polar::{PolarAxis, PolarAxisType};
 use crate::theme::Theme;
@@ -74,7 +72,6 @@ impl PolarGuide {
         self.options.plot_background_color = Some(color);
         self
     }
-
 }
 
 impl Default for PolarGuide {
@@ -123,7 +120,7 @@ impl CoordinateGuideBuilder for PolarGuide {
         self.axes = axes;
     }
 
-    fn set_mark_renderers(&mut self, mark_renderers: Vec<Arc<dyn crate::marks::MarkRenderer>>) {
+    fn set_mark_renderers(&mut self, mark_renderers: Vec<Arc<dyn crate::marks::CompiledMark>>) {
         // Extract titles from mark renderers immediately
         for channel in ["r", "theta"] {
             if let Some(title) = extract_channel_title_from_marks(&mark_renderers, channel) {
@@ -136,14 +133,14 @@ impl CoordinateGuideBuilder for PolarGuide {
         *self = PolarGuide::update(self.clone(), other);
     }
 
-    fn build(self) -> Box<dyn CoordinateGuideRender> {
+    fn build(self) -> Box<dyn CompiledGuide> {
         Box::new(self)
     }
 }
 
 #[async_trait::async_trait]
 #[typetag::serde]
-impl CoordinateGuideRender for PolarGuide {
+impl CompiledGuide for PolarGuide {
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -268,9 +265,7 @@ impl CoordinateGuideRender for PolarGuide {
                     _ => continue,
                 };
 
-                let mut axis = PolarAxis::new()
-                    .axis_type(axis_type)
-                    .grid(true);  // Polar axes should show grid by default
+                let mut axis = PolarAxis::new().axis_type(axis_type).grid(true); // Polar axes should show grid by default
 
                 // Use previously extracted title if available
                 if let Some(title) = self.channel_titles.get(channel_name) {

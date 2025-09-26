@@ -6,11 +6,6 @@ use indexmap::IndexMap;
 /// Type for legend measurements used in layout computation
 pub type LegendMeasurements = IndexMap<String, (taffy::Size<f32>, bool)>;
 
-/// Estimated proportion of plot area relative to total size for initial scale computation.
-/// This is used before layout is calculated to build scales with approximate dimensions.
-/// The actual plot area is typically 70-85% of total size after padding for axes/legends.
-pub(crate) const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
-
 /// Result of layout computation from Taffy
 #[derive(Debug, Clone)]
 pub struct LayoutSolution {

@@ -39,8 +39,8 @@ async fn test_literal_x_value_error() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let built_plot = plot.build();
-    let result = canvas.render_plot(&built_plot).await;
+    let compiled = plot.compile().await.unwrap();
+    let result = canvas.render_plot(&compiled).await;
 
     // Should error with helpful message
     assert!(result.is_err());
@@ -93,8 +93,8 @@ async fn test_literal_y_value_error() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let built_plot = plot.build();
-    let result = canvas.render_plot(&built_plot).await;
+    let compiled = plot.compile().await.unwrap();
+    let result = canvas.render_plot(&compiled).await;
 
     // Should error with helpful message
     assert!(result.is_err());
@@ -149,8 +149,8 @@ async fn test_explicit_domain_allows_literals() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let built_plot = plot.build();
-    let result = canvas.render_plot(&built_plot).await;
+    let compiled = plot.compile().await.unwrap();
+    let result = canvas.render_plot(&compiled).await;
 
     // Should NOT error because domain is explicit
     if let Err(e) = &result {
@@ -189,8 +189,8 @@ async fn test_column_reference_works() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let built_plot = plot.build();
-    let result = canvas.render_plot(&built_plot).await;
+    let compiled = plot.compile().await.unwrap();
+    let result = canvas.render_plot(&compiled).await;
 
     // Should work fine
     assert!(result.is_ok());
@@ -231,8 +231,8 @@ async fn test_expression_with_column_works() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let built_plot = plot.build();
-    let result = canvas.render_plot(&built_plot).await;
+    let compiled = plot.compile().await.unwrap();
+    let result = canvas.render_plot(&compiled).await;
 
     // Should work fine because expressions reference columns
     assert!(result.is_ok());
@@ -275,8 +275,8 @@ async fn test_non_positional_scales_allow_literals() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let built_plot = plot.build();
-    let result = canvas.render_plot(&built_plot).await;
+    let compiled = plot.compile().await.unwrap();
+    let result = canvas.render_plot(&compiled).await;
 
     // Should work fine because fill and size are not positional
     assert!(result.is_ok());

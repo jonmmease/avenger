@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{DataContext, Mark, MarkRenderer, MarkState, RadiusExpression};
+use crate::marks::{CompiledMark, DataContext, Mark, MarkState, RadiusExpression};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::{Expr, lit};
@@ -29,16 +29,16 @@ define_position_channels! {
 
 // Implement Mark trait for Cartesian Symbol
 impl Mark<Cartesian> for Symbol<Cartesian> {
-    impl_mark_trait_common!(Symbol, CartesianSymbolRenderer);
+    impl_mark_trait_common!(Symbol, CompiledCartesianSymbol);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CartesianSymbolRenderer {
+pub struct CompiledCartesianSymbol {
     pub(crate) state: MarkState,
 }
 
 #[typetag::serde]
-impl MarkRenderer for CartesianSymbolRenderer {
+impl CompiledMark for CompiledCartesianSymbol {
     fn state(&self) -> &MarkState {
         &self.state
     }
@@ -262,7 +262,10 @@ impl MarkRenderer for CartesianSymbolRenderer {
                 let stroke_width_expr = resolve_channel("stroke_width");
 
                 if std::env::var("AVENGER_DEBUG_RADIUS").is_ok() {
-                    eprintln!("DEBUG Symbol: radius_expression called for dimension '{}'", dimension);
+                    eprintln!(
+                        "DEBUG Symbol: radius_expression called for dimension '{}'",
+                        dimension
+                    );
                     eprintln!("  size_expr: {:?}", size_expr);
                     eprintln!("  stroke_width_expr: {:?}", stroke_width_expr);
                 }

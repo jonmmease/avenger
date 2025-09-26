@@ -1,7 +1,7 @@
 use crate::error::AvengerChartError;
-pub use crate::guide::OverflowSpaceRequirement;
 use crate::guide::CoordinateGuideBuilder;
-use crate::marks::MarkRenderer;
+pub use crate::guide::OverflowSpaceRequirement;
+use crate::marks::CompiledMark;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::Clip;
 use serde::{Deserialize, Serialize};
@@ -58,9 +58,8 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         &self,
         axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn MarkRenderer>],
+        marks: &[Arc<dyn CompiledMark>],
     ) -> Self::Guide;
-
 
     /// Create default axes for channels that don't have explicit axis configuration
     ///
@@ -69,9 +68,8 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn MarkRenderer>],
+        marks: &[Arc<dyn CompiledMark>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>;
-
 
     /// Get default scale options for channels in this coordinate system
     /// Each coordinate system knows its own position channels and their optimal defaults
@@ -117,10 +115,10 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         plot_height: f32,
     ) -> Result<Self::PlotGeometry, AvengerChartError>;
 
-    /// Create a boxed coordinate system transform for use with MarkRenderer
+    /// Create a boxed coordinate system transform for use with CompiledMark
     ///
     /// This creates a type-erased version of the coordinate system that can be
-    /// used by the serializable MarkRenderer implementations.
+    /// used by the serializable CompiledMark implementations.
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform>;
 }
 
@@ -136,7 +134,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 /// # Returns
 /// An optional string containing the column name if found
 pub fn extract_channel_title_from_marks(
-    marks: &[Arc<dyn MarkRenderer>],
+    marks: &[Arc<dyn CompiledMark>],
     channel: &str,
 ) -> Option<String> {
     // Look through marks to find a column name for this channel
@@ -258,8 +256,7 @@ mod tests {
         assert!(json.contains("\"type\":\"Cartesian\""));
 
         // Deserialize it
-        let deserialized: Box<dyn CoordinateSystemTransform> =
-            serde_json::from_str(&json).unwrap();
+        let deserialized: Box<dyn CoordinateSystemTransform> = serde_json::from_str(&json).unwrap();
 
         // Check that required channels match
         assert_eq!(deserialized.required_channels(), &["x", "y"]);

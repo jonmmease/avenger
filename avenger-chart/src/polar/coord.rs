@@ -42,7 +42,7 @@ impl CoordinateSystem for Polar {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn crate::marks::MarkRenderer>],
+        marks: &[Arc<dyn crate::marks::CompiledMark>],
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         let mut default_axes = HashMap::new();
 
@@ -73,7 +73,7 @@ impl CoordinateSystem for Polar {
         &self,
         axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn crate::marks::MarkRenderer>],
+        _marks: &[Arc<dyn crate::marks::CompiledMark>],
     ) -> Self::Guide {
         let mut guide = PolarGuide::new();
         guide.set_axes(axes);
@@ -212,8 +212,8 @@ impl CoordinateSystemTransform for Polar {
         scale_type: &str,
     ) -> HashMap<String, datafusion::scalar::ScalarValue> {
         // Use the same logic as the CoordinateSystem implementation
-        use avenger_scales::scales::{DomainKind, RangeKind};
         use crate::scales::infer_scale_type_from_name;
+        use avenger_scales::scales::{DomainKind, RangeKind};
         use datafusion::scalar::ScalarValue;
 
         let mut options = HashMap::new();

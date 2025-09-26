@@ -26,16 +26,19 @@ pub trait CoordinateGuideBuilder: Clone + Default {
     ///
     /// This is called during guide creation to provide access to mark renderers
     /// so that default axis titles can be extracted at render time.
-    fn set_mark_renderers(&mut self, mark_renderers: Vec<std::sync::Arc<dyn crate::marks::MarkRenderer>>);
+    fn set_mark_renderers(
+        &mut self,
+        mark_renderers: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
+    );
 
     fn update(&mut self, other: Self);
 
-    fn build(self) -> Box<dyn CoordinateGuideRender>;
+    fn build(self) -> Box<dyn CompiledGuide>;
 }
 
 #[async_trait::async_trait]
 #[typetag::serde(tag = "type")]
-pub trait CoordinateGuideRender: Send + Sync + 'static {
+pub trait CompiledGuide: Send + Sync + 'static {
     /// Measure how much space this guide needs outside the plot area
     async fn measure_overflow(
         &self,

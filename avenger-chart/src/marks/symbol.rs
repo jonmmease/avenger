@@ -68,23 +68,23 @@ pub fn symbol_legend_renderer(
     scale: &avenger_scales::scales::ConfiguredScale,
     position_channels: &[&str],
 ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-    use crate::legend::{ColorbarRenderer, SymbolLegendRenderer};
+    use crate::legend::{CompiledColorbar, CompiledSymbolLegend};
     use crate::marks::util::is_continuous_scale;
     use std::sync::Arc;
 
     let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 
     match channel {
-        "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
+        "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(CompiledColorbar::new())),
         "fill" | "stroke" | "color" | "size" | "shape" | "opacity" | "stroke_width" => {
-            Some(Arc::new(SymbolLegendRenderer::new()))
+            Some(Arc::new(CompiledSymbolLegend::new()))
         }
         "angle" | "defined" | "order" => None,
         _ => {
             if position_channels.contains(&channel) {
                 None
             } else {
-                Some(Arc::new(SymbolLegendRenderer::new()))
+                Some(Arc::new(CompiledSymbolLegend::new()))
             }
         }
     }

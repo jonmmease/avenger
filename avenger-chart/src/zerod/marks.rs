@@ -7,7 +7,7 @@ use crate::channel::ChannelDescriptor;
 use crate::coords::CoordinateSystemTransform;
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
-use crate::marks::{DataContext, Mark, MarkRenderer, MarkState};
+use crate::marks::{CompiledMark, DataContext, Mark, MarkState};
 use crate::render::RenderContext;
 use crate::zerod::ZeroDCoord;
 use arrow::array::RecordBatch;
@@ -33,17 +33,17 @@ impl Symbol<ZeroDCoord> {
 
 // Implement Mark trait for ZeroDCoord Symbol
 impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
-    impl_mark_trait_common!(Symbol, ZeroDSymbolRenderer);
+    impl_mark_trait_common!(Symbol, CompiledZeroDSymbol);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct ZeroDSymbolRenderer {
+pub struct CompiledZeroDSymbol {
     pub(crate) state: MarkState,
 }
 
-// MarkRenderer implementation
+// CompiledMark implementation
 #[typetag::serde]
-impl MarkRenderer for ZeroDSymbolRenderer {
+impl CompiledMark for CompiledZeroDSymbol {
     fn state(&self) -> &MarkState {
         &self.state
     }

@@ -10,7 +10,7 @@ mod specs;
 mod title;
 
 // Re-export core plot type
-pub use plot::{Plot, SerializablePlotRenderer};
+pub use plot::{CompiledPlot, Plot};
 
 // Re-export title types
 pub use title::{PlotSubtitle, PlotTitle, TitleAlign};

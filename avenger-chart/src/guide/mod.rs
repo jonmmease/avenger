@@ -8,7 +8,7 @@ mod coordinate_guide;
 mod no_guide;
 mod overflow;
 
-pub use coordinate_guide::{CoordinateGuideBuilder, CoordinateGuideRender};
+pub use coordinate_guide::{CompiledGuide, CoordinateGuideBuilder};
 pub use no_guide::NoGuide;
 pub use overflow::OverflowSpaceRequirement;
 

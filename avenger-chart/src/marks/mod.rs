@@ -56,13 +56,13 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Get the data context for this mark (for accessing encodings and data)
     fn data_context(&self) -> &DataContext;
 
-    /// Build a MarkRenderer from this Mark
+    /// Build a CompiledMark from this Mark
     /// This enables type-erased rendering without the coordinate system generic
-    fn build(&self) -> Arc<dyn MarkRenderer>;
+    fn build(&self) -> Arc<dyn CompiledMark>;
 }
 
 #[typetag::serde(tag = "type")]
-pub trait MarkRenderer {
+pub trait CompiledMark {
     /// Get the mark's state
     fn state(&self) -> &MarkState;
 

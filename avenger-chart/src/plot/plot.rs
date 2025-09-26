@@ -3,13 +3,13 @@
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
 
-use crate::channel::value::{strip_trailing_numbers, ChannelValue, ConditionalValue};
+use crate::channel::value::{ChannelValue, ConditionalValue, strip_trailing_numbers};
 use crate::coords::{CoordinateSystem, CoordinateSystemTransform};
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuideBuilder, CoordinateGuideRender};
+use crate::guide::{CompiledGuide, CoordinateGuideBuilder};
 use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
-use crate::marks::{Mark, MarkRenderer};
+use crate::marks::{CompiledMark, Mark};
 use crate::render::RenderContext;
 use crate::scales::Scale;
 use crate::theme::{Theme, css::CssTheme};
@@ -21,15 +21,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
-pub struct SerializablePlotRenderer {
+pub struct CompiledPlot {
     /// Coordinate system transform for position mapping
     pub(crate) coord_transform: Box<dyn CoordinateSystemTransform>,
 
     /// Guide renderer for axes/grids
-    pub(crate) guide_renderer: Option<Box<dyn CoordinateGuideRender>>,
+    pub(crate) guide_renderer: Option<Box<dyn CompiledGuide>>,
 
     /// Mark renderers
-    pub(crate) marks: Vec<Arc<dyn MarkRenderer>>,
+    pub(crate) marks: Vec<Arc<dyn CompiledMark>>,
 
     /// Axis specifications
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
@@ -61,10 +61,12 @@ pub struct SerializablePlotRenderer {
     pub(crate) data: Option<DataFrame>,
 }
 
-impl SerializablePlotRenderer {
+impl CompiledPlot {
     /// Get the theme or create default if not set
     pub fn get_theme(&self) -> Arc<dyn Theme> {
-        self.theme.clone().unwrap_or_else(|| Arc::new(CssTheme::light()))
+        self.theme
+            .clone()
+            .unwrap_or_else(|| Arc::new(CssTheme::light()))
     }
 
     /// Get title if configured
@@ -103,7 +105,12 @@ impl SerializablePlotRenderer {
     }
 
     /// Build a scale by name, applying any configured transformations
-    pub fn build_scale(&self, name: &str, plot_width: f64, plot_height: f64) -> Result<Scale, AvengerChartError> {
+    pub fn build_scale(
+        &self,
+        name: &str,
+        plot_width: f64,
+        plot_height: f64,
+    ) -> Result<Scale, AvengerChartError> {
         use crate::channel::value::strip_trailing_numbers;
 
         // Strip trailing numbers to get the base scale name
@@ -127,9 +134,7 @@ impl SerializablePlotRenderer {
 
         // Apply user-configured scale options
         match self.scale_specs.get(base_name) {
-            Some(ScaleSpec::Local(scale_changes)) => {
-                Ok(base_scale.update(scale_changes.clone()))
-            }
+            Some(ScaleSpec::Local(scale_changes)) => Ok(base_scale.update(scale_changes.clone())),
             None => Ok(base_scale),
         }
     }
@@ -148,14 +153,18 @@ impl SerializablePlotRenderer {
             .map(|s| s.as_str())
             .unwrap_or(name);
 
-        self.coord_transform.default_range(coord_channel, plot_area_width, plot_area_height)
+        self.coord_transform
+            .default_range(coord_channel, plot_area_width, plot_area_height)
     }
 
     /// Create a default scale for a channel based on mark data types and preferences
-    fn create_default_scale_for_channel_internal(&self, channel: &str) -> Result<Scale, AvengerChartError> {
-        use crate::scales::create_default_scale_for_channel;
-        use crate::render::RenderContext;
+    fn create_default_scale_for_channel_internal(
+        &self,
+        channel: &str,
+    ) -> Result<Scale, AvengerChartError> {
         use crate::channel::resolution::resolve_all_channel_refs;
+        use crate::render::RenderContext;
+        use crate::scales::create_default_scale_for_channel;
         use datafusion::logical_expr::lit;
         use std::collections::HashMap;
 
@@ -232,16 +241,15 @@ impl SerializablePlotRenderer {
 
             // First get coordinate system defaults (for all channels, not just position)
             // The coord_transform has a default_scale_options method that returns ScalarValue
-            let coord_options = self.coord_transform.default_scale_options(
-                channel,
-                scale_impl.scale_type()
-            );
+            let coord_options = self
+                .coord_transform
+                .default_scale_options(channel, scale_impl.scale_type());
 
             // Convert ScalarValue to Expr for compatibility
-            let coord_options_expr: HashMap<String, datafusion::logical_expr::Expr> =
-                coord_options.into_iter()
-                    .map(|(k, v)| (k, lit(v)))
-                    .collect();
+            let coord_options_expr: HashMap<String, datafusion::logical_expr::Expr> = coord_options
+                .into_iter()
+                .map(|(k, v)| (k, lit(v)))
+                .collect();
             default_options.extend(coord_options_expr);
 
             // Then get mark-specific scale option preferences
@@ -274,7 +282,14 @@ impl SerializablePlotRenderer {
         scale_name: &str,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         context: &crate::render::RenderContext,
-    ) -> Result<Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr, Option<crate::marks::RadiusExpression>)>, AvengerChartError> {
+    ) -> Result<
+        Vec<(
+            Arc<DataFrame>,
+            datafusion::logical_expr::Expr,
+            Option<crate::marks::RadiusExpression>,
+        )>,
+        AvengerChartError,
+    > {
         use crate::channel::resolution::resolve_all_channel_refs;
         use crate::channel::value::ChannelValue;
         use crate::scales::extensions::ConfiguredScaleDataFusionExt;
@@ -334,12 +349,15 @@ impl SerializablePlotRenderer {
                             // No scaling requested
                             return expr.clone();
                         }
-                        ChannelValue::Scaled { expr, scale_name: custom_scale_name, band, .. } => {
+                        ChannelValue::Scaled {
+                            expr,
+                            scale_name: custom_scale_name,
+                            band,
+                            ..
+                        } => {
                             // Determine scale name
-                            let scale_key = custom_scale_name
-                                .as_ref()
-                                .cloned()
-                                .unwrap_or_else(|| {
+                            let scale_key =
+                                custom_scale_name.as_ref().cloned().unwrap_or_else(|| {
                                     use crate::channel::value::strip_trailing_numbers;
                                     strip_trailing_numbers(channel_name).to_string()
                                 });
@@ -372,7 +390,10 @@ impl SerializablePlotRenderer {
                 if let Some(default_scalar) = mark.default_channel_value(channel_name, context) {
                     // Use mark-provided default (which includes theme defaults)
                     if std::env::var("AVENGER_DEBUG_RADIUS").is_ok() {
-                        eprintln!("DEBUG: Using default for channel '{}': {:?}", channel_name, default_scalar);
+                        eprintln!(
+                            "DEBUG: Using default for channel '{}': {:?}",
+                            channel_name, default_scalar
+                        );
                     }
                     return lit(default_scalar);
                 }
@@ -401,13 +422,22 @@ impl SerializablePlotRenderer {
                             } => {
                                 // For conditional values, we use the mark's radius for all branches
                                 // since radius doesn't vary by condition
-                                let radius_expr_cond = mark.radius_expression(scale_name, &resolve_channel);
+                                let radius_expr_cond =
+                                    mark.radius_expression(scale_name, &resolve_channel);
 
                                 // Add expressions from all conditions and the otherwise branch
                                 for (_, value) in conditions {
-                                    data_expressions.push((df.clone(), value.expr().clone(), radius_expr_cond.clone()));
+                                    data_expressions.push((
+                                        df.clone(),
+                                        value.expr().clone(),
+                                        radius_expr_cond.clone(),
+                                    ));
                                 }
-                                data_expressions.push((df.clone(), otherwise.expr().clone(), radius_expr_cond));
+                                data_expressions.push((
+                                    df.clone(),
+                                    otherwise.expr().clone(),
+                                    radius_expr_cond,
+                                ));
                             }
                         }
                     }
@@ -720,7 +750,8 @@ impl SerializablePlotRenderer {
                         if let datafusion::logical_expr::Expr::Literal(scalar_value, _) = expr {
                             if let ScalarValue::Utf8(Some(s)) = scalar_value {
                                 // Use our existing color parsing utility
-                                if let Some(color_or_gradient) = crate::utils::parse_color_string(s) {
+                                if let Some(color_or_gradient) = crate::utils::parse_color_string(s)
+                                {
                                     use avenger_common::types::ColorOrGradient;
                                     if let ColorOrGradient::Color(rgba) = color_or_gradient {
                                         // Convert to List ScalarValue with Float32 values
@@ -748,13 +779,13 @@ impl SerializablePlotRenderer {
                 let scale_key = strip_trailing_numbers(channel_name).to_string();
 
                 // Check if we need color conversion (for color channels)
-                let needs_color_conversion = matches!(
-                    channel_name,
-                    "fill" | "stroke" | "color"
-                );
+                let needs_color_conversion = matches!(channel_name, "fill" | "stroke" | "color");
 
                 // Helper to apply scale to a conditional value
-                let apply_to_conditional = |cond_val: &ConditionalValue| -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
+                let apply_to_conditional = |cond_val: &ConditionalValue| -> Result<
+                    datafusion::logical_expr::Expr,
+                    AvengerChartError,
+                > {
                     match cond_val {
                         ConditionalValue::Scaled { expr } => {
                             // Apply scale transformation
@@ -801,9 +832,7 @@ impl SerializablePlotRenderer {
             } => {
                 // Determine the scale to use
                 let default_scale_name = strip_trailing_numbers(channel_name).to_string();
-                let scale_key = scale_name
-                    .as_ref()
-                    .unwrap_or(&default_scale_name);
+                let scale_key = scale_name.as_ref().unwrap_or(&default_scale_name);
 
                 // Look up the configured scale
                 let scale = scales.get(scale_key).ok_or_else(|| {
@@ -922,7 +951,6 @@ impl SerializablePlotRenderer {
         None
     }
 
-
     /// Get legends with theme applied (matching PlotRenderer behavior)
     fn get_legends_with_theme(
         &self,
@@ -966,22 +994,26 @@ impl SerializablePlotRenderer {
                 legend.label_color = crate::maybe::Maybe::Set(theme.legend_label_color());
             }
             if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
-                legend.title_font_family = crate::maybe::Maybe::Set(theme.legend_title_font_family());
+                legend.title_font_family =
+                    crate::maybe::Maybe::Set(theme.legend_title_font_family());
             }
             if matches!(legend.title_font_size, crate::maybe::Maybe::Unset) {
                 legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size());
             }
             if matches!(legend.title_font_weight, crate::maybe::Maybe::Unset) {
-                legend.title_font_weight = crate::maybe::Maybe::Set(theme.legend_title_font_weight());
+                legend.title_font_weight =
+                    crate::maybe::Maybe::Set(theme.legend_title_font_weight());
             }
             if matches!(legend.label_font_family, crate::maybe::Maybe::Unset) {
-                legend.label_font_family = crate::maybe::Maybe::Set(theme.legend_label_font_family());
+                legend.label_font_family =
+                    crate::maybe::Maybe::Set(theme.legend_label_font_family());
             }
             if matches!(legend.label_font_size, crate::maybe::Maybe::Unset) {
                 legend.label_font_size = crate::maybe::Maybe::Set(theme.legend_label_font_size());
             }
             if matches!(legend.label_font_weight, crate::maybe::Maybe::Unset) {
-                legend.label_font_weight = crate::maybe::Maybe::Set(theme.legend_label_font_weight());
+                legend.label_font_weight =
+                    crate::maybe::Maybe::Set(theme.legend_label_font_weight());
             }
             if matches!(legend.tick_font_family, crate::maybe::Maybe::Unset) {
                 legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family());
@@ -1018,7 +1050,11 @@ impl SerializablePlotRenderer {
                 if let Some(column) = data.column_by_name(channel_name) {
                     let dtype = column.data_type();
                     if !Self::is_numeric_type(dtype) {
-                        return self.create_positional_type_error(channel_name, dtype, coord_system_name);
+                        return self.create_positional_type_error(
+                            channel_name,
+                            dtype,
+                            coord_system_name,
+                        );
                     }
                 }
             }
@@ -1027,7 +1063,11 @@ impl SerializablePlotRenderer {
             if let Some(column) = scalar_batch.column_by_name(channel_name) {
                 let dtype = column.data_type();
                 if !Self::is_numeric_type(dtype) {
-                    return self.create_positional_type_error(channel_name, dtype, coord_system_name);
+                    return self.create_positional_type_error(
+                        channel_name,
+                        dtype,
+                        coord_system_name,
+                    );
                 }
             }
         }
@@ -1041,7 +1081,7 @@ impl SerializablePlotRenderer {
         channel_name: &str,
         channel_value: &crate::channel::value::ChannelValue,
         scale: &avenger_scales::scales::ConfiguredScale,
-        mark: &dyn crate::marks::MarkRenderer,
+        mark: &dyn crate::marks::CompiledMark,
         mark_index: usize,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> crate::legend::LegendChannel {
@@ -1088,10 +1128,7 @@ impl SerializablePlotRenderer {
                 if let Some(default_value) = mark.default_channel_value(other_name, &context) {
                     // Add as a constant channel
                     let expr = lit(default_value);
-                    related_channels.insert(
-                        other_name.to_string(),
-                        ChannelInfo::Constant { expr }
-                    );
+                    related_channels.insert(other_name.to_string(), ChannelInfo::Constant { expr });
                 }
             }
         }
@@ -1150,13 +1187,20 @@ impl SerializablePlotRenderer {
         mut scale: Scale,
         name: &str,
         context: &crate::render::RenderContext,
-        configured_non_positional: Option<&HashMap<String, avenger_scales::scales::ConfiguredScale>>,
+        configured_non_positional: Option<
+            &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        >,
     ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
         // Process domain with radius if applicable
         if scale
             .domain
             .as_ref()
-            .map(|d| matches!(&d.default_domain, crate::scales::ScaleDefaultDomain::DomainExprs(_)))
+            .map(|d| {
+                matches!(
+                    &d.default_domain,
+                    crate::scales::ScaleDefaultDomain::DomainExprs(_)
+                )
+            })
             .unwrap_or(false)
         {
             // Only use radius-aware gathering for positional scales that support it
@@ -1175,8 +1219,8 @@ impl SerializablePlotRenderer {
                     && is_positional
                 {
                     // Use the method that gathers radius information
-                    let data_expressions_with_radius =
-                        self.gather_scale_domain_expressions_with_radius(
+                    let data_expressions_with_radius = self
+                        .gather_scale_domain_expressions_with_radius(
                             name,
                             configured_non_positional,
                             context,
@@ -1192,11 +1236,13 @@ impl SerializablePlotRenderer {
                         scale = scale.domain_data_fields_with_radius(data_expressions_with_radius);
                     } else if !data_expressions_with_radius.is_empty() {
                         // Convert to standard expressions (without radius)
-                        let data_expressions: Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)> =
-                            data_expressions_with_radius
-                                .into_iter()
-                                .map(|(df, expr, _)| (df, expr))
-                                .collect();
+                        let data_expressions: Vec<(
+                            Arc<DataFrame>,
+                            datafusion::logical_expr::Expr,
+                        )> = data_expressions_with_radius
+                            .into_iter()
+                            .map(|(df, expr, _)| (df, expr))
+                            .collect();
                         scale = scale.domain_data_fields(data_expressions);
                     }
                 } else {
@@ -1297,10 +1343,7 @@ impl SerializablePlotRenderer {
                         .and_then(|channel_value| channel_value.expr())
                         .and_then(|expr| {
                             // Try to get data type from mark's dataframe
-                            let df = mark
-                                .data_context()
-                                .dataframe()
-                                .or(self.data.as_ref())?;
+                            let df = mark.data_context().dataframe().or(self.data.as_ref())?;
                             use datafusion::logical_expr::ExprSchemable;
                             expr.get_type(df.schema()).ok()
                         });
@@ -1329,7 +1372,9 @@ impl SerializablePlotRenderer {
         }
 
         // Create the configured scale
-        scale.create_configured_scale(context.plot_width, context.plot_height).await
+        scale
+            .create_configured_scale(context.plot_width, context.plot_height)
+            .await
     }
 
     /// Build initial scales with estimated dimensions
@@ -1355,7 +1400,11 @@ impl SerializablePlotRenderer {
         // Build initial scale definitions
         let mut initial_scales = HashMap::new();
         for channel in &channels_with_scales {
-            let scale = self.build_scale(channel, context.plot_width as f64, context.plot_height as f64)?;
+            let scale = self.build_scale(
+                channel,
+                context.plot_width as f64,
+                context.plot_height as f64,
+            )?;
             initial_scales.insert(channel.clone(), scale);
         }
 
@@ -1389,10 +1438,7 @@ impl SerializablePlotRenderer {
         for (name, scale) in non_positional_scales {
             let configured = self
                 .build_configured_scale_with_radius_context(
-                    scale,
-                    &name,
-                    context,
-                    None, // No radius context for non-positional scales
+                    scale, &name, context, None, // No radius context for non-positional scales
                 )
                 .await?;
             configured_non_positional.insert(name, configured);
@@ -1412,7 +1458,11 @@ impl SerializablePlotRenderer {
             configured_positional.insert(name, configured);
         }
 
-        Ok((initial_scales, configured_non_positional, configured_positional))
+        Ok((
+            initial_scales,
+            configured_non_positional,
+            configured_positional,
+        ))
     }
 
     /// Rebuild positional scales with final dimensions after layout
@@ -1510,7 +1560,10 @@ impl SerializablePlotRenderer {
         &self,
         all_legends: &IndexMap<String, Legend>,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> (Vec<Vec<crate::legend::LegendChannel>>, IndexMap<String, Legend>) {
+    ) -> (
+        Vec<Vec<crate::legend::LegendChannel>>,
+        IndexMap<String, Legend>,
+    ) {
         use crate::legend::MergeKey;
 
         // Collect all channels that need legends from all marks
@@ -1638,7 +1691,6 @@ impl SerializablePlotRenderer {
         // Merge channels to get the same groups that will be used for rendering
         let (sorted_channel_groups, _) = self.merge_legend_channels(&all_legends, scales);
 
-
         for channels in sorted_channel_groups {
             if channels.is_empty() {
                 continue;
@@ -1699,7 +1751,7 @@ impl SerializablePlotRenderer {
     /// Render a single mark with its data and transformations
     pub async fn render_mark(
         &self,
-        mark: &dyn MarkRenderer,
+        mark: &dyn CompiledMark,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
@@ -1723,8 +1775,7 @@ impl SerializablePlotRenderer {
                 ..
             } => {
                 conditions.iter().any(|(condition, value)| {
-                    !condition.column_refs().is_empty() ||
-                    !value.expr().column_refs().is_empty()
+                    !condition.column_refs().is_empty() || !value.expr().column_refs().is_empty()
                 }) || !otherwise.expr().column_refs().is_empty()
             }
         });
@@ -1834,7 +1885,11 @@ impl SerializablePlotRenderer {
             use datafusion::arrow::array::Int32Array;
             use datafusion::arrow::datatypes::{DataType, Field, Schema};
             datafusion::arrow::record_batch::RecordBatch::try_new(
-                Arc::new(Schema::new(vec![Field::new("_dummy", DataType::Int32, false)])),
+                Arc::new(Schema::new(vec![Field::new(
+                    "_dummy",
+                    DataType::Int32,
+                    false,
+                )])),
                 vec![Arc::new(Int32Array::from(vec![0]))],
             )?
         };
@@ -1870,13 +1925,7 @@ impl SerializablePlotRenderer {
         if let Some(guide_renderer) = &self.guide_renderer {
             let theme = self.get_theme();
             guide_renderer
-                .render(
-                    scales,
-                    plot_width,
-                    plot_height,
-                    plot_bounds,
-                    theme.as_ref(),
-                )
+                .render(scales, plot_width, plot_height, plot_bounds, theme.as_ref())
                 .await
         } else {
             // No guide renderer available
@@ -1985,25 +2034,21 @@ impl SerializablePlotRenderer {
                 } else {
                     // Single channel - use the unified renderer selection
                     scales.get(&primary_channel.name).and_then(|scale| {
-                        self.get_legend_renderer(
-                            &primary_channel.channel_type,
-                            scale,
-                        )
+                        self.get_legend_renderer(&primary_channel.channel_type, scale)
                     })
                 };
 
                 // Skip this legend group if no renderer is available
                 if let Some(renderer) = renderer_opt {
                     // Render the legend with the determined renderer
-                    let group_opt = renderer
-                        .render(
-                            &channels,
-                            legend,
-                            bounds.x,
-                            bounds.y,
-                            bounds.width,
-                            bounds.height
-                        )?;
+                    let group_opt = renderer.render(
+                        &channels,
+                        legend,
+                        bounds.x,
+                        bounds.y,
+                        bounds.width,
+                        bounds.height,
+                    )?;
 
                     // Add the legend group mark if it was rendered
                     if let Some(group) = group_opt {
@@ -2052,13 +2097,12 @@ impl SerializablePlotRenderer {
             .await?;
 
         // Create legends
-        let legend_marks = self
-            .create_legends_with_layout(
-                scales,
-                &layout.taffy_layout,
-                plot_area_width,
-                plot_area_height,
-            )?;
+        let legend_marks = self.create_legends_with_layout(
+            scales,
+            &layout.taffy_layout,
+            plot_area_width,
+            plot_area_height,
+        )?;
 
         // Create title
         let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
@@ -2086,8 +2130,8 @@ impl SerializablePlotRenderer {
     /// Render the plot to a scene graph
     pub async fn render(&self) -> Result<crate::render::RenderResult, AvengerChartError> {
         use crate::render::RenderContext;
-        use avenger_scenegraph::scene_graph::SceneGraph;
         use avenger_scenegraph::marks::group::SceneGroup;
+        use avenger_scenegraph::scene_graph::SceneGraph;
         const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
 
         // Get layout spec and estimate initial dimensions
@@ -2158,11 +2202,7 @@ impl SerializablePlotRenderer {
         // Get the appropriate clipping region from the coordinate system
         // Get the appropriate clipping region from the guide renderer if available
         let clip = if let Some(ref guide) = self.guide_renderer {
-            guide.get_clip(
-            plot_area_width,
-            plot_area_height,
-            &final_configured_scales,
-        )
+            guide.get_clip(plot_area_width, plot_area_height, &final_configured_scales)
         } else {
             // Default to rectangular clip for plot area
             avenger_scenegraph::marks::group::Clip::Rect {
@@ -2221,7 +2261,9 @@ impl SerializablePlotRenderer {
 
         // 6. Debug: Add layout bounds visualization if AVENGER_CHART_DEBUG_LAYOUT is set
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            all_marks.extend(crate::render::debug::create_debug_layout_rects(&layout.taffy_layout));
+            all_marks.extend(crate::render::debug::create_debug_layout_rects(
+                &layout.taffy_layout,
+            ));
         }
 
         // Wrap everything in a single root group
@@ -2252,7 +2294,7 @@ pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
     pub(crate) legends: IndexMap<String, Legend>,
-    pub(crate) mark_renderers: Vec<Arc<dyn MarkRenderer>>,
+    pub(crate) mark_renderers: Vec<Arc<dyn CompiledMark>>,
 
     /// Plot-level data for mark inheritance
     pub(crate) data: Option<DataFrame>,
@@ -2280,7 +2322,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) guide_config: Option<C::Guide>,
 
     /// Built guide renderer (for serialization)
-    pub(crate) guide_renderer: Option<Box<dyn CoordinateGuideRender>>,
+    pub(crate) guide_renderer: Option<Box<dyn CompiledGuide>>,
 }
 
 impl<C: CoordinateSystem> Plot<C> {
@@ -2316,8 +2358,8 @@ impl<C: CoordinateSystem + Default> Plot<C> {
 }
 
 impl<C: CoordinateSystem> Plot<C> {
-    /// Build a serializable plot renderer from this plot (consuming self)
-    pub fn build(mut self) -> SerializablePlotRenderer {
+    /// Compile this plot into a renderable form (consuming self)
+    pub async fn compile(mut self) -> Result<CompiledPlot, AvengerChartError> {
         // Always build guide renderer - either from config or default
         if self.guide_renderer.is_none() {
             let mut guide = if let Some(config) = &self.guide_config {
@@ -2342,8 +2384,8 @@ impl<C: CoordinateSystem> Plot<C> {
                 // This is safe because the axis type matches the coordinate system
                 if let Some(typed_axis) = axis_config
                     .as_any()
-                    .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
-                {
+                    .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>(
+                ) {
                     guide_axes.insert(channel.clone(), typed_axis.clone());
                 }
             }
@@ -2357,7 +2399,7 @@ impl<C: CoordinateSystem> Plot<C> {
             self.guide_renderer = Some(guide.build());
         }
 
-        SerializablePlotRenderer {
+        Ok(CompiledPlot {
             coord_transform: self.coord_system.create_transform(),
             guide_renderer: self.guide_renderer,
             marks: self.mark_renderers,
@@ -2370,56 +2412,7 @@ impl<C: CoordinateSystem> Plot<C> {
             scale_to_coord_channel: self.scale_to_coord_channel,
             scale_specs: self.scale_specs,
             data: self.data,
-        }
-    }
-
-    /// Build a serializable plot renderer from a reference to this plot
-    /// This builds the guide without consuming self
-    pub fn build_ref(&self) -> SerializablePlotRenderer
-    where
-        C: Clone,
-    {
-        // Use existing mark renderers
-        let mark_renderers = self.mark_renderers.clone();
-
-        // Build guide
-        let mut guide = if let Some(config) = &self.guide_config {
-            config.clone()
-        } else {
-            C::Guide::default()
-        };
-
-        // Set axes from axis_specs
-        use crate::guide::CoordinateGuideBuilder;
-        let mut guide_axes = HashMap::new();
-        for (channel, axis_spec) in &self.axis_specs {
-            let crate::plot::AxisSpec::Local(axis_config) = axis_spec;
-            if let Some(typed_axis) = axis_config
-                .as_any()
-                .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
-            {
-                guide_axes.insert(channel.clone(), typed_axis.clone());
-            }
-        }
-        guide.set_axes(guide_axes);
-        guide.set_mark_renderers(mark_renderers.clone());
-
-        let guide_renderer = Some(guide.build());
-
-        SerializablePlotRenderer {
-            coord_transform: self.coord_system.clone().create_transform(),
-            guide_renderer,
-            marks: mark_renderers,
-            axis_specs: self.axis_specs.clone(),
-            legends: self.legends.clone(),
-            layout_spec: self.layout_spec.clone(),
-            title: self.title.clone(),
-            subtitle: self.subtitle.clone(),
-            theme: self.theme.clone(),
-            scale_to_coord_channel: self.scale_to_coord_channel.clone(),
-            scale_specs: self.scale_specs.clone(),
-            data: self.data.clone(),
-        }
+        })
     }
 
     /// Get a reference to the coordinate system
@@ -2443,7 +2436,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Get a reference to the mark renderers
-    pub fn mark_renderers(&self) -> &[Arc<dyn MarkRenderer>] {
+    pub fn mark_renderers(&self) -> &[Arc<dyn CompiledMark>] {
         &self.mark_renderers
     }
 
@@ -2502,7 +2495,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // Extract scale and legend configurations from the mark's channels
         self.extract_channel_configs(&mark);
 
-        // Build the MarkRenderer from the Mark
+        // Build the CompiledMark from the Mark
         let renderer = mark.build();
 
         // Add the renderer
