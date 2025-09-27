@@ -14,7 +14,8 @@
 //! # Example
 //!
 //! ```no_run
-//! use avenger_chart::marks::ChannelValue;
+//! use avenger_chart::channel::ChannelValue;
+//! use avenger_chart::serialization::SerializableExpr;
 //! use datafusion::prelude::*;
 //! use indexmap::IndexMap;
 //!
@@ -29,7 +30,7 @@
 //!     legend_config: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
-//!     expr: SerializableExpr::from_expr(col(":y") + lit(10.0),  // References y channel
+//!     expr: SerializableExpr::from_expr(col(":y") + lit(10.0)).expect("Failed to serialize expr"),  // References y channel
 //!     scale_name: None,
 //!     band: None,
 //!     scale_config: None,
