@@ -206,11 +206,16 @@ impl CompiledPlot {
                 // Try to get the data type of the channel
                 if let Some(df) = df {
                     let schema = df.schema();
-                    if let Some(dt) = channel_value.get_data_type(schema, ctx) {
-                        data_type = Some(dt.clone());
-                        scale_spec = mark.preferred_scale_type(channel, &dt);
-                        found_mark = Some(mark);
-                        break;
+                    match channel_value.get_data_type(schema, ctx) {
+                        Ok(dt) => {
+                            data_type = Some(dt.clone());
+                            scale_spec = mark.preferred_scale_type(channel, &dt);
+                            found_mark = Some(mark);
+                            break;
+                        }
+                        Err(_) => {
+                            // Continue to next mark to try to find a valid data type
+                        }
                     }
                 }
             }
@@ -2579,9 +2584,19 @@ impl<C: CoordinateSystem> Plot<C> {
             theme: self.theme,
             scale_to_coord_channel: self.scale_to_coord_channel,
             scale_specs: self.scale_specs,
-            data: self
-                .data
-                .and_then(|df| SerializableDataFrame::from_dataframe(df).ok()),
+            data: match self.data {
+                Some(df) => {
+                    Some(SerializableDataFrame::from_dataframe(df).map_err(|e| {
+                        AvengerChartError::InternalError(format!(
+                            "Failed to serialize DataFrame: {}. \
+                            This typically happens when using a DataFrame created with a different SessionContext. \
+                            Make sure to use the same SessionContext for creating data and compiling the plot.",
+                            e
+                        ))
+                    })?)
+                }
+                None => None,
+            },
         })
     }
 

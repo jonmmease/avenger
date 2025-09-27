@@ -453,33 +453,35 @@ impl ChannelValue {
 
     /// Get the data type of this channel value.
     /// For conditional values, uses the 'otherwise' expression for type inference.
-    /// Returns None if the expression is a channel reference or type cannot be determined.
+    /// Returns an error if the expression cannot be deserialized or type cannot be determined.
     pub fn get_data_type(
         &self,
         schema: &datafusion::common::DFSchema,
         ctx: &SessionContext,
-    ) -> Option<datafusion::arrow::datatypes::DataType> {
+    ) -> Result<datafusion::arrow::datatypes::DataType, datafusion::error::DataFusionError> {
         use datafusion::logical_expr::ExprSchemable;
 
         let expr = match self {
             ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                expr.to_expr(ctx).ok()?
+                expr.to_expr(ctx)?
             }
             ChannelValue::Conditional { otherwise, .. } => {
                 // For conditional channels, use the 'otherwise' expression for type inference
-                otherwise.expr(ctx).ok()?
+                otherwise.expr(ctx)?
             }
         };
 
         // Skip channel references - they need to be resolved first
         if let Expr::Column(c) = &expr {
             if c.name.starts_with(':') {
-                return None;
+                return Err(datafusion::error::DataFusionError::Plan(
+                    format!("Cannot get data type for channel reference: {}", c.name)
+                ));
             }
         }
 
-        // Try to get the data type from the expression
-        expr.get_type(schema).ok()
+        // Get the data type from the expression
+        expr.get_type(schema)
     }
 }
 

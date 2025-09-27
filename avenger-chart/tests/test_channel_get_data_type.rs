@@ -26,6 +26,6 @@ fn test_channel_value_get_data_type() {
     let ctx = SessionContext::new();
     let data_type = channel_value.get_data_type(&df_schema, &ctx);
 
-    assert!(data_type.is_some(), "Should be able to get data type");
+    assert!(data_type.is_ok(), "Should be able to get data type");
     assert_eq!(data_type.unwrap(), DataType::Float32);
 }
