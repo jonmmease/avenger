@@ -1,10 +1,10 @@
 //! Serializable wrapper for ScalarValue
 
-use datafusion_common::ScalarValue;
-use datafusion::logical_expr::{Expr, lit};
-use serde::{Deserialize, Serialize};
-use crate::error::AvengerChartError;
 use super::SerializableExpr;
+use crate::error::AvengerChartError;
+use datafusion::logical_expr::{Expr, lit};
+use datafusion_common::ScalarValue;
+use serde::{Deserialize, Serialize};
 
 /// Wrapper for ScalarValue that implements Serialize/Deserialize
 /// by converting to/from a literal Expr
@@ -24,7 +24,10 @@ impl SerializableScalar {
     }
 
     /// Convert back to ScalarValue
-    pub fn to_scalar(&self, ctx: &datafusion::prelude::SessionContext) -> Result<ScalarValue, AvengerChartError> {
+    pub fn to_scalar(
+        &self,
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> Result<ScalarValue, AvengerChartError> {
         // Deserialize as Expr then extract the literal value
         let expr = self.expr.to_expr(ctx)?;
 
@@ -32,8 +35,8 @@ impl SerializableScalar {
         match expr {
             Expr::Literal(scalar, _) => Ok(scalar),
             _ => Err(AvengerChartError::InternalError(
-                "Expected literal expression when deserializing ScalarValue".to_string()
-            ))
+                "Expected literal expression when deserializing ScalarValue".to_string(),
+            )),
         }
     }
 }

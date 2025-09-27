@@ -119,10 +119,16 @@ impl CoordinateGuideBuilder for PolarGuide {
         self.axes = axes;
     }
 
-    fn set_mark_renderers(&mut self, mark_renderers: Vec<Arc<dyn crate::marks::CompiledMark>>, session_context: &datafusion::prelude::SessionContext) {
+    fn set_mark_renderers(
+        &mut self,
+        mark_renderers: Vec<Arc<dyn crate::marks::CompiledMark>>,
+        session_context: &datafusion::prelude::SessionContext,
+    ) {
         // Extract titles from mark renderers immediately
         for channel in ["r", "theta"] {
-            if let Some(title) = extract_channel_title_from_marks(&mark_renderers, channel, session_context) {
+            if let Some(title) =
+                extract_channel_title_from_marks(&mark_renderers, channel, session_context)
+            {
                 self.channel_titles.insert(channel.to_string(), title);
             }
         }

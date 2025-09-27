@@ -44,7 +44,7 @@ async fn test_reference_to_conditional_channel() -> Result<(), Box<dyn std::erro
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
     // This should fail with an error about conditional channel reference
-    let compiled = plot.compile().await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
     let result = canvas.render_plot(&compiled, &ctx).await;
 
     // We expect an error
@@ -107,7 +107,7 @@ async fn test_rect_with_conditional_x_reference() -> Result<(), Box<dyn std::err
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
     // This should handle the unresolved conditional reference
-    let compiled = plot.compile().await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
     let result = canvas.render_plot(&compiled, &ctx).await;
     println!("Rect render result: {:?}", result.is_ok());
 
@@ -153,7 +153,7 @@ async fn test_chain_through_conditional() -> Result<(), Box<dyn std::error::Erro
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
-    let compiled = plot.compile().await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
     let result = canvas.render_plot(&compiled, &ctx).await;
     println!("Chain through conditional result: {:?}", result.is_ok());
 

@@ -100,7 +100,9 @@ impl ConditionalValue {
     /// Get the expression from this conditional value
     pub fn expr(&self, ctx: &SessionContext) -> Result<Expr, crate::error::AvengerChartError> {
         match self {
-            ConditionalValue::Scaled { expr } | ConditionalValue::Value { expr } => expr.to_expr(ctx),
+            ConditionalValue::Scaled { expr } | ConditionalValue::Value { expr } => {
+                expr.to_expr(ctx)
+            }
         }
     }
 
@@ -151,7 +153,7 @@ impl std::fmt::Debug for ChannelValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChannelValue::Scaled {
-                expr,
+                
                 scale_name,
                 band,
                 ..
@@ -163,7 +165,10 @@ impl std::fmt::Debug for ChannelValue {
                 .field("has_scale_config", &self.has_scale_config())
                 .field("has_legend_config", &self.has_legend_config())
                 .finish(),
-            ChannelValue::Value { expr } => f.debug_struct("Identity").field("expr", &format!("<SerializableExpr>")).finish(),
+            ChannelValue::Value { expr } => f
+                .debug_struct("Identity")
+                .field("expr", &format!("<SerializableExpr>"))
+                .finish(),
             ChannelValue::Conditional {
                 conditions,
                 otherwise,
@@ -457,7 +462,9 @@ impl ChannelValue {
         use datafusion::logical_expr::ExprSchemable;
 
         let expr = match self {
-            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr.to_expr(ctx).ok()?,
+            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                expr.to_expr(ctx).ok()?
+            }
             ChannelValue::Conditional { otherwise, .. } => {
                 // For conditional channels, use the 'otherwise' expression for type inference
                 otherwise.expr(ctx).ok()?
@@ -486,7 +493,9 @@ pub(crate) fn strip_trailing_numbers(name: &str) -> &str {
 impl From<&str> for ChannelValue {
     fn from(s: &str) -> Self {
         // Always treat strings as literals - identity by default
-        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(s)).expect("Failed to serialize expr") }
+        ChannelValue::Value {
+            expr: SerializableExpr::from_expr(lit(s)).expect("Failed to serialize expr"),
+        }
     }
 }
 
@@ -506,31 +515,41 @@ impl From<Expr> for ChannelValue {
 // Numeric literals default to identity
 impl From<f64> for ChannelValue {
     fn from(v: f64) -> Self {
-        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
+        ChannelValue::Value {
+            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+        }
     }
 }
 
 impl From<f32> for ChannelValue {
     fn from(v: f32) -> Self {
-        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
+        ChannelValue::Value {
+            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+        }
     }
 }
 
 impl From<i32> for ChannelValue {
     fn from(v: i32) -> Self {
-        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
+        ChannelValue::Value {
+            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+        }
     }
 }
 
 impl From<i64> for ChannelValue {
     fn from(v: i64) -> Self {
-        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
+        ChannelValue::Value {
+            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+        }
     }
 }
 
 impl From<bool> for ChannelValue {
     fn from(v: bool) -> Self {
-        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
+        ChannelValue::Value {
+            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+        }
     }
 }
 
@@ -602,7 +621,10 @@ mod tests {
         if let ChannelValue::Value { expr } = cv {
             // Convert SerializableExpr back to Expr to check if it's a literal
             let datafusion_expr = expr.to_expr(&ctx).unwrap();
-            assert!(matches!(datafusion_expr, datafusion::logical_expr::Expr::Literal(..), ));
+            assert!(matches!(
+                datafusion_expr,
+                datafusion::logical_expr::Expr::Literal(..),
+            ));
         }
     }
 
@@ -619,10 +641,10 @@ mod tests {
     #[test]
     fn test_as_column_name() {
         use super::ConditionalValue;
+        use crate::serialization::SerializableExpr;
         use datafusion::functions::expr_fn::sqrt;
         use datafusion::logical_expr::col;
         use datafusion::prelude::SessionContext;
-        use crate::serialization::SerializableExpr;
 
         let ctx = SessionContext::new();
 
@@ -663,7 +685,8 @@ mod tests {
 
         // Test null literal
         let cv: ChannelValue = ChannelValue::Value {
-            expr: SerializableExpr::from_expr(lit(datafusion::scalar::ScalarValue::Null)).expect("Failed to serialize expr"),
+            expr: SerializableExpr::from_expr(lit(datafusion::scalar::ScalarValue::Null))
+                .expect("Failed to serialize expr"),
         };
         assert_eq!(cv.as_column_name(&ctx), Some("null".to_string()));
 
@@ -700,10 +723,16 @@ mod tests {
         // Test conditional value (should return None - no single name)
         let cv = ChannelValue::Conditional {
             conditions: vec![(
-                SerializableExpr::from_expr(col("category").eq(lit("A"))).expect("Failed to serialize expr"),
-                ConditionalValue::Value { expr: SerializableExpr::from_expr(lit("red")).expect("Failed to serialize expr") },
+                SerializableExpr::from_expr(col("category").eq(lit("A")))
+                    .expect("Failed to serialize expr"),
+                ConditionalValue::Value {
+                    expr: SerializableExpr::from_expr(lit("red"))
+                        .expect("Failed to serialize expr"),
+                },
             )],
-            otherwise: ConditionalValue::Scaled { expr: SerializableExpr::from_expr(col("color")).expect("Failed to serialize expr") },
+            otherwise: ConditionalValue::Scaled {
+                expr: SerializableExpr::from_expr(col("color")).expect("Failed to serialize expr"),
+            },
             scale_config: None,
             legend_config: None,
         };

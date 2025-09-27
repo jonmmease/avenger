@@ -22,7 +22,7 @@ async fn test_serialization_rendering_path() {
     };
 
     // Compile to get CompiledPlot
-    let compiled = build_plot().compile().await.unwrap();
+    let compiled = build_plot().compile(&ctx).await.unwrap();
 
     // Serialize to JSON
     let json = serde_json::to_string_pretty(&compiled).unwrap();

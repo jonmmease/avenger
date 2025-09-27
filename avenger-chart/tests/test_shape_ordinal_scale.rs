@@ -51,7 +51,7 @@ mod tests {
         );
 
         // Test rendering
-        let compiled = plot.compile().await.expect("Failed to compile plot");
+        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
         let result = compiled.render(&ctx).await;
         match &result {
             Ok(_) => println!("Render succeeded with automatic ordinal scale"),
@@ -144,7 +144,7 @@ mod tests {
         );
 
         // Test rendering
-        let compiled = plot.compile().await.expect("Failed to compile plot");
+        let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
         let result = compiled.render(&ctx).await;
         assert!(
             result.is_ok(),

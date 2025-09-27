@@ -44,7 +44,8 @@ mod serialization_tests {
         println!("Serialized ChannelValue:\n{}", json);
 
         // Deserialize back
-        let _deserialized: ChannelValue = serde_json::from_str(&json).expect("Failed to deserialize from JSON");
+        let _deserialized: ChannelValue =
+            serde_json::from_str(&json).expect("Failed to deserialize from JSON");
         println!("✓ Successfully deserialized ChannelValue");
     }
 }

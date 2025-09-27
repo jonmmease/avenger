@@ -8,26 +8,36 @@ use serde::{Deserialize, Serialize};
 pub enum ScaleRange {
     Numeric(SerializableExpr, Box<SerializableExpr>),
     Discrete(Vec<SerializableScalar>),
-    Color(Vec<[f32; 4]>),  // Store as RGBA arrays for serialization
+    Color(Vec<[f32; 4]>), // Store as RGBA arrays for serialization
 }
 
 impl ScaleRange {
     pub fn new_interval<E: Into<Expr>, F: Into<Expr>>(start: E, end: F) -> Self {
-        let start_ser = SerializableExpr::from_expr(start.into()).expect("Failed to serialize start expr");
-        let end_ser = SerializableExpr::from_expr(end.into()).expect("Failed to serialize end expr");
+        let start_ser =
+            SerializableExpr::from_expr(start.into()).expect("Failed to serialize start expr");
+        let end_ser =
+            SerializableExpr::from_expr(end.into()).expect("Failed to serialize end expr");
         Self::Numeric(start_ser, Box::new(end_ser))
     }
 
     pub fn new_color(colors: Vec<Srgba>) -> Self {
-        Self::Color(colors.into_iter()
-            .map(|c| [c.red, c.green, c.blue, c.alpha])
-            .collect())
+        Self::Color(
+            colors
+                .into_iter()
+                .map(|c| [c.red, c.green, c.blue, c.alpha])
+                .collect(),
+        )
     }
 
     pub fn new_discrete<T: Into<ScalarValue>>(values: Vec<T>) -> Self {
-        Self::Discrete(values.into_iter()
-            .map(|v| SerializableScalar::from_scalar(v.into()).expect("Failed to serialize scalar"))
-            .collect())
+        Self::Discrete(
+            values
+                .into_iter()
+                .map(|v| {
+                    SerializableScalar::from_scalar(v.into()).expect("Failed to serialize scalar")
+                })
+                .collect(),
+        )
     }
 
     /// Create a discrete range with `num` values linearly spaced between `start` and `end`
@@ -38,8 +48,10 @@ impl ScaleRange {
             0.0
         };
         let values: Vec<SerializableScalar> = (0..num)
-            .map(|i| SerializableScalar::from_scalar(ScalarValue::Float32(Some(start + i as f32 * step)))
-                .expect("Failed to serialize scalar"))
+            .map(|i| {
+                SerializableScalar::from_scalar(ScalarValue::Float32(Some(start + i as f32 * step)))
+                    .expect("Failed to serialize scalar")
+            })
             .collect();
         Self::Discrete(values)
     }

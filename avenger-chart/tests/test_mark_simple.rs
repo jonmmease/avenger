@@ -80,7 +80,7 @@ mod tests {
             }
 
             let plot = Plot::<Cartesian>::new().mark(symbol);
-            let compiled = plot.compile().await.unwrap();
+            let compiled = plot.compile(&ctx).await.unwrap();
 
             let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
                 .await

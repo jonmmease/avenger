@@ -231,7 +231,7 @@ impl DomainInferrer {
 
         let domain_df = Arc::new(ctx.read_batch(batch)?);
         let domain_df_ser = Arc::new(crate::serialization::SerializableDataFrame::from_dataframe(
-            domain_df.as_ref().clone()
+            domain_df.as_ref().clone(),
         )?);
         let expr_ser = crate::serialization::SerializableExpr::from_expr(col(DOMAIN_FIELD))?;
 
@@ -277,8 +277,8 @@ impl DomainInferrer {
         // Union all DataFrames
         let union_df = if single_col_dfs.is_empty() {
             // No data to infer from - return default interval
-            use datafusion::logical_expr::lit;
             use crate::serialization::SerializableExpr;
+            use datafusion::logical_expr::lit;
             let start = SerializableExpr::from_expr(lit(0.0))?;
             let end = SerializableExpr::from_expr(lit(1.0))?;
             return Ok(ScaleDefaultDomain::Interval(start, Box::new(end)));
@@ -355,10 +355,7 @@ impl DomainInferrer {
                 use crate::serialization::SerializableExpr;
                 let min_expr = SerializableExpr::from_expr(lit(min_val))?;
                 let max_expr = SerializableExpr::from_expr(lit(max_val))?;
-                Ok(ScaleDefaultDomain::Interval(
-                    min_expr,
-                    Box::new(max_expr),
-                ))
+                Ok(ScaleDefaultDomain::Interval(min_expr, Box::new(max_expr)))
             } else {
                 Ok(ScaleDefaultDomain::Discrete(vec![]))
             }
