@@ -79,9 +79,10 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
                     "Invalid MemTable serialization: missing length"
                 );
             }
-            let batch_len = u64::from_le_bytes([
-                buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
-            ]) as usize;
+            let batch_len = u64::from_le_bytes(
+                buf[0..8].try_into()
+                    .map_err(|_| datafusion_common::plan_datafusion_err!("Invalid length bytes"))?
+            ) as usize;
 
             // Read the batch data
             let batch_data = &buf[8..8 + batch_len];
@@ -149,7 +150,6 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
 
             // Collect batches
             let collected_batches: Vec<RecordBatch> = futures::executor::block_on(async {
-                use datafusion::arrow::error::Result as ArrowResult;
                 use futures::TryStreamExt;
 
                 stream.try_collect::<Vec<_>>().await
