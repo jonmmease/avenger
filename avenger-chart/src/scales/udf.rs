@@ -7,6 +7,7 @@ use datafusion::{
         Volatility,
     },
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Convert DataFusion ScalarValue to avenger_scales Scalar
@@ -27,21 +28,38 @@ fn scalar_value_to_avenger_scalar(
     }
 }
 
+/// Metadata for serializing ScaleUDF
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScaleUDFMetadata {
+    /// Serializable scale specification
+    pub scale: crate::scales::Scale<crate::scales::spec::Auto>,
+    /// Base64-encoded Arrow IPC for domain type
+    pub domain_type_ipc: String,
+    /// Base64-encoded Arrow IPC for range type
+    pub range_type_ipc: String,
+    /// Base64-encoded Arrow IPC for options type
+    pub options_type_ipc: String,
+}
+
 /// DataFusion UDF that applies scale transformation with dynamic domain/range/options
 #[derive(Debug, Clone)]
 pub struct ScaleUDF {
     signature: Signature,
-    scale_impl: Arc<dyn avenger_scales::scales::ScaleImpl>,
-    range_type: DataType,
+    pub(crate) scale_impl: Arc<dyn avenger_scales::scales::ScaleImpl>,
+    pub(crate) range_type: DataType,
+    pub(crate) scale: crate::scales::Scale<crate::scales::spec::Auto>,
 }
 
 impl ScaleUDF {
     pub fn new(
-        scale_impl: Arc<dyn avenger_scales::scales::ScaleImpl>,
+        scale: crate::scales::Scale<crate::scales::spec::Auto>,
         domain_type: DataType,
         range_type: DataType,
         options_type: DataType,
     ) -> Result<Self, AvengerChartError> {
+        // Get the scale implementation from the Scale<Auto>
+        let scale_impl = scale.to_scale_impl()?;
+
         let signature = Signature::new(
             TypeSignature::Exact(vec![
                 DataType::new_list(domain_type.clone(), true), // Domain array
@@ -56,6 +74,116 @@ impl ScaleUDF {
             signature,
             scale_impl,
             range_type,
+            scale,
+        })
+    }
+
+    /// Extract metadata for serialization
+    pub fn metadata(&self) -> ScaleUDFMetadata {
+        use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+        use datafusion::arrow::array::ArrayRef;
+        use datafusion::arrow::datatypes::{Field, Schema};
+        use datafusion::arrow::ipc::writer::StreamWriter;
+        use datafusion_common::ScalarValue;
+
+        // Get the types from the signature
+        let sig_types = match &self.signature.type_signature {
+            TypeSignature::Exact(types) => types,
+            _ => panic!("Unexpected signature type for ScaleUDF"),
+        };
+
+        // Extract domain type from list type
+        let domain_type = match &sig_types[0] {
+            DataType::List(field) => field.data_type().clone(),
+            DataType::LargeList(field) => field.data_type().clone(),
+            _ => panic!("Unexpected domain type"),
+        };
+
+        // Extract options type
+        let options_type = sig_types[2].clone();
+
+        // Helper to serialize DataType as Arrow IPC
+        let serialize_type = |dt: &DataType| -> String {
+            // Create a null ScalarValue with the type
+            let scalar = ScalarValue::try_from(dt).unwrap();
+            let array: ArrayRef = scalar.to_array().unwrap();
+
+            // Create schema and write to IPC
+            let schema = Schema::new(vec![Field::new("type", dt.clone(), true)]);
+            let mut buf = Vec::new();
+            {
+                let mut writer = StreamWriter::try_new(&mut buf, &schema).unwrap();
+                writer
+                    .write(
+                        &datafusion::arrow::record_batch::RecordBatch::try_new(
+                            Arc::new(schema.clone()),
+                            vec![array],
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap();
+                writer.finish().unwrap();
+            }
+            BASE64.encode(&buf)
+        };
+
+        ScaleUDFMetadata {
+            scale: self.scale.clone(),
+            domain_type_ipc: serialize_type(&domain_type),
+            range_type_ipc: serialize_type(&self.range_type),
+            options_type_ipc: serialize_type(&options_type),
+        }
+    }
+
+    /// Create from metadata
+    pub fn from_metadata(metadata: ScaleUDFMetadata) -> Result<Self, AvengerChartError> {
+        use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+        use datafusion::arrow::ipc::reader::StreamReader;
+        use std::io::Cursor;
+
+        // Helper to deserialize DataType from Arrow IPC
+        let deserialize_type = |ipc_base64: &str| -> Result<DataType, AvengerChartError> {
+            let bytes = BASE64.decode(ipc_base64).map_err(|e| {
+                AvengerChartError::InternalError(format!("Failed to decode base64: {}", e))
+            })?;
+
+            let cursor = Cursor::new(bytes);
+            let reader = StreamReader::try_new(cursor, None).map_err(|e| {
+                AvengerChartError::InternalError(format!("Failed to create IPC reader: {}", e))
+            })?;
+
+            // Read the schema to get the data type
+            let schema = reader.schema();
+            if schema.fields().len() != 1 {
+                return Err(AvengerChartError::InternalError(
+                    "Expected single field in IPC schema".to_string(),
+                ));
+            }
+
+            Ok(schema.field(0).data_type().clone())
+        };
+
+        // Deserialize types
+        let domain_type = deserialize_type(&metadata.domain_type_ipc)?;
+        let range_type = deserialize_type(&metadata.range_type_ipc)?;
+        let options_type = deserialize_type(&metadata.options_type_ipc)?;
+
+        // Get scale implementation from the Scale<Auto>
+        let scale_impl = metadata.scale.to_scale_impl()?;
+
+        Ok(Self {
+            signature: Signature::new(
+                TypeSignature::Exact(vec![
+                    DataType::new_list(domain_type.clone(), true), // Domain array
+                    DataType::new_list(range_type.clone(), true),  // Range array
+                    options_type,                                  // Options struct
+                    domain_type,                                   // Values to scale
+                ]),
+                Volatility::Immutable,
+            ),
+            scale_impl,
+            range_type,
+            scale: metadata.scale,
         })
     }
 }
@@ -186,13 +314,13 @@ impl ScalarUDFImpl for ScaleUDF {
     }
 }
 
-/// Create a scale UDF from scale implementation and types
+/// Create a scale UDF from scale and types
 pub fn create_scale_udf(
-    scale_impl: Arc<dyn avenger_scales::scales::ScaleImpl>,
+    scale: crate::scales::Scale<crate::scales::spec::Auto>,
     domain_type: DataType,
     range_type: DataType,
     options_type: DataType,
 ) -> Result<ScalarUDF, AvengerChartError> {
-    let scale_udf = ScaleUDF::new(scale_impl, domain_type, range_type, options_type)?;
+    let scale_udf = ScaleUDF::new(scale, domain_type, range_type, options_type)?;
     Ok(ScalarUDF::new_from_impl(scale_udf))
 }

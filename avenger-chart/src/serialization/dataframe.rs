@@ -4,11 +4,13 @@
 //! as protobuf bytes, avoiding the need to deserialize during serde operations.
 
 use crate::error::AvengerChartError;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::SessionContext;
-use datafusion_proto::bytes::{logical_plan_from_bytes, logical_plan_to_bytes};
+use datafusion_proto::bytes::{
+    logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
+};
 use serde::{Deserialize, Serialize};
 
 /// A serializable wrapper for DataFrames that stores protobuf bytes
@@ -24,9 +26,13 @@ impl SerializableDataFrame {
     pub fn from_dataframe(df: DataFrame) -> Result<Self, AvengerChartError> {
         let plan = df.logical_plan().clone();
 
+        // Use our custom codec for serialization
+        let codec = crate::scales::AvengerChartExtensionCodec::new();
+
         // Convert LogicalPlan to protobuf bytes
-        let bytes = logical_plan_to_bytes(&plan)
-            .map_err(|e| AvengerChartError::InternalError(format!("Failed to serialize plan: {}", e)))?;
+        let bytes = logical_plan_to_bytes_with_extension_codec(&plan, &codec).map_err(|e| {
+            AvengerChartError::InternalError(format!("Failed to serialize plan: {}", e))
+        })?;
 
         // Encode as base64 for JSON compatibility
         let plan_bytes_base64 = BASE64.encode(&bytes);
@@ -43,20 +49,27 @@ impl SerializableDataFrame {
     /// Convert to a DataFrame using the provided SessionContext
     pub fn to_dataframe(&self, ctx: &SessionContext) -> Result<DataFrame, AvengerChartError> {
         // Decode base64
-        let bytes = BASE64.decode(&self.plan_bytes_base64)
-            .map_err(|e| AvengerChartError::InternalError(format!("Failed to decode base64: {}", e)))?;
+        let bytes = BASE64.decode(&self.plan_bytes_base64).map_err(|e| {
+            AvengerChartError::InternalError(format!("Failed to decode base64: {}", e))
+        })?;
+
+        // Use our custom codec for deserialization
+        let codec = crate::scales::AvengerChartExtensionCodec::new();
 
         // Convert bytes back to LogicalPlan
-        let plan = logical_plan_from_bytes(&bytes, ctx)
-            .map_err(|e| AvengerChartError::InternalError(format!("Failed to deserialize plan: {}", e)))?;
+        let plan =
+            logical_plan_from_bytes_with_extension_codec(&bytes, ctx, &codec).map_err(|e| {
+                AvengerChartError::InternalError(format!("Failed to deserialize plan: {}", e))
+            })?;
 
         Ok(DataFrame::new(ctx.state().clone(), plan))
     }
 
     /// Get the raw protobuf bytes (for advanced use cases)
     pub fn to_protobuf_bytes(&self) -> Result<Vec<u8>, AvengerChartError> {
-        BASE64.decode(&self.plan_bytes_base64)
-            .map_err(|e| AvengerChartError::InternalError(format!("Failed to decode base64: {}", e)))
+        BASE64.decode(&self.plan_bytes_base64).map_err(|e| {
+            AvengerChartError::InternalError(format!("Failed to decode base64: {}", e))
+        })
     }
 
     /// Create from raw protobuf bytes
@@ -67,7 +80,11 @@ impl SerializableDataFrame {
     }
 
     /// Apply a select operation to the DataFrame
-    pub fn select(&self, exprs: Vec<Expr>, ctx: &SessionContext) -> Result<DataFrame, AvengerChartError> {
+    pub fn select(
+        &self,
+        exprs: Vec<Expr>,
+        ctx: &SessionContext,
+    ) -> Result<DataFrame, AvengerChartError> {
         let df = self.to_dataframe(ctx)?;
         df.select(exprs)
             .map_err(|e| AvengerChartError::InternalError(format!("Failed to select: {}", e)))
@@ -88,7 +105,8 @@ mod tests {
         let ctx = SessionContext::new();
 
         // Use VALUES to create a simple DataFrame that can be serialized
-        let df = ctx.sql("SELECT * FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) AS t(id, name)")
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) AS t(id, name)")
             .await
             .unwrap();
 

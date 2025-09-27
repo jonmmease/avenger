@@ -1,4 +1,5 @@
 // Public submodules
+pub mod codec;
 pub mod extensions;
 pub mod udf;
 
@@ -11,6 +12,7 @@ mod scale;
 pub mod spec;
 
 // Re-export the main types
+pub use codec::AvengerChartExtensionCodec;
 pub use defaults::{
     create_default_scale_for_channel, get_channel_characteristics, is_categorical_data_type,
     is_numeric_data_type, is_temporal_data_type,
@@ -23,6 +25,7 @@ pub use spec::{
     Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, ScaleSpec, Sqrt, Symlog,
     Threshold, Time,
 };
+pub use udf::{ScaleUDFMetadata, create_scale_udf};
 
 /// Infer a scale specification from its name
 pub fn infer_scale_type_from_name(scale_type: &str) -> Box<dyn ScaleSpec> {

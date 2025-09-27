@@ -87,7 +87,10 @@ impl<S: ScaleSpec> Scale<S> {
         for (key, value) in spec.default_options() {
             let scalar_value = scalar_to_scalar_value(&value);
             let expr = lit(scalar_value);
-            options.insert(key, SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"));
+            options.insert(
+                key,
+                SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"),
+            );
         }
 
         Self {
@@ -179,7 +182,10 @@ impl<S: ScaleSpec> Scale<S> {
             .domain
             .unwrap_or(ScaleDomain::new_interval(lit(0.0), lit(1.0)));
         domain.default_domain = ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
-            dataframe: Arc::new(SerializableDataFrame::from_dataframe((*dataframe).clone()).expect("Failed to serialize dataframe")),
+            dataframe: Arc::new(
+                SerializableDataFrame::from_dataframe((*dataframe).clone())
+                    .expect("Failed to serialize dataframe"),
+            ),
             expr: SerializableExpr::from_expr(expr).expect("Failed to serialize expr"),
             radius: None,
         }]);
@@ -193,7 +199,10 @@ impl<S: ScaleSpec> Scale<S> {
         let exprs = fields
             .into_iter()
             .map(|(df, expr)| DomainExpr {
-                dataframe: Arc::new(SerializableDataFrame::from_dataframe((*df).clone()).expect("Failed to serialize dataframe")),
+                dataframe: Arc::new(
+                    SerializableDataFrame::from_dataframe((*df).clone())
+                        .expect("Failed to serialize dataframe"),
+                ),
                 expr: SerializableExpr::from_expr(expr).expect("Failed to serialize expr"),
                 radius: None,
             })
@@ -215,7 +224,10 @@ impl<S: ScaleSpec> Scale<S> {
         let exprs = fields
             .into_iter()
             .map(|(df, expr, radius)| DomainExpr {
-                dataframe: Arc::new(SerializableDataFrame::from_dataframe((*df).clone()).expect("Failed to serialize dataframe")),
+                dataframe: Arc::new(
+                    SerializableDataFrame::from_dataframe((*df).clone())
+                        .expect("Failed to serialize dataframe"),
+                ),
                 expr: SerializableExpr::from_expr(expr).expect("Failed to serialize expr"),
                 radius,
             })
@@ -265,7 +277,10 @@ impl<S: ScaleSpec> Scale<S> {
     #[doc(hidden)]
     pub fn _option(mut self, key: impl Into<String>, value: impl Into<Expr>) -> Self {
         let expr = value.into();
-        self.options.insert(key.into(), SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"));
+        self.options.insert(
+            key.into(),
+            SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"),
+        );
         self
     }
 
@@ -294,7 +309,10 @@ impl<S: ScaleSpec> Scale<S> {
                 if !options.contains_key(&key) {
                     let scalar_value = scalar_to_scalar_value(&value);
                     let expr = lit(scalar_value);
-                    options.insert(key, SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"));
+                    options.insert(
+                        key,
+                        SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"),
+                    );
                 }
             }
         }
@@ -385,8 +403,7 @@ impl<S: ScaleSpec> Scale<S> {
             Maybe::Set(ScaleRange::Numeric(start, end)) => {
                 let start_expr = start.to_expr(ctx)?;
                 let end_expr = end.to_expr(ctx)?;
-                let scalars =
-                    eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
+                let scalars = eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
                 if scalars.len() == 2 {
                     Some((scalars[0].as_f64()?, scalars[1].as_f64()?))
                 } else {
@@ -475,8 +492,7 @@ impl<S: ScaleSpec> Scale<S> {
             ScaleDefaultDomain::Interval(start, end) => {
                 let start_expr = start.to_expr(ctx)?;
                 let end_expr = end.to_expr(ctx)?;
-                let scalars =
-                    eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
+                let scalars = eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
                 let [start_val, end_val] = scalars.as_slice() else {
                     return Err(AvengerChartError::InternalError(
                         "Expected two scalar values for interval domain".to_string(),
@@ -489,7 +505,8 @@ impl<S: ScaleSpec> Scale<S> {
             }
             ScaleDefaultDomain::Discrete(values) => {
                 // Determine domain type based on scale's domain kind
-                let exprs: Vec<Expr> = values.iter()
+                let exprs: Vec<Expr> = values
+                    .iter()
                     .map(|v| v.to_expr(ctx))
                     .collect::<Result<Vec<_>, _>>()?;
                 let scalars = eval_to_scalars(exprs, Some(ctx), None).await?;
@@ -534,8 +551,7 @@ impl<S: ScaleSpec> Scale<S> {
             Maybe::Set(ScaleRange::Numeric(start, end)) => {
                 let start_expr = start.to_expr(ctx)?;
                 let end_expr = end.to_expr(ctx)?;
-                let scalars =
-                    eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
+                let scalars = eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
                 let [start_val, end_val] = scalars.as_slice() else {
                     return Err(AvengerChartError::InternalError(
                         "Expected two scalar values for numeric range".to_string(),
@@ -548,7 +564,8 @@ impl<S: ScaleSpec> Scale<S> {
             }
             Maybe::Set(ScaleRange::Discrete(values)) => {
                 // Convert SerializableScalar values back to ScalarValue
-                let scalar_values: Vec<ScalarValue> = values.iter()
+                let scalar_values: Vec<ScalarValue> = values
+                    .iter()
                     .map(|v| v.to_scalar(ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -815,7 +832,10 @@ impl Scale<Time> {
     /// Set whether to nice the domain to time intervals
     pub fn nice(mut self, value: bool) -> Self {
         let expr = lit(value);
-        self.options.insert("nice".to_string(), SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"));
+        self.options.insert(
+            "nice".to_string(),
+            SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"),
+        );
         self
         // self._option("nice", lit(value))
     }
@@ -828,6 +848,11 @@ impl Scale<Time> {
 
 // ===== Auto scale for dynamic construction =====
 impl Scale<Auto> {
+    /// Get the ScaleImpl from this Scale
+    pub fn to_scale_impl(&self) -> Result<Arc<dyn ScaleImpl>, AvengerChartError> {
+        self.get_scale_impl_or_err()
+    }
+
     /// Set a generic option
     ///
     /// This method allows dynamic configuration when the scale type isn't known at compile time.
