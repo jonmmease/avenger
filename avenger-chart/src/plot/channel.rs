@@ -205,6 +205,7 @@ impl<C: CoordinateSystem> Plot<C> {
         channel: &str,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Scale, AvengerChartError> {
+
         // Try to infer the data type and use mark-based scale preferences
         let mut scale_spec = None;
         let mut data_type = None;
@@ -238,11 +239,16 @@ impl<C: CoordinateSystem> Plot<C> {
                 // Try to get the data type of the channel
                 if let Some(df) = df {
                     let schema = df.schema();
-                    if let Some(dt) = channel_value.get_data_type(schema, ctx) {
-                        data_type = Some(dt.clone());
-                        scale_spec = mark.preferred_scale_type(channel, &dt);
-                        found_mark = Some(mark);
-                        break;
+                    match channel_value.get_data_type(schema, ctx) {
+                        Ok(dt) => {
+                            data_type = Some(dt.clone());
+                            scale_spec = mark.preferred_scale_type(channel, &dt);
+                            found_mark = Some(mark);
+                            break;
+                        }
+                        Err(_) => {
+                            // Continue to next mark to try to find a valid data type
+                        }
                     }
                 }
             }
