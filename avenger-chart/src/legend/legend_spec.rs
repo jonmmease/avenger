@@ -1,9 +1,12 @@
 use super::LegendRenderer;
 use crate::maybe::Maybe;
+use crate::serialization::SerializableNestedScalarMap;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, FromInto};
 use std::sync::Arc;
 
 /// Legend configuration for visualizations
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Legend {
     pub visible: Maybe<bool>,
@@ -30,7 +33,7 @@ pub struct Legend {
     pub title_color: Maybe<String>,
     pub label_color: Maybe<String>,
     /// Theme mark defaults (for legend symbol rendering)
-    #[serde(skip)]
+    #[serde_as(as = "Option<FromInto<SerializableNestedScalarMap>>")]
     pub theme_mark_defaults: Option<
         indexmap::IndexMap<String, indexmap::IndexMap<String, datafusion_common::ScalarValue>>,
     >,

@@ -566,8 +566,8 @@ impl<S: ScaleSpec> Scale<S> {
                 // Convert SerializableScalar values back to ScalarValue
                 let scalar_values: Vec<ScalarValue> = values
                     .iter()
-                    .map(|v| v.to_scalar(ctx))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .map(|v| v.as_scalar().clone())
+                    .collect();
 
                 // Check if all values are numeric - if so, keep as Float32Array
                 // This handles cases like stroke_width which uses ordinal scale with numeric range

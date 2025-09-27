@@ -34,7 +34,7 @@ impl ScaleRange {
             values
                 .into_iter()
                 .map(|v| {
-                    SerializableScalar::from_scalar(v.into()).expect("Failed to serialize scalar")
+                    SerializableScalar::new(v.into())
                 })
                 .collect(),
         )
@@ -49,8 +49,7 @@ impl ScaleRange {
         };
         let values: Vec<SerializableScalar> = (0..num)
             .map(|i| {
-                SerializableScalar::from_scalar(ScalarValue::Float32(Some(start + i as f32 * step)))
-                    .expect("Failed to serialize scalar")
+                SerializableScalar::new(ScalarValue::Float32(Some(start + i as f32 * step)))
             })
             .collect();
         Self::Discrete(values)

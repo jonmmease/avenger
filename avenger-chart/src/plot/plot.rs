@@ -55,7 +55,6 @@ pub struct CompiledPlot {
     pub(crate) scale_to_coord_channel: HashMap<String, String>,
 
     /// Scale specifications (temporarily kept for building scales)
-    #[serde(skip)]
     pub(crate) scale_specs: HashMap<String, ScaleSpec>,
 
     /// Plot-level data (temporarily kept for mark inheritance)

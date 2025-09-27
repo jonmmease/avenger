@@ -19,6 +19,7 @@ async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-proto = "48.0.1"
+datafusion-proto-common = "48.0.1"
 prost = "0.13"
 futures = { workspace = true }
 base64 = { workspace = true }
@@ -30,6 +31,7 @@ image = { workspace = true }
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_with = "3.0"
 typetag = "0.2"
 erased-serde = "0.4.8"
 
