@@ -311,25 +311,27 @@ impl CompiledPlot {
                 resolved_channels
                     .values()
                     .any(|channel_value| match channel_value {
-                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                            expr.column_refs(&context.session_context)
-                                .map(|refs| !refs.is_empty())
-                                .unwrap_or(false)
-                        }
+                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr
+                            .column_refs(&context.session_context)
+                            .map(|refs| !refs.is_empty())
+                            .unwrap_or(false),
                         ChannelValue::Conditional {
                             conditions,
                             otherwise,
                             ..
                         } => {
                             conditions.iter().any(|(condition, value)| {
-                                condition.column_refs(&context.session_context)
+                                condition
+                                    .column_refs(&context.session_context)
                                     .map(|refs| !refs.is_empty())
                                     .unwrap_or(false)
-                                    || value.expr(&context.session_context)
+                                    || value
+                                        .expr(&context.session_context)
                                         .ok()
                                         .map(|e| !e.column_refs().is_empty())
                                         .unwrap_or(false)
-                            }) || otherwise.expr(&context.session_context)
+                            }) || otherwise
+                                .expr(&context.session_context)
                                 .ok()
                                 .map(|e| !e.column_refs().is_empty())
                                 .unwrap_or(false)
@@ -337,8 +339,13 @@ impl CompiledPlot {
                     });
 
             // Determine DataFrame for this mark using context from RenderContext
-            let mark_df = mark.data_context().dataframe_with_context(&context.session_context);
-            let plot_df = self.data.as_ref().and_then(|d| d.to_dataframe(&context.session_context).ok());
+            let mark_df = mark
+                .data_context()
+                .dataframe_with_context(&context.session_context);
+            let plot_df = self
+                .data
+                .as_ref()
+                .and_then(|d| d.to_dataframe(&context.session_context).ok());
 
             let df = if let Some(mark_df) = mark_df {
                 // Mark has explicit data
@@ -468,11 +475,7 @@ impl CompiledPlot {
                                     }
                                 }
                                 if let Ok(expr) = otherwise.expr(&context.session_context) {
-                                    data_expressions.push((
-                                        df.clone(),
-                                        expr,
-                                        radius_expr_cond,
-                                    ));
+                                    data_expressions.push((df.clone(), expr, radius_expr_cond));
                                 }
                             }
                         }
@@ -505,25 +508,27 @@ impl CompiledPlot {
                 resolved_channels
                     .values()
                     .any(|channel_value| match channel_value {
-                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                            expr.column_refs(ctx)
-                                .map(|refs| !refs.is_empty())
-                                .unwrap_or(false)
-                        }
+                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr
+                            .column_refs(ctx)
+                            .map(|refs| !refs.is_empty())
+                            .unwrap_or(false),
                         ChannelValue::Conditional {
                             conditions,
                             otherwise,
                             ..
                         } => {
                             conditions.iter().any(|(condition, value)| {
-                                condition.column_refs(ctx)
+                                condition
+                                    .column_refs(ctx)
                                     .map(|refs| !refs.is_empty())
                                     .unwrap_or(false)
-                                    || value.expr(ctx)
+                                    || value
+                                        .expr(ctx)
                                         .ok()
                                         .map(|e| !e.column_refs().is_empty())
                                         .unwrap_or(false)
-                            }) || otherwise.expr(ctx)
+                            }) || otherwise
+                                .expr(ctx)
                                 .ok()
                                 .map(|e| !e.column_refs().is_empty())
                                 .unwrap_or(false)
@@ -612,10 +617,15 @@ impl CompiledPlot {
     }
 
     /// Infer a title for the legend based on channel
-    fn infer_legend_title(&self, channel: &str, session_context: &datafusion::prelude::SessionContext) -> String {
+    fn infer_legend_title(
+        &self,
+        channel: &str,
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> String {
         // First try to extract from marks (like we do for axes)
         use crate::coords::extract_channel_title_from_marks;
-        if let Some(title) = extract_channel_title_from_marks(&self.marks, channel, session_context) {
+        if let Some(title) = extract_channel_title_from_marks(&self.marks, channel, session_context)
+        {
             return title;
         }
 
@@ -1317,14 +1327,16 @@ impl CompiledPlot {
                     }
                 } else {
                     // Use standard domain gathering for non-linear scales
-                    let data_expressions = self.gather_scale_domain_expressions(name, &context.session_context)?;
+                    let data_expressions =
+                        self.gather_scale_domain_expressions(name, &context.session_context)?;
                     if !data_expressions.is_empty() {
                         scale = scale.domain_data_fields(data_expressions);
                     }
                 }
             } else {
                 // No radius context - use standard domain gathering
-                let data_expressions = self.gather_scale_domain_expressions(name, &context.session_context)?;
+                let data_expressions =
+                    self.gather_scale_domain_expressions(name, &context.session_context)?;
                 if !data_expressions.is_empty() {
                     scale = scale.domain_data_fields(data_expressions);
                 }
@@ -1355,13 +1367,21 @@ impl CompiledPlot {
             .unwrap_or(false)
         {
             scale = scale
-                .infer_domain_from_data(context.plot_width, context.plot_height, &context.session_context)
+                .infer_domain_from_data(
+                    context.plot_width,
+                    context.plot_height,
+                    &context.session_context,
+                )
                 .await?;
         }
 
         // Step 4: Normalize domain (apply zero, nice, padding)
         scale = scale
-            .normalize_domain(context.plot_width, context.plot_height, &context.session_context)
+            .normalize_domain(
+                context.plot_width,
+                context.plot_height,
+                &context.session_context,
+            )
             .await?;
 
         // Step 5: Apply mark-specific range if not a position channel AND no range is set
@@ -1380,20 +1400,21 @@ impl CompiledPlot {
                 // Check if it's not the default [0, 1] range
                 use datafusion::logical_expr::Expr;
                 use datafusion_common::ScalarValue;
-                let is_default = if let (Ok(start_expr), Ok(end_expr)) = (start.to_expr(&context.session_context), end.to_expr(&context.session_context)) {
-                    use datafusion::logical_expr::lit;
+                let is_default = if let (Ok(start_expr), Ok(end_expr)) = (
+                    start.to_expr(&context.session_context),
+                    end.to_expr(&context.session_context),
+                ) {
+                    
                     match (&start_expr, &end_expr) {
-                        (Expr::Literal(v1, _), Expr::Literal(v2, _)) => {
-                            match (v1, v2) {
-                                (ScalarValue::Float64(Some(v1)), ScalarValue::Float64(Some(v2))) => {
-                                    (v1 - 0.0).abs() < 0.001 && (v2 - 1.0).abs() < 0.001
-                                }
-                                (ScalarValue::Float32(Some(v1)), ScalarValue::Float32(Some(v2))) => {
-                                    (*v1 as f64 - 0.0).abs() < 0.001 && (*v2 as f64 - 1.0).abs() < 0.001
-                                }
-                                _ => false,
+                        (Expr::Literal(v1, _), Expr::Literal(v2, _)) => match (v1, v2) {
+                            (ScalarValue::Float64(Some(v1)), ScalarValue::Float64(Some(v2))) => {
+                                (v1 - 0.0).abs() < 0.001 && (v2 - 1.0).abs() < 0.001
                             }
-                        }
+                            (ScalarValue::Float32(Some(v1)), ScalarValue::Float32(Some(v2))) => {
+                                (*v1 as f64 - 0.0).abs() < 0.001 && (*v2 as f64 - 1.0).abs() < 0.001
+                            }
+                            _ => false,
+                        },
                         _ => false,
                     }
                 } else {
@@ -1411,18 +1432,25 @@ impl CompiledPlot {
                     // Get data type from the channel expression
                     // First resolve channel references
                     let channels = mark.data_context().channels();
-                    let resolved_channels =
-                        crate::channel::resolution::resolve_all_channel_refs(channels, &context.session_context)
-                            .ok()
-                            .unwrap_or_else(|| channels.clone());
+                    let resolved_channels = crate::channel::resolution::resolve_all_channel_refs(
+                        channels,
+                        &context.session_context,
+                    )
+                    .ok()
+                    .unwrap_or_else(|| channels.clone());
 
                     let data_type = resolved_channels
                         .get(name)
                         .and_then(|channel_value| channel_value.expr(&context.session_context))
                         .and_then(|expr| {
                             // Try to get data type from mark's dataframe using context from RenderContext
-                            let mark_df = mark.data_context().dataframe_with_context(&context.session_context);
-                            let plot_df = self.data.as_ref().and_then(|d| d.to_dataframe(&context.session_context).ok());
+                            let mark_df = mark
+                                .data_context()
+                                .dataframe_with_context(&context.session_context);
+                            let plot_df = self
+                                .data
+                                .as_ref()
+                                .and_then(|d| d.to_dataframe(&context.session_context).ok());
                             let df = mark_df.or(plot_df)?;
                             use datafusion::logical_expr::ExprSchemable;
                             expr.get_type(df.schema()).ok()
@@ -1453,7 +1481,11 @@ impl CompiledPlot {
 
         // Create the configured scale
         scale
-            .create_configured_scale(context.plot_width, context.plot_height, &context.session_context)
+            .create_configured_scale(
+                context.plot_width,
+                context.plot_height,
+                &context.session_context,
+            )
             .await
     }
 
@@ -1470,7 +1502,8 @@ impl CompiledPlot {
         AvengerChartError,
     > {
         // Collect all channels that need scales
-        let mut channels_with_scales = self.collect_channels_needing_scales(&context.session_context);
+        let mut channels_with_scales =
+            self.collect_channels_needing_scales(&context.session_context);
 
         // Also include any channels with explicit scale specs
         for channel in self.scale_specs.keys() {
@@ -1853,7 +1886,9 @@ impl CompiledPlot {
         let references_columns = channels.values().any(|channel_value| match channel_value {
             ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
                 // Convert to Expr to check column refs
-                expr.to_expr(ctx).map(|e| !e.column_refs().is_empty()).unwrap_or(false)
+                expr.to_expr(ctx)
+                    .map(|e| !e.column_refs().is_empty())
+                    .unwrap_or(false)
             }
             ChannelValue::Conditional {
                 conditions,
@@ -1861,10 +1896,19 @@ impl CompiledPlot {
                 ..
             } => {
                 conditions.iter().any(|(condition, value)| {
-                    let cond_has_refs = condition.to_expr(ctx).map(|e| !e.column_refs().is_empty()).unwrap_or(false);
-                    let value_has_refs = value.expr(ctx).map(|e| !e.column_refs().is_empty()).unwrap_or(false);
+                    let cond_has_refs = condition
+                        .to_expr(ctx)
+                        .map(|e| !e.column_refs().is_empty())
+                        .unwrap_or(false);
+                    let value_has_refs = value
+                        .expr(ctx)
+                        .map(|e| !e.column_refs().is_empty())
+                        .unwrap_or(false);
                     cond_has_refs || value_has_refs
-                }) || otherwise.expr(ctx).map(|e| !e.column_refs().is_empty()).unwrap_or(false)
+                }) || otherwise
+                    .expr(ctx)
+                    .map(|e| !e.column_refs().is_empty())
+                    .unwrap_or(false)
             }
         });
 
@@ -1986,7 +2030,12 @@ impl CompiledPlot {
 
         // Create render context with theme and dimensions
         let theme = self.get_theme();
-        let context = crate::render::RenderContext::new(theme, plot_width, plot_height, Arc::new(ctx.clone()));
+        let context = crate::render::RenderContext::new(
+            theme,
+            plot_width,
+            plot_height,
+            Arc::new(ctx.clone()),
+        );
 
         // Clone the coordinate transform
         let coord_transform = self.coord_transform.clone_box();
@@ -2176,7 +2225,13 @@ impl CompiledPlot {
         let mut mark_groups = Vec::new();
         for mark in &self.marks {
             let scene_marks = self
-                .render_mark(mark.as_ref(), scales, plot_area_width, plot_area_height, ctx)
+                .render_mark(
+                    mark.as_ref(),
+                    scales,
+                    plot_area_width,
+                    plot_area_height,
+                    ctx,
+                )
                 .await?;
             mark_groups.extend(scene_marks);
         }
@@ -2219,7 +2274,10 @@ impl CompiledPlot {
     }
 
     /// Render the plot to a scene graph
-    pub async fn render(&self, ctx: &SessionContext) -> Result<crate::render::RenderResult, AvengerChartError> {
+    pub async fn render(
+        &self,
+        ctx: &SessionContext,
+    ) -> Result<crate::render::RenderResult, AvengerChartError> {
         use crate::render::RenderContext;
         use avenger_scenegraph::marks::group::SceneGroup;
         use avenger_scenegraph::scene_graph::SceneGraph;
@@ -2273,7 +2331,12 @@ impl CompiledPlot {
 
         // STAGE 3: REBUILD POSITIONAL SCALES WITH FINAL DIMENSIONS
         // Create final RenderContext with actual plot dimensions
-        let final_context = RenderContext::new(theme.clone(), plot_area_width, plot_area_height, Arc::new(ctx.clone()));
+        let final_context = RenderContext::new(
+            theme.clone(),
+            plot_area_width,
+            plot_area_height,
+            Arc::new(ctx.clone()),
+        );
 
         let final_configured_scales = self
             .rebuild_scales_with_final_dimensions(
@@ -2285,7 +2348,13 @@ impl CompiledPlot {
 
         // STAGE 4: RENDER ALL COMPONENTS WITH FINAL SCALES
         let all_component_marks = self
-            .render_all_components(&final_configured_scales, &layout, final_width, final_height, ctx)
+            .render_all_components(
+                &final_configured_scales,
+                &layout,
+                final_width,
+                final_height,
+                ctx,
+            )
             .await?;
 
         let (mark_groups, guide_marks, legend_marks, title_marks, subtitle_marks) =
@@ -2454,14 +2523,11 @@ impl<C: CoordinateSystem + Default> Plot<C> {
 }
 
 impl<C: CoordinateSystem> Plot<C> {
-    /// Compile this plot into a renderable form (consuming self) with a default SessionContext
-    pub async fn compile(self) -> Result<CompiledPlot, AvengerChartError> {
-        let session_context = datafusion::prelude::SessionContext::new();
-        self.compile_with_context(&session_context).await
-    }
-
-    /// Compile this plot into a renderable form (consuming self) with provided SessionContext
-    pub async fn compile_with_context(mut self, session_context: &datafusion::prelude::SessionContext) -> Result<CompiledPlot, AvengerChartError> {
+    /// Compile this plot into a renderable form (consuming self)
+    pub async fn compile(
+        mut self,
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
         // Always build guide renderer - either from config or default
         if self.guide_renderer.is_none() {
             let mut guide = if let Some(config) = &self.guide_config {
@@ -2513,7 +2579,9 @@ impl<C: CoordinateSystem> Plot<C> {
             theme: self.theme,
             scale_to_coord_channel: self.scale_to_coord_channel,
             scale_specs: self.scale_specs,
-            data: self.data.and_then(|df| SerializableDataFrame::from_dataframe(df).ok()),
+            data: self
+                .data
+                .and_then(|df| SerializableDataFrame::from_dataframe(df).ok()),
         })
     }
 

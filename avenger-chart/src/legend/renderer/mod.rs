@@ -271,7 +271,12 @@ pub mod helpers {
         mark_encodings: &HashMap<String, ChannelValue>,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Option<ColorOrGradient> {
-        if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings, session_context) {
+        if let Some(scalar) = get_constant_scalar(
+            channel_name,
+            related_channels,
+            mark_encodings,
+            session_context,
+        ) {
             // Try to convert to color
             if let Ok(color_array) = ScalarValue::iter_to_array(std::iter::once(scalar)) {
                 use avenger_scales::scales::coerce::Coercer;
@@ -293,7 +298,12 @@ pub mod helpers {
         mark_encodings: &HashMap<String, ChannelValue>,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Option<f32> {
-        if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings, session_context) {
+        if let Some(scalar) = get_constant_scalar(
+            channel_name,
+            related_channels,
+            mark_encodings,
+            session_context,
+        ) {
             scalar.as_f32().ok()
         } else {
             None
@@ -307,9 +317,12 @@ pub mod helpers {
         mark_encodings: &HashMap<String, ChannelValue>,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Option<String> {
-        if let Some(ScalarValue::Utf8(Some(s))) =
-            get_constant_scalar(channel_name, related_channels, mark_encodings, session_context)
-        {
+        if let Some(ScalarValue::Utf8(Some(s))) = get_constant_scalar(
+            channel_name,
+            related_channels,
+            mark_encodings,
+            session_context,
+        ) {
             return Some(s);
         }
         None

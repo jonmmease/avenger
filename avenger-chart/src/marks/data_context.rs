@@ -24,7 +24,9 @@ impl DataContext {
 
     /// Get the DataFrame using the provided SessionContext
     pub fn dataframe_with_context(&self, ctx: &SessionContext) -> Option<DataFrame> {
-        self.dataframe.as_ref().and_then(|df| df.to_dataframe(ctx).ok())
+        self.dataframe
+            .as_ref()
+            .and_then(|df| df.to_dataframe(ctx).ok())
     }
 
     /// Legacy method - returns None since we no longer store DataFrames directly
@@ -49,7 +51,9 @@ impl DataContext {
     // Compatibility methods for tests
     pub fn encoding(&self, channel: &str) -> Option<String> {
         let session_context = datafusion::prelude::SessionContext::new();
-        self.channels.get(channel).and_then(|v| v.as_column_name(&session_context))
+        self.channels
+            .get(channel)
+            .and_then(|v| v.as_column_name(&session_context))
     }
 
     pub fn encoding_expr_string(&self, channel: &str) -> Option<String> {

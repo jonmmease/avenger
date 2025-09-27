@@ -136,7 +136,8 @@ impl<C: CoordinateSystem> Plot<C> {
                 match channel_value {
                     ChannelValue::Value { expr } => {
                         // No scaling requested
-                        expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null))
+                        expr.to_expr(ctx)
+                            .unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null))
                     }
                     ChannelValue::Scaled {
                         expr,
@@ -155,16 +156,32 @@ impl<C: CoordinateSystem> Plot<C> {
                             // Use ConfiguredScale.to_expr()
                             if let Some(band_value) = band {
                                 configured
-                                    .to_expr_with_band(expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null)), *band_value)
-                                    .unwrap_or_else(|_| expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null)))
+                                    .to_expr_with_band(
+                                        expr.to_expr(ctx).unwrap_or_else(|_| {
+                                            lit(datafusion::scalar::ScalarValue::Null)
+                                        }),
+                                        *band_value,
+                                    )
+                                    .unwrap_or_else(|_| {
+                                        expr.to_expr(ctx).unwrap_or_else(|_| {
+                                            lit(datafusion::scalar::ScalarValue::Null)
+                                        })
+                                    })
                             } else {
                                 configured
-                                    .to_expr(expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null)))
-                                    .unwrap_or_else(|_| expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null)))
+                                    .to_expr(expr.to_expr(ctx).unwrap_or_else(|_| {
+                                        lit(datafusion::scalar::ScalarValue::Null)
+                                    }))
+                                    .unwrap_or_else(|_| {
+                                        expr.to_expr(ctx).unwrap_or_else(|_| {
+                                            lit(datafusion::scalar::ScalarValue::Null)
+                                        })
+                                    })
                             }
                         } else {
                             // No scale configured for this channel - use raw expression
-                            expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null))
+                            expr.to_expr(ctx)
+                                .unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null))
                         }
                     }
                     ChannelValue::Conditional { .. } => {
@@ -308,18 +325,30 @@ impl<C: CoordinateSystem> Plot<C> {
                 resolved_channels
                     .values()
                     .any(|channel_value| match channel_value {
-                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                            expr.column_refs(_ctx).map(|refs| !refs.is_empty()).unwrap_or(false)
-                        }
+                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr
+                            .column_refs(_ctx)
+                            .map(|refs| !refs.is_empty())
+                            .unwrap_or(false),
                         ChannelValue::Conditional {
                             conditions,
                             otherwise,
                             ..
                         } => {
                             conditions.iter().any(|(condition, value)| {
-                                condition.column_refs(_ctx).map(|refs| !refs.is_empty()).unwrap_or(false)
-                                    || value.expr(_ctx).ok().map(|e| !e.column_refs().is_empty()).unwrap_or(false)
-                            }) || otherwise.expr(_ctx).ok().map(|e| !e.column_refs().is_empty()).unwrap_or(false)
+                                condition
+                                    .column_refs(_ctx)
+                                    .map(|refs| !refs.is_empty())
+                                    .unwrap_or(false)
+                                    || value
+                                        .expr(_ctx)
+                                        .ok()
+                                        .map(|e| !e.column_refs().is_empty())
+                                        .unwrap_or(false)
+                            }) || otherwise
+                                .expr(_ctx)
+                                .ok()
+                                .map(|e| !e.column_refs().is_empty())
+                                .unwrap_or(false)
                         }
                     });
 
@@ -402,7 +431,9 @@ impl<C: CoordinateSystem> Plot<C> {
         let needs_radius = matches!(scale_name, "x" | "y");
         if !needs_radius {
             // For non-positional scales, return without radius
-            for (df, expr) in self.gather_scale_domain_expressions(scale_name, &context.session_context)? {
+            for (df, expr) in
+                self.gather_scale_domain_expressions(scale_name, &context.session_context)?
+            {
                 data_expressions.push((df, expr, None));
             }
             return Ok(data_expressions);
@@ -411,26 +442,40 @@ impl<C: CoordinateSystem> Plot<C> {
         for mark in &self.mark_renderers {
             // Get channels and resolve references first
             let encodings = mark.data_context().channels();
-            let resolved_encodings =
-                crate::channel::resolution::resolve_all_channel_refs(encodings, &context.session_context)?;
+            let resolved_encodings = crate::channel::resolution::resolve_all_channel_refs(
+                encodings,
+                &context.session_context,
+            )?;
 
             // Check if any expressions reference columns
             let references_columns =
                 resolved_encodings
                     .values()
                     .any(|channel_value| match channel_value {
-                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                            expr.column_refs(&context.session_context).map(|refs| !refs.is_empty()).unwrap_or(false)
-                        }
+                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr
+                            .column_refs(&context.session_context)
+                            .map(|refs| !refs.is_empty())
+                            .unwrap_or(false),
                         ChannelValue::Conditional {
                             conditions,
                             otherwise,
                             ..
                         } => {
                             conditions.iter().any(|(condition, value)| {
-                                condition.column_refs(&context.session_context).map(|refs| !refs.is_empty()).unwrap_or(false)
-                                    || value.expr(&context.session_context).ok().map(|e| !e.column_refs().is_empty()).unwrap_or(false)
-                            }) || otherwise.expr(&context.session_context).ok().map(|e| !e.column_refs().is_empty()).unwrap_or(false)
+                                condition
+                                    .column_refs(&context.session_context)
+                                    .map(|refs| !refs.is_empty())
+                                    .unwrap_or(false)
+                                    || value
+                                        .expr(&context.session_context)
+                                        .ok()
+                                        .map(|e| !e.column_refs().is_empty())
+                                        .unwrap_or(false)
+                            }) || otherwise
+                                .expr(&context.session_context)
+                                .ok()
+                                .map(|e| !e.column_refs().is_empty())
+                                .unwrap_or(false)
                         }
                     });
 
@@ -489,7 +534,8 @@ impl<C: CoordinateSystem> Plot<C> {
                                 for (_, value) in conditions {
                                     if let ConditionalValue::Scaled { expr } = value {
                                         // Convert SerializableExpr to Expr
-                                        if let Ok(expr_df) = expr.to_expr(&context.session_context) {
+                                        if let Ok(expr_df) = expr.to_expr(&context.session_context)
+                                        {
                                             data_expressions.push((
                                                 df.clone(),
                                                 expr_df,
@@ -517,7 +563,10 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Collect all channels that need scales
-    pub fn collect_channels_needing_scales(&self, ctx: &datafusion::prelude::SessionContext) -> HashSet<String> {
+    pub fn collect_channels_needing_scales(
+        &self,
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> HashSet<String> {
         let mut used_channels = HashSet::new();
         for mark in &self.mark_renderers {
             // Get channels and resolve references first

@@ -9,12 +9,20 @@ use datafusion::prelude::SessionContext;
 #[allow(async_fn_in_trait)]
 pub trait CanvasExt {
     /// Render a plot to this canvas with a SessionContext
-    async fn render_plot(&mut self, plot: &CompiledPlot, ctx: &SessionContext) -> Result<(), AvengerChartError>;
+    async fn render_plot(
+        &mut self,
+        plot: &CompiledPlot,
+        ctx: &SessionContext,
+    ) -> Result<(), AvengerChartError>;
 }
 
 // Implement CanvasExt for PngCanvas
 impl CanvasExt for PngCanvas {
-    async fn render_plot(&mut self, plot: &CompiledPlot, ctx: &SessionContext) -> Result<(), AvengerChartError> {
+    async fn render_plot(
+        &mut self,
+        plot: &CompiledPlot,
+        ctx: &SessionContext,
+    ) -> Result<(), AvengerChartError> {
         // Render to scene graph using the provided SessionContext
         let render_result = plot.render(ctx).await?;
 

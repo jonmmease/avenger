@@ -57,14 +57,10 @@ pub enum SerializableChannelValue {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SerializableConditionalValue {
     /// Value that should be scaled
-    Scaled {
-        expr_string: String,
-    },
+    Scaled { expr_string: String },
 
     /// Literal value
-    Value {
-        expr_string: String,
-    },
+    Value { expr_string: String },
 }
 
 impl SerializableChannelValue {

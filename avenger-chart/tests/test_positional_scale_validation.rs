@@ -39,7 +39,7 @@ async fn test_literal_x_value_error() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let compiled = plot.compile().await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
     let result = canvas.render_plot(&compiled, &ctx).await;
 
     // Should error with helpful message
@@ -93,7 +93,7 @@ async fn test_literal_y_value_error() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let compiled = plot.compile().await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
     let result = canvas.render_plot(&compiled, &ctx).await;
 
     // Should error with helpful message
@@ -149,7 +149,7 @@ async fn test_explicit_domain_allows_literals() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let compiled = plot.compile().await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
     let result = canvas.render_plot(&compiled, &ctx).await;
 
     // Should NOT error because domain is explicit
@@ -189,7 +189,7 @@ async fn test_column_reference_works() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let compiled = plot.compile().await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
     let result = canvas.render_plot(&compiled, &ctx).await;
 
     // Should work fine
@@ -231,7 +231,7 @@ async fn test_expression_with_column_works() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let compiled = plot.compile().await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
     let result = canvas.render_plot(&compiled, &ctx).await;
 
     // Should work fine because expressions reference columns
@@ -275,7 +275,7 @@ async fn test_non_positional_scales_allow_literals() {
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    let compiled = plot.compile().await.unwrap();
+    let compiled = plot.compile(&ctx).await.unwrap();
     let result = canvas.render_plot(&compiled, &ctx).await;
 
     // Should work fine because fill and size are not positional
