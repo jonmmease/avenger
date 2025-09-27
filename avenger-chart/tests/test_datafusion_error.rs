@@ -50,29 +50,30 @@ async fn test_datafusion_context_mismatch() {
                 .stroke_width(2.0),
         );
 
-    // This should show us the actual DataFusion error
+    // With our MemTable serialization support, this should now work!
     match plot_clone.compile(&ctx2).await {
-        Ok(_) => panic!("Compilation should have failed when using a different SessionContext"),
+        Ok(_compiled) => {
+            println!("Compilation succeeded with different context!");
+        }
         Err(e) => {
-            println!("Compilation error (as expected): {:?}", e);
-            // Verify the error message mentions SessionContext
-            let error_str = format!("{:?}", e);
-            assert!(error_str.contains("SessionContext"),
-                "Error message should mention SessionContext mismatch");
-            assert!(error_str.contains("Failed to serialize DataFrame"),
-                "Error message should mention DataFrame serialization failure");
+            println!("Compilation error: {:?}", e);
+            panic!("Compilation should succeed now that we have MemTable serialization support");
         }
     }
 
-    // Even with the same context, DataFrame serialization fails because
-    // DataFusion's MemTable doesn't have a LogicalExtensionCodec registered
+    // Compiling with the same context should also work
     match plot.compile(&ctx1).await {
-        Ok(_) => panic!("Compilation should have failed due to missing LogicalExtensionCodec"),
+        Ok(compiled) => {
+            println!("Compilation succeeded with same context!");
+
+            // Now test rendering with different context
+            match compiled.render(&ctx2).await {
+                Ok(_) => println!("Render succeeded with different context!"),
+                Err(e) => println!("Render error with different context: {:?}", e),
+            }
+        }
         Err(e) => {
-            println!("Compilation error with same context (expected): {:?}", e);
-            let error_str = format!("{:?}", e);
-            assert!(error_str.contains("LogicalExtensionCodec"),
-                "Error should mention missing LogicalExtensionCodec");
+            panic!("Compilation should succeed: {:?}", e);
         }
     }
 }
