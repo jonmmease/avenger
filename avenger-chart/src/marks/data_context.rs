@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct DataContext {
     dataframe: Option<SerializableDataFrame>,
-    #[serde(skip)]
     channels: IndexMap<String, ChannelValue>,
 }
 

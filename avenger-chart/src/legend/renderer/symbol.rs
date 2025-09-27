@@ -4,6 +4,7 @@ use super::{LegendChannel, LegendRenderer, helpers};
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
+use crate::serialization::SerializableScalarMap;
 use crate::utils::ScalarValueHelpers;
 use avenger_common::types::{ColorOrGradient, SymbolShape};
 use avenger_common::value::ScalarOrArray;
@@ -11,22 +12,23 @@ use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
 use avenger_scenegraph::marks::group::SceneGroup;
 use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, FromInto};
 use std::collections::HashMap;
 
 /// Symbol legend renderer for discrete channels
+#[serde_as]
 #[derive(Default, Serialize, Deserialize)]
 pub struct CompiledSymbolLegend {
     /// Plot reference for accessing mark data
     /// Map of mark encodings from the plot
-    #[serde(skip)]
     mark_encodings: HashMap<String, crate::channel::ChannelValue>,
     /// Whether the plot has rect marks
     has_rect_mark: bool,
     /// Theme mark defaults for symbols
-    #[serde(skip)]
+    #[serde_as(as = "FromInto<SerializableScalarMap>")]
     symbol_defaults: indexmap::IndexMap<String, ScalarValue>,
     /// Theme mark defaults for rects
-    #[serde(skip)]
+    #[serde_as(as = "FromInto<SerializableScalarMap>")]
     rect_defaults: indexmap::IndexMap<String, ScalarValue>,
 }
 

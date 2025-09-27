@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ScaleSpec {
     /// Scale defined locally on this plot with configuration
-    #[serde(skip)]
     Local(Scale<Auto>),
 }
 

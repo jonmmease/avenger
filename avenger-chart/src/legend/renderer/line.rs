@@ -18,7 +18,6 @@ use std::sync::Arc;
 #[derive(Serialize, Deserialize)]
 pub struct CompiledLineLegend {
     /// Map of mark encodings from the plot
-    #[serde(skip)]
     mark_encodings: HashMap<String, crate::channel::ChannelValue>,
     /// Stroke cap and join settings from line marks
     stroke_cap: StrokeCap,

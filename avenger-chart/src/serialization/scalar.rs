@@ -1,49 +1,90 @@
 //! Serializable wrapper for ScalarValue
 
-use super::SerializableExpr;
-use crate::error::AvengerChartError;
-use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Wrapper for ScalarValue that implements Serialize/Deserialize
-/// by converting to/from a literal Expr
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerializableScalar {
-    expr: SerializableExpr,
-}
+/// using datafusion-proto-common's protobuf support
+#[derive(Debug, Clone, PartialEq)]
+pub struct SerializableScalar(pub ScalarValue);
 
 impl SerializableScalar {
     /// Create from a ScalarValue
-    pub fn from_scalar(scalar: ScalarValue) -> Result<Self, AvengerChartError> {
-        // Convert ScalarValue to literal Expr then serialize
-        let expr = lit(scalar);
-        Ok(Self {
-            expr: SerializableExpr::from_expr(expr)?,
-        })
+    pub fn new(scalar: ScalarValue) -> Self {
+        Self(scalar)
     }
 
-    /// Convert back to ScalarValue
-    pub fn to_scalar(
-        &self,
-        ctx: &datafusion::prelude::SessionContext,
-    ) -> Result<ScalarValue, AvengerChartError> {
-        // Deserialize as Expr then extract the literal value
-        let expr = self.expr.to_expr(ctx)?;
+    /// Get the inner ScalarValue
+    pub fn into_inner(self) -> ScalarValue {
+        self.0
+    }
 
-        // Extract scalar from literal expression
-        match expr {
-            Expr::Literal(scalar, _) => Ok(scalar),
-            _ => Err(AvengerChartError::InternalError(
-                "Expected literal expression when deserializing ScalarValue".to_string(),
-            )),
-        }
+    /// Get a reference to the inner ScalarValue
+    pub fn as_scalar(&self) -> &ScalarValue {
+        &self.0
     }
 }
 
-impl PartialEq for SerializableScalar {
-    fn eq(&self, other: &Self) -> bool {
-        // Use PartialEq implementation from SerializableExpr
-        self.expr == other.expr
+impl From<ScalarValue> for SerializableScalar {
+    fn from(scalar: ScalarValue) -> Self {
+        Self::new(scalar)
     }
 }
+
+impl From<SerializableScalar> for ScalarValue {
+    fn from(serializable: SerializableScalar) -> Self {
+        serializable.into_inner()
+    }
+}
+
+impl Serialize for SerializableScalar {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+        use prost::Message;
+
+        // Convert ScalarValue to protobuf
+        let proto_scalar = datafusion_proto_common::protobuf_common::ScalarValue::try_from(&self.0)
+            .map_err(|e| serde::ser::Error::custom(format!("Failed to convert to protobuf: {}", e)))?;
+
+        // Serialize to bytes
+        let mut buf = Vec::new();
+        proto_scalar.encode(&mut buf)
+            .map_err(|e| serde::ser::Error::custom(format!("Failed to encode protobuf: {}", e)))?;
+
+        // Encode as base64 for JSON compatibility
+        let base64_str = BASE64.encode(&buf);
+        serializer.serialize_str(&base64_str)
+    }
+}
+
+impl<'de> Deserialize<'de> for SerializableScalar {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+        use prost::Message;
+
+        // Deserialize as string
+        let base64_str = String::deserialize(deserializer)?;
+
+        // Decode base64
+        let buf = BASE64.decode(&base64_str)
+            .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64: {}", e)))?;
+
+        // Decode protobuf
+        let proto_scalar = datafusion_proto_common::protobuf_common::ScalarValue::decode(&buf[..])
+            .map_err(|e| serde::de::Error::custom(format!("Failed to decode protobuf: {}", e)))?;
+
+        // Convert back to ScalarValue
+        let scalar = ScalarValue::try_from(&proto_scalar)
+            .map_err(|e| serde::de::Error::custom(format!("Failed to convert from protobuf: {}", e)))?;
+
+        Ok(Self(scalar))
+    }
+}
+
+

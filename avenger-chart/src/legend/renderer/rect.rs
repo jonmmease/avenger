@@ -17,7 +17,6 @@ use std::collections::HashMap;
 #[derive(Default, Serialize, Deserialize)]
 pub struct CompiledRectLegend {
     /// Map of mark encodings from the plot
-    #[serde(skip)]
     mark_encodings: HashMap<String, ChannelValue>,
 }
 
