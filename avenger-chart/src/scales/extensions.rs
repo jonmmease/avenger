@@ -95,13 +95,30 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScale {
 
         let options_type = options_expr.get_type(&empty_schema)?;
 
-        // Create the scale UDF with the arrays directly from ConfiguredScale
-        let udf = create_scale_udf(
-            self.scale_impl.clone(),
-            domain_type.clone(),
-            range_type.clone(),
-            options_type,
-        )?;
+        // Create a minimal Scale<Auto> for serialization
+        // We just need to store the scale type so we can recreate the ScaleImpl on deserialization
+        use crate::scales::spec::*;
+
+        let scale_spec: Box<dyn ScaleSpec> = match self.scale_impl.scale_type() {
+            "linear" => Box::new(Linear),
+            "log" => Box::new(Log),
+            "sqrt" => Box::new(Sqrt),
+            "symlog" => Box::new(Symlog),
+            "pow" => Box::new(Pow),
+            "ordinal" => Box::new(Ordinal),
+            "band" => Box::new(Band),
+            "point" => Box::new(Point),
+            "time" => Box::new(Time),
+            "threshold" => Box::new(Threshold),
+            "quantile" => Box::new(Quantile),
+            "quantize" => Box::new(Quantize),
+            _ => Box::new(Auto),
+        };
+
+        let scale = crate::scales::Scale::<Auto>::from_spec(scale_spec);
+
+        // Create the scale UDF with the Scale<Auto>
+        let udf = create_scale_udf(scale, domain_type.clone(), range_type.clone(), options_type)?;
 
         // Convert arrays to ScalarValue::List for the UDF call
         let domain_scalar = array_to_list_scalar(self.config.domain.clone())?;
