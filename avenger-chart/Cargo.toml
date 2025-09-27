@@ -20,6 +20,7 @@ datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-proto = "48.0.1"
 prost = "0.13"
+futures = { workspace = true }
 base64 = { workspace = true }
 arrow = { workspace = true }
 tokio = { workspace = true, default-features = false }

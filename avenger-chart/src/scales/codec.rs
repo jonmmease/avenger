@@ -65,9 +65,53 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         schema: SchemaRef,
         ctx: &SessionContext,
     ) -> DataFusionResult<Arc<dyn TableProvider>> {
-        // Delegate to default codec
-        self.default_codec
-            .try_decode_table_provider(buf, table_ref, schema, ctx)
+        use datafusion::datasource::MemTable;
+
+        // Check if this is a serialized MemTable
+        const MEMTABLE_MAGIC: &[u8] = b"MEMTABLE_V1";
+        if buf.starts_with(MEMTABLE_MAGIC) {
+            // Skip magic header
+            let buf = &buf[MEMTABLE_MAGIC.len()..];
+
+            // Read the length of the serialized batches
+            if buf.len() < 8 {
+                return datafusion_common::plan_err!(
+                    "Invalid MemTable serialization: missing length"
+                );
+            }
+            let batch_len = u64::from_le_bytes([
+                buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
+            ]) as usize;
+
+            // Read the batch data
+            let batch_data = &buf[8..8 + batch_len];
+
+            // Deserialize the batches using Arrow IPC format
+            use datafusion::arrow::ipc::reader::StreamReader;
+            use std::io::Cursor;
+
+            let cursor = Cursor::new(batch_data);
+            let reader = StreamReader::try_new(cursor, None)
+                .map_err(|e| DataFusionError::External(Box::new(e)))?;
+
+            // Collect all batches
+            let mut batches = Vec::new();
+            for batch_result in reader {
+                let batch = batch_result
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                batches.push(batch);
+            }
+
+            // Create a new MemTable with the deserialized batches
+            // MemTable expects partitions, so we wrap our batches in a single partition
+            let mem_table = MemTable::try_new(schema, vec![batches])?;
+
+            Ok(Arc::new(mem_table))
+        } else {
+            // Delegate to default codec for other table types
+            self.default_codec
+                .try_decode_table_provider(buf, table_ref, schema, ctx)
+        }
     }
 
     fn try_encode_table_provider(
@@ -76,9 +120,68 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         node: Arc<dyn TableProvider>,
         buf: &mut Vec<u8>,
     ) -> DataFusionResult<()> {
-        // Delegate to default codec
-        self.default_codec
-            .try_encode_table_provider(table_ref, node, buf)
+        use datafusion::datasource::MemTable;
+
+        // Check if this is a MemTable
+        if let Some(mem_table) = node.as_any().downcast_ref::<MemTable>() {
+            // Serialize MemTable
+            // Write a magic header to identify this as a serialized MemTable
+            buf.extend_from_slice(b"MEMTABLE_V1");
+
+            // Get the record batches from the MemTable
+            // MemTable stores data as partitions of RecordBatches
+            use datafusion::execution::context::SessionState;
+            let state = SessionState::new_with_config_rt(
+                datafusion::execution::context::SessionConfig::default(),
+                Arc::new(datafusion::execution::runtime_env::RuntimeEnv::default()),
+            );
+            let batches = futures::executor::block_on(async {
+                mem_table.scan(&state, None, &[], None).await
+            })?;
+
+            // Collect all batches from the execution plan
+            use datafusion::physical_plan::ExecutionPlan;
+            use datafusion::arrow::record_batch::RecordBatch;
+            use datafusion::arrow::ipc::writer::StreamWriter;
+
+            let task_ctx = Arc::new(datafusion::execution::context::TaskContext::default());
+            let stream = batches.execute(0, task_ctx)?;
+
+            // Collect batches
+            let collected_batches: Vec<RecordBatch> = futures::executor::block_on(async {
+                use datafusion::arrow::error::Result as ArrowResult;
+                use futures::TryStreamExt;
+
+                stream.try_collect::<Vec<_>>().await
+            }).map_err(|e| DataFusionError::External(Box::new(e)))?;
+
+            // Serialize the batches using Arrow IPC format
+            let mut batch_buffer = Vec::new();
+            if !collected_batches.is_empty() {
+                let schema = collected_batches[0].schema();
+                let mut writer = StreamWriter::try_new(&mut batch_buffer, &schema)
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
+
+                for batch in &collected_batches {
+                    writer.write(batch)
+                        .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                }
+
+                writer.finish()
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
+            }
+
+            // Write the length of the serialized batches
+            buf.extend_from_slice(&(batch_buffer.len() as u64).to_le_bytes());
+            // Write the batches
+            buf.extend_from_slice(&batch_buffer);
+
+            Ok(())
+        } else {
+            // Delegate to default codec for other table types
+            self.default_codec
+                .try_encode_table_provider(table_ref, node, buf)
+        }
     }
 
     fn try_decode_file_format(
