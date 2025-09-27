@@ -22,14 +22,14 @@
 //! // Define channels where y2 references the y channel
 //! let mut channels = IndexMap::new();
 //! channels.insert("y".to_string(), ChannelValue::Scaled {
-//!     expr: col("value"),
+//!     expr: SerializableExpr::from_expr(col("value")).expect("Failed to serialize expr"),
 //!     scale_name: None,
 //!     band: None,
 //!     scale_config: None,
 //!     legend_config: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
-//!     expr: col(":y") + lit(10.0),  // References y channel
+//!     expr: SerializableExpr::from_expr(col(":y") + lit(10.0),  // References y channel
 //!     scale_name: None,
 //!     band: None,
 //!     scale_config: None,
@@ -66,7 +66,9 @@
 //! For typical visualizations with < 20 channels, this is very efficient.
 
 use super::value::ChannelValue;
+use crate::serialization::SerializableExpr;
 use datafusion::logical_expr::Expr;
+use datafusion::prelude::SessionContext;
 use datafusion_common::tree_node::{Transformed, TransformedResult, TreeNode};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -220,14 +222,15 @@ fn extract_channel_refs(expr: &Expr) -> HashSet<String> {
 /// Validate channel references for self-references and undefined channels
 fn validate_channel_refs(
     channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
 ) -> Result<(), ChannelResolutionError> {
     for (name, value) in channels {
         // Get all expressions from the channel value (handles conditionals too)
-        let exprs = value.all_exprs();
+        let exprs = value.all_exprs(ctx);
         let mut all_refs = HashSet::new();
 
         for expr in exprs {
-            let refs = extract_channel_refs(expr);
+            let refs = extract_channel_refs(&expr);
             all_refs.extend(refs);
         }
 
@@ -276,16 +279,17 @@ fn validate_channel_refs(
 /// Build dependency graph for channels
 fn build_dependency_graph(
     channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
 ) -> HashMap<String, HashSet<String>> {
     let mut graph = HashMap::new();
 
     for (name, value) in channels {
         // Get all expressions from the channel value (handles conditionals too)
-        let exprs = value.all_exprs();
+        let exprs = value.all_exprs(ctx);
         let mut all_deps = HashSet::new();
 
         for expr in exprs {
-            let deps = extract_channel_refs(expr);
+            let deps = extract_channel_refs(&expr);
             all_deps.extend(deps);
         }
 
@@ -299,8 +303,9 @@ fn build_dependency_graph(
 /// Returns the channels in dependency order or an error if there's a cycle
 fn topological_sort(
     channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
 ) -> Result<Vec<String>, ChannelResolutionError> {
-    let graph = build_dependency_graph(channels);
+    let graph = build_dependency_graph(channels, ctx);
     let mut in_degree: HashMap<String, usize> = HashMap::new();
     let mut result = Vec::new();
 
@@ -447,9 +452,17 @@ fn find_cycle_dfs(
 ///
 /// Replaces column references like ":x" with the actual expression
 /// from the corresponding channel.
-pub fn resolve_channel_refs(expr: Expr, channels: &IndexMap<String, ChannelValue>) -> Expr {
-    let original = expr.clone();
-    expr.transform(&|e| {
+pub fn resolve_channel_refs(expr: SerializableExpr, channels: &IndexMap<String, ChannelValue>, ctx: &SessionContext) -> SerializableExpr {
+    use datafusion::common::tree_node::Transformed;
+
+    // Convert to Expr for transformation
+    let expr_value = match expr.to_expr(ctx) {
+        Ok(e) => e,
+        Err(_) => return expr, // Return original if conversion fails
+    };
+
+    let original = expr_value.clone();
+    let resolved = expr_value.transform(&|e| {
         match &e {
             Expr::Column(c) if c.name.starts_with(':') => {
                 // This is a channel reference like ":x"
@@ -459,8 +472,8 @@ pub fn resolve_channel_refs(expr: Expr, channels: &IndexMap<String, ChannelValue
                 if let Some(channel_value) = channels.get(channel_name) {
                     // Return the expression directly (already resolved)
                     // For conditional values, we can't resolve here - keep as-is
-                    if let Some(expr) = channel_value.expr() {
-                        Ok(Transformed::yes(expr.clone()))
+                    if let Some(resolved_expr) = channel_value.expr(ctx) {
+                        Ok(Transformed::yes(resolved_expr))
                     } else {
                         // Conditional value - can't resolve yet
                         Ok(Transformed::no(e))
@@ -474,7 +487,10 @@ pub fn resolve_channel_refs(expr: Expr, channels: &IndexMap<String, ChannelValue
         }
     })
     .data()
-    .unwrap_or(original)
+    .unwrap_or(original);
+
+    // Convert back to SerializableExpr
+    SerializableExpr::from_expr(resolved).unwrap_or(expr)
 }
 
 /// Resolve all channel references in a mark's channels,
@@ -483,12 +499,13 @@ pub fn resolve_channel_refs(expr: Expr, channels: &IndexMap<String, ChannelValue
 /// Returns the resolved channels or an error if resolution fails
 pub fn resolve_all_channel_refs(
     channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
 ) -> Result<IndexMap<String, ChannelValue>, ChannelResolutionError> {
     // First validate all channel references
-    validate_channel_refs(channels)?;
+    validate_channel_refs(channels, ctx)?;
 
     // Get topological order
-    let order = topological_sort(channels)?;
+    let order = topological_sort(channels, ctx)?;
 
     // Resolve channels in topological order
     let mut resolved_channels = IndexMap::new();
@@ -504,7 +521,7 @@ pub fn resolve_all_channel_refs(
                     scale_config,
                     legend_config,
                 } => {
-                    let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels);
+                    let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels, ctx);
                     ChannelValue::Scaled {
                         expr: resolved_expr,
                         scale_name: scale_name.clone(),
@@ -514,7 +531,7 @@ pub fn resolve_all_channel_refs(
                     }
                 }
                 ChannelValue::Value { expr } => {
-                    let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels);
+                    let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels, ctx);
                     ChannelValue::Value {
                         expr: resolved_expr,
                     }
@@ -532,13 +549,13 @@ pub fn resolve_all_channel_refs(
                         .iter()
                         .map(|(test, value)| {
                             let resolved_test =
-                                resolve_channel_refs(test.clone(), &resolved_channels);
+                                resolve_channel_refs(test.clone(), &resolved_channels, ctx);
                             let resolved_value = match value {
                                 ConditionalValue::Scaled { expr } => ConditionalValue::Scaled {
-                                    expr: resolve_channel_refs(expr.clone(), &resolved_channels),
+                                    expr: resolve_channel_refs(expr.clone(), &resolved_channels, ctx),
                                 },
                                 ConditionalValue::Value { expr } => ConditionalValue::Value {
-                                    expr: resolve_channel_refs(expr.clone(), &resolved_channels),
+                                    expr: resolve_channel_refs(expr.clone(), &resolved_channels, ctx),
                                 },
                             };
                             (resolved_test, resolved_value)
@@ -547,10 +564,10 @@ pub fn resolve_all_channel_refs(
 
                     let resolved_otherwise = match otherwise {
                         ConditionalValue::Scaled { expr } => ConditionalValue::Scaled {
-                            expr: resolve_channel_refs(expr.clone(), &resolved_channels),
+                            expr: resolve_channel_refs(expr.clone(), &resolved_channels, ctx),
                         },
                         ConditionalValue::Value { expr } => ConditionalValue::Value {
-                            expr: resolve_channel_refs(expr.clone(), &resolved_channels),
+                            expr: resolve_channel_refs(expr.clone(), &resolved_channels, ctx),
                         },
                     };
 
@@ -574,14 +591,17 @@ pub fn resolve_all_channel_refs(
 mod tests {
     use super::*;
     use datafusion::logical_expr::{col, lit};
+    use datafusion::prelude::SessionContext;
+    use crate::serialization::SerializableExpr;
 
     #[test]
     fn test_simple_channel_reference() {
+        let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: col("value"),
+                expr: SerializableExpr::from_expr(col("value")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -591,7 +611,7 @@ mod tests {
         channels.insert(
             "x2".to_string(),
             ChannelValue::Scaled {
-                expr: col(":x") + lit(10.0),
+                expr: SerializableExpr::from_expr(col(":x") + lit(10.0)).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -599,28 +619,29 @@ mod tests {
             },
         );
 
-        let resolved = resolve_all_channel_refs(&channels).unwrap();
+        let resolved = resolve_all_channel_refs(&channels, &ctx).unwrap();
 
         // x should remain unchanged
         assert_eq!(
-            resolved.get("x").unwrap().expr().unwrap().to_string(),
+            resolved.get("x").unwrap().expr(&ctx).unwrap().to_string(),
             "value"
         );
 
         // x2 should have :x replaced with col("value")
         assert_eq!(
-            resolved.get("x2").unwrap().expr().unwrap().to_string(),
+            resolved.get("x2").unwrap().expr(&ctx).unwrap().to_string(),
             "value + Float64(10)"
         );
     }
 
     #[test]
     fn test_chain_references() {
+        let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
         channels.insert(
             "a".to_string(),
             ChannelValue::Scaled {
-                expr: col("base"),
+                expr: SerializableExpr::from_expr(col("base")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -630,7 +651,7 @@ mod tests {
         channels.insert(
             "b".to_string(),
             ChannelValue::Scaled {
-                expr: col(":a") * lit(2.0),
+                expr: SerializableExpr::from_expr(col(":a") * lit(2.0)).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -640,7 +661,7 @@ mod tests {
         channels.insert(
             "c".to_string(),
             ChannelValue::Scaled {
-                expr: col(":b") + lit(5.0),
+                expr: SerializableExpr::from_expr(col(":b") + lit(5.0)).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -648,34 +669,35 @@ mod tests {
             },
         );
 
-        let resolved = resolve_all_channel_refs(&channels).unwrap();
+        let resolved = resolve_all_channel_refs(&channels, &ctx).unwrap();
 
         // a should remain unchanged
         assert_eq!(
-            resolved.get("a").unwrap().expr().unwrap().to_string(),
+            resolved.get("a").unwrap().expr(&ctx).unwrap().to_string(),
             "base"
         );
 
         // b should have :a replaced
         assert_eq!(
-            resolved.get("b").unwrap().expr().unwrap().to_string(),
+            resolved.get("b").unwrap().expr(&ctx).unwrap().to_string(),
             "base * Float64(2)"
         );
 
         // c should have :b fully resolved
         assert_eq!(
-            resolved.get("c").unwrap().expr().unwrap().to_string(),
+            resolved.get("c").unwrap().expr(&ctx).unwrap().to_string(),
             "base * Float64(2) + Float64(5)"
         );
     }
 
     #[test]
     fn test_self_reference_error() {
+        let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: col(":x") + lit(1.0),
+                expr: SerializableExpr::from_expr(col(":x") + lit(1.0)).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -683,7 +705,7 @@ mod tests {
             },
         );
 
-        let result = resolve_all_channel_refs(&channels);
+        let result = resolve_all_channel_refs(&channels, &ctx);
         assert!(result.is_err());
 
         match result.unwrap_err() {
@@ -696,11 +718,12 @@ mod tests {
 
     #[test]
     fn test_cyclic_dependency_error() {
+        let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: col(":y"),
+                expr: SerializableExpr::from_expr(col(":y")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -710,7 +733,7 @@ mod tests {
         channels.insert(
             "y".to_string(),
             ChannelValue::Scaled {
-                expr: col(":x"),
+                expr: SerializableExpr::from_expr(col(":x")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -718,7 +741,7 @@ mod tests {
             },
         );
 
-        let result = resolve_all_channel_refs(&channels);
+        let result = resolve_all_channel_refs(&channels, &ctx);
         assert!(result.is_err());
 
         match result.unwrap_err() {
@@ -738,11 +761,12 @@ mod tests {
 
     #[test]
     fn test_undefined_channel_error() {
+        let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: col("value"),
+                expr: SerializableExpr::from_expr(col("value")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -752,7 +776,7 @@ mod tests {
         channels.insert(
             "y".to_string(),
             ChannelValue::Scaled {
-                expr: col(":bogus"),
+                expr: SerializableExpr::from_expr(col(":bogus")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -760,7 +784,7 @@ mod tests {
             },
         );
 
-        let result = resolve_all_channel_refs(&channels);
+        let result = resolve_all_channel_refs(&channels, &ctx);
         assert!(result.is_err());
 
         match result.unwrap_err() {
@@ -781,11 +805,12 @@ mod tests {
 
     #[test]
     fn test_multiple_references_in_expression() {
+        let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: col("a"),
+                expr: SerializableExpr::from_expr(col("a")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -795,7 +820,7 @@ mod tests {
         channels.insert(
             "y".to_string(),
             ChannelValue::Scaled {
-                expr: col("b"),
+                expr: SerializableExpr::from_expr(col("b")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -805,7 +830,7 @@ mod tests {
         channels.insert(
             "z".to_string(),
             ChannelValue::Scaled {
-                expr: col(":x") + col(":y"),
+                expr: SerializableExpr::from_expr(col(":x") + col(":y")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -813,27 +838,28 @@ mod tests {
             },
         );
 
-        let resolved = resolve_all_channel_refs(&channels).unwrap();
+        let resolved = resolve_all_channel_refs(&channels, &ctx).unwrap();
 
         // z should have both :x and :y resolved
         assert_eq!(
-            resolved.get("z").unwrap().expr().unwrap().to_string(),
+            resolved.get("z").unwrap().expr(&ctx).unwrap().to_string(),
             "a + b"
         );
     }
 
     #[test]
     fn test_identity_channel_preservation() {
+        let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
-        channels.insert("x".to_string(), ChannelValue::Value { expr: col("value") });
+        channels.insert("x".to_string(), ChannelValue::Value { expr: SerializableExpr::from_expr(col("value")).expect("Failed to serialize expr") });
         channels.insert(
             "y".to_string(),
             ChannelValue::Value {
-                expr: col(":x") * lit(2.0),
+                expr: SerializableExpr::from_expr(col(":x") * lit(2.0)).expect("Failed to serialize expr"),
             },
         );
 
-        let resolved = resolve_all_channel_refs(&channels).unwrap();
+        let resolved = resolve_all_channel_refs(&channels, &ctx).unwrap();
 
         // Both should remain Identity variants
         assert!(matches!(
@@ -847,13 +873,14 @@ mod tests {
 
         // y should have :x resolved
         assert_eq!(
-            resolved.get("y").unwrap().expr().unwrap().to_string(),
+            resolved.get("y").unwrap().expr(&ctx).unwrap().to_string(),
             "value * Float64(2)"
         );
     }
 
     #[test]
     fn test_complex_dependency_graph() {
+        let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
         // Create a diamond dependency pattern
         //     a
@@ -864,7 +891,7 @@ mod tests {
         channels.insert(
             "a".to_string(),
             ChannelValue::Scaled {
-                expr: col("base"),
+                expr: SerializableExpr::from_expr(col("base")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -874,7 +901,7 @@ mod tests {
         channels.insert(
             "b".to_string(),
             ChannelValue::Scaled {
-                expr: col(":a") * lit(2.0),
+                expr: SerializableExpr::from_expr(col(":a") * lit(2.0)).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -884,7 +911,7 @@ mod tests {
         channels.insert(
             "c".to_string(),
             ChannelValue::Scaled {
-                expr: col(":a") * lit(3.0),
+                expr: SerializableExpr::from_expr(col(":a") * lit(3.0)).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -894,7 +921,7 @@ mod tests {
         channels.insert(
             "d".to_string(),
             ChannelValue::Scaled {
-                expr: col(":b") + col(":c"),
+                expr: SerializableExpr::from_expr(col(":b") + col(":c")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -902,22 +929,23 @@ mod tests {
             },
         );
 
-        let resolved = resolve_all_channel_refs(&channels).unwrap();
+        let resolved = resolve_all_channel_refs(&channels, &ctx).unwrap();
 
         // d should have both paths resolved
         assert_eq!(
-            resolved.get("d").unwrap().expr().unwrap().to_string(),
+            resolved.get("d").unwrap().expr(&ctx).unwrap().to_string(),
             "base * Float64(2) + base * Float64(3)"
         );
     }
 
     #[test]
     fn test_error_message_formatting() {
+        let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
         channels.insert(
             "fill".to_string(),
             ChannelValue::Scaled {
-                expr: col("color"),
+                expr: SerializableExpr::from_expr(col("color")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -927,7 +955,7 @@ mod tests {
         channels.insert(
             "stroke".to_string(),
             ChannelValue::Scaled {
-                expr: col(":bogus"),
+                expr: SerializableExpr::from_expr(col(":bogus")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -935,7 +963,7 @@ mod tests {
             },
         );
 
-        let result = resolve_all_channel_refs(&channels);
+        let result = resolve_all_channel_refs(&channels, &ctx);
         let err = result.unwrap_err();
         let err_msg = err.to_string();
 
@@ -948,6 +976,7 @@ mod tests {
 
     #[test]
     fn test_similar_channel_suggestion() {
+        let ctx = SessionContext::new();
         let channels = vec!["fill".to_string(), "stroke".to_string(), "size".to_string()];
 
         // Test exact case-insensitive match

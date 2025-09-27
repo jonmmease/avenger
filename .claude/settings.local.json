@@ -56,7 +56,11 @@
       "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/taffy-0.8.3/src/**)",
       "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/taffy-0.8.3/**)",
       "Bash(AVENGER_DEBUG_LAYOUT=1 cargo test test_fixed_canvas_with_plot_aspect_ratio -- --nocapture)",
-      "Bash(AVENGER_CHART_DEBUG_LAYOUT=1 cargo test test_fixed_canvas_with_plot_aspect_ratio -- --nocapture)"
+      "Bash(AVENGER_CHART_DEBUG_LAYOUT=1 cargo test test_fixed_canvas_with_plot_aspect_ratio -- --nocapture)",
+      "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/datafusion-expr-48.0.1/src/logical_plan/**)",
+      "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/datafusion-expr-48.0.1/src/**)",
+      "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/datafusion-expr-48.0.1/**)",
+      "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/**)"
     ]
   },
   "enableAllProjectMcpServers": false

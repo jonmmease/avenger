@@ -206,7 +206,7 @@ impl CompiledPlot {
                 // Try to get the data type of the channel
                 if let Some(df) = df {
                     let schema = df.schema();
-                    if let Some(dt) = channel_value.get_data_type(schema, ctx) {
+                    if let Some(dt) = channel_value.get_data_type(schema) {
                         data_type = Some(dt.clone());
                         scale_spec = mark.preferred_scale_type(channel, &dt);
                         found_mark = Some(mark);
@@ -326,12 +326,12 @@ impl CompiledPlot {
                                     .map(|refs| !refs.is_empty())
                                     .unwrap_or(false)
                                     || value.expr(&context.session_context)
-                                        .ok()
-                                        .map(|e| !e.column_refs().is_empty())
+                                        .and_then(|e| e.column_refs())
+                                        .map(|refs| !refs.is_empty())
                                         .unwrap_or(false)
                             }) || otherwise.expr(&context.session_context)
-                                .ok()
-                                .map(|e| !e.column_refs().is_empty())
+                                .and_then(|e| e.column_refs())
+                                .map(|refs| !refs.is_empty())
                                 .unwrap_or(false)
                         }
                     });
@@ -364,11 +364,8 @@ impl CompiledPlot {
                     // Apply scaling if needed
                     match channel_value {
                         ChannelValue::Value { expr } => {
-                            // No scaling requested - convert to Expr
-                            if let Ok(expr_df) = expr.to_expr(&context.session_context) {
-                                return expr_df;
-                            }
-                            return lit(datafusion::common::ScalarValue::Null);
+                            // No scaling requested
+                            return expr.clone();
                         }
                         ChannelValue::Scaled {
                             expr,
@@ -442,10 +439,7 @@ impl CompiledPlot {
                         // Get the expressions - handle conditional values properly
                         match channel_value {
                             ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                                // Convert SerializableExpr to Expr
-                                if let Ok(expr_df) = expr.to_expr(&context.session_context) {
-                                    data_expressions.push((df.clone(), expr_df, radius_expr));
-                                }
+                                data_expressions.push((df.clone(), expr.clone(), radius_expr));
                             }
                             ChannelValue::Conditional {
                                 conditions,
@@ -520,12 +514,12 @@ impl CompiledPlot {
                                     .map(|refs| !refs.is_empty())
                                     .unwrap_or(false)
                                     || value.expr(ctx)
-                                        .ok()
-                                        .map(|e| !e.column_refs().is_empty())
+                                        .and_then(|e| e.column_refs())
+                                        .map(|refs| !refs.is_empty())
                                         .unwrap_or(false)
-                            }) || otherwise.expr(ctx)
-                                .ok()
-                                .map(|e| !e.column_refs().is_empty())
+                            }) || otherwise.expr(&context.session_context)
+                                .and_then(|e| e.column_refs())
+                                .map(|refs| !refs.is_empty())
                                 .unwrap_or(false)
                         }
                     });
@@ -557,10 +551,7 @@ impl CompiledPlot {
                         // Get the expressions - handle conditional values properly
                         match channel_value {
                             ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                                // Convert SerializableExpr to Expr
-                                if let Ok(expr_df) = expr.to_expr(ctx) {
-                                    data_expressions.push((df.clone(), expr_df));
-                                }
+                                data_expressions.push((df.clone(), expr.clone()));
                             }
                             ChannelValue::Conditional {
                                 conditions,
@@ -569,11 +560,11 @@ impl CompiledPlot {
                             } => {
                                 // Add expressions from all conditions and the otherwise branch
                                 for (_, value) in conditions {
-                                    if let Ok(expr) = value.expr(ctx) {
+                                    if let Ok(expr) = value.expr(&context.session_context) {
                                         data_expressions.push((df.clone(), expr));
                                     }
                                 }
-                                if let Ok(expr) = otherwise.expr(ctx) {
+                                if let Ok(expr) = otherwise.expr(&context.session_context) {
                                     data_expressions.push((df.clone(), expr));
                                 }
                             }
@@ -787,8 +778,8 @@ impl CompiledPlot {
 
         match channel_value {
             ChannelValue::Value { expr } => {
-                // No scaling requested, return expression as-is - convert to Expr
-                expr.to_expr(&SessionContext::new())
+                // No scaling requested, return expression as-is
+                Ok(expr.clone())
             }
             ChannelValue::Conditional {
                 conditions,
@@ -848,21 +839,18 @@ impl CompiledPlot {
                             // Apply scale transformation
                             if let Some(scale) = scales.get(&scale_key) {
                                 use crate::scales::ConfiguredScaleDataFusionExt;
-                                // Convert SerializableExpr to Expr first
-                                expr.to_expr(&SessionContext::new())
-                                    .and_then(|e| scale.to_expr(e))
+                                scale.to_expr(expr.clone())
                             } else {
-                                // No scale found, return expression as-is - convert to Expr
-                                expr.to_expr(&SessionContext::new())
+                                // No scale found, return expression as-is
+                                Ok(expr.clone())
                             }
                         }
                         ConditionalValue::Value { expr } => {
-                            // Pass through literal values unchanged - convert to Expr
-                            let expr_df = expr.to_expr(&SessionContext::new())?;
+                            // Pass through literal values unchanged
                             if needs_color_conversion {
-                                Ok(convert_color_literal(&expr_df))
+                                Ok(convert_color_literal(expr))
                             } else {
-                                Ok(expr_df)
+                                Ok(expr.clone())
                             }
                         }
                     }
@@ -871,16 +859,12 @@ impl CompiledPlot {
                 // Start with the first condition
                 let first_cond = &conditions[0];
                 let first_value = apply_to_conditional(&first_cond.1)?;
-                // Convert SerializableExpr to Expr
-                let first_cond_expr = first_cond.0.to_expr(&SessionContext::new())?;
-                let mut case_expr = when(first_cond_expr, first_value);
+                let mut case_expr = when(first_cond.0.clone(), first_value);
 
                 // Add remaining conditions
                 for (condition, value) in &conditions[1..] {
                     let scaled_value = apply_to_conditional(value)?;
-                    // Convert SerializableExpr to Expr
-                    let condition_expr = condition.to_expr(&SessionContext::new())?;
-                    case_expr = case_expr.when(condition_expr, scaled_value);
+                    case_expr = case_expr.when(condition.clone(), scaled_value);
                 }
 
                 // Add the otherwise clause
@@ -908,12 +892,10 @@ impl CompiledPlot {
 
                 // Apply the scale transformation
                 use crate::scales::ConfiguredScaleDataFusionExt;
-                // Convert SerializableExpr to Expr first
-                let expr_df = expr.to_expr(&SessionContext::new())?;
                 if let Some(band) = band {
-                    scale.to_expr_with_band(expr_df.clone(), *band)
+                    scale.to_expr_with_band(expr.clone(), *band)
                 } else {
-                    scale.to_expr(expr_df)
+                    scale.to_expr(expr.clone())
                 }
             }
         }

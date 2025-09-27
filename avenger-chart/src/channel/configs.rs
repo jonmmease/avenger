@@ -4,6 +4,7 @@ use crate::legend::{
     AngleLegendBuilder, ColorLegendBuilder, OpacityLegendBuilder, ShapeLegendBuilder,
     SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
+use crate::serialization::SerializableExpr;
 
 // Channel config for color channels (fill, stroke, color)
 pub struct ColorChannelConfig {
@@ -268,11 +269,11 @@ mod tests {
 
         let expected = ChannelValue::Conditional {
             conditions: vec![(
-                col("selected"),
-                ConditionalValue::Value { expr: lit("red") },
+                SerializableExpr::from_expr(col("selected")).expect("Failed to serialize expr"),
+                ConditionalValue::Value { expr: SerializableExpr::from_expr(lit("red")).expect("Failed to serialize expr") },
             )],
             otherwise: ConditionalValue::Scaled {
-                expr: col("temperature"),
+                expr: SerializableExpr::from_expr(col("temperature")).expect("Failed to serialize expr"),
             },
             scale_config: None,
             legend_config: None,
@@ -283,17 +284,17 @@ mod tests {
 
     #[test]
     fn test_color_config_when_scaled_on_identity() {
-        let config = ColorChannelConfig::new(ChannelValue::Value { expr: lit("blue") })
+        let config = ColorChannelConfig::new(ChannelValue::Value { expr: SerializableExpr::from_expr(lit("blue")).expect("Failed to serialize expr") })
             .when_scaled(col("important"), col("importance_score"));
 
         let expected = ChannelValue::Conditional {
             conditions: vec![(
-                col("important"),
+                SerializableExpr::from_expr(col("important")).expect("Failed to serialize expr"),
                 ConditionalValue::Scaled {
-                    expr: col("importance_score"),
+                    expr: SerializableExpr::from_expr(col("importance_score")).expect("Failed to serialize expr"),
                 },
             )],
-            otherwise: ConditionalValue::Value { expr: lit("blue") },
+            otherwise: ConditionalValue::Value { expr: SerializableExpr::from_expr(lit("blue")).expect("Failed to serialize expr") },
             scale_config: None,
             legend_config: None,
         };
@@ -311,20 +312,20 @@ mod tests {
         let expected = ChannelValue::Conditional {
             conditions: vec![
                 // Conditions now stored in order of addition
-                (col("error"), ConditionalValue::Value { expr: lit("red") }),
+                (SerializableExpr::from_expr(col("error")).expect("Failed to serialize expr"), ConditionalValue::Value { expr: SerializableExpr::from_expr(lit("red")).expect("Failed to serialize expr") }),
                 (
-                    col("warning"),
+                    SerializableExpr::from_expr(col("warning")).expect("Failed to serialize expr"),
                     ConditionalValue::Value {
-                        expr: lit("orange"),
+                        expr: SerializableExpr::from_expr(lit("orange")).expect("Failed to serialize expr"),
                     },
                 ),
                 (
-                    col("important"),
-                    ConditionalValue::Scaled { expr: col("score") },
+                    SerializableExpr::from_expr(col("important")).expect("Failed to serialize expr"),
+                    ConditionalValue::Scaled { expr: SerializableExpr::from_expr(col("score")).expect("Failed to serialize expr") },
                 ),
             ],
             otherwise: ConditionalValue::Scaled {
-                expr: col("default"),
+                expr: SerializableExpr::from_expr(col("default")).expect("Failed to serialize expr"),
             },
             scale_config: None,
             legend_config: None,
@@ -354,16 +355,16 @@ mod tests {
             assert_eq!(
                 conditions,
                 vec![(
-                    col("selected"),
+                    SerializableExpr::from_expr(col("selected")).expect("Failed to serialize expr"),
                     ConditionalValue::Value {
-                        expr: lit("#00ff00")
+                        expr: SerializableExpr::from_expr(lit("#00ff00")).expect("Failed to serialize expr")
                     }
                 )]
             );
             assert_eq!(
                 otherwise,
                 ConditionalValue::Scaled {
-                    expr: col("temperature")
+                    expr: SerializableExpr::from_expr(col("temperature")).expect("Failed to serialize expr")
                 }
             );
         } else {
@@ -395,14 +396,14 @@ mod tests {
             assert_eq!(
                 conditions,
                 vec![(
-                    col("selected"),
-                    ConditionalValue::Value { expr: lit("red") }
+                    SerializableExpr::from_expr(col("selected")).expect("Failed to serialize expr"),
+                    ConditionalValue::Value { expr: SerializableExpr::from_expr(lit("red")).expect("Failed to serialize expr") }
                 )]
             );
             assert_eq!(
                 otherwise,
                 ConditionalValue::Scaled {
-                    expr: col("temperature")
+                    expr: SerializableExpr::from_expr(col("temperature")).expect("Failed to serialize expr")
                 }
             );
         } else {
@@ -421,11 +422,11 @@ mod tests {
         let expected = ChannelValue::Conditional {
             conditions: vec![
                 // Conditions stored in order of addition
-                (col("a"), ConditionalValue::Value { expr: lit("red") }),
-                (col("b"), ConditionalValue::Value { expr: lit("blue") }),
-                (col("c"), ConditionalValue::Value { expr: lit("green") }),
+                (SerializableExpr::from_expr(col("a")).expect("Failed to serialize expr"), ConditionalValue::Value { expr: SerializableExpr::from_expr(lit("red")).expect("Failed to serialize expr") }),
+                (SerializableExpr::from_expr(col("b")).expect("Failed to serialize expr"), ConditionalValue::Value { expr: SerializableExpr::from_expr(lit("blue")).expect("Failed to serialize expr") }),
+                (SerializableExpr::from_expr(col("c")).expect("Failed to serialize expr"), ConditionalValue::Value { expr: SerializableExpr::from_expr(lit("green")).expect("Failed to serialize expr") }),
             ],
-            otherwise: ConditionalValue::Scaled { expr: col("base") },
+            otherwise: ConditionalValue::Scaled { expr: SerializableExpr::from_expr(col("base")).expect("Failed to serialize expr") },
             scale_config: None,
             legend_config: None,
         };

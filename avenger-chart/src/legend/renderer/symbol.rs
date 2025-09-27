@@ -404,10 +404,13 @@ impl LegendRenderer for CompiledSymbolLegend {
         // This ensures legends use the same visual properties as the marks
         if channels.iter().all(|c| c.channel_type != "stroke_width") {
             // Stroke width not varying - use constant if available
+            // Create a temporary SessionContext for get_constant_f32
+            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(width) = helpers::get_constant_f32(
                 "stroke_width",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
+                &session_context,
             ) {
                 legend_config.stroke_width = Some(width);
             }
@@ -415,10 +418,13 @@ impl LegendRenderer for CompiledSymbolLegend {
 
         if channels.iter().all(|c| c.channel_type != "angle") {
             // Angle not varying - use constant if available
+            // Create a temporary SessionContext for get_constant_f32
+            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(angle) = helpers::get_constant_f32(
                 "angle",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
+                &session_context,
             ) {
                 legend_config.angle = ScalarOrArray::new_scalar(angle);
             }
@@ -426,10 +432,13 @@ impl LegendRenderer for CompiledSymbolLegend {
 
         if channels.iter().all(|c| c.channel_type != "shape") {
             // Shape not varying - use constant if available
+            // Create a temporary SessionContext for get_constant_string
+            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(shape_str) = helpers::get_constant_string(
                 "shape",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
+                &session_context,
             ) {
                 legend_config.shape = ScalarOrArray::new_scalar(parse_shape(&shape_str)?);
             }
@@ -440,10 +449,13 @@ impl LegendRenderer for CompiledSymbolLegend {
             .all(|c| c.channel_type != "fill" && c.channel_type != "color")
         {
             // Fill not varying - use constant if available
+            // Create a temporary SessionContext for get_constant_color
+            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(color) = helpers::get_constant_color(
                 "fill",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
+                &session_context,
             ) {
                 legend_config.fill = ScalarOrArray::new_scalar(color);
             }
@@ -451,10 +463,13 @@ impl LegendRenderer for CompiledSymbolLegend {
 
         if channels.iter().all(|c| c.channel_type != "stroke") {
             // Stroke not varying - use constant if available
+            // Create a temporary SessionContext for get_constant_color
+            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(color) = helpers::get_constant_color(
                 "stroke",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
+                &session_context,
             ) {
                 legend_config.stroke = ScalarOrArray::new_scalar(color);
             }
@@ -475,10 +490,13 @@ impl LegendRenderer for CompiledSymbolLegend {
                 eprintln!("  default_size from theme: {}", default_size);
             }
 
+            // Create a temporary SessionContext for get_constant_f32
+            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(size_value) = helpers::get_constant_f32(
                 "size",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
+                &session_context,
             ) {
                 if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
                     eprintln!("  Found constant size: {}", size_value);

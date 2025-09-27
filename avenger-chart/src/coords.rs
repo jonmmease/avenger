@@ -69,6 +69,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         marks: &[Arc<dyn CompiledMark>],
+        session_context: &datafusion::prelude::SessionContext,
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>;
 
     /// Get default scale options for channels in this coordinate system
@@ -130,20 +131,22 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 /// # Arguments
 /// * `marks` - The marks in the plot
 /// * `channel` - The channel name to extract a title for
+/// * `session_context` - The session context for expression evaluation
 ///
 /// # Returns
 /// An optional string containing the column name if found
 pub fn extract_channel_title_from_marks(
     marks: &[Arc<dyn CompiledMark>],
     channel: &str,
+    session_context: &datafusion::prelude::SessionContext,
 ) -> Option<String> {
     // Look through marks to find a column name for this channel
     for mark in marks {
         if let Some(channel_value) = mark.data_context().channels().get(channel) {
             // Try to get column name if this references actual data
-            if let Some(col_name) = channel_value.as_column_name() {
+            if let Some(col_name) = channel_value.as_column_name(session_context) {
                 // Only use if it references actual columns
-                if let Some(expr) = channel_value.expr() {
+                if let Some(expr) = channel_value.expr(session_context) {
                     if !expr.column_refs().is_empty() {
                         return Some(col_name);
                     }
@@ -163,9 +166,9 @@ pub fn extract_channel_title_from_marks(
     for mark in marks {
         if let Some(channel_value) = mark.data_context().channels().get(secondary_channel) {
             // Try to get column name if this references actual data
-            if let Some(col_name) = channel_value.as_column_name() {
+            if let Some(col_name) = channel_value.as_column_name(session_context) {
                 // Only use if it references actual columns
-                if let Some(expr) = channel_value.expr() {
+                if let Some(expr) = channel_value.expr(session_context) {
                     if !expr.column_refs().is_empty() {
                         return Some(col_name);
                     }

@@ -39,6 +39,7 @@ impl DomainInferrer {
         scale_impl: &Arc<dyn ScaleImpl>,
         mut domain: ScaleDomain,
         range_hint: Option<(f64, f64)>,
+        ctx: &SessionContext,
     ) -> Result<ScaleDomain, AvengerChartError> {
         // Extract the default domain, replacing it temporarily
         let default_domain = std::mem::replace(
@@ -49,11 +50,11 @@ impl DomainInferrer {
         if let ScaleDefaultDomain::DomainExprs(data_fields) = default_domain {
             // Process radius-aware domains first, transforming fields in place
             let processed_fields =
-                Self::process_radius_domains(scale_impl, data_fields, range_hint).await?;
+                Self::process_radius_domains(scale_impl, data_fields, range_hint, ctx).await?;
 
             // Process standard domain inference
             let inferred_domain =
-                Self::infer_standard_domain(scale_impl, &processed_fields).await?;
+                Self::infer_standard_domain(scale_impl, &processed_fields, ctx).await?;
             domain.default_domain = inferred_domain;
         } else {
             // Restore the original domain if it wasn't DomainExprs
@@ -69,6 +70,7 @@ impl DomainInferrer {
         scale_impl: &Arc<dyn ScaleImpl>,
         mut data_fields: Vec<DomainExpr>,
         range_hint: Option<(f64, f64)>,
+        ctx: &SessionContext,
     ) -> Result<Vec<DomainExpr>, AvengerChartError> {
         // Only process radius domains for numeric continuous scales with a range hint
         let is_numeric_continuous = scale_impl.domain_kind() == DomainKind::Numeric
@@ -85,6 +87,7 @@ impl DomainInferrer {
                             &field.expr,
                             radius_expr,
                             range,
+                            ctx,
                         )
                         .await?;
 
@@ -101,33 +104,42 @@ impl DomainInferrer {
 
     /// Compute domain with radius-aware padding
     async fn compute_radius_aware_domain(
-        dataframe: &Arc<DataFrame>,
-        position_expr: &datafusion::logical_expr::Expr,
+        dataframe: &Arc<crate::serialization::SerializableDataFrame>,
+        position_expr: &crate::serialization::SerializableExpr,
         radius_expr: &RadiusExpression,
         range_hint: (f64, f64),
+        ctx: &SessionContext,
     ) -> Result<Option<DomainExpr>, AvengerChartError> {
         let (range_min, range_max) = range_hint;
         let range_width = (range_max - range_min).abs();
 
+        // Convert SerializableExpr to Expr
+        let position_expr_df = position_expr.to_expr(ctx)?;
+
         // Select both position and radius expressions
         let select_exprs = match radius_expr {
             RadiusExpression::Symmetric(expr) => {
+                let radius_expr_df = expr.to_expr(ctx)?;
                 vec![
-                    position_expr.clone().alias(POSITION_COL),
-                    expr.clone().alias(RADIUS_LOWER_COL),
-                    expr.clone().alias(RADIUS_UPPER_COL),
+                    position_expr_df.alias(POSITION_COL),
+                    radius_expr_df.clone().alias(RADIUS_LOWER_COL),
+                    radius_expr_df.alias(RADIUS_UPPER_COL),
                 ]
             }
             RadiusExpression::Asymmetric { lower, upper } => {
+                let lower_expr_df = lower.to_expr(ctx)?;
+                let upper_expr_df = upper.to_expr(ctx)?;
                 vec![
-                    position_expr.clone().alias(POSITION_COL),
-                    lower.clone().alias(RADIUS_LOWER_COL),
-                    upper.clone().alias(RADIUS_UPPER_COL),
+                    position_expr_df.alias(POSITION_COL),
+                    lower_expr_df.alias(RADIUS_LOWER_COL),
+                    upper_expr_df.alias(RADIUS_UPPER_COL),
                 ]
             }
         };
 
-        let df_with_exprs = dataframe.as_ref().clone().select(select_exprs)?;
+        // Convert SerializableDataFrame to DataFrame and select
+        let df = dataframe.to_dataframe(ctx)?;
+        let df_with_exprs = df.select(select_exprs)?;
         let batches = df_with_exprs.collect().await?;
 
         if batches.is_empty() || batches[0].num_rows() == 0 {
@@ -217,12 +229,15 @@ impl DomainInferrer {
         )]));
         let batch = RecordBatch::try_new(schema, vec![Arc::new(domain_array)])?;
 
-        let ctx = SessionContext::new();
         let domain_df = Arc::new(ctx.read_batch(batch)?);
+        let domain_df_ser = Arc::new(crate::serialization::SerializableDataFrame::from_dataframe(
+            domain_df.as_ref().clone()
+        )?);
+        let expr_ser = crate::serialization::SerializableExpr::from_expr(col(DOMAIN_FIELD))?;
 
         Ok(Some(DomainExpr {
-            dataframe: domain_df,
-            expr: col(DOMAIN_FIELD),
+            dataframe: domain_df_ser,
+            expr: expr_ser,
             radius: None,
         }))
     }
@@ -231,25 +246,30 @@ impl DomainInferrer {
     async fn infer_standard_domain(
         scale_impl: &Arc<dyn ScaleImpl>,
         data_fields: &[DomainExpr],
+        ctx: &SessionContext,
     ) -> Result<ScaleDefaultDomain, AvengerChartError> {
         // Collect all data into single-column DataFrames
         let mut single_col_dfs: Vec<DataFrame> = Vec::new();
 
         for field in data_fields {
-            let df = field.dataframe.clone();
+            // Convert SerializableDataFrame to DataFrame
+            let df = field.dataframe.to_dataframe(ctx)?;
+
+            // Convert SerializableExpr to Expr
+            let expr_df = field.expr.to_expr(ctx)?;
 
             // For scales expecting categorical domains, cast numeric values to strings
             let expr = if scale_impl.domain_kind() == DomainKind::Categorical {
                 // Categorical scales expect string domains
                 use datafusion::arrow::datatypes::DataType;
                 use datafusion::logical_expr::cast;
-                cast(field.expr.clone(), DataType::Utf8)
+                cast(expr_df, DataType::Utf8)
             } else {
                 // Numeric and Temporal scales use values as-is
-                field.expr.clone()
+                expr_df
             };
 
-            let df_with_expr = df.as_ref().clone().select(vec![expr.alias(DOMAIN_COL)])?;
+            let df_with_expr = df.select(vec![expr.alias(DOMAIN_COL)])?;
 
             single_col_dfs.push(df_with_expr);
         }
@@ -258,7 +278,10 @@ impl DomainInferrer {
         let union_df = if single_col_dfs.is_empty() {
             // No data to infer from - return default interval
             use datafusion::logical_expr::lit;
-            return Ok(ScaleDefaultDomain::Interval(lit(0.0), Box::new(lit(1.0))));
+            use crate::serialization::SerializableExpr;
+            let start = SerializableExpr::from_expr(lit(0.0))?;
+            let end = SerializableExpr::from_expr(lit(1.0))?;
+            return Ok(ScaleDefaultDomain::Interval(start, Box::new(end)));
         } else if single_col_dfs.len() > 1 {
             let mut result = single_col_dfs[0].clone();
             for df in single_col_dfs.iter().skip(1) {
@@ -283,7 +306,6 @@ impl DomainInferrer {
         };
 
         // Evaluate the domain expression
-        let ctx = SessionContext::new();
         let empty_df = ctx.read_empty()?;
         let result_df = empty_df.select(vec![domain_expr.alias(DOMAIN_RESULT_COL)])?;
         let batches = result_df.collect().await?;
@@ -330,19 +352,24 @@ impl DomainInferrer {
             if inner_array.len() >= 2 {
                 let min_val = ScalarValue::try_from_array(&inner_array, 0)?;
                 let max_val = ScalarValue::try_from_array(&inner_array, inner_array.len() - 1)?;
+                use crate::serialization::SerializableExpr;
+                let min_expr = SerializableExpr::from_expr(lit(min_val))?;
+                let max_expr = SerializableExpr::from_expr(lit(max_val))?;
                 Ok(ScaleDefaultDomain::Interval(
-                    lit(min_val),
-                    Box::new(lit(max_val)),
+                    min_expr,
+                    Box::new(max_expr),
                 ))
             } else {
                 Ok(ScaleDefaultDomain::Discrete(vec![]))
             }
         } else {
             // For discrete domains, extract all values
+            use crate::serialization::SerializableExpr;
             let mut values = Vec::new();
             for i in 0..inner_array.len() {
                 let val = ScalarValue::try_from_array(&inner_array, i)?;
-                values.push(lit(val));
+                let expr = SerializableExpr::from_expr(lit(val))?;
+                values.push(expr);
             }
             Ok(ScaleDefaultDomain::Discrete(values))
         }

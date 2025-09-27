@@ -35,7 +35,7 @@ async fn test_margins_expand_with_fixed_canvas_and_plot() -> Result<(), Box<dyn 
 
     // This should succeed with the plot centered in the canvas
     let compiled = plot.compile().await.unwrap();
-    canvas.render_plot(&compiled).await?;
+    canvas.render_plot(&compiled, &ctx).await?;
 
     Ok(())
 }
@@ -70,7 +70,7 @@ async fn test_margins_with_canvas_and_plot_width() -> Result<(), Box<dyn std::er
 
     // This should succeed with horizontal margins expanded
     let compiled = plot.compile().await.unwrap();
-    canvas.render_plot(&compiled).await?;
+    canvas.render_plot(&compiled, &ctx).await?;
 
     Ok(())
 }
@@ -105,7 +105,7 @@ async fn test_margins_with_canvas_and_plot_height() -> Result<(), Box<dyn std::e
 
     // This should succeed with vertical margins expanded
     let compiled = plot.compile().await.unwrap();
-    canvas.render_plot(&compiled).await?;
+    canvas.render_plot(&compiled, &ctx).await?;
 
     Ok(())
 }

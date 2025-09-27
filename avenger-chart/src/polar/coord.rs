@@ -43,6 +43,7 @@ impl CoordinateSystem for Polar {
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         marks: &[Arc<dyn crate::marks::CompiledMark>],
+        session_context: &datafusion::prelude::SessionContext,
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         let mut default_axes = HashMap::new();
 
@@ -58,7 +59,7 @@ impl CoordinateSystem for Polar {
                 let mut axis = PolarAxis::new().axis_type(axis_type).grid(true); // Both radial and angular axes should show grid by default
 
                 // Extract title from mark encodings
-                if let Some(title) = extract_channel_title_from_marks(marks, channel) {
+                if let Some(title) = extract_channel_title_from_marks(marks, channel, session_context) {
                     axis = axis.title(title);
                 }
 

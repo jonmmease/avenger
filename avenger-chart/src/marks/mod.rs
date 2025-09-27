@@ -23,8 +23,10 @@ use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
+use crate::serialization::SerializableExpr;
 use datafusion::logical_expr::Expr;
 use datafusion::scalar::ScalarValue;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -32,16 +34,16 @@ use std::sync::Arc;
 ///
 /// Used to determine how much space a mark needs beyond its base position,
 /// accounting for visual properties like size, stroke width, etc.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RadiusExpression {
     /// Same radius in all directions (e.g., circular symbols)
-    Symmetric(Expr),
+    Symmetric(SerializableExpr),
     /// Different radius for negative and positive directions (e.g., bars extending from baseline)
     Asymmetric {
         /// Radius in the negative direction
-        lower: Expr,
+        lower: SerializableExpr,
         /// Radius in the positive direction
-        upper: Expr,
+        upper: SerializableExpr,
     },
 }
 

@@ -277,7 +277,9 @@ impl CompiledMark for CompiledCartesianSymbol {
                 use datafusion::functions::expr_fn::sqrt;
                 let radius_expr = sqrt(size_expr) * lit(0.5) + stroke_width_expr / lit(2.0);
 
-                Some(RadiusExpression::Symmetric(radius_expr))
+                use crate::serialization::SerializableExpr;
+                let radius_expr_ser = SerializableExpr::from_expr(radius_expr).expect("Failed to serialize expr");
+                Some(RadiusExpression::Symmetric(radius_expr_ser))
             }
             _ => None,
         }

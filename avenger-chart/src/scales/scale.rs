@@ -6,12 +6,14 @@ use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 use crate::scales::domain_inference::DomainInferrer;
 use crate::scales::range::ScaleRange;
 use crate::scales::spec::*;
+use crate::serialization::SerializableExpr;
 use crate::utils::{ScalarValueHelpers, eval_to_scalars, scalar_to_scalar_value};
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
 use palette::Srgba;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -34,12 +36,13 @@ fn infer_default_domain(scale_impl: &Arc<dyn ScaleImpl>) -> ScaleDomain {
 }
 
 /// Type-safe scale with compile-time method resolution
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Scale<S: ScaleSpec = Auto> {
     pub(crate) scale_spec: Maybe<Box<dyn ScaleSpec>>,
     pub(crate) domain: Maybe<ScaleDomain>,
     pub(crate) range: Maybe<ScaleRange>,
-    options: HashMap<String, Expr>,
+    options: HashMap<String, SerializableExpr>,
+    #[serde(skip)]
     pub(crate) _phantom: PhantomData<S>,
 }
 
@@ -83,7 +86,8 @@ impl<S: ScaleSpec> Scale<S> {
         let mut options = HashMap::new();
         for (key, value) in spec.default_options() {
             let scalar_value = scalar_to_scalar_value(&value);
-            options.insert(key, lit(scalar_value));
+            let expr = lit(scalar_value);
+            options.insert(key, SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"));
         }
 
         Self {
@@ -170,12 +174,13 @@ impl<S: ScaleSpec> Scale<S> {
 
     /// Set domain from data field
     pub fn domain_data(mut self, dataframe: Arc<DataFrame>, expr: Expr) -> Self {
+        use crate::serialization::{SerializableDataFrame, SerializableExpr};
         let mut domain = self
             .domain
             .unwrap_or(ScaleDomain::new_interval(lit(0.0), lit(1.0)));
         domain.default_domain = ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
-            dataframe,
-            expr,
+            dataframe: Arc::new(SerializableDataFrame::from_dataframe((*dataframe).clone()).expect("Failed to serialize dataframe")),
+            expr: SerializableExpr::from_expr(expr).expect("Failed to serialize expr"),
             radius: None,
         }]);
         self.domain = Maybe::Set(domain);
@@ -184,11 +189,12 @@ impl<S: ScaleSpec> Scale<S> {
 
     /// Set domain from data fields
     pub fn domain_data_fields(mut self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
+        use crate::serialization::{SerializableDataFrame, SerializableExpr};
         let exprs = fields
             .into_iter()
             .map(|(df, expr)| DomainExpr {
-                dataframe: df,
-                expr,
+                dataframe: Arc::new(SerializableDataFrame::from_dataframe((*df).clone()).expect("Failed to serialize dataframe")),
+                expr: SerializableExpr::from_expr(expr).expect("Failed to serialize expr"),
                 radius: None,
             })
             .collect();
@@ -205,11 +211,12 @@ impl<S: ScaleSpec> Scale<S> {
         mut self,
         fields: Vec<(Arc<DataFrame>, Expr, Option<crate::marks::RadiusExpression>)>,
     ) -> Self {
+        use crate::serialization::{SerializableDataFrame, SerializableExpr};
         let exprs = fields
             .into_iter()
             .map(|(df, expr, radius)| DomainExpr {
-                dataframe: df,
-                expr,
+                dataframe: Arc::new(SerializableDataFrame::from_dataframe((*df).clone()).expect("Failed to serialize dataframe")),
+                expr: SerializableExpr::from_expr(expr).expect("Failed to serialize expr"),
                 radius,
             })
             .collect();
@@ -257,7 +264,8 @@ impl<S: ScaleSpec> Scale<S> {
     /// Regular users should use the typed methods or Scale<Auto>::option()
     #[doc(hidden)]
     pub fn _option(mut self, key: impl Into<String>, value: impl Into<Expr>) -> Self {
-        self.options.insert(key.into(), value.into());
+        let expr = value.into();
+        self.options.insert(key.into(), SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"));
         self
     }
 
@@ -285,7 +293,8 @@ impl<S: ScaleSpec> Scale<S> {
                 // Only add if not already present
                 if !options.contains_key(&key) {
                     let scalar_value = scalar_to_scalar_value(&value);
-                    options.insert(key, lit(scalar_value));
+                    let expr = lit(scalar_value);
+                    options.insert(key, SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"));
                 }
             }
         }
@@ -332,7 +341,7 @@ impl<S: ScaleSpec> Scale<S> {
         self.range.as_option()
     }
 
-    pub fn get_options(&self) -> &HashMap<String, Expr> {
+    pub fn get_options(&self) -> &HashMap<String, SerializableExpr> {
         &self.options
     }
 
@@ -366,6 +375,7 @@ impl<S: ScaleSpec> Scale<S> {
         mut self,
         _plot_area_width: f32,
         _plot_area_height: f32,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Self, AvengerChartError> {
         // Get scale implementation (required for inference)
         let scale_impl = self.get_scale_impl_or_err()?;
@@ -373,8 +383,10 @@ impl<S: ScaleSpec> Scale<S> {
         // Calculate range hint for radius-aware padding
         let range_hint = match self.range.as_ref() {
             Maybe::Set(ScaleRange::Numeric(start, end)) => {
+                let start_expr = start.to_expr(ctx)?;
+                let end_expr = end.to_expr(ctx)?;
                 let scalars =
-                    eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;
+                    eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
                 if scalars.len() == 2 {
                     Some((scalars[0].as_f64()?, scalars[1].as_f64()?))
                 } else {
@@ -387,7 +399,7 @@ impl<S: ScaleSpec> Scale<S> {
         // Infer domain using DomainInferrer - unwrap the Maybe<ScaleDomain> or use a default
         let current_domain = self.domain.unwrap_or(infer_default_domain(&scale_impl));
         let inferred_domain =
-            DomainInferrer::infer(&scale_impl, current_domain, range_hint).await?;
+            DomainInferrer::infer(&scale_impl, current_domain, range_hint, ctx).await?;
         self.domain = Maybe::Set(inferred_domain);
         Ok(self)
     }
@@ -397,6 +409,7 @@ impl<S: ScaleSpec> Scale<S> {
         mut self,
         plot_area_width: f32,
         plot_area_height: f32,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Self, AvengerChartError> {
         // Skip for non-numeric ranges
         if !matches!(self.range.as_ref(), Maybe::Set(ScaleRange::Numeric(_, _))) {
@@ -418,7 +431,7 @@ impl<S: ScaleSpec> Scale<S> {
 
         // Create ConfiguredScale to apply normalization
         let configured = self
-            .create_configured_scale(plot_area_width, plot_area_height)
+            .create_configured_scale(plot_area_width, plot_area_height, ctx)
             .await?;
 
         // Update domain with normalized values
@@ -436,6 +449,7 @@ impl<S: ScaleSpec> Scale<S> {
         &self,
         _plot_area_width: f32,
         _plot_area_height: f32,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
         use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
         use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
@@ -459,8 +473,10 @@ impl<S: ScaleSpec> Scale<S> {
                 ));
             }
             ScaleDefaultDomain::Interval(start, end) => {
+                let start_expr = start.to_expr(ctx)?;
+                let end_expr = end.to_expr(ctx)?;
                 let scalars =
-                    eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;
+                    eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
                 let [start_val, end_val] = scalars.as_slice() else {
                     return Err(AvengerChartError::InternalError(
                         "Expected two scalar values for interval domain".to_string(),
@@ -473,7 +489,10 @@ impl<S: ScaleSpec> Scale<S> {
             }
             ScaleDefaultDomain::Discrete(values) => {
                 // Determine domain type based on scale's domain kind
-                let scalars = eval_to_scalars(values.clone(), None, None).await?;
+                let exprs: Vec<Expr> = values.iter()
+                    .map(|v| v.to_expr(ctx))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let scalars = eval_to_scalars(exprs, Some(ctx), None).await?;
 
                 match scale_impl.domain_kind() {
                     DomainKind::Numeric => {
@@ -513,8 +532,10 @@ impl<S: ScaleSpec> Scale<S> {
         // Extract range values - use default if not set
         let range = match self.range.as_ref() {
             Maybe::Set(ScaleRange::Numeric(start, end)) => {
+                let start_expr = start.to_expr(ctx)?;
+                let end_expr = end.to_expr(ctx)?;
                 let scalars =
-                    eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;
+                    eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
                 let [start_val, end_val] = scalars.as_slice() else {
                     return Err(AvengerChartError::InternalError(
                         "Expected two scalar values for numeric range".to_string(),
@@ -526,20 +547,25 @@ impl<S: ScaleSpec> Scale<S> {
                 Arc::new(Float32Array::from(vec![start_f32, end_f32])) as ArrayRef
             }
             Maybe::Set(ScaleRange::Discrete(values)) => {
+                // Convert SerializableScalar values back to ScalarValue
+                let scalar_values: Vec<ScalarValue> = values.iter()
+                    .map(|v| v.to_scalar(ctx))
+                    .collect::<Result<Vec<_>, _>>()?;
+
                 // Check if all values are numeric - if so, keep as Float32Array
                 // This handles cases like stroke_width which uses ordinal scale with numeric range
-                let all_numeric = values.iter().all(|v| v.as_f32().is_ok());
+                let all_numeric = scalar_values.iter().all(|v| v.as_f32().is_ok());
 
                 if all_numeric {
                     let mut float_values = Vec::new();
-                    for scalar in values {
+                    for scalar in &scalar_values {
                         float_values.push(scalar.as_f32()?);
                     }
                     Arc::new(Float32Array::from(float_values)) as ArrayRef
                 } else {
                     // For non-numeric discrete values, convert to strings
                     let mut string_values = Vec::new();
-                    for scalar in values {
+                    for scalar in &scalar_values {
                         string_values.push(scalar.as_scalar_string()?);
                     }
                     Arc::new(StringArray::from(string_values)) as ArrayRef
@@ -553,12 +579,12 @@ impl<S: ScaleSpec> Scale<S> {
                 let mut list_builder = ListBuilder::new(Float32Builder::new());
 
                 for color in colors {
-                    // Append a new list entry for this color
+                    // Append a new list entry for this color (color is [r, g, b, a])
                     let values_builder = list_builder.values();
-                    values_builder.append_value(color.red);
-                    values_builder.append_value(color.green);
-                    values_builder.append_value(color.blue);
-                    values_builder.append_value(color.alpha);
+                    values_builder.append_value(color[0]); // red
+                    values_builder.append_value(color[1]); // green
+                    values_builder.append_value(color[2]); // blue
+                    values_builder.append_value(color[3]); // alpha
                     list_builder.append(true);
                 }
 
@@ -576,7 +602,8 @@ impl<S: ScaleSpec> Scale<S> {
         // First apply user-set options (including scale-type defaults like Sqrt's exponent)
         for (key, value_expr) in &self.options {
             // Evaluate the expression to get a scalar value
-            let scalars = eval_to_scalars(vec![value_expr.clone()], None, None).await?;
+            let expr = value_expr.to_expr(ctx)?;
+            let scalars = eval_to_scalars(vec![expr], Some(ctx), None).await?;
             if let Some(scalar_value) = scalars.first() {
                 // Convert to avenger_scales::scalar::Scalar
                 let scalar = scalar_value.as_scale_scalar()?;
@@ -787,7 +814,8 @@ impl Scale<Ordinal> {
 impl Scale<Time> {
     /// Set whether to nice the domain to time intervals
     pub fn nice(mut self, value: bool) -> Self {
-        self.options.insert("nice".to_string(), lit(value));
+        let expr = lit(value);
+        self.options.insert("nice".to_string(), SerializableExpr::from_expr(expr).expect("Failed to serialize option expr"));
         self
         // self._option("nice", lit(value))
     }

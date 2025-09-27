@@ -34,6 +34,7 @@ impl CoordinateSystem for Cartesian {
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         marks: &[Arc<dyn crate::marks::CompiledMark>],
+        session_context: &datafusion::prelude::SessionContext,
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         let mut default_axes = HashMap::new();
 
@@ -42,7 +43,7 @@ impl CoordinateSystem for Cartesian {
         for channel in ["x", "y"] {
             if scales.get(channel).is_some() {
                 // Extract title from mark encodings, fall back to channel name if not found
-                let title = extract_channel_title_from_marks(marks, channel);
+                let title = extract_channel_title_from_marks(marks, channel, session_context);
 
                 // Determine if grid should be enabled based on scale type
                 let grid = if let Some(scale) = scales.get(channel) {
