@@ -231,6 +231,7 @@ pub mod helpers {
         channel_name: &str,
         related_channels: &HashMap<String, super::ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
+        session_context: &datafusion::prelude::SessionContext,
     ) -> Option<ScalarValue> {
         // First check related_channels
         match related_channels.get(channel_name) {
@@ -250,7 +251,7 @@ pub mod helpers {
 
         // Fallback to mark_encodings
         if let Some(channel_value) = mark_encodings.get(channel_name) {
-            if let Some(expr) = channel_value.expr() {
+            if let Some(expr) = channel_value.expr(session_context) {
                 if expr.column_refs().is_empty() {
                     // Try to simplify - this handles literals and simple expressions
                     if let Ok(scalar) = crate::utils::simplify_to_scalar_sync(expr.clone()) {
@@ -268,8 +269,9 @@ pub mod helpers {
         channel_name: &str,
         related_channels: &HashMap<String, super::ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
+        session_context: &datafusion::prelude::SessionContext,
     ) -> Option<ColorOrGradient> {
-        if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings) {
+        if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings, session_context) {
             // Try to convert to color
             if let Ok(color_array) = ScalarValue::iter_to_array(std::iter::once(scalar)) {
                 use avenger_scales::scales::coerce::Coercer;
@@ -289,8 +291,9 @@ pub mod helpers {
         channel_name: &str,
         related_channels: &HashMap<String, super::ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
+        session_context: &datafusion::prelude::SessionContext,
     ) -> Option<f32> {
-        if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings) {
+        if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings, session_context) {
             scalar.as_f32().ok()
         } else {
             None
@@ -302,9 +305,10 @@ pub mod helpers {
         channel_name: &str,
         related_channels: &HashMap<String, super::ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
+        session_context: &datafusion::prelude::SessionContext,
     ) -> Option<String> {
         if let Some(ScalarValue::Utf8(Some(s))) =
-            get_constant_scalar(channel_name, related_channels, mark_encodings)
+            get_constant_scalar(channel_name, related_channels, mark_encodings, session_context)
         {
             return Some(s);
         }

@@ -99,10 +99,13 @@ impl LegendRenderer for CompiledRectLegend {
         );
 
         // Get size value - use constant from mark if available
+        // Create a temporary SessionContext for helper functions
+        let session_context = datafusion::prelude::SessionContext::new();
         let size_value = helpers::get_constant_f32(
             "size",
             &primary_channel.related_channels,
             &self.mark_encodings,
+            &session_context,
         )
         .unwrap_or(default_size as f32);
 
@@ -198,30 +201,39 @@ impl LegendRenderer for CompiledRectLegend {
 
         // Use constant values from mark if available (and not the legend channel itself)
         if channel_name != "fill" && channel_name != "color" {
+            // Create a temporary SessionContext for get_constant_color
+            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(color) = helpers::get_constant_color(
                 "fill",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
+                &session_context,
             ) {
                 legend_config.fill = ScalarOrArray::new_scalar(color);
             }
         }
 
         if channel_name != "stroke" {
+            // Create a temporary SessionContext for get_constant_color
+            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(color) = helpers::get_constant_color(
                 "stroke",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
+                &session_context,
             ) {
                 legend_config.stroke = ScalarOrArray::new_scalar(color);
             }
         }
 
         if channel_name != "stroke_width" {
+            // Create a temporary SessionContext for get_constant_f32
+            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(width) = helpers::get_constant_f32(
                 "stroke_width",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
+                &session_context,
             ) {
                 legend_config.stroke_width = Some(width);
             }

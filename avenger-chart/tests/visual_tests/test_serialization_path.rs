@@ -10,6 +10,9 @@ use datafusion::prelude::col;
 
 #[tokio::test]
 async fn test_serialization_rendering_path() {
+    use datafusion::prelude::SessionContext;
+    let ctx = SessionContext::new();
+
     // Create a function to build the plot so we can create it twice
     let build_plot = || {
         Plot::new()
@@ -32,7 +35,7 @@ async fn test_serialization_rendering_path() {
 
     // Render from the original built plot (not the deserialized one)
     // to ensure consistent results for the visual test
-    let render_result = compiled.render().await.expect("Failed to render plot");
+    let render_result = compiled.render(&ctx).await.expect("Failed to render plot");
 
     // Create canvas and render
     let dimensions = CanvasDimensions {

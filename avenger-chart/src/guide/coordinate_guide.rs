@@ -29,6 +29,7 @@ pub trait CoordinateGuideBuilder: Clone + Default {
     fn set_mark_renderers(
         &mut self,
         mark_renderers: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
+        session_context: &datafusion::prelude::SessionContext,
     );
 
     fn update(&mut self, other: Self);

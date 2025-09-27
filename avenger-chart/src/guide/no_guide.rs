@@ -32,6 +32,7 @@ impl CoordinateGuideBuilder for NoGuide {
     fn set_mark_renderers(
         &mut self,
         _mark_renderers: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
+        _session_context: &datafusion::prelude::SessionContext,
     ) {
         // No-op for systems without axes
     }

@@ -9,7 +9,6 @@ use std::sync::Arc;
 /// State shared by all mark types
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MarkState {
-    #[serde(skip)]
     pub data: DataContext,
 
     // Faceting behavior for this mark

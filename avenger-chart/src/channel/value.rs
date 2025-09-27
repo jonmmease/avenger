@@ -1,6 +1,9 @@
 use crate::legend::Legend;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
+use crate::serialization::SerializableExpr;
 use datafusion::logical_expr::{Expr, lit};
+use datafusion::prelude::SessionContext;
+use serde::{Deserialize, Serialize};
 
 /// Helper to format floats nicely (avoid unnecessary decimals)
 fn format_float(f: f64) -> String {
@@ -85,17 +88,24 @@ fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
 }
 
 /// Value for conditional encoding branches
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConditionalValue {
     /// Value that gets scaled
-    Scaled { expr: Expr },
+    Scaled { expr: SerializableExpr },
     /// Literal value that bypasses scaling
-    Value { expr: Expr },
+    Value { expr: SerializableExpr },
 }
 
 impl ConditionalValue {
     /// Get the expression from this conditional value
-    pub fn expr(&self) -> &Expr {
+    pub fn expr(&self, ctx: &SessionContext) -> Result<Expr, crate::error::AvengerChartError> {
+        match self {
+            ConditionalValue::Scaled { expr } | ConditionalValue::Value { expr } => expr.to_expr(ctx),
+        }
+    }
+
+    /// Get the internal serializable expression
+    pub(crate) fn expr_ref(&self) -> &SerializableExpr {
         match self {
             ConditionalValue::Scaled { expr } | ConditionalValue::Value { expr } => expr,
         }
@@ -108,11 +118,11 @@ impl ConditionalValue {
 }
 
 /// Represents a channel encoding value
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ChannelValue {
     /// Expression that will be transformed through a scale
     Scaled {
-        expr: Expr,
+        expr: SerializableExpr,
         /// Optional custom scale name (defaults to channel name)
         scale_name: Option<String>,
         /// Band parameter for band scales (0.0 = start of band, 1.0 = end of band)
@@ -123,11 +133,11 @@ pub enum ChannelValue {
         legend_config: Option<Legend>,
     },
     /// Expression that bypasses scaling (identity transformation)
-    Value { expr: Expr },
+    Value { expr: SerializableExpr },
     /// Conditional encoding with multiple branches
     Conditional {
         /// List of (condition, value) pairs
-        conditions: Vec<(Expr, ConditionalValue)>,
+        conditions: Vec<(SerializableExpr, ConditionalValue)>,
         /// Default value when no conditions match
         otherwise: ConditionalValue,
         /// Optional scale configuration (applies to all Field branches)
@@ -147,13 +157,13 @@ impl std::fmt::Debug for ChannelValue {
                 ..
             } => f
                 .debug_struct("Scaled")
-                .field("expr", expr)
+                .field("expr", &format!("<SerializableExpr>"))
                 .field("scale_name", scale_name)
                 .field("band", band)
                 .field("has_scale_config", &self.has_scale_config())
                 .field("has_legend_config", &self.has_legend_config())
                 .finish(),
-            ChannelValue::Value { expr } => f.debug_struct("Identity").field("expr", expr).finish(),
+            ChannelValue::Value { expr } => f.debug_struct("Identity").field("expr", &format!("<SerializableExpr>")).finish(),
             ChannelValue::Conditional {
                 conditions,
                 otherwise,
@@ -210,7 +220,16 @@ impl ChannelValue {
 impl ChannelValue {
     /// Get the expression (for non-conditional values)
     /// For conditional values, returns None since there are multiple expressions
-    pub fn expr(&self) -> Option<&Expr> {
+    pub fn expr(&self, ctx: &SessionContext) -> Option<Expr> {
+        match self {
+            ChannelValue::Scaled { expr, .. } => expr.to_expr(ctx).ok(),
+            ChannelValue::Value { expr } => expr.to_expr(ctx).ok(),
+            ChannelValue::Conditional { .. } => None,
+        }
+    }
+
+    /// Get the internal serializable expression (for non-conditional values)
+    pub(crate) fn expr_ref(&self) -> Option<&SerializableExpr> {
         match self {
             ChannelValue::Scaled { expr, .. } => Some(expr),
             ChannelValue::Value { expr } => Some(expr),
@@ -219,9 +238,11 @@ impl ChannelValue {
     }
 
     /// Get all expressions from this channel value
-    pub fn all_exprs(&self) -> Vec<&Expr> {
+    pub fn all_exprs(&self, ctx: &SessionContext) -> Vec<Expr> {
         match self {
-            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => vec![expr],
+            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                expr.to_expr(ctx).ok().into_iter().collect()
+            }
             ChannelValue::Conditional {
                 conditions,
                 otherwise,
@@ -229,10 +250,16 @@ impl ChannelValue {
             } => {
                 let mut exprs = Vec::new();
                 for (cond, val) in conditions {
-                    exprs.push(cond);
-                    exprs.push(val.expr());
+                    if let Ok(e) = cond.to_expr(ctx) {
+                        exprs.push(e);
+                    }
+                    if let Ok(e) = val.expr(ctx) {
+                        exprs.push(e);
+                    }
                 }
-                exprs.push(otherwise.expr());
+                if let Ok(e) = otherwise.expr(ctx) {
+                    exprs.push(e);
+                }
                 exprs
             }
         }
@@ -265,11 +292,11 @@ impl ChannelValue {
                 legend_config,
                 ..
             } => ChannelValue::Scaled {
-                expr,
-                scale_name,
+                expr: expr.clone(),
+                scale_name: scale_name.clone(),
                 band: Some(band),
-                scale_config,
-                legend_config,
+                scale_config: scale_config.clone(),
+                legend_config: legend_config.clone(),
             },
             other => other, // No-op for identity and conditional values
         }
@@ -285,11 +312,11 @@ impl ChannelValue {
                 legend_config,
                 ..
             } => ChannelValue::Scaled {
-                expr,
+                expr: expr.clone(),
                 scale_name: Some(name.into()),
                 band,
-                scale_config,
-                legend_config,
+                scale_config: scale_config.clone(),
+                legend_config: legend_config.clone(),
             },
             ChannelValue::Value { expr } => {
                 // Convert to scaled with custom scale
@@ -415,8 +442,8 @@ impl ChannelValue {
     /// Extract a human-readable name from the expression.
     /// Returns column names directly, literal values without type wrapper,
     /// function names for function calls, or the expression's string representation.
-    pub fn as_column_name(&self) -> Option<String> {
-        self.expr().map(expr_to_string)
+    pub fn as_column_name(&self, ctx: &SessionContext) -> Option<String> {
+        self.expr(ctx).map(|e| expr_to_string(&e))
     }
 
     /// Get the data type of this channel value.
@@ -425,19 +452,20 @@ impl ChannelValue {
     pub fn get_data_type(
         &self,
         schema: &datafusion::common::DFSchema,
+        ctx: &SessionContext,
     ) -> Option<datafusion::arrow::datatypes::DataType> {
         use datafusion::logical_expr::ExprSchemable;
 
         let expr = match self {
-            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr,
+            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr.to_expr(ctx).ok()?,
             ChannelValue::Conditional { otherwise, .. } => {
                 // For conditional channels, use the 'otherwise' expression for type inference
-                otherwise.expr()
+                otherwise.expr(ctx).ok()?
             }
         };
 
         // Skip channel references - they need to be resolved first
-        if let Expr::Column(c) = expr {
+        if let Expr::Column(c) = &expr {
             if c.name.starts_with(':') {
                 return None;
             }
@@ -458,7 +486,7 @@ pub(crate) fn strip_trailing_numbers(name: &str) -> &str {
 impl From<&str> for ChannelValue {
     fn from(s: &str) -> Self {
         // Always treat strings as literals - identity by default
-        ChannelValue::Value { expr: lit(s) }
+        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(s)).expect("Failed to serialize expr") }
     }
 }
 
@@ -466,7 +494,7 @@ impl From<&str> for ChannelValue {
 impl From<Expr> for ChannelValue {
     fn from(expr: Expr) -> Self {
         ChannelValue::Scaled {
-            expr,
+            expr: SerializableExpr::from_expr(expr).expect("Failed to serialize expression"),
             scale_name: None,
             band: None,
             scale_config: None,
@@ -478,31 +506,31 @@ impl From<Expr> for ChannelValue {
 // Numeric literals default to identity
 impl From<f64> for ChannelValue {
     fn from(v: f64) -> Self {
-        ChannelValue::Value { expr: lit(v) }
+        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
     }
 }
 
 impl From<f32> for ChannelValue {
     fn from(v: f32) -> Self {
-        ChannelValue::Value { expr: lit(v) }
+        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
     }
 }
 
 impl From<i32> for ChannelValue {
     fn from(v: i32) -> Self {
-        ChannelValue::Value { expr: lit(v) }
+        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
     }
 }
 
 impl From<i64> for ChannelValue {
     fn from(v: i64) -> Self {
-        ChannelValue::Value { expr: lit(v) }
+        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
     }
 }
 
 impl From<bool> for ChannelValue {
     fn from(v: bool) -> Self {
-        ChannelValue::Value { expr: lit(v) }
+        ChannelValue::Value { expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr") }
     }
 }
 
@@ -556,6 +584,8 @@ mod tests {
 
     #[test]
     fn test_smart_string_conversion() {
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
         // All strings should be identity literals
         let cv: ChannelValue = "red".into();
         assert!(matches!(cv, ChannelValue::Value { .. }));
@@ -570,7 +600,9 @@ mod tests {
 
         // Check the expression is a literal
         if let ChannelValue::Value { expr } = cv {
-            assert!(matches!(expr, Expr::Literal(..)));
+            // Convert SerializableExpr back to Expr to check if it's a literal
+            let datafusion_expr = expr.to_expr(&ctx).unwrap();
+            assert!(matches!(datafusion_expr, datafusion::logical_expr::Expr::Literal(..), ));
         }
     }
 
@@ -589,89 +621,93 @@ mod tests {
         use super::ConditionalValue;
         use datafusion::functions::expr_fn::sqrt;
         use datafusion::logical_expr::col;
+        use datafusion::prelude::SessionContext;
+        use crate::serialization::SerializableExpr;
+
+        let ctx = SessionContext::new();
 
         // Test column reference
         let cv: ChannelValue = col("my_column").into();
-        assert_eq!(cv.as_column_name(), Some("my_column".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("my_column".to_string()));
 
         // Test integer literals
         let cv: ChannelValue = 42.into();
-        assert_eq!(cv.as_column_name(), Some("42".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("42".to_string()));
 
         let cv: ChannelValue = (-100i32).into();
-        assert_eq!(cv.as_column_name(), Some("-100".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("-100".to_string()));
 
         // Test float literals
         let cv: ChannelValue = 3.5.into();
-        assert_eq!(cv.as_column_name(), Some("3.5".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("3.5".to_string()));
 
         let cv: ChannelValue = 5.0.into();
-        assert_eq!(cv.as_column_name(), Some("5".to_string())); // Should format as integer
+        assert_eq!(cv.as_column_name(&ctx), Some("5".to_string())); // Should format as integer
 
         let cv: ChannelValue = 1000.0.into();
-        assert_eq!(cv.as_column_name(), Some("1000".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("1000".to_string()));
 
         // Test string literals
         let cv: ChannelValue = "hello".into();
-        assert_eq!(cv.as_column_name(), Some("hello".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("hello".to_string()));
 
         let cv: ChannelValue = "#ff0000".into();
-        assert_eq!(cv.as_column_name(), Some("#ff0000".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("#ff0000".to_string()));
 
         // Test boolean literals
         let cv: ChannelValue = true.into();
-        assert_eq!(cv.as_column_name(), Some("true".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("true".to_string()));
 
         let cv: ChannelValue = false.into();
-        assert_eq!(cv.as_column_name(), Some("false".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("false".to_string()));
 
         // Test null literal
         let cv: ChannelValue = ChannelValue::Value {
-            expr: lit(datafusion::scalar::ScalarValue::Null),
+            expr: SerializableExpr::from_expr(lit(datafusion::scalar::ScalarValue::Null)).expect("Failed to serialize expr"),
         };
-        assert_eq!(cv.as_column_name(), Some("null".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("null".to_string()));
 
         // Test function call with arguments
         let cv: ChannelValue = sqrt(col("x")).into();
-        assert_eq!(cv.as_column_name(), Some("sqrt(x)".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("sqrt(x)".to_string()));
 
         // Test function with literal argument
         let cv: ChannelValue = sqrt(lit(16.0)).into();
-        assert_eq!(cv.as_column_name(), Some("sqrt(16)".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("sqrt(16)".to_string()));
 
         // Test nested function calls
         use datafusion::functions::expr_fn::abs;
         let cv: ChannelValue = sqrt(abs(col("x"))).into();
-        assert_eq!(cv.as_column_name(), Some("sqrt(abs(x))".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("sqrt(abs(x))".to_string()));
 
         // Test function with multiple arguments (using pow as example)
         use datafusion::functions::expr_fn::power;
         let cv: ChannelValue = power(col("x"), lit(2)).into();
-        assert_eq!(cv.as_column_name(), Some("power(x, 2)".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("power(x, 2)".to_string()));
 
         // Test function with string arguments (should be quoted in function context)
         use datafusion::functions::expr_fn::concat;
         let cv: ChannelValue = concat(vec![lit("hello"), lit("world")]).into();
         assert_eq!(
-            cv.as_column_name(),
+            cv.as_column_name(&ctx),
             Some("concat('hello', 'world')".to_string())
         );
 
         // Test complex expression (now returns the expression string)
         let cv: ChannelValue = (col("x") + col("y")).into();
-        assert_eq!(cv.as_column_name(), Some("x + y".to_string()));
+        assert_eq!(cv.as_column_name(&ctx), Some("x + y".to_string()));
 
         // Test conditional value (should return None - no single name)
         let cv = ChannelValue::Conditional {
             conditions: vec![(
-                col("category").eq(lit("A")),
-                ConditionalValue::Value { expr: lit("red") },
+                SerializableExpr::from_expr(col("category").eq(lit("A"))).expect("Failed to serialize expr"),
+                ConditionalValue::Value { expr: SerializableExpr::from_expr(lit("red")).expect("Failed to serialize expr") },
             )],
-            otherwise: ConditionalValue::Scaled { expr: col("color") },
+            otherwise: ConditionalValue::Scaled { expr: SerializableExpr::from_expr(col("color")).expect("Failed to serialize expr") },
             scale_config: None,
             legend_config: None,
         };
         // Conditional values don't have a single column name
-        assert_eq!(cv.as_column_name(), None);
+        assert_eq!(cv.as_column_name(&ctx), None);
     }
 }

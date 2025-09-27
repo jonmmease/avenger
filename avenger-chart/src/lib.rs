@@ -14,6 +14,37 @@ pub mod render;
 // render_context moved to render/context
 pub mod maybe;
 pub mod scales;
+pub mod serialization;
 pub mod theme;
 pub mod utils;
 pub mod zerod;
+
+#[cfg(test)]
+mod serialization_tests {
+    use crate::channel::value::ChannelValue;
+    use crate::serialization::SerializableExpr;
+    use datafusion::prelude::*;
+
+    #[test]
+    fn test_channel_value_serialization() {
+        // Test that we can create a ChannelValue with SerializableExpr
+        let expr = col("test");
+        let ser_expr = SerializableExpr::from_expr(expr).expect("Failed to serialize expr");
+
+        let channel = ChannelValue::Scaled {
+            expr: ser_expr.clone(),
+            scale_name: Some("x".to_string()),
+            band: None,
+            scale_config: None,
+            legend_config: None,
+        };
+
+        // Serialize to JSON
+        let json = serde_json::to_string_pretty(&channel).expect("Failed to serialize to JSON");
+        println!("Serialized ChannelValue:\n{}", json);
+
+        // Deserialize back
+        let _deserialized: ChannelValue = serde_json::from_str(&json).expect("Failed to deserialize from JSON");
+        println!("✓ Successfully deserialized ChannelValue");
+    }
+}

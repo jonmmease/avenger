@@ -38,7 +38,6 @@ pub struct CartesianGuide {
     /// Coordinate-system-level options
     pub options: CartesianOptions,
     /// Channel titles extracted from mark renderers
-    #[serde(skip)]
     pub channel_titles: HashMap<String, String>,
 }
 
@@ -120,10 +119,10 @@ impl CoordinateGuideBuilder for CartesianGuide {
         self.axes = axes;
     }
 
-    fn set_mark_renderers(&mut self, mark_renderers: Vec<Arc<dyn crate::marks::CompiledMark>>) {
+    fn set_mark_renderers(&mut self, mark_renderers: Vec<Arc<dyn crate::marks::CompiledMark>>, session_context: &datafusion::prelude::SessionContext) {
         // Extract titles from mark renderers immediately
         for channel in ["x", "y"] {
-            if let Some(title) = extract_channel_title_from_marks(&mark_renderers, channel) {
+            if let Some(title) = extract_channel_title_from_marks(&mark_renderers, channel, session_context) {
                 self.channel_titles.insert(channel.to_string(), title);
             }
         }

@@ -28,10 +28,10 @@ impl Default for VisualTestConfig {
 }
 
 /// Render a plot to an image, automatically handling canvas sizing based on layout spec
-pub async fn render_plot<C: CoordinateSystem>(plot: Plot<C>) -> RgbaImage {
+pub async fn render_plot<C: CoordinateSystem>(plot: Plot<C>, ctx: &datafusion::prelude::SessionContext) -> RgbaImage {
     // Use the new CompiledPlot for rendering!
     let compiled = plot.compile().await.expect("Failed to compile plot");
-    let render_result = compiled.render().await.expect("Failed to render plot");
+    let render_result = compiled.render(ctx).await.expect("Failed to render plot");
 
     // The scene graph contains the correct canvas dimensions for any mode
     let canvas_width = render_result.scene_graph.width;
@@ -64,7 +64,8 @@ pub trait PlotTestExt: Sized {
 
 impl<C: CoordinateSystem> PlotTestExt for Plot<C> {
     async fn to_image(self) -> RgbaImage {
-        render_plot(self).await
+        let ctx = datafusion::prelude::SessionContext::new();
+        render_plot(self, &ctx).await
     }
 }
 

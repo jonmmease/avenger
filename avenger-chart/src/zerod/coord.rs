@@ -44,6 +44,7 @@ impl CoordinateSystem for ZeroDCoord {
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _marks: &[Arc<dyn crate::marks::CompiledMark>],
+        _session_context: &datafusion::prelude::SessionContext,
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
         // No axes exist in zero-dimensional space
         HashMap::new()

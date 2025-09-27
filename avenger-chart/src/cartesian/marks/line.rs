@@ -518,9 +518,11 @@ impl CompiledMark for CompiledCartesianLine {
     ) -> Option<RadiusExpression> {
         match dimension {
             "y" => {
+                use crate::serialization::SerializableExpr;
                 let stroke_width_expr = resolve_channel("stroke_width");
                 let radius_expr = stroke_width_expr * lit(2.0);
-                Some(RadiusExpression::Symmetric(radius_expr))
+                let radius_expr_ser = SerializableExpr::from_expr(radius_expr).expect("Failed to serialize expr");
+                Some(RadiusExpression::Symmetric(radius_expr_ser))
             }
             "x" => None,
             _ => None,

@@ -39,7 +39,9 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Try to resolve channel references, but if it fails (e.g., due to conditional references),
         // we still want to extract configs from non-reference channels
-        let resolved_encodings = match resolve_all_channel_refs(encodings) {
+        // Create a temporary SessionContext for resolution - we're only extracting configs, not evaluating
+        let temp_ctx = datafusion::prelude::SessionContext::new();
+        let resolved_encodings = match resolve_all_channel_refs(encodings, &temp_ctx) {
             Ok(resolved) => resolved,
             Err(_) => {
                 // Resolution failed (probably due to conditional references)
@@ -122,6 +124,7 @@ impl<C: CoordinateSystem> Plot<C> {
         encodings: &'a IndexMap<String, ChannelValue>,
         configured_scales: &'a HashMap<String, ConfiguredScale>,
         context: &'a RenderContext,
+        ctx: &'a datafusion::prelude::SessionContext,
     ) -> impl Fn(&str) -> datafusion::logical_expr::Expr + 'a {
         use crate::channel::value::strip_trailing_numbers;
         use datafusion::prelude::lit;
@@ -133,7 +136,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 match channel_value {
                     ChannelValue::Value { expr } => {
                         // No scaling requested
-                        expr.clone()
+                        expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null))
                     }
                     ChannelValue::Scaled {
                         expr,
@@ -152,16 +155,16 @@ impl<C: CoordinateSystem> Plot<C> {
                             // Use ConfiguredScale.to_expr()
                             if let Some(band_value) = band {
                                 configured
-                                    .to_expr_with_band(expr.clone(), *band_value)
-                                    .unwrap_or_else(|_| expr.clone())
+                                    .to_expr_with_band(expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null)), *band_value)
+                                    .unwrap_or_else(|_| expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null)))
                             } else {
                                 configured
-                                    .to_expr(expr.clone())
-                                    .unwrap_or_else(|_| expr.clone())
+                                    .to_expr(expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null)))
+                                    .unwrap_or_else(|_| expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null)))
                             }
                         } else {
                             // No scale configured for this channel - use raw expression
-                            expr.clone()
+                            expr.to_expr(ctx).unwrap_or_else(|_| lit(datafusion::scalar::ScalarValue::Null))
                         }
                     }
                     ChannelValue::Conditional { .. } => {
@@ -183,6 +186,7 @@ impl<C: CoordinateSystem> Plot<C> {
     pub(crate) fn create_default_scale_for_channel_internal(
         &self,
         channel: &str,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Scale, AvengerChartError> {
         // Try to infer the data type and use mark-based scale preferences
         let mut scale_spec = None;
@@ -194,7 +198,7 @@ impl<C: CoordinateSystem> Plot<C> {
             let channels = mark.data_context().channels();
 
             // Try to resolve channel references first
-            let resolved_channels = match resolve_all_channel_refs(channels) {
+            let resolved_channels = match resolve_all_channel_refs(channels, ctx) {
                 Ok(resolved) => resolved,
                 Err(e) => {
                     // If resolution failed (e.g., due to cycles), return an error
@@ -217,7 +221,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 // Try to get the data type of the channel
                 if let Some(df) = df {
                     let schema = df.schema();
-                    if let Some(dt) = channel_value.get_data_type(schema) {
+                    if let Some(dt) = channel_value.get_data_type(schema, ctx) {
                         data_type = Some(dt.clone());
                         scale_spec = mark.preferred_scale_type(channel, &dt);
                         found_mark = Some(mark);
@@ -237,7 +241,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // Create render context with theme for scale defaults
         // Use placeholder dimensions since we're not rendering yet
         let theme = self.get_theme();
-        let context = RenderContext::new(theme, 0.0, 0.0);
+        let context = RenderContext::new(theme, 0.0, 0.0, std::sync::Arc::new(ctx.clone()));
 
         // Create scale with theme-based defaults
         let mut scale = create_default_scale_for_channel(channel, scale_spec, &context)?;
@@ -290,13 +294,14 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn gather_scale_domain_expressions(
         &self,
         scale_name: &str,
+        _ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)>, AvengerChartError> {
         let mut data_expressions = Vec::new();
 
         for mark in &self.mark_renderers {
             // Get channels and resolve references first to check if columns are referenced
             let channels = mark.data_context().channels();
-            let resolved_channels = resolve_all_channel_refs(channels)?;
+            let resolved_channels = resolve_all_channel_refs(channels, _ctx)?;
 
             // Check if any expressions reference columns
             let references_columns =
@@ -304,7 +309,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     .values()
                     .any(|channel_value| match channel_value {
                         ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                            !expr.column_refs().is_empty()
+                            expr.column_refs(_ctx).map(|refs| !refs.is_empty()).unwrap_or(false)
                         }
                         ChannelValue::Conditional {
                             conditions,
@@ -312,9 +317,9 @@ impl<C: CoordinateSystem> Plot<C> {
                             ..
                         } => {
                             conditions.iter().any(|(condition, value)| {
-                                !condition.column_refs().is_empty()
-                                    || !value.expr().column_refs().is_empty()
-                            }) || !otherwise.expr().column_refs().is_empty()
+                                condition.column_refs(_ctx).map(|refs| !refs.is_empty()).unwrap_or(false)
+                                    || value.expr(_ctx).ok().map(|e| !e.column_refs().is_empty()).unwrap_or(false)
+                            }) || otherwise.expr(_ctx).ok().map(|e| !e.column_refs().is_empty()).unwrap_or(false)
                         }
                     });
 
@@ -344,7 +349,9 @@ impl<C: CoordinateSystem> Plot<C> {
                         // Get the expressions - handle conditional values properly
                         match channel_value {
                             ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                                data_expressions.push((df.clone(), expr.clone()));
+                                if let Ok(expr_df) = expr.to_expr(_ctx) {
+                                    data_expressions.push((df.clone(), expr_df));
+                                }
                             }
                             ChannelValue::Conditional {
                                 conditions,
@@ -357,14 +364,18 @@ impl<C: CoordinateSystem> Plot<C> {
                                 // Add field expressions from conditions
                                 for (_, value) in conditions {
                                     if let ConditionalValue::Scaled { expr } = value {
-                                        data_expressions.push((df.clone(), expr.clone()));
+                                        if let Ok(expr_df) = expr.to_expr(_ctx) {
+                                            data_expressions.push((df.clone(), expr_df));
+                                        }
                                     }
                                     // Skip ConditionalValue::Value as those are literals
                                 }
 
                                 // Add field expression from otherwise branch if it's a field
                                 if let ConditionalValue::Scaled { expr } = otherwise {
-                                    data_expressions.push((df.clone(), expr.clone()));
+                                    if let Ok(expr_df) = expr.to_expr(_ctx) {
+                                        data_expressions.push((df.clone(), expr_df));
+                                    }
                                 }
                             }
                         }
@@ -391,7 +402,7 @@ impl<C: CoordinateSystem> Plot<C> {
         let needs_radius = matches!(scale_name, "x" | "y");
         if !needs_radius {
             // For non-positional scales, return without radius
-            for (df, expr) in self.gather_scale_domain_expressions(scale_name)? {
+            for (df, expr) in self.gather_scale_domain_expressions(scale_name, &context.session_context)? {
                 data_expressions.push((df, expr, None));
             }
             return Ok(data_expressions);
@@ -401,7 +412,7 @@ impl<C: CoordinateSystem> Plot<C> {
             // Get channels and resolve references first
             let encodings = mark.data_context().channels();
             let resolved_encodings =
-                crate::channel::resolution::resolve_all_channel_refs(encodings)?;
+                crate::channel::resolution::resolve_all_channel_refs(encodings, &context.session_context)?;
 
             // Check if any expressions reference columns
             let references_columns =
@@ -409,7 +420,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     .values()
                     .any(|channel_value| match channel_value {
                         ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                            !expr.column_refs().is_empty()
+                            expr.column_refs(&context.session_context).map(|refs| !refs.is_empty()).unwrap_or(false)
                         }
                         ChannelValue::Conditional {
                             conditions,
@@ -417,9 +428,9 @@ impl<C: CoordinateSystem> Plot<C> {
                             ..
                         } => {
                             conditions.iter().any(|(condition, value)| {
-                                !condition.column_refs().is_empty()
-                                    || !value.expr().column_refs().is_empty()
-                            }) || !otherwise.expr().column_refs().is_empty()
+                                condition.column_refs(&context.session_context).map(|refs| !refs.is_empty()).unwrap_or(false)
+                                    || value.expr(&context.session_context).ok().map(|e| !e.column_refs().is_empty()).unwrap_or(false)
+                            }) || otherwise.expr(&context.session_context).ok().map(|e| !e.column_refs().is_empty()).unwrap_or(false)
                         }
                     });
 
@@ -444,6 +455,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 &resolved_encodings,
                 configured_scales,
                 context,
+                &context.session_context,
             );
 
             for (channel, position_channel_value) in &resolved_encodings {
@@ -456,7 +468,10 @@ impl<C: CoordinateSystem> Plot<C> {
                                 // Get radius expression from the mark
                                 let radius_expr =
                                     mark.radius_expression(scale_name, &resolve_channel);
-                                data_expressions.push((df.clone(), expr.clone(), radius_expr));
+                                // Convert SerializableExpr to Expr
+                                if let Ok(expr_df) = expr.to_expr(&context.session_context) {
+                                    data_expressions.push((df.clone(), expr_df, radius_expr));
+                                }
                             }
                             ChannelValue::Conditional {
                                 conditions,
@@ -473,17 +488,23 @@ impl<C: CoordinateSystem> Plot<C> {
                                 // Add field expressions from conditions
                                 for (_, value) in conditions {
                                     if let ConditionalValue::Scaled { expr } = value {
-                                        data_expressions.push((
-                                            df.clone(),
-                                            expr.clone(),
-                                            radius_expr.clone(),
-                                        ));
+                                        // Convert SerializableExpr to Expr
+                                        if let Ok(expr_df) = expr.to_expr(&context.session_context) {
+                                            data_expressions.push((
+                                                df.clone(),
+                                                expr_df,
+                                                radius_expr.clone(),
+                                            ));
+                                        }
                                     }
                                 }
 
                                 // Add field expression from otherwise branch if it's a field
                                 if let ConditionalValue::Scaled { expr } = otherwise {
-                                    data_expressions.push((df.clone(), expr.clone(), radius_expr));
+                                    // Convert SerializableExpr to Expr
+                                    if let Ok(expr_df) = expr.to_expr(&context.session_context) {
+                                        data_expressions.push((df.clone(), expr_df, radius_expr));
+                                    }
                                 }
                             }
                         }
@@ -496,14 +517,14 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Collect all channels that need scales
-    pub fn collect_channels_needing_scales(&self) -> HashSet<String> {
+    pub fn collect_channels_needing_scales(&self, ctx: &datafusion::prelude::SessionContext) -> HashSet<String> {
         let mut used_channels = HashSet::new();
         for mark in &self.mark_renderers {
             // Get channels and resolve references first
             let encodings = mark.data_context().channels();
             // Try to resolve, but use original channels if resolution fails
             let resolved_encodings =
-                resolve_all_channel_refs(encodings).unwrap_or_else(|_| encodings.clone());
+                resolve_all_channel_refs(encodings, ctx).unwrap_or_else(|_| encodings.clone());
             for (channel_name, channel_value) in resolved_encodings {
                 if channel_value.get_scale_name(&channel_name).is_some() {
                     used_channels.insert(channel_name.clone());

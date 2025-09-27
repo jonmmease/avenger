@@ -124,7 +124,10 @@ pub trait LegendableChannel: ChannelConfig {
 
 /// Add a scaled condition to a ChannelValue
 fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> ChannelValue {
-    let new_branch = ConditionalValue::Scaled { expr: value };
+    use crate::serialization::SerializableExpr;
+    let value_ser = SerializableExpr::from_expr(value).expect("Failed to serialize expr");
+    let new_branch = ConditionalValue::Scaled { expr: value_ser };
+    let condition_ser = SerializableExpr::from_expr(condition).expect("Failed to serialize expr");
 
     match current {
         ChannelValue::Conditional {
@@ -133,7 +136,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             scale_config,
             legend_config,
         } => {
-            conditions.push((condition, new_branch));
+            conditions.push((condition_ser, new_branch));
             ChannelValue::Conditional {
                 conditions,
                 otherwise,
@@ -148,13 +151,13 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             scale_name: _,
             band: _,
         } => ChannelValue::Conditional {
-            conditions: vec![(condition, new_branch)],
+            conditions: vec![(condition_ser, new_branch)],
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
-            conditions: vec![(condition, new_branch)],
+            conditions: vec![(condition_ser, new_branch)],
             otherwise: ConditionalValue::Value { expr },
             scale_config: None,
             legend_config: None,
@@ -164,7 +167,10 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
 
 /// Add a value condition to a ChannelValue
 fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> ChannelValue {
-    let new_branch = ConditionalValue::Value { expr: value };
+    use crate::serialization::SerializableExpr;
+    let value_ser = SerializableExpr::from_expr(value).expect("Failed to serialize expr");
+    let new_branch = ConditionalValue::Value { expr: value_ser };
+    let condition_ser = SerializableExpr::from_expr(condition).expect("Failed to serialize expr");
 
     match current {
         ChannelValue::Conditional {
@@ -173,7 +179,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             scale_config,
             legend_config,
         } => {
-            conditions.push((condition, new_branch));
+            conditions.push((condition_ser, new_branch));
             ChannelValue::Conditional {
                 conditions,
                 otherwise,
@@ -188,13 +194,13 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             scale_name: _,
             band: _,
         } => ChannelValue::Conditional {
-            conditions: vec![(condition, new_branch)],
+            conditions: vec![(condition_ser, new_branch)],
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
-            conditions: vec![(condition, new_branch)],
+            conditions: vec![(condition_ser, new_branch)],
             otherwise: ConditionalValue::Value { expr },
             scale_config: None,
             legend_config: None,

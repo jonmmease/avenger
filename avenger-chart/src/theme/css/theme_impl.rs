@@ -389,16 +389,18 @@ impl CssTheme {
         match range_kind {
             RangeKind::Discrete => {
                 // For discrete ranges, take the requested number of values
-                let scalars: Vec<ScalarValue> = values
+                use crate::serialization::SerializableScalar;
+                let scalars: Vec<SerializableScalar> = values
                     .iter()
                     .take(domain_cardinality.unwrap_or(values.len()))
                     .map(|v| {
                         // Check if it's a number or string
-                        if let Ok(num) = v.parse::<f64>() {
+                        let scalar = if let Ok(num) = v.parse::<f64>() {
                             ScalarValue::Float32(Some(num as f32))
                         } else {
                             ScalarValue::Utf8(Some(v.clone()))
-                        }
+                        };
+                        SerializableScalar::from_scalar(scalar).expect("Failed to serialize scalar")
                     })
                     .collect();
                 ScaleRange::Discrete(scalars)
@@ -469,10 +471,11 @@ impl CssTheme {
             ("fill" | "stroke" | "color", RangeKind::Discrete) => {
                 // Use categorical_colors which queries from CSS or falls back to Okabe-Ito
                 let colors = self.categorical_colors();
-                let scalars: Vec<ScalarValue> = colors
+                use crate::serialization::SerializableScalar;
+                let scalars: Vec<SerializableScalar> = colors
                     .iter()
                     .take(domain_cardinality.unwrap_or(colors.len()))
-                    .map(|c| ScalarValue::Utf8(Some(c.clone())))
+                    .map(|c| SerializableScalar::from_scalar(ScalarValue::Utf8(Some(c.clone()))).expect("Failed to serialize scalar"))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -491,10 +494,11 @@ impl CssTheme {
             // Size channels
             ("size", RangeKind::Discrete) => {
                 let sizes = vec![20.0, 40.0, 60.0, 80.0, 100.0];
-                let scalars: Vec<ScalarValue> = sizes
+                use crate::serialization::SerializableScalar;
+                let scalars: Vec<SerializableScalar> = sizes
                     .iter()
                     .take(domain_cardinality.unwrap_or(sizes.len()))
-                    .map(|s| ScalarValue::Float32(Some(*s as f32)))
+                    .map(|s| SerializableScalar::from_scalar(ScalarValue::Float32(Some(*s as f32))).expect("Failed to serialize scalar"))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -503,10 +507,11 @@ impl CssTheme {
             // Opacity channels
             ("opacity", RangeKind::Discrete) => {
                 let opacities = vec![0.3, 0.5, 0.7, 0.9, 1.0];
-                let scalars: Vec<ScalarValue> = opacities
+                use crate::serialization::SerializableScalar;
+                let scalars: Vec<SerializableScalar> = opacities
                     .iter()
                     .take(domain_cardinality.unwrap_or(opacities.len()))
-                    .map(|o| ScalarValue::Float32(Some(*o as f32)))
+                    .map(|o| SerializableScalar::from_scalar(ScalarValue::Float32(Some(*o as f32))).expect("Failed to serialize scalar"))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -515,10 +520,11 @@ impl CssTheme {
             // Stroke width channels
             ("stroke_width", RangeKind::Discrete) => {
                 let widths = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-                let scalars: Vec<ScalarValue> = widths
+                use crate::serialization::SerializableScalar;
+                let scalars: Vec<SerializableScalar> = widths
                     .iter()
                     .take(domain_cardinality.unwrap_or(widths.len()))
-                    .map(|w| ScalarValue::Float32(Some(*w as f32)))
+                    .map(|w| SerializableScalar::from_scalar(ScalarValue::Float32(Some(*w as f32))).expect("Failed to serialize scalar"))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -527,17 +533,21 @@ impl CssTheme {
             // Shape channel (always discrete)
             ("shape", _) => {
                 let shapes = vec!["circle", "square", "triangle", "diamond", "cross"];
-                let scalars: Vec<ScalarValue> = shapes
+                use crate::serialization::SerializableScalar;
+                let scalars: Vec<SerializableScalar> = shapes
                     .iter()
                     .take(domain_cardinality.unwrap_or(shapes.len()))
-                    .map(|s| ScalarValue::Utf8(Some(s.to_string())))
+                    .map(|s| SerializableScalar::from_scalar(ScalarValue::Utf8(Some(s.to_string()))).expect("Failed to serialize scalar"))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
 
             // Default
             _ => match range_kind {
-                RangeKind::Discrete => ScaleRange::Discrete(vec![ScalarValue::Float32(Some(1.0))]),
+                RangeKind::Discrete => {
+                    use crate::serialization::SerializableScalar;
+                    ScaleRange::Discrete(vec![SerializableScalar::from_scalar(ScalarValue::Float32(Some(1.0))).expect("Failed to serialize scalar")])
+                },
                 RangeKind::Continuous => ScaleRange::new_interval(lit(0.0), lit(1.0)),
             },
         }
