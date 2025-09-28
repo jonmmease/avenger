@@ -12,16 +12,19 @@ use crate::legend::Legend;
 use crate::marks::{CompiledMark, Mark};
 use crate::render::RenderContext;
 use crate::scales::Scale;
-use crate::serialization::{SerializableDataFrame, LogicalExprNodeExt};
+use crate::serialization::{SerializableDataFrame, LogicalExprNodeExt, LogicalPlanNodeExt};
 use crate::theme::{Theme, css::CssTheme};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::dataframe::DataFrame;
 use datafusion::prelude::SessionContext;
+use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, FromInto};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+#[serde_as]
 #[derive(Serialize, Deserialize)]
 pub struct CompiledPlot {
     /// Coordinate system transform for position mapping
@@ -58,7 +61,8 @@ pub struct CompiledPlot {
     pub(crate) scale_specs: HashMap<String, ScaleSpec>,
 
     /// Plot-level data (temporarily kept for mark inheritance)
-    pub(crate) data: Option<SerializableDataFrame>,
+    #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
+    pub(crate) data: Option<LogicalPlanNode>,
 }
 
 impl CompiledPlot {
@@ -199,7 +203,11 @@ impl CompiledPlot {
             if let Some(channel_value) = resolved_channels.get(channel) {
                 // Get the dataframe for this mark using the provided context
                 let mark_df = mark.data_context().dataframe_with_context(ctx);
-                let plot_df = self.data.as_ref().and_then(|d| d.to_dataframe(ctx).ok());
+                let plot_df = self.data.as_ref().and_then(|node| {
+                    node.to_logical_plan(ctx)
+                        .ok()
+                        .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+                });
                 let df = mark_df.or(plot_df);
 
                 // Try to get the data type of the channel
@@ -349,7 +357,11 @@ impl CompiledPlot {
             let plot_df = self
                 .data
                 .as_ref()
-                .and_then(|d| d.to_dataframe(&context.session_context).ok());
+                .and_then(|node| {
+                    node.to_logical_plan(&context.session_context)
+                        .ok()
+                        .map(|plan| DataFrame::new(context.session_context.state().clone(), plan))
+                });
 
             let df = if let Some(mark_df) = mark_df {
                 // Mark has explicit data
@@ -541,7 +553,11 @@ impl CompiledPlot {
 
             // Determine DataFrame for this mark using context from RenderContext
             let mark_df = mark.data_context().dataframe_with_context(ctx);
-            let plot_df = self.data.as_ref().and_then(|d| d.to_dataframe(ctx).ok());
+            let plot_df = self.data.as_ref().and_then(|node| {
+                node.to_logical_plan(ctx)
+                    .ok()
+                    .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+            });
 
             let df = if let Some(mark_df) = mark_df {
                 // Mark has explicit data
@@ -1454,7 +1470,11 @@ impl CompiledPlot {
                             let plot_df = self
                                 .data
                                 .as_ref()
-                                .and_then(|d| d.to_dataframe(&context.session_context).ok());
+                                .and_then(|node| {
+                                    node.to_logical_plan(&context.session_context)
+                                        .ok()
+                                        .map(|plan| DataFrame::new(context.session_context.state().clone(), plan))
+                                });
                             let df = mark_df.or(plot_df)?;
                             use datafusion::logical_expr::ExprSchemable;
                             expr.get_type(df.schema()).ok()
@@ -1923,7 +1943,11 @@ impl CompiledPlot {
         } else if !references_columns {
             // No column references - use unit data
             None
-        } else if let Some(plot_df) = self.data.as_ref().and_then(|d| d.to_dataframe(ctx).ok()) {
+        } else if let Some(plot_df) = self.data.as_ref().and_then(|node| {
+            node.to_logical_plan(ctx)
+                .ok()
+                .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+        }) {
             // Inherit from plot
             Some(plot_df)
         } else {
@@ -2585,9 +2609,10 @@ impl<C: CoordinateSystem> Plot<C> {
             scale_specs: self.scale_specs,
             data: match self.data {
                 Some(df) => {
-                    Some(SerializableDataFrame::from_dataframe(df).map_err(|e| {
+                    let plan = df.logical_plan().clone();
+                    Some(LogicalPlanNode::from_logical_plan(&plan).map_err(|e| {
                         AvengerChartError::InternalError(format!(
-                            "Failed to serialize DataFrame: {}. \
+                            "Failed to serialize logical plan: {}. \
                             This typically happens when using a DataFrame created with a different SessionContext. \
                             Make sure to use the same SessionContext for creating data and compiling the plot.",
                             e

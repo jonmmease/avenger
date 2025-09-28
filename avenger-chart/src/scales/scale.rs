@@ -12,7 +12,7 @@ use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
-use datafusion_proto::protobuf::LogicalExprNode;
+use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use palette::Srgba;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, FromInto};
@@ -181,14 +181,15 @@ impl<S: ScaleSpec> Scale<S> {
 
     /// Set domain from data field
     pub fn domain_data(mut self, dataframe: Arc<DataFrame>, expr: Expr) -> Self {
-        use crate::serialization::SerializableDataFrame;
+        use crate::serialization::LogicalPlanNodeExt;
         let mut domain = self
             .domain
             .unwrap_or(ScaleDomain::new_interval(lit(0.0), lit(1.0)));
+        let plan = dataframe.logical_plan().clone();
         domain.default_domain = ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
             dataframe: Arc::new(
-                SerializableDataFrame::from_dataframe((*dataframe).clone())
-                    .expect("Failed to serialize dataframe"),
+                LogicalPlanNode::from_logical_plan(&plan)
+                    .expect("Failed to serialize logical plan"),
             ),
             expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expr"),
             radius: None,
@@ -199,16 +200,19 @@ impl<S: ScaleSpec> Scale<S> {
 
     /// Set domain from data fields
     pub fn domain_data_fields(mut self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
-        use crate::serialization::SerializableDataFrame;
+        use crate::serialization::LogicalPlanNodeExt;
         let exprs = fields
             .into_iter()
-            .map(|(df, expr)| DomainExpr {
-                dataframe: Arc::new(
-                    SerializableDataFrame::from_dataframe((*df).clone())
-                        .expect("Failed to serialize dataframe"),
-                ),
-                expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expr"),
-                radius: None,
+            .map(|(df, expr)| {
+                let plan = df.logical_plan().clone();
+                DomainExpr {
+                    dataframe: Arc::new(
+                        LogicalPlanNode::from_logical_plan(&plan)
+                            .expect("Failed to serialize logical plan"),
+                    ),
+                    expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expr"),
+                    radius: None,
+                }
             })
             .collect();
         let mut domain = self
@@ -224,16 +228,19 @@ impl<S: ScaleSpec> Scale<S> {
         mut self,
         fields: Vec<(Arc<DataFrame>, Expr, Option<crate::marks::RadiusExpression>)>,
     ) -> Self {
-        use crate::serialization::SerializableDataFrame;
+        use crate::serialization::LogicalPlanNodeExt;
         let exprs = fields
             .into_iter()
-            .map(|(df, expr, radius)| DomainExpr {
-                dataframe: Arc::new(
-                    SerializableDataFrame::from_dataframe((*df).clone())
-                        .expect("Failed to serialize dataframe"),
-                ),
-                expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expr"),
-                radius,
+            .map(|(df, expr, radius)| {
+                let plan = df.logical_plan().clone();
+                DomainExpr {
+                    dataframe: Arc::new(
+                        LogicalPlanNode::from_logical_plan(&plan)
+                            .expect("Failed to serialize logical plan"),
+                    ),
+                    expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expr"),
+                    radius,
+                }
             })
             .collect();
         let mut domain = self

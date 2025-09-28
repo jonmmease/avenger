@@ -106,7 +106,7 @@ impl DomainInferrer {
 
     /// Compute domain with radius-aware padding
     async fn compute_radius_aware_domain(
-        dataframe: &Arc<crate::serialization::SerializableDataFrame>,
+        dataframe: &Arc<datafusion_proto::protobuf::LogicalPlanNode>,
         position_expr: &crate::serialization::SerializableExpr,
         radius_expr: &RadiusExpression,
         range_hint: (f64, f64),
@@ -139,8 +139,10 @@ impl DomainInferrer {
             }
         };
 
-        // Convert SerializableDataFrame to DataFrame and select
-        let df = dataframe.to_dataframe(ctx)?;
+        // Convert LogicalPlanNode to DataFrame and select
+        use crate::serialization::LogicalPlanNodeExt;
+        let plan = dataframe.to_logical_plan(ctx)?;
+        let df = DataFrame::new(ctx.state().clone(), plan);
         let df_with_exprs = df.select(select_exprs)?;
         let batches = df_with_exprs.collect().await?;
 
@@ -232,14 +234,15 @@ impl DomainInferrer {
         let batch = RecordBatch::try_new(schema, vec![Arc::new(domain_array)])?;
 
         let domain_df = Arc::new(ctx.read_batch(batch)?);
-        let domain_df_ser = Arc::new(crate::serialization::SerializableDataFrame::from_dataframe(
-            domain_df.as_ref().clone(),
-        )?);
-        use datafusion_proto::protobuf::LogicalExprNode;
+        let plan = domain_df.logical_plan().clone();
+        use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
+        let plan_node = Arc::new(
+            LogicalPlanNode::from_logical_plan(&plan)?
+        );
         let expr_node = LogicalExprNode::from_expr(col(DOMAIN_FIELD))?;
 
         Ok(Some(DomainExpr {
-            dataframe: domain_df_ser,
+            dataframe: plan_node,
             expr: expr_node,
             radius: None,
         }))
@@ -255,8 +258,10 @@ impl DomainInferrer {
         let mut single_col_dfs: Vec<DataFrame> = Vec::new();
 
         for field in data_fields {
-            // Convert SerializableDataFrame to DataFrame
-            let df = field.dataframe.to_dataframe(ctx)?;
+            // Convert LogicalPlanNode to DataFrame
+            use crate::serialization::LogicalPlanNodeExt;
+            let plan = field.dataframe.to_logical_plan(ctx)?;
+            let df = DataFrame::new(ctx.state().clone(), plan);
 
             // Convert SerializableExpr to Expr
             let expr_df = field.expr.to_expr(ctx)?;
