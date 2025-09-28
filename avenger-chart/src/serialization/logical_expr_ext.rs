@@ -8,8 +8,8 @@ use datafusion_proto::protobuf::LogicalExprNode;
 
 /// Extension trait for LogicalExprNode providing conversions with SessionContext
 pub trait LogicalExprNodeExt: Sized {
-    /// Create from an Expr using the provided SessionContext
-    fn from_expr(expr: Expr, _ctx: &SessionContext) -> Result<Self, AvengerChartError>;
+    /// Create from an Expr
+    fn from_expr(expr: Expr) -> Result<Self, AvengerChartError>;
 
     /// Convert to an Expr using the provided SessionContext
     fn to_expr(&self, ctx: &SessionContext) -> Result<Expr, AvengerChartError>;
@@ -19,7 +19,7 @@ pub trait LogicalExprNodeExt: Sized {
 }
 
 impl LogicalExprNodeExt for LogicalExprNode {
-    fn from_expr(expr: Expr, _ctx: &SessionContext) -> Result<Self, AvengerChartError> {
+    fn from_expr(expr: Expr) -> Result<Self, AvengerChartError> {
         // Use our custom codec for serialization
         let codec = crate::scales::AvengerChartExtensionCodec::new();
 

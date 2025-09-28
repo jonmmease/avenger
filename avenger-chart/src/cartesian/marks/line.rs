@@ -518,13 +518,12 @@ impl CompiledMark for CompiledCartesianLine {
     ) -> Option<RadiusExpression> {
         match dimension {
             "y" => {
-                use crate::serialization::{LogicalExprNodeExt, context::create_context_with_udfs};
+                use crate::serialization::LogicalExprNodeExt;
                 use datafusion_proto::protobuf::LogicalExprNode;
-                let ctx = create_context_with_udfs();
                 let stroke_width_expr = resolve_channel("stroke_width");
                 let radius_expr = stroke_width_expr * lit(2.0);
                 let radius_expr_node =
-                    LogicalExprNode::from_expr(radius_expr, &ctx).expect("Failed to serialize expr");
+                    LogicalExprNode::from_expr(radius_expr).expect("Failed to serialize expr");
                 Some(RadiusExpression::Symmetric(radius_expr_node))
             }
             "x" => None,

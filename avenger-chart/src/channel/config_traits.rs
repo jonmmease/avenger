@@ -124,12 +124,11 @@ pub trait LegendableChannel: ChannelConfig {
 
 /// Add a scaled condition to a ChannelValue
 fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> ChannelValue {
-    use crate::serialization::{LogicalExprNodeExt, context::create_context_with_udfs};
+    use crate::serialization::LogicalExprNodeExt;
     use datafusion_proto::protobuf::LogicalExprNode;
-    let ctx = create_context_with_udfs();
-    let value_node = LogicalExprNode::from_expr(value, &ctx).expect("Failed to serialize expr");
+    let value_node = LogicalExprNode::from_expr(value).expect("Failed to serialize expr");
     let new_branch = ConditionalValue::Scaled { expr: value_node };
-    let condition_node = LogicalExprNode::from_expr(condition, &ctx).expect("Failed to serialize expr");
+    let condition_node = LogicalExprNode::from_expr(condition).expect("Failed to serialize expr");
 
     match current {
         ChannelValue::Conditional {
@@ -169,12 +168,11 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
 
 /// Add a value condition to a ChannelValue
 fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> ChannelValue {
-    use crate::serialization::{LogicalExprNodeExt, context::create_context_with_udfs};
+    use crate::serialization::LogicalExprNodeExt;
     use datafusion_proto::protobuf::LogicalExprNode;
-    let ctx = create_context_with_udfs();
-    let value_node = LogicalExprNode::from_expr(value, &ctx).expect("Failed to serialize expr");
+    let value_node = LogicalExprNode::from_expr(value).expect("Failed to serialize expr");
     let new_branch = ConditionalValue::Value { expr: value_node };
-    let condition_node = LogicalExprNode::from_expr(condition, &ctx).expect("Failed to serialize expr");
+    let condition_node = LogicalExprNode::from_expr(condition).expect("Failed to serialize expr");
 
     match current {
         ChannelValue::Conditional {

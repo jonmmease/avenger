@@ -498,7 +498,7 @@ pub fn resolve_channel_refs(
         .unwrap_or(original);
 
     // Convert back to LogicalExprNode
-    LogicalExprNode::from_expr(resolved, ctx).unwrap_or(expr)
+    LogicalExprNode::from_expr(resolved).unwrap_or(expr)
 }
 
 /// Resolve all channel references in a mark's channels,

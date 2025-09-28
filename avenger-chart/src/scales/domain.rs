@@ -49,12 +49,10 @@ pub struct DomainExpr {
 
 impl ScaleDomain {
     pub fn new_interval<E: Into<Expr>>(start: E, end: E) -> Self {
-        use crate::serialization::context::create_context_with_udfs;
-        let ctx = create_context_with_udfs();
         let start_node =
-            LogicalExprNode::from_expr(start.into(), &ctx).expect("Failed to serialize start expr");
+            LogicalExprNode::from_expr(start.into()).expect("Failed to serialize start expr");
         let end_node =
-            LogicalExprNode::from_expr(end.into(), &ctx).expect("Failed to serialize end expr");
+            LogicalExprNode::from_expr(end.into()).expect("Failed to serialize end expr");
         Self {
             default_domain: ScaleDefaultDomain::Interval(start_node, Box::new(end_node)),
             raw_domain: None,
@@ -62,11 +60,9 @@ impl ScaleDomain {
     }
 
     pub fn new_discrete(values: Vec<Expr>) -> Self {
-        use crate::serialization::context::create_context_with_udfs;
-        let ctx = create_context_with_udfs();
         let serialized_values: Vec<LogicalExprNode> = values
             .into_iter()
-            .map(|e| LogicalExprNode::from_expr(e, &ctx).expect("Failed to serialize expr"))
+            .map(|e| LogicalExprNode::from_expr(e).expect("Failed to serialize expr"))
             .collect();
         Self {
             default_domain: ScaleDefaultDomain::Discrete(serialized_values),
@@ -75,13 +71,12 @@ impl ScaleDomain {
     }
 
     pub fn new_data_field(dataframe: Arc<DataFrame>, expr: Expr) -> Self {
-        use crate::serialization::{SerializableDataFrame, context::create_context_with_udfs};
-        let ctx = create_context_with_udfs();
+        use crate::serialization::SerializableDataFrame;
         let df_ser = Arc::new(
             SerializableDataFrame::from_dataframe((*dataframe).clone())
                 .expect("Failed to serialize dataframe"),
         );
-        let expr_node = LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize expr");
+        let expr_node = LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
         Self {
             default_domain: ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
                 dataframe: df_ser,
@@ -93,8 +88,7 @@ impl ScaleDomain {
     }
 
     pub fn new_data_fields(fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
-        use crate::serialization::{SerializableDataFrame, context::create_context_with_udfs};
-        let ctx = create_context_with_udfs();
+        use crate::serialization::SerializableDataFrame;
         Self {
             default_domain: ScaleDefaultDomain::DomainExprs(
                 fields
@@ -105,7 +99,7 @@ impl ScaleDomain {
                                 .expect("Failed to serialize dataframe"),
                         );
                         let expr_node =
-                            LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize expr");
+                            LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
                         DomainExpr {
                             dataframe: df_ser,
                             expr: expr_node,
@@ -119,15 +113,14 @@ impl ScaleDomain {
     }
 
     pub fn new_data_field_with_radius(dataframe: Arc<DataFrame>, expr: Expr, radius: Expr) -> Self {
-        use crate::serialization::{SerializableDataFrame, context::create_context_with_udfs};
-        let ctx = create_context_with_udfs();
+        use crate::serialization::SerializableDataFrame;
         let df_ser = Arc::new(
             SerializableDataFrame::from_dataframe((*dataframe).clone())
                 .expect("Failed to serialize dataframe"),
         );
-        let expr_node = LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize expr");
+        let expr_node = LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
         let radius_node =
-            LogicalExprNode::from_expr(radius, &ctx).expect("Failed to serialize radius expr");
+            LogicalExprNode::from_expr(radius).expect("Failed to serialize radius expr");
         Self {
             default_domain: ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
                 dataframe: df_ser,

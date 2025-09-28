@@ -21,12 +21,10 @@ pub enum ScaleRange {
 
 impl ScaleRange {
     pub fn new_interval<E: Into<Expr>, F: Into<Expr>>(start: E, end: F) -> Self {
-        use crate::serialization::context::create_context_with_udfs;
-        let ctx = create_context_with_udfs();
         let start_node =
-            LogicalExprNode::from_expr(start.into(), &ctx).expect("Failed to serialize start expr");
+            LogicalExprNode::from_expr(start.into()).expect("Failed to serialize start expr");
         let end_node =
-            LogicalExprNode::from_expr(end.into(), &ctx).expect("Failed to serialize end expr");
+            LogicalExprNode::from_expr(end.into()).expect("Failed to serialize end expr");
         Self::Numeric(start_node, Box::new(end_node))
     }
 

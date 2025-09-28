@@ -87,15 +87,13 @@ impl<S: ScaleSpec> Scale<S> {
 
         // Get default options for the scale type
         // These are necessary for certain scales to function correctly (e.g., Sqrt needs exponent=0.5)
-        use crate::serialization::context::create_context_with_udfs;
-        let ctx = create_context_with_udfs();
         let mut options = HashMap::new();
         for (key, value) in spec.default_options() {
             let scalar_value = scalar_to_scalar_value(&value);
             let expr = lit(scalar_value);
             options.insert(
                 key,
-                LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize option expr"),
+                LogicalExprNode::from_expr(expr).expect("Failed to serialize option expr"),
             );
         }
 
@@ -183,8 +181,7 @@ impl<S: ScaleSpec> Scale<S> {
 
     /// Set domain from data field
     pub fn domain_data(mut self, dataframe: Arc<DataFrame>, expr: Expr) -> Self {
-        use crate::serialization::{SerializableDataFrame, context::create_context_with_udfs};
-        let ctx = create_context_with_udfs();
+        use crate::serialization::SerializableDataFrame;
         let mut domain = self
             .domain
             .unwrap_or(ScaleDomain::new_interval(lit(0.0), lit(1.0)));
@@ -193,7 +190,7 @@ impl<S: ScaleSpec> Scale<S> {
                 SerializableDataFrame::from_dataframe((*dataframe).clone())
                     .expect("Failed to serialize dataframe"),
             ),
-            expr: LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize expr"),
+            expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expr"),
             radius: None,
         }]);
         self.domain = Maybe::Set(domain);
@@ -202,8 +199,7 @@ impl<S: ScaleSpec> Scale<S> {
 
     /// Set domain from data fields
     pub fn domain_data_fields(mut self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
-        use crate::serialization::{SerializableDataFrame, context::create_context_with_udfs};
-        let ctx = create_context_with_udfs();
+        use crate::serialization::SerializableDataFrame;
         let exprs = fields
             .into_iter()
             .map(|(df, expr)| DomainExpr {
@@ -211,7 +207,7 @@ impl<S: ScaleSpec> Scale<S> {
                     SerializableDataFrame::from_dataframe((*df).clone())
                         .expect("Failed to serialize dataframe"),
                 ),
-                expr: LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expr"),
                 radius: None,
             })
             .collect();
@@ -228,8 +224,7 @@ impl<S: ScaleSpec> Scale<S> {
         mut self,
         fields: Vec<(Arc<DataFrame>, Expr, Option<crate::marks::RadiusExpression>)>,
     ) -> Self {
-        use crate::serialization::{SerializableDataFrame, context::create_context_with_udfs};
-        let ctx = create_context_with_udfs();
+        use crate::serialization::SerializableDataFrame;
         let exprs = fields
             .into_iter()
             .map(|(df, expr, radius)| DomainExpr {
@@ -237,7 +232,7 @@ impl<S: ScaleSpec> Scale<S> {
                     SerializableDataFrame::from_dataframe((*df).clone())
                         .expect("Failed to serialize dataframe"),
                 ),
-                expr: LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expr"),
                 radius,
             })
             .collect();
@@ -285,12 +280,10 @@ impl<S: ScaleSpec> Scale<S> {
     /// Regular users should use the typed methods or Scale<Auto>::option()
     #[doc(hidden)]
     pub fn _option(mut self, key: impl Into<String>, value: impl Into<Expr>) -> Self {
-        use crate::serialization::context::create_context_with_udfs;
-        let ctx = create_context_with_udfs();
         let expr = value.into();
         self.options.insert(
             key.into(),
-            LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize option expr"),
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize option expr"),
         );
         self
     }
@@ -315,8 +308,6 @@ impl<S: ScaleSpec> Scale<S> {
 
         // Add scale type defaults for options not already set
         if spec.name() != "auto" {
-            use crate::serialization::context::create_context_with_udfs;
-            let ctx = create_context_with_udfs();
             for (key, value) in spec.default_options() {
                 // Only add if not already present
                 if !options.contains_key(&key) {
@@ -324,7 +315,7 @@ impl<S: ScaleSpec> Scale<S> {
                     let expr = lit(scalar_value);
                     options.insert(
                         key,
-                        LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize option expr"),
+                        LogicalExprNode::from_expr(expr).expect("Failed to serialize option expr"),
                     );
                 }
             }
@@ -844,12 +835,10 @@ impl Scale<Ordinal> {
 impl Scale<Time> {
     /// Set whether to nice the domain to time intervals
     pub fn nice(mut self, value: bool) -> Self {
-        use crate::serialization::context::create_context_with_udfs;
-        let ctx = create_context_with_udfs();
         let expr = lit(value);
         self.options.insert(
             "nice".to_string(),
-            LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize option expr"),
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize option expr"),
         );
         self
         // self._option("nice", lit(value))
