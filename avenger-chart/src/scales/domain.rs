@@ -3,7 +3,6 @@ use crate::scales::ScaleRange;
 use crate::serialization::{SerializableExpr, LogicalExprNodeExt};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
-use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, FromInto};

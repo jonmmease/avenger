@@ -15,22 +15,23 @@
 //!
 //! ```no_run
 //! use avenger_chart::channel::ChannelValue;
-//! use avenger_chart::serialization::SerializableExpr;
+//! use avenger_chart::serialization::LogicalExprNodeExt;
 //! use datafusion::prelude::*;
+//! use datafusion_proto::protobuf::LogicalExprNode;
 //! use indexmap::IndexMap;
 //!
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Define channels where y2 references the y channel
 //! let mut channels = IndexMap::new();
 //! channels.insert("y".to_string(), ChannelValue::Scaled {
-//!     expr: SerializableExpr::from_expr(col("value")).expect("Failed to serialize expr"),
+//!     expr: LogicalExprNode::from_expr(col("value")).expect("Failed to serialize expr"),
 //!     scale_name: None,
 //!     band: None,
 //!     scale_config: None,
 //!     legend_config: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
-//!     expr: SerializableExpr::from_expr(col(":y") + lit(10.0)).expect("Failed to serialize expr"),  // References y channel
+//!     expr: LogicalExprNode::from_expr(col(":y") + lit(10.0)).expect("Failed to serialize expr"),  // References y channel
 //!     scale_name: None,
 //!     band: None,
 //!     scale_config: None,
@@ -67,7 +68,7 @@
 //! For typical visualizations with < 20 channels, this is very efficient.
 
 use super::value::ChannelValue;
-use crate::serialization::{SerializableExpr, LogicalExprNodeExt};
+use crate::serialization::LogicalExprNodeExt;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -606,9 +607,10 @@ pub fn resolve_all_channel_refs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialization::SerializableExpr;
+    use crate::serialization::LogicalExprNodeExt;
     use datafusion::logical_expr::{col, lit};
     use datafusion::prelude::SessionContext;
+    use datafusion_proto::protobuf::LogicalExprNode;
 
     #[test]
     fn test_simple_channel_reference() {
@@ -617,7 +619,7 @@ mod tests {
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col("value")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("value")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -627,7 +629,7 @@ mod tests {
         channels.insert(
             "x2".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":x") + lit(10.0))
+                expr: LogicalExprNode::from_expr(col(":x") + lit(10.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
@@ -658,7 +660,7 @@ mod tests {
         channels.insert(
             "a".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col("base")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("base")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -668,7 +670,7 @@ mod tests {
         channels.insert(
             "b".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":a") * lit(2.0))
+                expr: LogicalExprNode::from_expr(col(":a") * lit(2.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
@@ -679,7 +681,7 @@ mod tests {
         channels.insert(
             "c".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":b") + lit(5.0))
+                expr: LogicalExprNode::from_expr(col(":b") + lit(5.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
@@ -716,7 +718,7 @@ mod tests {
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":x") + lit(1.0))
+                expr: LogicalExprNode::from_expr(col(":x") + lit(1.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
@@ -743,7 +745,7 @@ mod tests {
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":y")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col(":y")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -753,7 +755,7 @@ mod tests {
         channels.insert(
             "y".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":x")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col(":x")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -786,7 +788,7 @@ mod tests {
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col("value")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("value")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -796,7 +798,7 @@ mod tests {
         channels.insert(
             "y".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":bogus")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col(":bogus")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -830,7 +832,7 @@ mod tests {
         channels.insert(
             "x".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col("a")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("a")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -840,7 +842,7 @@ mod tests {
         channels.insert(
             "y".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col("b")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("b")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -850,7 +852,7 @@ mod tests {
         channels.insert(
             "z".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":x") + col(":y"))
+                expr: LogicalExprNode::from_expr(col(":x") + col(":y"))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
@@ -875,13 +877,13 @@ mod tests {
         channels.insert(
             "x".to_string(),
             ChannelValue::Value {
-                expr: SerializableExpr::from_expr(col("value")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("value")).expect("Failed to serialize expr"),
             },
         );
         channels.insert(
             "y".to_string(),
             ChannelValue::Value {
-                expr: SerializableExpr::from_expr(col(":x") * lit(2.0))
+                expr: LogicalExprNode::from_expr(col(":x") * lit(2.0))
                     .expect("Failed to serialize expr"),
             },
         );
@@ -918,7 +920,7 @@ mod tests {
         channels.insert(
             "a".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col("base")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("base")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -928,7 +930,7 @@ mod tests {
         channels.insert(
             "b".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":a") * lit(2.0))
+                expr: LogicalExprNode::from_expr(col(":a") * lit(2.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
@@ -939,7 +941,7 @@ mod tests {
         channels.insert(
             "c".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":a") * lit(3.0))
+                expr: LogicalExprNode::from_expr(col(":a") * lit(3.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
@@ -950,7 +952,7 @@ mod tests {
         channels.insert(
             "d".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":b") + col(":c"))
+                expr: LogicalExprNode::from_expr(col(":b") + col(":c"))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
@@ -975,7 +977,7 @@ mod tests {
         channels.insert(
             "fill".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col("color")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("color")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,
@@ -985,7 +987,7 @@ mod tests {
         channels.insert(
             "stroke".to_string(),
             ChannelValue::Scaled {
-                expr: SerializableExpr::from_expr(col(":bogus")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col(":bogus")).expect("Failed to serialize expr"),
                 scale_name: None,
                 band: None,
                 scale_config: None,

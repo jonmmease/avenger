@@ -3,9 +3,11 @@
 #[cfg(test)]
 mod tests {
     use avenger_chart::scales::{Linear, Scale};
+    use avenger_chart::serialization::LogicalExprNodeExt;
     use avenger_chart::serialization::SerializableExpr;
     use datafusion::logical_expr::lit;
     use datafusion::prelude::*;
+    use datafusion_proto::protobuf::LogicalExprNode;
 
     #[test]
     fn test_scale_serialization_basic() {
@@ -44,8 +46,8 @@ mod tests {
 
         println!("Serializing expression...");
         // Serialize the expression
-        let serializable = SerializableExpr::from_expr(expr).unwrap();
-        let json = serde_json::to_string(&serializable).unwrap();
+        let serializable = LogicalExprNode::from_expr(expr).unwrap();
+        let json = serde_json::to_string(&SerializableExpr::from(serializable.clone())).unwrap();
         println!("Serialized: {}", &json[..100.min(json.len())]);
 
         println!("Deserializing expression...");
