@@ -12,7 +12,7 @@ use crate::legend::Legend;
 use crate::marks::{CompiledMark, Mark};
 use crate::render::RenderContext;
 use crate::scales::Scale;
-use crate::serialization::SerializableDataFrame;
+use crate::serialization::{SerializableDataFrame, LogicalExprNodeExt};
 use crate::theme::{Theme, css::CssTheme};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::dataframe::DataFrame;

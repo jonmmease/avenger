@@ -29,7 +29,7 @@ impl SerializableExpr {
 
     /// Convert back to an Expr using the provided SessionContext
     pub fn to_expr(&self, ctx: &SessionContext) -> Result<Expr, AvengerChartError> {
-        let node = LogicalExprNode::try_from(self.clone())?;
+        let node: LogicalExprNode = self.clone().into();
         node.to_expr(ctx)
     }
 
@@ -62,13 +62,11 @@ impl From<LogicalExprNode> for SerializableExpr {
     }
 }
 
-impl TryFrom<SerializableExpr> for LogicalExprNode {
-    type Error = AvengerChartError;
-
-    fn try_from(wrapper: SerializableExpr) -> Result<Self, Self::Error> {
-        LogicalExprNode::decode(&wrapper.0[..]).map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to decode expr protobuf: {}", e))
-        })
+// Required for serde_with FromInto
+impl From<SerializableExpr> for LogicalExprNode {
+    fn from(wrapper: SerializableExpr) -> Self {
+        LogicalExprNode::decode(&wrapper.0[..])
+            .expect("Failed to decode LogicalExprNode from SerializableExpr")
     }
 }
 
