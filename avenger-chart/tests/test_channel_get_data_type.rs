@@ -1,15 +1,15 @@
 use avenger_chart::channel::ChannelValue;
-use avenger_chart::serialization::SerializableExpr;
+use avenger_chart::serialization::LogicalExprNodeExt;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::common::DFSchema;
 use datafusion::prelude::*;
-use std::sync::Arc;
+use datafusion_proto::protobuf::LogicalExprNode;
 
 #[test]
 fn test_channel_value_get_data_type() {
     // Create a simple channel value
     let expr = col("x");
-    let serializable = SerializableExpr::from_expr(expr).unwrap();
+    let serializable = LogicalExprNode::from_expr(expr).unwrap();
     let channel_value = ChannelValue::Scaled {
         expr: serializable,
         scale_name: None,

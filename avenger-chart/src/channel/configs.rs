@@ -212,8 +212,9 @@ impl LegendableChannel for StrokeDashChannelConfig {
 mod tests {
     use super::*;
     use crate::channel::ConditionalValue;
-    use crate::serialization::SerializableExpr;
+    use crate::serialization::LogicalExprNodeExt;
     use datafusion::prelude::*;
+    use datafusion_proto::protobuf::LogicalExprNode;
 
     // Helper function to check if two ChannelValues are structurally equal
     // (ignoring scale_config and legend_config which contain function pointers)
@@ -269,14 +270,14 @@ mod tests {
 
         let expected = ChannelValue::Conditional {
             conditions: vec![(
-                SerializableExpr::from_expr(col("selected")).expect("Failed to serialize expr"),
+                LogicalExprNode::from_expr(col("selected")).expect("Failed to serialize expr"),
                 ConditionalValue::Value {
-                    expr: SerializableExpr::from_expr(lit("red"))
+                    expr: LogicalExprNode::from_expr(lit("red"))
                         .expect("Failed to serialize expr"),
                 },
             )],
             otherwise: ConditionalValue::Scaled {
-                expr: SerializableExpr::from_expr(col("temperature"))
+                expr: LogicalExprNode::from_expr(col("temperature"))
                     .expect("Failed to serialize expr"),
             },
             scale_config: None,
@@ -289,20 +290,20 @@ mod tests {
     #[test]
     fn test_color_config_when_scaled_on_identity() {
         let config = ColorChannelConfig::new(ChannelValue::Value {
-            expr: SerializableExpr::from_expr(lit("blue")).expect("Failed to serialize expr"),
+            expr: LogicalExprNode::from_expr(lit("blue")).expect("Failed to serialize expr"),
         })
         .when_scaled(col("important"), col("importance_score"));
 
         let expected = ChannelValue::Conditional {
             conditions: vec![(
-                SerializableExpr::from_expr(col("important")).expect("Failed to serialize expr"),
+                LogicalExprNode::from_expr(col("important")).expect("Failed to serialize expr"),
                 ConditionalValue::Scaled {
-                    expr: SerializableExpr::from_expr(col("importance_score"))
+                    expr: LogicalExprNode::from_expr(col("importance_score"))
                         .expect("Failed to serialize expr"),
                 },
             )],
             otherwise: ConditionalValue::Value {
-                expr: SerializableExpr::from_expr(lit("blue")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(lit("blue")).expect("Failed to serialize expr"),
             },
             scale_config: None,
             legend_config: None,
@@ -322,30 +323,30 @@ mod tests {
             conditions: vec![
                 // Conditions now stored in order of addition
                 (
-                    SerializableExpr::from_expr(col("error")).expect("Failed to serialize expr"),
+                    LogicalExprNode::from_expr(col("error")).expect("Failed to serialize expr"),
                     ConditionalValue::Value {
-                        expr: SerializableExpr::from_expr(lit("red"))
+                        expr: LogicalExprNode::from_expr(lit("red"))
                             .expect("Failed to serialize expr"),
                     },
                 ),
                 (
-                    SerializableExpr::from_expr(col("warning")).expect("Failed to serialize expr"),
+                    LogicalExprNode::from_expr(col("warning")).expect("Failed to serialize expr"),
                     ConditionalValue::Value {
-                        expr: SerializableExpr::from_expr(lit("orange"))
+                        expr: LogicalExprNode::from_expr(lit("orange"))
                             .expect("Failed to serialize expr"),
                     },
                 ),
                 (
-                    SerializableExpr::from_expr(col("important"))
+                    LogicalExprNode::from_expr(col("important"))
                         .expect("Failed to serialize expr"),
                     ConditionalValue::Scaled {
-                        expr: SerializableExpr::from_expr(col("score"))
+                        expr: LogicalExprNode::from_expr(col("score"))
                             .expect("Failed to serialize expr"),
                     },
                 ),
             ],
             otherwise: ConditionalValue::Scaled {
-                expr: SerializableExpr::from_expr(col("default"))
+                expr: LogicalExprNode::from_expr(col("default"))
                     .expect("Failed to serialize expr"),
             },
             scale_config: None,
@@ -376,9 +377,9 @@ mod tests {
             assert_eq!(
                 conditions,
                 vec![(
-                    SerializableExpr::from_expr(col("selected")).expect("Failed to serialize expr"),
+                    LogicalExprNode::from_expr(col("selected")).expect("Failed to serialize expr"),
                     ConditionalValue::Value {
-                        expr: SerializableExpr::from_expr(lit("#00ff00"))
+                        expr: LogicalExprNode::from_expr(lit("#00ff00"))
                             .expect("Failed to serialize expr")
                     }
                 )]
@@ -386,7 +387,7 @@ mod tests {
             assert_eq!(
                 otherwise,
                 ConditionalValue::Scaled {
-                    expr: SerializableExpr::from_expr(col("temperature"))
+                    expr: LogicalExprNode::from_expr(col("temperature"))
                         .expect("Failed to serialize expr")
                 }
             );
@@ -419,9 +420,9 @@ mod tests {
             assert_eq!(
                 conditions,
                 vec![(
-                    SerializableExpr::from_expr(col("selected")).expect("Failed to serialize expr"),
+                    LogicalExprNode::from_expr(col("selected")).expect("Failed to serialize expr"),
                     ConditionalValue::Value {
-                        expr: SerializableExpr::from_expr(lit("red"))
+                        expr: LogicalExprNode::from_expr(lit("red"))
                             .expect("Failed to serialize expr")
                     }
                 )]
@@ -429,7 +430,7 @@ mod tests {
             assert_eq!(
                 otherwise,
                 ConditionalValue::Scaled {
-                    expr: SerializableExpr::from_expr(col("temperature"))
+                    expr: LogicalExprNode::from_expr(col("temperature"))
                         .expect("Failed to serialize expr")
                 }
             );
@@ -450,29 +451,29 @@ mod tests {
             conditions: vec![
                 // Conditions stored in order of addition
                 (
-                    SerializableExpr::from_expr(col("a")).expect("Failed to serialize expr"),
+                    LogicalExprNode::from_expr(col("a")).expect("Failed to serialize expr"),
                     ConditionalValue::Value {
-                        expr: SerializableExpr::from_expr(lit("red"))
+                        expr: LogicalExprNode::from_expr(lit("red"))
                             .expect("Failed to serialize expr"),
                     },
                 ),
                 (
-                    SerializableExpr::from_expr(col("b")).expect("Failed to serialize expr"),
+                    LogicalExprNode::from_expr(col("b")).expect("Failed to serialize expr"),
                     ConditionalValue::Value {
-                        expr: SerializableExpr::from_expr(lit("blue"))
+                        expr: LogicalExprNode::from_expr(lit("blue"))
                             .expect("Failed to serialize expr"),
                     },
                 ),
                 (
-                    SerializableExpr::from_expr(col("c")).expect("Failed to serialize expr"),
+                    LogicalExprNode::from_expr(col("c")).expect("Failed to serialize expr"),
                     ConditionalValue::Value {
-                        expr: SerializableExpr::from_expr(lit("green"))
+                        expr: LogicalExprNode::from_expr(lit("green"))
                             .expect("Failed to serialize expr"),
                     },
                 ),
             ],
             otherwise: ConditionalValue::Scaled {
-                expr: SerializableExpr::from_expr(col("base")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("base")).expect("Failed to serialize expr"),
             },
             scale_config: None,
             legend_config: None,

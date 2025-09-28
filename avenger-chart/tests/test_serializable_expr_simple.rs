@@ -1,5 +1,6 @@
-use avenger_chart::serialization::SerializableExpr;
+use avenger_chart::serialization::LogicalExprNodeExt;
 use datafusion::prelude::*;
+use datafusion_proto::protobuf::LogicalExprNode;
 
 #[test]
 fn test_serializable_expr_simple_col() {
@@ -7,7 +8,7 @@ fn test_serializable_expr_simple_col() {
     let expr = col("x");
 
     // Serialize it
-    let serializable = SerializableExpr::from_expr(expr.clone()).unwrap();
+    let serializable = LogicalExprNode::from_expr(expr.clone()).unwrap();
 
     // Deserialize it
     let ctx = SessionContext::new();

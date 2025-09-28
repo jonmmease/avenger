@@ -1,7 +1,7 @@
 use crate::legend::Legend;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use crate::serialization::{SerializableExpr, LogicalExprNodeExt};
-use datafusion::logical_expr::{Expr, lit, col};
+use datafusion::logical_expr::{Expr, lit};
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};

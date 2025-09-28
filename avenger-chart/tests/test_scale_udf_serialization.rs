@@ -5,13 +5,14 @@
 
 #[cfg(test)]
 mod tests {
-    use avenger_chart::scales::{AvengerChartExtensionCodec, Linear, Scale};
-    use avenger_chart::serialization::SerializableExpr;
+    use avenger_chart::scales::{Linear, Scale};
+    use avenger_chart::serialization::{LogicalExprNodeExt, SerializableExpr};
     use datafusion::arrow::array::Float64Array;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::arrow::record_batch::RecordBatch;
     use datafusion::logical_expr::lit;
     use datafusion::prelude::*;
+    use datafusion_proto::protobuf::LogicalExprNode;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -47,10 +48,10 @@ mod tests {
         let scaled_expr = configured_scale.to_expr(col("value")).unwrap();
 
         // Serialize the expression
-        let serializable_expr = SerializableExpr::from_expr(scaled_expr).unwrap();
+        let serializable_expr = LogicalExprNode::from_expr(scaled_expr).unwrap();
 
         // Serialize to JSON
-        let json = serde_json::to_string(&serializable_expr).unwrap();
+        let json = serde_json::to_string(&SerializableExpr::from(serializable_expr)).unwrap();
         println!("Serialized expression: {}", json);
 
         // Deserialize on a fresh context
@@ -117,8 +118,8 @@ mod tests {
 
                 if let Ok(expr) = expr {
                     // Test serialization roundtrip
-                    let serializable = SerializableExpr::from_expr(expr).unwrap();
-                    let json = serde_json::to_string(&serializable).unwrap();
+                    let serializable = LogicalExprNode::from_expr(expr).unwrap();
+                    let json = serde_json::to_string(&SerializableExpr::from(serializable)).unwrap();
                     let _deserialized: SerializableExpr = serde_json::from_str(&json).unwrap();
 
                     // If we get here, serialization works for this scale type

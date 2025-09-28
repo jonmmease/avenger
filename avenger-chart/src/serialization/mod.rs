@@ -8,7 +8,7 @@ mod scalar;
 mod scalar_map;
 mod scale_info;
 
-pub use context::{UdfRegistry, create_context_with_udfs};
+pub use context::UdfRegistry;
 pub use dataframe::SerializableDataFrame;
 pub use expr::SerializableExpr;
 pub use logical_expr_ext::LogicalExprNodeExt;

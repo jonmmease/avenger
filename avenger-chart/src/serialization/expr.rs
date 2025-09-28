@@ -12,7 +12,6 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashSet;
-use std::convert::TryFrom;
 
 /// A serializable wrapper for Expr that stores protobuf bytes
 #[derive(Clone, Debug, PartialEq)]

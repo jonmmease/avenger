@@ -1,5 +1,6 @@
 use avenger_chart::prelude::*;
 use avenger_chart::render::RenderContext;
+use avenger_chart::serialization::LogicalExprNodeExt;
 use avenger_chart::theme::css::CssTheme;
 use datafusion::prelude::SessionContext;
 use datafusion::scalar::ScalarValue;
