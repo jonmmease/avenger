@@ -1,9 +1,9 @@
 use crate::error::AvengerChartError;
 use crate::scales::ScaleRange;
-use crate::serialization::{SerializableExpr, LogicalExprNodeExt};
+use crate::serialization::{SerializableExpr, LogicalExprNodeExt, LogicalPlanNodeExt};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
-use datafusion_proto::protobuf::LogicalExprNode;
+use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, FromInto};
 use std::sync::Arc;
@@ -40,7 +40,8 @@ pub enum ScaleDefaultDomain {
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DomainExpr {
-    pub dataframe: Arc<crate::serialization::SerializableDataFrame>,
+    #[serde_as(as = "Arc<FromInto<crate::serialization::SerializableDataFrame>>")]
+    pub dataframe: Arc<LogicalPlanNode>,
     #[serde_as(as = "FromInto<SerializableExpr>")]
     pub expr: LogicalExprNode,
     pub radius: Option<crate::marks::RadiusExpression>,
@@ -70,15 +71,15 @@ impl ScaleDomain {
     }
 
     pub fn new_data_field(dataframe: Arc<DataFrame>, expr: Expr) -> Self {
-        use crate::serialization::SerializableDataFrame;
-        let df_ser = Arc::new(
-            SerializableDataFrame::from_dataframe((*dataframe).clone())
-                .expect("Failed to serialize dataframe"),
+        let plan = dataframe.logical_plan().clone();
+        let plan_node = Arc::new(
+            LogicalPlanNode::from_logical_plan(&plan)
+                .expect("Failed to serialize logical plan"),
         );
         let expr_node = LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
         Self {
             default_domain: ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
-                dataframe: df_ser,
+                dataframe: plan_node,
                 expr: expr_node,
                 radius: None,
             }]),
@@ -87,20 +88,20 @@ impl ScaleDomain {
     }
 
     pub fn new_data_fields(fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
-        use crate::serialization::SerializableDataFrame;
         Self {
             default_domain: ScaleDefaultDomain::DomainExprs(
                 fields
                     .into_iter()
                     .map(|(dataframe, expr)| {
-                        let df_ser = Arc::new(
-                            SerializableDataFrame::from_dataframe((*dataframe).clone())
-                                .expect("Failed to serialize dataframe"),
+                        let plan = dataframe.logical_plan().clone();
+                        let plan_node = Arc::new(
+                            LogicalPlanNode::from_logical_plan(&plan)
+                                .expect("Failed to serialize logical plan"),
                         );
                         let expr_node =
                             LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
                         DomainExpr {
-                            dataframe: df_ser,
+                            dataframe: plan_node,
                             expr: expr_node,
                             radius: None,
                         }
@@ -112,17 +113,17 @@ impl ScaleDomain {
     }
 
     pub fn new_data_field_with_radius(dataframe: Arc<DataFrame>, expr: Expr, radius: Expr) -> Self {
-        use crate::serialization::SerializableDataFrame;
-        let df_ser = Arc::new(
-            SerializableDataFrame::from_dataframe((*dataframe).clone())
-                .expect("Failed to serialize dataframe"),
+        let plan = dataframe.logical_plan().clone();
+        let plan_node = Arc::new(
+            LogicalPlanNode::from_logical_plan(&plan)
+                .expect("Failed to serialize logical plan"),
         );
         let expr_node = LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
         let radius_node =
             LogicalExprNode::from_expr(radius).expect("Failed to serialize radius expr");
         Self {
             default_domain: ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
-                dataframe: df_ser,
+                dataframe: plan_node,
                 expr: expr_node,
                 radius: Some(crate::marks::RadiusExpression::Symmetric(radius_node)),
             }]),

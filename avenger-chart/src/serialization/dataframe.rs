@@ -1,43 +1,28 @@
 //! Serializable wrapper for DataFusion DataFrames
 //!
-//! This module provides SerializableDataFrame which stores LogicalPlans
-//! as protobuf bytes, avoiding the need to deserialize during serde operations.
+//! This module provides SerializableDataFrame which stores LogicalPlanNode
+//! as protobuf bytes for efficient binary serialization.
 
+use super::LogicalPlanNodeExt;
 use crate::error::AvengerChartError;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::SessionContext;
-use datafusion_proto::bytes::{
-    logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
-};
-use serde::{Deserialize, Serialize};
+use datafusion_proto::protobuf::LogicalPlanNode;
+use prost::Message;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A serializable wrapper for DataFrames that stores protobuf bytes
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SerializableDataFrame {
-    /// Base64-encoded protobuf representation of the LogicalPlan
-    #[serde(rename = "plan_bytes")]
-    plan_bytes_base64: String,
-}
+#[derive(Clone, Debug, PartialEq)]
+pub struct SerializableDataFrame(pub Vec<u8>);
 
 impl SerializableDataFrame {
     /// Create from a DataFrame, converting its LogicalPlan to protobuf bytes
     pub fn from_dataframe(df: DataFrame) -> Result<Self, AvengerChartError> {
         let plan = df.logical_plan().clone();
-
-        // Use our custom codec for serialization
-        let codec = crate::scales::AvengerChartExtensionCodec::new();
-
-        // Convert LogicalPlan to protobuf bytes
-        let bytes = logical_plan_to_bytes_with_extension_codec(&plan, &codec).map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to serialize plan: {}", e))
-        })?;
-
-        // Encode as base64 for JSON compatibility
-        let plan_bytes_base64 = BASE64.encode(&bytes);
-
-        Ok(Self { plan_bytes_base64 })
+        let node = LogicalPlanNode::from_logical_plan(&plan)?;
+        Ok(Self::from(node))
     }
 
     /// Create from a DataFrame (legacy method for compatibility)
@@ -48,35 +33,19 @@ impl SerializableDataFrame {
 
     /// Convert to a DataFrame using the provided SessionContext
     pub fn to_dataframe(&self, ctx: &SessionContext) -> Result<DataFrame, AvengerChartError> {
-        // Decode base64
-        let bytes = BASE64.decode(&self.plan_bytes_base64).map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to decode base64: {}", e))
-        })?;
-
-        // Use our custom codec for deserialization
-        let codec = crate::scales::AvengerChartExtensionCodec::new();
-
-        // Convert bytes back to LogicalPlan
-        let plan =
-            logical_plan_from_bytes_with_extension_codec(&bytes, ctx, &codec).map_err(|e| {
-                AvengerChartError::InternalError(format!("Failed to deserialize plan: {}", e))
-            })?;
-
+        let node: LogicalPlanNode = self.clone().into();
+        let plan = node.to_logical_plan(ctx)?;
         Ok(DataFrame::new(ctx.state().clone(), plan))
     }
 
     /// Get the raw protobuf bytes (for advanced use cases)
     pub fn to_protobuf_bytes(&self) -> Result<Vec<u8>, AvengerChartError> {
-        BASE64.decode(&self.plan_bytes_base64).map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to decode base64: {}", e))
-        })
+        Ok(self.0.clone())
     }
 
     /// Create from raw protobuf bytes
     pub fn from_protobuf_bytes(bytes: &[u8]) -> Self {
-        Self {
-            plan_bytes_base64: BASE64.encode(bytes),
-        }
+        Self(bytes.to_vec())
     }
 
     /// Apply a select operation to the DataFrame
@@ -91,13 +60,74 @@ impl SerializableDataFrame {
     }
 }
 
+// Conversion implementations
+impl From<LogicalPlanNode> for SerializableDataFrame {
+    fn from(node: LogicalPlanNode) -> Self {
+        // Encode protobuf to bytes
+        let mut buf = Vec::new();
+        node.encode(&mut buf).expect("Failed to encode LogicalPlanNode");
+        SerializableDataFrame(buf)
+    }
+}
+
+// Required for serde_with FromInto
+impl From<SerializableDataFrame> for LogicalPlanNode {
+    fn from(wrapper: SerializableDataFrame) -> Self {
+        LogicalPlanNode::decode(&wrapper.0[..])
+            .expect("Failed to decode LogicalPlanNode from SerializableDataFrame")
+    }
+}
+
+// Custom serialization for better JSON support
+impl Serialize for SerializableDataFrame {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            // For JSON and other text formats, use base64
+            let base64_str = BASE64.encode(&self.0);
+            // Wrap in an object to maintain backward compatibility
+            #[derive(Serialize)]
+            struct Wrapper {
+                plan_bytes: String,
+            }
+            let wrapper = Wrapper { plan_bytes: base64_str };
+            wrapper.serialize(serializer)
+        } else {
+            // For binary formats, use raw bytes
+            self.0.serialize(serializer)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SerializableDataFrame {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            // For JSON and other text formats, expect base64 in an object
+            #[derive(Deserialize)]
+            struct Wrapper {
+                #[serde(alias = "plan_bytes_base64")]
+                plan_bytes: String,
+            }
+            let wrapper = Wrapper::deserialize(deserializer)?;
+            let bytes = BASE64.decode(&wrapper.plan_bytes)
+                .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64: {}", e)))?;
+            Ok(SerializableDataFrame(bytes))
+        } else {
+            // For binary formats, expect raw bytes
+            let bytes = Vec::<u8>::deserialize(deserializer)?;
+            Ok(SerializableDataFrame(bytes))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion::arrow::array::{Int32Array, StringArray};
-    use datafusion::arrow::datatypes::{DataType, Field, Schema};
-    use datafusion::arrow::record_batch::RecordBatch;
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_serializable_dataframe_roundtrip() {
