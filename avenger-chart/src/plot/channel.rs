@@ -8,6 +8,7 @@ use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::plot::{AxisSpec, Plot, ScaleSpec};
 use crate::render::RenderContext;
 use crate::scales::{ConfiguredScaleDataFusionExt, Scale, create_default_scale_for_channel};
+use crate::serialization::LogicalExprNodeExt;
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;

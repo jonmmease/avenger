@@ -1,9 +1,11 @@
 use crate::legend::Legend;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
-use crate::serialization::SerializableExpr;
-use datafusion::logical_expr::{Expr, lit};
+use crate::serialization::{SerializableExpr, LogicalExprNodeExt};
+use datafusion::logical_expr::{Expr, lit, col};
 use datafusion::prelude::SessionContext;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, FromInto};
 
 /// Helper to format floats nicely (avoid unnecessary decimals)
 fn format_float(f: f64) -> String {
@@ -88,12 +90,19 @@ fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
 }
 
 /// Value for conditional encoding branches
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConditionalValue {
     /// Value that gets scaled
-    Scaled { expr: SerializableExpr },
+    Scaled {
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        expr: LogicalExprNode
+    },
     /// Literal value that bypasses scaling
-    Value { expr: SerializableExpr },
+    Value {
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        expr: LogicalExprNode
+    },
 }
 
 impl ConditionalValue {
@@ -106,25 +115,20 @@ impl ConditionalValue {
         }
     }
 
-    /// Get the internal serializable expression
-    pub(crate) fn expr_ref(&self) -> &SerializableExpr {
-        match self {
-            ConditionalValue::Scaled { expr } | ConditionalValue::Value { expr } => expr,
-        }
-    }
-
-    /// Check if this is a field (scaled) value
+/// Check if this is a field (scaled) value
     pub fn is_scaled(&self) -> bool {
         matches!(self, ConditionalValue::Scaled { .. })
     }
 }
 
 /// Represents a channel encoding value
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ChannelValue {
     /// Expression that will be transformed through a scale
     Scaled {
-        expr: SerializableExpr,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        expr: LogicalExprNode,
         /// Optional custom scale name (defaults to channel name)
         scale_name: Option<String>,
         /// Band parameter for band scales (0.0 = start of band, 1.0 = end of band)
@@ -135,11 +139,15 @@ pub enum ChannelValue {
         legend_config: Option<Legend>,
     },
     /// Expression that bypasses scaling (identity transformation)
-    Value { expr: SerializableExpr },
+    Value {
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        expr: LogicalExprNode
+    },
     /// Conditional encoding with multiple branches
     Conditional {
         /// List of (condition, value) pairs
-        conditions: Vec<(SerializableExpr, ConditionalValue)>,
+        #[serde_as(as = "Vec<(FromInto<SerializableExpr>, _)>")]
+        conditions: Vec<(LogicalExprNode, ConditionalValue)>,
         /// Default value when no conditions match
         otherwise: ConditionalValue,
         /// Optional scale configuration (applies to all Field branches)
@@ -233,8 +241,8 @@ impl ChannelValue {
         }
     }
 
-    /// Get the internal serializable expression (for non-conditional values)
-    pub(crate) fn expr_ref(&self) -> Option<&SerializableExpr> {
+    /// Get the internal logical expression node (for non-conditional values)
+    pub(crate) fn expr_node_ref(&self) -> Option<&LogicalExprNode> {
         match self {
             ChannelValue::Scaled { expr, .. } => Some(expr),
             ChannelValue::Value { expr } => Some(expr),
@@ -494,9 +502,11 @@ pub(crate) fn strip_trailing_numbers(name: &str) -> &str {
 // Smart conversion for &str - always literals, identity by default
 impl From<&str> for ChannelValue {
     fn from(s: &str) -> Self {
+        use crate::serialization::context::create_context_with_udfs;
+        let ctx = create_context_with_udfs();
         // Always treat strings as literals - identity by default
         ChannelValue::Value {
-            expr: SerializableExpr::from_expr(lit(s)).expect("Failed to serialize expr"),
+            expr: LogicalExprNode::from_expr(lit(s), &ctx).expect("Failed to serialize expr"),
         }
     }
 }
@@ -504,8 +514,10 @@ impl From<&str> for ChannelValue {
 // Expressions default to scaled
 impl From<Expr> for ChannelValue {
     fn from(expr: Expr) -> Self {
+        use crate::serialization::context::create_context_with_udfs;
+        let ctx = create_context_with_udfs();
         ChannelValue::Scaled {
-            expr: SerializableExpr::from_expr(expr).expect("Failed to serialize expression"),
+            expr: LogicalExprNode::from_expr(expr, &ctx).expect("Failed to serialize expression"),
             scale_name: None,
             band: None,
             scale_config: None,
@@ -517,40 +529,50 @@ impl From<Expr> for ChannelValue {
 // Numeric literals default to identity
 impl From<f64> for ChannelValue {
     fn from(v: f64) -> Self {
+        use crate::serialization::context::create_context_with_udfs;
+        let ctx = create_context_with_udfs();
         ChannelValue::Value {
-            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+            expr: LogicalExprNode::from_expr(lit(v), &ctx).expect("Failed to serialize expr"),
         }
     }
 }
 
 impl From<f32> for ChannelValue {
     fn from(v: f32) -> Self {
+        use crate::serialization::context::create_context_with_udfs;
+        let ctx = create_context_with_udfs();
         ChannelValue::Value {
-            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+            expr: LogicalExprNode::from_expr(lit(v), &ctx).expect("Failed to serialize expr"),
         }
     }
 }
 
 impl From<i32> for ChannelValue {
     fn from(v: i32) -> Self {
+        use crate::serialization::context::create_context_with_udfs;
+        let ctx = create_context_with_udfs();
         ChannelValue::Value {
-            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+            expr: LogicalExprNode::from_expr(lit(v), &ctx).expect("Failed to serialize expr"),
         }
     }
 }
 
 impl From<i64> for ChannelValue {
     fn from(v: i64) -> Self {
+        use crate::serialization::context::create_context_with_udfs;
+        let ctx = create_context_with_udfs();
         ChannelValue::Value {
-            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+            expr: LogicalExprNode::from_expr(lit(v), &ctx).expect("Failed to serialize expr"),
         }
     }
 }
 
 impl From<bool> for ChannelValue {
     fn from(v: bool) -> Self {
+        use crate::serialization::context::create_context_with_udfs;
+        let ctx = create_context_with_udfs();
         ChannelValue::Value {
-            expr: SerializableExpr::from_expr(lit(v)).expect("Failed to serialize expr"),
+            expr: LogicalExprNode::from_expr(lit(v), &ctx).expect("Failed to serialize expr"),
         }
     }
 }
@@ -687,7 +709,7 @@ mod tests {
 
         // Test null literal
         let cv: ChannelValue = ChannelValue::Value {
-            expr: SerializableExpr::from_expr(lit(datafusion::scalar::ScalarValue::Null))
+            expr: LogicalExprNode::from_expr(lit(datafusion::scalar::ScalarValue::Null), &SessionContext::new())
                 .expect("Failed to serialize expr"),
         };
         assert_eq!(cv.as_column_name(&ctx), Some("null".to_string()));
@@ -725,15 +747,15 @@ mod tests {
         // Test conditional value (should return None - no single name)
         let cv = ChannelValue::Conditional {
             conditions: vec![(
-                SerializableExpr::from_expr(col("category").eq(lit("A")))
+                LogicalExprNode::from_expr(col("category").eq(lit("A")), &ctx)
                     .expect("Failed to serialize expr"),
                 ConditionalValue::Value {
-                    expr: SerializableExpr::from_expr(lit("red"))
+                    expr: LogicalExprNode::from_expr(lit("red"), &ctx)
                         .expect("Failed to serialize expr"),
                 },
             )],
             otherwise: ConditionalValue::Scaled {
-                expr: SerializableExpr::from_expr(col("color")).expect("Failed to serialize expr"),
+                expr: LogicalExprNode::from_expr(col("color"), &ctx).expect("Failed to serialize expr"),
             },
             scale_config: None,
             legend_config: None,

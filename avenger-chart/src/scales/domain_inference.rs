@@ -6,6 +6,7 @@
 use crate::error::AvengerChartError;
 use crate::marks::RadiusExpression;
 use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
+use crate::serialization::LogicalExprNodeExt;
 use crate::utils::DataFrameChartHelpers;
 use avenger_scales::scales::{DomainKind, InferDomainFromDataMethod, RangeKind, ScaleImpl};
 use datafusion::arrow::array::{Array, AsArray};
@@ -82,9 +83,10 @@ impl DomainInferrer {
                 // Process each field with radius expressions
                 for field in &mut data_fields {
                     if let Some(radius_expr) = &field.radius {
+                        let expr_ser: crate::serialization::SerializableExpr = field.expr.clone().into();
                         let computed_domain = Self::compute_radius_aware_domain(
                             &field.dataframe,
-                            &field.expr,
+                            &expr_ser,
                             radius_expr,
                             range,
                             ctx,
@@ -233,11 +235,12 @@ impl DomainInferrer {
         let domain_df_ser = Arc::new(crate::serialization::SerializableDataFrame::from_dataframe(
             domain_df.as_ref().clone(),
         )?);
-        let expr_ser = crate::serialization::SerializableExpr::from_expr(col(DOMAIN_FIELD))?;
+        use datafusion_proto::protobuf::LogicalExprNode;
+        let expr_node = LogicalExprNode::from_expr(col(DOMAIN_FIELD), ctx)?;
 
         Ok(Some(DomainExpr {
             dataframe: domain_df_ser,
-            expr: expr_ser,
+            expr: expr_node,
             radius: None,
         }))
     }
@@ -277,10 +280,10 @@ impl DomainInferrer {
         // Union all DataFrames
         let union_df = if single_col_dfs.is_empty() {
             // No data to infer from - return default interval
-            use crate::serialization::SerializableExpr;
+            use datafusion_proto::protobuf::LogicalExprNode;
             use datafusion::logical_expr::lit;
-            let start = SerializableExpr::from_expr(lit(0.0))?;
-            let end = SerializableExpr::from_expr(lit(1.0))?;
+            let start = LogicalExprNode::from_expr(lit(0.0), ctx)?;
+            let end = LogicalExprNode::from_expr(lit(1.0), ctx)?;
             return Ok(ScaleDefaultDomain::Interval(start, Box::new(end)));
         } else if single_col_dfs.len() > 1 {
             let mut result = single_col_dfs[0].clone();
@@ -352,20 +355,24 @@ impl DomainInferrer {
             if inner_array.len() >= 2 {
                 let min_val = ScalarValue::try_from_array(&inner_array, 0)?;
                 let max_val = ScalarValue::try_from_array(&inner_array, inner_array.len() - 1)?;
-                use crate::serialization::SerializableExpr;
-                let min_expr = SerializableExpr::from_expr(lit(min_val))?;
-                let max_expr = SerializableExpr::from_expr(lit(max_val))?;
+                use datafusion_proto::protobuf::LogicalExprNode;
+                use crate::serialization::context::create_context_with_udfs;
+                let ctx = create_context_with_udfs();
+                let min_expr = LogicalExprNode::from_expr(lit(min_val), &ctx)?;
+                let max_expr = LogicalExprNode::from_expr(lit(max_val), &ctx)?;
                 Ok(ScaleDefaultDomain::Interval(min_expr, Box::new(max_expr)))
             } else {
                 Ok(ScaleDefaultDomain::Discrete(vec![]))
             }
         } else {
             // For discrete domains, extract all values
-            use crate::serialization::SerializableExpr;
+            use datafusion_proto::protobuf::LogicalExprNode;
+            use crate::serialization::context::create_context_with_udfs;
+            let ctx = create_context_with_udfs();
             let mut values = Vec::new();
             for i in 0..inner_array.len() {
                 let val = ScalarValue::try_from_array(&inner_array, i)?;
-                let expr = SerializableExpr::from_expr(lit(val))?;
+                let expr = LogicalExprNode::from_expr(lit(val), &ctx)?;
                 values.push(expr);
             }
             Ok(ScaleDefaultDomain::Discrete(values))

@@ -26,7 +26,9 @@ use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
 use datafusion::scalar::ScalarValue;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, FromInto};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -34,16 +36,22 @@ use std::sync::Arc;
 ///
 /// Used to determine how much space a mark needs beyond its base position,
 /// accounting for visual properties like size, stroke width, etc.
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RadiusExpression {
     /// Same radius in all directions (e.g., circular symbols)
-    Symmetric(SerializableExpr),
+    Symmetric(
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        LogicalExprNode
+    ),
     /// Different radius for negative and positive directions (e.g., bars extending from baseline)
     Asymmetric {
         /// Radius in the negative direction
-        lower: SerializableExpr,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        lower: LogicalExprNode,
         /// Radius in the positive direction
-        upper: SerializableExpr,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        upper: LogicalExprNode,
     },
 }
 

@@ -1,6 +1,6 @@
 //! Serialization helpers for DataFusion types
 
-mod context;
+pub mod context;
 mod dataframe;
 mod expr;
 mod logical_expr_ext;

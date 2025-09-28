@@ -1,23 +1,33 @@
-use crate::serialization::{SerializableExpr, SerializableScalar};
+use crate::serialization::{SerializableExpr, SerializableScalar, LogicalExprNodeExt};
 use datafusion::logical_expr::Expr;
 use datafusion_common::ScalarValue;
+use datafusion_proto::protobuf::LogicalExprNode;
 use palette::Srgba;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, FromInto};
 
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ScaleRange {
-    Numeric(SerializableExpr, Box<SerializableExpr>),
+    Numeric(
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        LogicalExprNode,
+        #[serde_as(as = "Box<FromInto<SerializableExpr>>")]
+        Box<LogicalExprNode>
+    ),
     Discrete(Vec<SerializableScalar>),
     Color(Vec<[f32; 4]>), // Store as RGBA arrays for serialization
 }
 
 impl ScaleRange {
     pub fn new_interval<E: Into<Expr>, F: Into<Expr>>(start: E, end: F) -> Self {
-        let start_ser =
-            SerializableExpr::from_expr(start.into()).expect("Failed to serialize start expr");
-        let end_ser =
-            SerializableExpr::from_expr(end.into()).expect("Failed to serialize end expr");
-        Self::Numeric(start_ser, Box::new(end_ser))
+        use crate::serialization::context::create_context_with_udfs;
+        let ctx = create_context_with_udfs();
+        let start_node =
+            LogicalExprNode::from_expr(start.into(), &ctx).expect("Failed to serialize start expr");
+        let end_node =
+            LogicalExprNode::from_expr(end.into(), &ctx).expect("Failed to serialize end expr");
+        Self::Numeric(start_node, Box::new(end_node))
     }
 
     pub fn new_color(colors: Vec<Srgba>) -> Self {

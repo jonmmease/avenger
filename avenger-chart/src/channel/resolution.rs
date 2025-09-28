@@ -67,9 +67,10 @@
 //! For typical visualizations with < 20 channels, this is very efficient.
 
 use super::value::ChannelValue;
-use crate::serialization::SerializableExpr;
+use crate::serialization::{SerializableExpr, LogicalExprNodeExt};
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::SessionContext;
+use datafusion_proto::protobuf::LogicalExprNode;
 use datafusion_common::tree_node::{TransformedResult, TreeNode};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -454,11 +455,12 @@ fn find_cycle_dfs(
 /// Replaces column references like ":x" with the actual expression
 /// from the corresponding channel.
 pub fn resolve_channel_refs(
-    expr: SerializableExpr,
+    expr: LogicalExprNode,
     channels: &IndexMap<String, ChannelValue>,
     ctx: &SessionContext,
-) -> SerializableExpr {
+) -> LogicalExprNode {
     use datafusion::common::tree_node::Transformed;
+    use crate::serialization::LogicalExprNodeExt;
 
     // Convert to Expr for transformation
     let expr_value = match expr.to_expr(ctx) {
@@ -495,8 +497,8 @@ pub fn resolve_channel_refs(
         .data()
         .unwrap_or(original);
 
-    // Convert back to SerializableExpr
-    SerializableExpr::from_expr(resolved).unwrap_or(expr)
+    // Convert back to LogicalExprNode
+    LogicalExprNode::from_expr(resolved, ctx).unwrap_or(expr)
 }
 
 /// Resolve all channel references in a mark's channels,
