@@ -236,7 +236,7 @@ impl DomainInferrer {
             domain_df.as_ref().clone(),
         )?);
         use datafusion_proto::protobuf::LogicalExprNode;
-        let expr_node = LogicalExprNode::from_expr(col(DOMAIN_FIELD), ctx)?;
+        let expr_node = LogicalExprNode::from_expr(col(DOMAIN_FIELD))?;
 
         Ok(Some(DomainExpr {
             dataframe: domain_df_ser,
@@ -282,8 +282,8 @@ impl DomainInferrer {
             // No data to infer from - return default interval
             use datafusion_proto::protobuf::LogicalExprNode;
             use datafusion::logical_expr::lit;
-            let start = LogicalExprNode::from_expr(lit(0.0), ctx)?;
-            let end = LogicalExprNode::from_expr(lit(1.0), ctx)?;
+            let start = LogicalExprNode::from_expr(lit(0.0))?;
+            let end = LogicalExprNode::from_expr(lit(1.0))?;
             return Ok(ScaleDefaultDomain::Interval(start, Box::new(end)));
         } else if single_col_dfs.len() > 1 {
             let mut result = single_col_dfs[0].clone();
@@ -356,10 +356,8 @@ impl DomainInferrer {
                 let min_val = ScalarValue::try_from_array(&inner_array, 0)?;
                 let max_val = ScalarValue::try_from_array(&inner_array, inner_array.len() - 1)?;
                 use datafusion_proto::protobuf::LogicalExprNode;
-                use crate::serialization::context::create_context_with_udfs;
-                let ctx = create_context_with_udfs();
-                let min_expr = LogicalExprNode::from_expr(lit(min_val), &ctx)?;
-                let max_expr = LogicalExprNode::from_expr(lit(max_val), &ctx)?;
+                let min_expr = LogicalExprNode::from_expr(lit(min_val))?;
+                let max_expr = LogicalExprNode::from_expr(lit(max_val))?;
                 Ok(ScaleDefaultDomain::Interval(min_expr, Box::new(max_expr)))
             } else {
                 Ok(ScaleDefaultDomain::Discrete(vec![]))
@@ -367,12 +365,10 @@ impl DomainInferrer {
         } else {
             // For discrete domains, extract all values
             use datafusion_proto::protobuf::LogicalExprNode;
-            use crate::serialization::context::create_context_with_udfs;
-            let ctx = create_context_with_udfs();
             let mut values = Vec::new();
             for i in 0..inner_array.len() {
                 let val = ScalarValue::try_from_array(&inner_array, i)?;
-                let expr = LogicalExprNode::from_expr(lit(val), &ctx)?;
+                let expr = LogicalExprNode::from_expr(lit(val))?;
                 values.push(expr);
             }
             Ok(ScaleDefaultDomain::Discrete(values))

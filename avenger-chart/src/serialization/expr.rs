@@ -21,9 +21,7 @@ pub struct SerializableExpr(pub Vec<u8>);
 impl SerializableExpr {
     /// Create from an Expr, converting it to protobuf bytes
     pub fn from_expr(expr: Expr) -> Result<Self, AvengerChartError> {
-        // Create a dummy context for conversion
-        let ctx = SessionContext::new();
-        let node = LogicalExprNode::from_expr(expr, &ctx)?;
+        let node = LogicalExprNode::from_expr(expr)?;
         Ok(Self::from(node))
     }
 
