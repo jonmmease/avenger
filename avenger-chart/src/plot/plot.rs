@@ -31,7 +31,7 @@ pub struct CompiledPlot {
     pub(crate) coord_transform: Box<dyn CoordinateSystemTransform>,
 
     /// Guide renderer for axes/grids
-    pub(crate) guide_renderer: Option<Box<dyn CompiledGuide>>,
+    pub(crate) guide_renderer: Option<Arc<dyn CompiledGuide>>,
 
     /// Mark renderers
     pub(crate) marks: Vec<Arc<dyn CompiledMark>>,
@@ -2483,6 +2483,7 @@ impl CompiledPlot {
     }
 }
 
+#[derive(Clone)]
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
@@ -2515,7 +2516,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) guide_config: Option<C::Guide>,
 
     /// Built guide renderer (for serialization)
-    pub(crate) guide_renderer: Option<Box<dyn CompiledGuide>>,
+    pub(crate) guide_renderer: Option<Arc<dyn CompiledGuide>>,
 }
 
 impl<C: CoordinateSystem> Plot<C> {
@@ -2592,7 +2593,7 @@ impl<C: CoordinateSystem> Plot<C> {
             // Pass mark renderers to the guide so it can extract titles at render time
             guide.set_mark_renderers(self.mark_renderers.clone(), session_context);
 
-            self.guide_renderer = Some(guide.build());
+            self.guide_renderer = Some(Arc::from(guide.build()));
         }
 
         Ok(CompiledPlot {
