@@ -67,7 +67,7 @@ async fn test_datafusion_context_mismatch() {
             println!("Compilation succeeded with same context!");
 
             // Now test rendering with different context
-            match compiled.render(&ctx2).await {
+            match compiled.render(&ctx2, None).await {
                 Ok(_) => println!("Render succeeded with different context!"),
                 Err(e) => println!("Render error with different context: {:?}", e),
             }

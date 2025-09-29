@@ -64,6 +64,10 @@ pub struct CompiledPlot {
     /// Plot-level data (temporarily kept for mark inheritance)
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
     pub(crate) data: Option<LogicalPlanNode>,
+
+    /// Default parameter values for prepared statements
+    #[serde_as(as = "FromInto<crate::serialization::SerializableScalarMap>")]
+    pub(crate) default_params: IndexMap<String, datafusion::common::ScalarValue>,
 }
 
 impl CompiledPlot {
@@ -116,6 +120,7 @@ impl CompiledPlot {
         plot_width: f64,
         plot_height: f64,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Scale, AvengerChartError> {
         use crate::channel::value::strip_trailing_numbers;
 
@@ -123,7 +128,7 @@ impl CompiledPlot {
         let base_name = strip_trailing_numbers(name);
 
         // Build the default scale for the base name
-        let mut base_scale = self.create_default_scale_for_channel_internal(base_name, ctx)?;
+        let mut base_scale = self.create_default_scale_for_channel_internal(base_name, ctx, params)?;
 
         // Apply coordinate-specific default range if applicable
         if let Some(range) = self.get_coordinate_default_range(name, plot_width, plot_height) {
@@ -168,6 +173,7 @@ impl CompiledPlot {
         &self,
         channel: &str,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Scale, AvengerChartError> {
         use crate::channel::resolution::resolve_all_channel_refs;
         use crate::render::RenderContext;
@@ -239,7 +245,7 @@ impl CompiledPlot {
         // Create render context with theme for scale defaults
         // Use placeholder dimensions since we're not rendering yet
         let theme = self.get_theme();
-        let context = RenderContext::new(theme, 0.0, 0.0, Arc::new(ctx.clone()));
+        let context = RenderContext::new(theme, 0.0, 0.0, Arc::new(ctx.clone()), params.clone());
 
         // Create scale with theme-based defaults
         let mut scale = create_default_scale_for_channel(channel, scale_spec, &context)?;
@@ -1184,6 +1190,7 @@ impl CompiledPlot {
         mark_index: usize,
         configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> crate::legend::LegendChannel {
         use crate::legend::{ChannelInfo, LegendChannel};
         use datafusion::logical_expr::lit;
@@ -1219,6 +1226,7 @@ impl CompiledPlot {
             plot_height: 100.0,
             theme: self.get_theme(),
             session_context: Arc::new(ctx.clone()),
+            params: params.clone(),
         };
 
         // Iterate through all supported channels of this mark
@@ -1544,6 +1552,7 @@ impl CompiledPlot {
                 context.plot_width as f64,
                 context.plot_height as f64,
                 &context.session_context,
+                &context.params,
             )?;
             initial_scales.insert(channel.clone(), scale);
         }
@@ -1654,6 +1663,7 @@ impl CompiledPlot {
         _legend: &Legend,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<crate::legend::LegendChannel>, AvengerChartError> {
         // Find the mark that has this channel
         let (mark_index, mark) = self
@@ -1687,6 +1697,7 @@ impl CompiledPlot {
             mark_index,
             scales,
             ctx,
+            params,
         );
         legend_channels.push(primary_channel);
 
@@ -1703,6 +1714,7 @@ impl CompiledPlot {
         all_legends: &IndexMap<String, Legend>,
         configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> (
         Vec<Vec<crate::legend::LegendChannel>>,
         IndexMap<String, Legend>,
@@ -1736,6 +1748,7 @@ impl CompiledPlot {
                     mark_index,
                     configured_scales,
                     ctx,
+                    params,
                 );
 
                 all_channels.push(legend_channel);
@@ -1825,6 +1838,7 @@ impl CompiledPlot {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         available_space: taffy::Size<f32>,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<crate::render::LegendMeasurements, AvengerChartError> {
         use crate::layout::legend::measure_legend_size_with_channels;
 
@@ -1834,7 +1848,7 @@ impl CompiledPlot {
         let all_legends = self.get_legends_with_theme(scales, ctx);
 
         // Merge channels to get the same groups that will be used for rendering
-        let (sorted_channel_groups, _) = self.merge_legend_channels(&all_legends, scales, ctx);
+        let (sorted_channel_groups, _) = self.merge_legend_channels(&all_legends, scales, ctx, params);
 
         for channels in sorted_channel_groups {
             if channels.is_empty() {
@@ -1906,6 +1920,7 @@ impl CompiledPlot {
         plot_width: f32,
         plot_height: f32,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
@@ -2070,6 +2085,7 @@ impl CompiledPlot {
             plot_width,
             plot_height,
             Arc::new(ctx.clone()),
+            params.clone(),
         );
 
         // Clone the coordinate transform
@@ -2118,6 +2134,7 @@ impl CompiledPlot {
         height: f32,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
         use crate::layout::ChartLayout;
         const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
@@ -2148,7 +2165,7 @@ impl CompiledPlot {
         let all_legends = self.get_legends_with_theme(scales, ctx);
 
         // Use the helper to merge legend channels
-        let (_channel_groups, legends_map) = self.merge_legend_channels(&all_legends, scales, ctx);
+        let (_channel_groups, legends_map) = self.merge_legend_channels(&all_legends, scales, ctx, params);
 
         // Prepare legend measurements
         let available_size = taffy::Size {
@@ -2156,7 +2173,7 @@ impl CompiledPlot {
             height: height * INITIAL_PLOT_AREA_RATIO,
         };
         let legend_measurements =
-            self.prepare_legend_measurements(&legends_map, scales, available_size, ctx)?;
+            self.prepare_legend_measurements(&legends_map, scales, available_size, ctx, params)?;
 
         // Create ChartLayout with overflow directly
         let layout_spec = self.get_layout_spec();
@@ -2182,13 +2199,14 @@ impl CompiledPlot {
         _plot_width: f32,
         _plot_height: f32,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Get legends with theme applied (same as used for layout)
         let all_legend_configs = self.get_legends_with_theme(scales, ctx);
 
         // Use the helper to merge legend channels
         let (sorted_channel_groups, _legends_map) =
-            self.merge_legend_channels(&all_legend_configs, scales, ctx);
+            self.merge_legend_channels(&all_legend_configs, scales, ctx, params);
 
         // Create legend marks positioned according to layout
         let mut legend_marks = Vec::new();
@@ -2257,6 +2275,7 @@ impl CompiledPlot {
         _width: f32,
         _height: f32,
         ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<
         (
             Vec<SceneMark>, // mark_groups
@@ -2281,6 +2300,7 @@ impl CompiledPlot {
                     plot_area_width,
                     plot_area_height,
                     ctx,
+                    params,
                 )
                 .await?;
             mark_groups.extend(scene_marks);
@@ -2298,6 +2318,7 @@ impl CompiledPlot {
             plot_area_width,
             plot_area_height,
             ctx,
+            params,
         )?;
 
         // Create title
@@ -2327,6 +2348,7 @@ impl CompiledPlot {
     pub async fn render(
         &self,
         ctx: &SessionContext,
+        params: Option<IndexMap<String, datafusion::common::ScalarValue>>,
     ) -> Result<crate::render::RenderResult, AvengerChartError> {
         use crate::render::RenderContext;
         use avenger_scenegraph::marks::group::SceneGroup;
@@ -2347,6 +2369,15 @@ impl CompiledPlot {
         let estimated_plot_width = estimated_width * INITIAL_PLOT_AREA_RATIO;
         let estimated_plot_height = estimated_height * INITIAL_PLOT_AREA_RATIO;
 
+        // Merge provided params with default params
+        let merged_params = if let Some(provided) = params {
+            let mut merged = self.default_params.clone();
+            merged.extend(provided);
+            merged
+        } else {
+            self.default_params.clone()
+        };
+
         // Create initial RenderContext with estimated dimensions and SessionContext
         let theme = self.get_theme();
         let initial_context = RenderContext::new(
@@ -2354,6 +2385,7 @@ impl CompiledPlot {
             estimated_plot_width,
             estimated_plot_height,
             Arc::new(ctx.clone()),
+            merged_params.clone(),
         );
 
         let (initial_scales, configured_non_positional, configured_positional) =
@@ -2370,6 +2402,7 @@ impl CompiledPlot {
                 estimated_height,
                 &initial_configured_scales,
                 ctx,
+                &merged_params,
             )
             .await?;
         let plot_bounds = layout.plot_area_bounds();
@@ -2386,6 +2419,7 @@ impl CompiledPlot {
             plot_area_width,
             plot_area_height,
             Arc::new(ctx.clone()),
+            merged_params.clone(),
         );
 
         let final_configured_scales = self
@@ -2404,6 +2438,7 @@ impl CompiledPlot {
                 final_width,
                 final_height,
                 ctx,
+                &merged_params,
             )
             .await?;
 
@@ -2649,6 +2684,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 }
                 None => None,
             },
+            default_params: IndexMap::new(),
         })
     }
 
@@ -2684,13 +2720,18 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Build a scale by name, applying any configured transformations
     /// Note: Default range will be applied during rendering when actual dimensions are known
-    pub fn get_scale(&self, name: &str, ctx: &SessionContext) -> Result<Scale, AvengerChartError> {
+    pub fn get_scale(
+        &self,
+        name: &str,
+        ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> Result<Scale, AvengerChartError> {
         // Strip trailing numbers to get the base scale name
         // e.g., "x2" -> "x", "y2" -> "y"
         let base_name = strip_trailing_numbers(name);
 
         // Build the default scale for the base name
-        let mut base_scale = self.create_default_scale_for_channel_internal(base_name, ctx)?;
+        let mut base_scale = self.create_default_scale_for_channel_internal(base_name, ctx, params)?;
 
         // Gather domain expressions from marks
         if let Ok(domain_exprs) = self.gather_scale_domain_expressions(base_name, ctx) {

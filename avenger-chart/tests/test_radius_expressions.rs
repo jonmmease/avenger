@@ -15,7 +15,7 @@ async fn test_symbol_default_channel_values() {
 
     // Create a RenderContext with default theme
     let theme = CssTheme::light();
-    let context = RenderContext::new(Arc::new(theme), 500.0, 400.0, Arc::new(ctx));
+    let context = RenderContext::new(Arc::new(theme), 500.0, 400.0, Arc::new(ctx), indexmap::IndexMap::new());
 
     // Build the CompiledMark
     let renderer = symbol.build();

@@ -87,7 +87,7 @@ mod tests {
                 .expect("Failed to create canvas");
 
             canvas
-                .render_plot(&compiled, &ctx)
+                .render_plot(&compiled, &ctx, None)
                 .await
                 .expect("Failed to render plot");
 

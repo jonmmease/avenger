@@ -52,7 +52,7 @@ mod tests {
 
         // Test rendering
         let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        let result = compiled.render(&ctx).await;
+        let result = compiled.render(&ctx, None).await;
         match &result {
             Ok(_) => println!("Render succeeded with automatic ordinal scale"),
             Err(e) => println!("Render failed with error: {:?}", e),
@@ -145,7 +145,7 @@ mod tests {
 
         // Test rendering
         let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        let result = compiled.render(&ctx).await;
+        let result = compiled.render(&ctx, None).await;
         assert!(
             result.is_ok(),
             "Render should succeed with custom enumeration"
