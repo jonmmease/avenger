@@ -38,13 +38,16 @@ mod tests {
             .into_auto();
 
         // Create a configured scale
-        let configured_scale = scale
+        let configured = scale
             .create_configured_scale(100.0, 100.0, &ctx)
             .await
             .unwrap();
 
+        // Wrap in ConfiguredScaleWithSpec
+        use avenger_chart::scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec};
+        let configured_scale = ConfiguredScaleWithSpec::new(scale.clone(), configured);
+
         // Use the scale in an expression
-        use avenger_chart::scales::ConfiguredScaleDataFusionExt;
         let scaled_expr = configured_scale.to_expr(col("value")).unwrap();
 
         // Serialize the expression
@@ -112,8 +115,9 @@ mod tests {
 
             // Band and other discrete scales require discrete domains, so some may fail
             // That's ok for this test - we're just testing the serialization machinery
-            if let Ok(configured_scale) = configured_result {
-                use avenger_chart::scales::ConfiguredScaleDataFusionExt;
+            if let Ok(configured) = configured_result {
+                use avenger_chart::scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec};
+                let configured_scale = ConfiguredScaleWithSpec::new(scale.clone(), configured);
                 let expr = configured_scale.to_expr(lit(0.5));
 
                 if let Ok(expr) = expr {
