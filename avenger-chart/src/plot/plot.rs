@@ -93,6 +93,11 @@ impl CompiledPlot {
         &self.layout_spec
     }
 
+    /// Get default parameter values
+    pub fn get_default_params(&self) -> &IndexMap<String, datafusion::common::ScalarValue> {
+        &self.default_params
+    }
+
     /// Collect all channels that need scales from marks
     pub fn collect_channels_needing_scales(&self, ctx: &SessionContext) -> HashSet<String> {
         use crate::channel::resolution::resolve_all_channel_refs;
@@ -1398,6 +1403,7 @@ impl CompiledPlot {
                     context.plot_width,
                     context.plot_height,
                     &context.session_context,
+                    &context.params,
                 )
                 .await?;
         }
@@ -2036,7 +2042,15 @@ impl CompiledPlot {
                 select_exprs.push(expr.clone().alias(*name));
             }
 
-            let batch = (*df).clone().select(select_exprs)?.collect().await?;
+            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let batch = if let Some(param_values) = datafusion_params {
+                (*df).clone()
+                    .select(select_exprs)?
+                    .with_param_values(param_values)?
+                    .collect().await?
+            } else {
+                (*df).clone().select(select_exprs)?.collect().await?
+            };
 
             if batch.is_empty() {
                 None
@@ -2054,7 +2068,15 @@ impl CompiledPlot {
         }
 
         let scalar_batch = if !scalar_select_exprs.is_empty() {
-            let batch = (*df).clone().select(scalar_select_exprs)?.collect().await?;
+            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let batch = if let Some(param_values) = datafusion_params {
+                (*df).clone()
+                    .select(scalar_select_exprs)?
+                    .with_param_values(param_values)?
+                    .collect().await?
+            } else {
+                (*df).clone().select(scalar_select_exprs)?.collect().await?
+            };
             if batch.is_empty() {
                 // Create empty batch with correct schema
                 return Ok(vec![]);
@@ -2579,6 +2601,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Built guide renderer (for serialization)
     pub(crate) guide_renderer: Option<Arc<dyn CompiledGuide>>,
+
+    /// Parameters that can be used in expressions
+    pub(crate) params: Vec<crate::param::Param>,
 }
 
 impl<C: CoordinateSystem> Plot<C> {
@@ -2597,6 +2622,7 @@ impl<C: CoordinateSystem> Plot<C> {
             theme: None,
             guide_config: None,
             guide_renderer: None,
+            params: Vec::new(),
         }
     }
 }
@@ -2684,7 +2710,9 @@ impl<C: CoordinateSystem> Plot<C> {
                 }
                 None => None,
             },
-            default_params: IndexMap::new(),
+            default_params: self.params.iter()
+                .map(|p| (p.name.clone(), p.default.clone()))
+                .collect(),
         })
     }
 
@@ -2785,6 +2813,18 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set plot-level data that can be inherited by marks
     pub fn data(mut self, data: DataFrame) -> Self {
         self.data = Some(data);
+        self
+    }
+
+    /// Add a parameter that can be used in plot expressions
+    pub fn add_param(mut self, param: crate::param::Param) -> Self {
+        self.params.push(param);
+        self
+    }
+
+    /// Add multiple parameters at once
+    pub fn add_params(mut self, params: impl IntoIterator<Item = crate::param::Param>) -> Self {
+        self.params.extend(params);
         self
     }
 

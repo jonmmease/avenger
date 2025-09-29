@@ -16,6 +16,7 @@ use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 // Column name constants to avoid magic strings
@@ -41,6 +42,7 @@ impl DomainInferrer {
         mut domain: ScaleDomain,
         range_hint: Option<(f64, f64)>,
         ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<ScaleDomain, AvengerChartError> {
         // Extract the default domain, replacing it temporarily
         let default_domain = std::mem::replace(
@@ -55,7 +57,7 @@ impl DomainInferrer {
 
             // Process standard domain inference
             let inferred_domain =
-                Self::infer_standard_domain(scale_impl, &processed_fields, ctx).await?;
+                Self::infer_standard_domain(scale_impl, &processed_fields, ctx, params).await?;
             domain.default_domain = inferred_domain;
         } else {
             // Restore the original domain if it wasn't DomainExprs
@@ -253,6 +255,7 @@ impl DomainInferrer {
         scale_impl: &Arc<dyn ScaleImpl>,
         data_fields: &[DomainExpr],
         ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<ScaleDefaultDomain, AvengerChartError> {
         // Collect all data into single-column DataFrames
         let mut single_col_dfs: Vec<DataFrame> = Vec::new();
@@ -316,7 +319,12 @@ impl DomainInferrer {
         // Evaluate the domain expression
         let empty_df = ctx.read_empty()?;
         let result_df = empty_df.select(vec![domain_expr.alias(DOMAIN_RESULT_COL)])?;
-        let batches = result_df.collect().await?;
+        let datafusion_params = crate::utils::params_to_datafusion(params);
+        let batches = if let Some(param_values) = datafusion_params {
+            result_df.with_param_values(param_values)?.collect().await?
+        } else {
+            result_df.collect().await?
+        };
 
         if batches.is_empty() {
             return Err(AvengerChartError::InternalError(
