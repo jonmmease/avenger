@@ -4,68 +4,7 @@ use crate::error::AvengerChartError;
 use crate::render::RenderContext;
 use crate::scales::spec::ScaleSpec;
 use crate::scales::{Auto, Scale};
-use avenger_scales::scales::{DomainKind, RangeKind};
 use datafusion::arrow::datatypes::DataType;
-
-/// Channel characteristics for scale selection
-#[derive(Debug, Clone, Copy)]
-pub struct ChannelCharacteristics {
-    pub expected_domain: DomainKind,
-    pub expected_range: RangeKind,
-}
-
-/// Get the expected characteristics of a channel
-pub fn get_channel_characteristics(channel: &str) -> ChannelCharacteristics {
-    match channel {
-        // Position channels - typically continuous
-        "x" | "y" | "x2" | "y2" | "r" | "theta" | "radius" => ChannelCharacteristics {
-            expected_domain: DomainKind::Numeric,
-            expected_range: RangeKind::Continuous,
-        },
-
-        // Angle channel - continuous but not a position
-        "angle" => ChannelCharacteristics {
-            expected_domain: DomainKind::Numeric,
-            expected_range: RangeKind::Continuous,
-        },
-
-        // Color channels - can be categorical or continuous
-        "fill" | "stroke" | "color" => ChannelCharacteristics {
-            expected_domain: DomainKind::Categorical,
-            expected_range: RangeKind::Discrete,
-        },
-
-        // Opacity channels - continuous 0-1
-        "opacity" | "fill_opacity" | "stroke_opacity" => ChannelCharacteristics {
-            expected_domain: DomainKind::Numeric,
-            expected_range: RangeKind::Continuous,
-        },
-
-        // Shape channel - categorical
-        "shape" => ChannelCharacteristics {
-            expected_domain: DomainKind::Categorical,
-            expected_range: RangeKind::Discrete,
-        },
-
-        // Size channels - continuous positive
-        "size" | "stroke_width" | "width" | "height" => ChannelCharacteristics {
-            expected_domain: DomainKind::Numeric,
-            expected_range: RangeKind::Continuous,
-        },
-
-        // Dash channel - categorical
-        "stroke_dash" => ChannelCharacteristics {
-            expected_domain: DomainKind::Categorical,
-            expected_range: RangeKind::Discrete,
-        },
-
-        // Default to continuous numeric
-        _ => ChannelCharacteristics {
-            expected_domain: DomainKind::Numeric,
-            expected_range: RangeKind::Continuous,
-        },
-    }
-}
 
 /// Create a default scale for a channel using theme and scale traits
 pub fn create_default_scale_for_channel(
@@ -73,7 +12,6 @@ pub fn create_default_scale_for_channel(
     scale_spec: Box<dyn ScaleSpec>,
     context: &RenderContext,
 ) -> Result<Scale<Auto>, AvengerChartError> {
-    let _characteristics = get_channel_characteristics(channel); // TODO: Use for validation
     let range_kind = scale_spec.range_kind();
 
     let mut scale = Scale::<Auto>::from_spec(scale_spec);

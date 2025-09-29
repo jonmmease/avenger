@@ -14,7 +14,7 @@ pub mod spec;
 // Re-export the main types
 pub use codec::AvengerChartExtensionCodec;
 pub use defaults::{
-    create_default_scale_for_channel, get_channel_characteristics, is_categorical_data_type,
+    create_default_scale_for_channel, is_categorical_data_type,
     is_numeric_data_type, is_temporal_data_type,
 };
 pub use domain::{DomainExpr, ResolvedDomain, ScaleDefaultDomain, ScaleDomain};
