@@ -4,7 +4,6 @@ use crate::error::AvengerChartError;
 use crate::render::RenderContext;
 use crate::scales::spec::ScaleSpec;
 use crate::scales::{Auto, Scale};
-use datafusion::arrow::datatypes::DataType;
 
 /// Create a default scale for a channel using theme and scale traits
 pub fn create_default_scale_for_channel(
@@ -27,37 +26,4 @@ pub fn create_default_scale_for_channel(
     scale = scale.range(range);
 
     Ok(scale)
-}
-
-/// Determine if a data type represents categorical data
-pub fn is_categorical_data_type(data_type: &DataType) -> bool {
-    matches!(
-        data_type,
-        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean
-    )
-}
-
-/// Determine if a data type represents temporal data
-pub fn is_temporal_data_type(data_type: &DataType) -> bool {
-    matches!(
-        data_type,
-        DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _)
-    )
-}
-
-/// Determine if a data type represents numeric data
-pub fn is_numeric_data_type(data_type: &DataType) -> bool {
-    matches!(
-        data_type,
-        DataType::Float32
-            | DataType::Float64
-            | DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64
-    )
 }
