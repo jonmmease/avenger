@@ -33,8 +33,8 @@ impl Param {
 }
 
 impl From<(String, ScalarValue)> for Param {
-    fn from(params: (String, ScalarValue)) -> Self {
-        Param::new(params.0, params.1)
+    fn from(param: (String, ScalarValue)) -> Self {
+        Param::new(param.0, param.1)
     }
 }
 
