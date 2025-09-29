@@ -14,7 +14,7 @@ use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtens
 use std::sync::Arc;
 
 /// Magic header for identifying serialized scale UDFs
-const SCALE_UDF_MAGIC: &[u8] = b"SCALE_UDF_V2";
+const SCALE_UDF_MAGIC: &[u8] = b"SCALE_UDF_V1";
 
 /// Extension codec for avenger-chart that handles scale UDF serialization
 ///
@@ -209,11 +209,8 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         if node.name() == "scale" {
             // Try to downcast to ScaleUDF
             if let Some(scale_udf) = node.inner().as_any().downcast_ref::<ScaleUDF>() {
-                // Extract metadata from ScaleUDF
-                let metadata = scale_udf.metadata();
-
-                // Serialize the metadata as JSON
-                let json_bytes = serde_json::to_vec(&metadata)
+                // Serialize the ScaleUDF directly as JSON
+                let json_bytes = serde_json::to_vec(scale_udf)
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
                 // Write magic header, length, and JSON data
@@ -228,7 +225,7 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> DataFusionResult<Arc<ScalarUDF>> {
-        use crate::scales::udf::{ScaleUDF, ScaleUDFMetadata};
+        use crate::scales::udf::ScaleUDF;
 
         // Check if this is a scale UDF with serialized data
         if name == "scale" && buf.len() > SCALE_UDF_MAGIC.len() + 4 {
@@ -252,12 +249,8 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
                 }
                 let json_bytes = &buf[4..4 + json_len];
 
-                // Deserialize metadata
-                let metadata: ScaleUDFMetadata = serde_json::from_slice(json_bytes)
-                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
-
-                // Recreate the ScaleUDF from metadata
-                let scale_udf = ScaleUDF::from_metadata(metadata)
+                // Deserialize ScaleUDF directly
+                let scale_udf: ScaleUDF = serde_json::from_slice(json_bytes)
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
                 return Ok(Arc::new(ScalarUDF::new_from_impl(scale_udf)));
@@ -306,6 +299,6 @@ mod tests {
     #[test]
     fn test_magic_header() {
         assert_eq!(SCALE_UDF_MAGIC.len(), 12);
-        assert_eq!(SCALE_UDF_MAGIC, b"SCALE_UDF_V2");
+        assert_eq!(SCALE_UDF_MAGIC, b"SCALE_UDF_V1");
     }
 }

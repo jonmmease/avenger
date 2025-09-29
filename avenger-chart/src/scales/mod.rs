@@ -25,7 +25,7 @@ pub use spec::{
     Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, ScaleSpec, Sqrt, Symlog,
     Threshold, Time,
 };
-pub use udf::{ScaleUDFMetadata, create_scale_udf};
+pub use udf::create_scale_udf;
 
 /// Infer a scale specification from its name
 pub fn infer_scale_type_from_name(scale_type: &str) -> Box<dyn ScaleSpec> {
