@@ -14,6 +14,7 @@ use datafusion::optimizer::simplify_expressions::{ExprSimplifier, SimplifyContex
 use datafusion::prelude::{DataFrame, Expr, SessionContext, col, lit};
 use datafusion::scalar::ScalarValue;
 use datafusion_common::ToDFSchema;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 /// Strict color parser that returns an error if the color string cannot be parsed
@@ -711,5 +712,14 @@ pub fn scalar_to_scalar_value(scalar: &Scalar) -> ScalarValue {
     } else {
         // If none of the conversions work, return Null
         ScalarValue::Null
+    }
+}
+
+/// Convert IndexMap of parameter values to DataFusion's ParamValues::Map variant
+pub fn params_to_datafusion(params: &IndexMap<String, ScalarValue>) -> Option<ParamValues> {
+    if params.is_empty() {
+        None
+    } else {
+        Some(ParamValues::Map(params.clone().into_iter().collect()))
     }
 }

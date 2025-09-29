@@ -204,6 +204,7 @@ impl<C: CoordinateSystem> Plot<C> {
         &self,
         channel: &str,
         ctx: &datafusion::prelude::SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Scale, AvengerChartError> {
 
         // Try to infer the data type and use mark-based scale preferences
@@ -264,7 +265,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // Create render context with theme for scale defaults
         // Use placeholder dimensions since we're not rendering yet
         let theme = self.get_theme();
-        let context = RenderContext::new(theme, 0.0, 0.0, std::sync::Arc::new(ctx.clone()));
+        let context = RenderContext::new(theme, 0.0, 0.0, Arc::new(ctx.clone()), params.clone());
 
         // Create scale with theme-based defaults
         let mut scale = create_default_scale_for_channel(channel, scale_spec, &context)?;

@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Try to render the deserialized plot
     let ctx2 = SessionContext::new();
-    let render_result = deserialized.render(&ctx2).await?;
+    let render_result = deserialized.render(&ctx2, None).await?;
     println!("\n✅ Successfully rendered deserialized plot!");
     println!(
         "Scene graph size: {} marks",

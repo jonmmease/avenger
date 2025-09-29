@@ -39,7 +39,7 @@ pub async fn render_plot<C: CoordinateSystem + Clone>(
 
     // Compile and render directly first
     let compiled_direct = plot_for_direct.compile(ctx).await.expect("Failed to compile plot");
-    let direct_result = compiled_direct.render(ctx).await.expect("Failed to render plot directly");
+    let direct_result = compiled_direct.render(ctx, None).await.expect("Failed to render plot directly");
 
     // Compile, serialize, deserialize, and render
     let compiled_for_serialization = plot_for_bincode.compile(ctx).await.expect("Failed to compile plot for serialization");
@@ -52,7 +52,7 @@ pub async fn render_plot<C: CoordinateSystem + Clone>(
         .expect("Failed to deserialize CompiledPlot from bincode");
 
     // Render from the deserialized plot
-    let bincode_result = deserialized.render(ctx).await.expect("Failed to render plot after bincode deserialization");
+    let bincode_result = deserialized.render(ctx, None).await.expect("Failed to render plot after bincode deserialization");
 
     // Log if dimensions differ (but don't panic - serialization might change some aspects)
     if direct_result.scene_graph.width != bincode_result.scene_graph.width
@@ -138,7 +138,7 @@ pub async fn render_plot_with_serialization_test<C: CoordinateSystem + Clone>(
     // Compile and render directly
     let compiled_direct = plot_for_direct.compile(ctx).await
         .expect("Failed to compile plot directly");
-    let direct_result = compiled_direct.render(ctx).await
+    let direct_result = compiled_direct.render(ctx, None).await
         .expect("Failed to render plot directly");
 
     // Compile, serialize, deserialize, and render
@@ -151,7 +151,7 @@ pub async fn render_plot_with_serialization_test<C: CoordinateSystem + Clone>(
     let deserialized: avenger_chart::plot::CompiledPlot = bincode::deserialize(&serialized)
         .expect("Failed to deserialize CompiledPlot from bincode");
 
-    let serialized_result = deserialized.render(ctx).await
+    let serialized_result = deserialized.render(ctx, None).await
         .expect("Failed to render plot after bincode deserialization");
 
     // Render both to images
