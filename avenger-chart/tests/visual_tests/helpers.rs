@@ -125,6 +125,69 @@ impl<C: CoordinateSystem + Clone> PlotTestExt for Plot<C> {
     }
 }
 
+/// Render a plot both directly and after bincode serialization
+/// Returns (direct_image, serialized_image)
+pub async fn render_plot_with_serialization_test<C: CoordinateSystem + Clone>(
+    plot: Plot<C>,
+    ctx: &datafusion::prelude::SessionContext,
+) -> (RgbaImage, RgbaImage) {
+    // Clone for both paths
+    let plot_for_direct = plot.clone();
+    let plot_for_serialized = plot;
+
+    // Compile and render directly
+    let compiled_direct = plot_for_direct.compile(ctx).await
+        .expect("Failed to compile plot directly");
+    let direct_result = compiled_direct.render(ctx).await
+        .expect("Failed to render plot directly");
+
+    // Compile, serialize, deserialize, and render
+    let compiled_for_serialization = plot_for_serialized.compile(ctx).await
+        .expect("Failed to compile plot for serialization");
+
+    let serialized = bincode::serialize(&compiled_for_serialization)
+        .expect("Failed to serialize CompiledPlot with bincode");
+
+    let deserialized: avenger_chart::plot::CompiledPlot = bincode::deserialize(&serialized)
+        .expect("Failed to deserialize CompiledPlot from bincode");
+
+    let serialized_result = deserialized.render(ctx).await
+        .expect("Failed to render plot after bincode deserialization");
+
+    // Render both to images
+    let dimensions_direct = CanvasDimensions {
+        size: [direct_result.scene_graph.width, direct_result.scene_graph.height],
+        scale: DEFAULT_SCALE,
+    };
+
+    let dimensions_serialized = CanvasDimensions {
+        size: [serialized_result.scene_graph.width, serialized_result.scene_graph.height],
+        scale: DEFAULT_SCALE,
+    };
+
+    // Create direct image
+    let mut canvas_direct = PngCanvas::new(dimensions_direct, CanvasConfig::default())
+        .await
+        .expect("Failed to create direct canvas");
+    canvas_direct
+        .set_scene(&direct_result.scene_graph)
+        .expect("Failed to set direct scene");
+    let direct_image = canvas_direct.render().await
+        .expect("Failed to render direct image");
+
+    // Create serialized image
+    let mut canvas_serialized = PngCanvas::new(dimensions_serialized, CanvasConfig::default())
+        .await
+        .expect("Failed to create serialized canvas");
+    canvas_serialized
+        .set_scene(&serialized_result.scene_graph)
+        .expect("Failed to set serialized scene");
+    let serialized_image = canvas_serialized.render().await
+        .expect("Failed to render serialized image");
+
+    (direct_image, serialized_image)
+}
+
 /// Helper to get platform-specific baseline path
 pub fn get_baseline_path(category: &str, base_name: &str) -> String {
     format!("tests/baselines/{}/{}.png", category, base_name)
@@ -266,7 +329,8 @@ pub async fn assert_visual_match<C: CoordinateSystem + Clone>(
     baseline_name: &str,
     tolerance: f64,
 ) {
-    let rendered = plot.to_image().await;
+    let ctx = datafusion::prelude::SessionContext::new();
+    let (direct_image, serialized_image) = render_plot_with_serialization_test(plot, &ctx).await;
     let baseline_path = get_baseline_path(category, baseline_name);
 
     let config = VisualTestConfig {
@@ -274,8 +338,25 @@ pub async fn assert_visual_match<C: CoordinateSystem + Clone>(
         save_diff_on_failure: true,
     };
 
-    if let Err(msg) = compare_images(&baseline_path, rendered, &config) {
-        panic!("Visual test '{}' failed: {}", baseline_name, msg);
+    // Test direct rendering against baseline
+    if let Err(msg) = compare_images(&baseline_path, direct_image.clone(), &config) {
+        panic!("Visual test '{}' failed (direct rendering): {}", baseline_name, msg);
+    }
+
+    // Test serialized rendering against baseline
+    if let Err(msg) = compare_images(&baseline_path, serialized_image.clone(), &config) {
+        panic!("Visual test '{}' failed (after serialization): {}", baseline_name, msg);
+    }
+
+    // Also verify that direct and serialized produce identical results
+    let comparison = image_compare::rgba_hybrid_compare(&direct_image, &serialized_image)
+        .expect("Failed to compare direct and serialized renders");
+
+    if comparison.score < 0.99999 {
+        eprintln!(
+            "Warning: Serialization round-trip changed rendering for '{}'. Similarity: {:.6}",
+            baseline_name, comparison.score
+        );
     }
 }
 
@@ -300,7 +381,8 @@ pub async fn assert_visual_match_with_theme<
     tolerance: f64,
 ) {
     let plot_with_theme = plot.theme(theme);
-    let rendered = plot_with_theme.to_image().await;
+    let ctx = datafusion::prelude::SessionContext::new();
+    let (direct_image, serialized_image) = render_plot_with_serialization_test(plot_with_theme, &ctx).await;
     let baseline_path = get_baseline_path(category, baseline_name);
 
     let config = VisualTestConfig {
@@ -308,7 +390,24 @@ pub async fn assert_visual_match_with_theme<
         save_diff_on_failure: true,
     };
 
-    if let Err(msg) = compare_images(&baseline_path, rendered, &config) {
-        panic!("Visual test '{}' failed: {}", baseline_name, msg);
+    // Test direct rendering against baseline
+    if let Err(msg) = compare_images(&baseline_path, direct_image.clone(), &config) {
+        panic!("Visual test '{}' failed (direct rendering with theme): {}", baseline_name, msg);
+    }
+
+    // Test serialized rendering against baseline
+    if let Err(msg) = compare_images(&baseline_path, serialized_image.clone(), &config) {
+        panic!("Visual test '{}' failed (after serialization with theme): {}", baseline_name, msg);
+    }
+
+    // Also verify that direct and serialized produce identical results
+    let comparison = image_compare::rgba_hybrid_compare(&direct_image, &serialized_image)
+        .expect("Failed to compare direct and serialized renders");
+
+    if comparison.score < 0.99999 {
+        eprintln!(
+            "Warning: Serialization round-trip changed rendering for '{}' with theme. Similarity: {:.6}",
+            baseline_name, comparison.score
+        );
     }
 }
