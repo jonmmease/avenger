@@ -53,7 +53,7 @@ impl DomainInferrer {
         if let ScaleDefaultDomain::DomainExprs(data_fields) = default_domain {
             // Process radius-aware domains first, transforming fields in place
             let processed_fields =
-                Self::process_radius_domains(scale_impl, data_fields, range_hint, ctx).await?;
+                Self::process_radius_domains(scale_impl, data_fields, range_hint, ctx, params).await?;
 
             // Process standard domain inference
             let inferred_domain =
@@ -74,6 +74,7 @@ impl DomainInferrer {
         mut data_fields: Vec<DomainExpr>,
         range_hint: Option<(f64, f64)>,
         ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<Vec<DomainExpr>, AvengerChartError> {
         // Only process radius domains for numeric continuous scales with a range hint
         let is_numeric_continuous = scale_impl.domain_kind() == DomainKind::Numeric
@@ -92,6 +93,7 @@ impl DomainInferrer {
                             radius_expr,
                             range,
                             ctx,
+                            params,
                         )
                         .await?;
 
@@ -113,6 +115,7 @@ impl DomainInferrer {
         radius_expr: &RadiusExpression,
         range_hint: (f64, f64),
         ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<Option<DomainExpr>, AvengerChartError> {
         let (range_min, range_max) = range_hint;
         let range_width = (range_max - range_min).abs();
@@ -146,7 +149,12 @@ impl DomainInferrer {
         let plan = dataframe.to_logical_plan(ctx)?;
         let df = DataFrame::new(ctx.state().clone(), plan);
         let df_with_exprs = df.select(select_exprs)?;
-        let batches = df_with_exprs.collect().await?;
+        let datafusion_params = crate::utils::params_to_datafusion(params);
+        let batches = if let Some(param_values) = datafusion_params {
+            df_with_exprs.with_param_values(param_values)?.collect().await?
+        } else {
+            df_with_exprs.collect().await?
+        };
 
         if batches.is_empty() || batches[0].num_rows() == 0 {
             return Ok(None);

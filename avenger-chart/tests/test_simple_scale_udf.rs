@@ -34,8 +34,9 @@ mod tests {
 
         // Try to create configured scale
         println!("Creating configured scale...");
+        let empty_params = indexmap::IndexMap::new();
         let configured = scale
-            .create_configured_scale(100.0, 100.0, &ctx)
+            .create_configured_scale(100.0, 100.0, &ctx, &empty_params)
             .await
             .unwrap();
 
