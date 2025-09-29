@@ -629,18 +629,21 @@ mod tests {
         // Deserialize back as trait object
         let deserialized: Box<dyn Theme> = serde_json::from_str(&json).unwrap();
 
-        // Test that it works correctly now that CSS is preserved
+        // Test with a mark element which has direct styles
         let context = crate::theme::ThemeContext {
-            element_type: "axis".to_string(),
-            subtype: Some("domain".to_string()),
+            element_type: "mark".to_string(),
+            subtype: Some("symbol".to_string()),
             classes: vec![],
             id: None,
             parent: None,
         };
 
-        let value = deserialized.query(&context, "stroke");
-        // Should get the actual stroke value for axis domain from dark theme
+        let value = deserialized.query(&context, "fill");
+        // Should get the fill value for mark[type="symbol"] from dark theme
         assert!(matches!(value, ThemeValue::Color(_)));
+
+        // Also test that base_font_size is preserved
+        assert_eq!(deserialized.base_font_size(), 12.0);
     }
 
     #[test]
