@@ -28,7 +28,8 @@ async fn test_scale_padding_normalization() -> Result<(), Box<dyn std::error::Er
         .padding(20.0);
 
     // Create configured scale to test padding option is set
-    let configured = scale.create_configured_scale(400.0, 300.0, &ctx).await?;
+    let empty_params = indexmap::IndexMap::new();
+    let configured = scale.create_configured_scale(400.0, 300.0, &ctx, &empty_params).await?;
 
     // Check that clip_padding options were added
     let clip_padding_lower = configured.config.options.get("clip_padding_lower");

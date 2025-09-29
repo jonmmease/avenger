@@ -38,8 +38,9 @@ mod tests {
             .into_auto();
 
         // Create a configured scale
+        let empty_params = indexmap::IndexMap::new();
         let configured = scale
-            .create_configured_scale(100.0, 100.0, &ctx)
+            .create_configured_scale(100.0, 100.0, &ctx, &empty_params)
             .await
             .unwrap();
 
@@ -109,9 +110,10 @@ mod tests {
             Scale::<Band>::new().into_auto(),
         ];
 
+        let empty_params = indexmap::IndexMap::new();
         for scale in scales {
             // Just test that we can create a configured scale and convert to expression
-            let configured_result = scale.create_configured_scale(100.0, 100.0, &ctx).await;
+            let configured_result = scale.create_configured_scale(100.0, 100.0, &ctx, &empty_params).await;
 
             // Band and other discrete scales require discrete domains, so some may fail
             // That's ok for this test - we're just testing the serialization machinery

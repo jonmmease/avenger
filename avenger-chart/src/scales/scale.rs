@@ -415,7 +415,8 @@ impl<S: ScaleSpec> Scale<S> {
             Maybe::Set(ScaleRange::Numeric(start, end)) => {
                 let start_expr = start.to_expr(ctx)?;
                 let end_expr = end.to_expr(ctx)?;
-                let scalars = eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
+                let datafusion_params = crate::utils::params_to_datafusion(params);
+                let scalars = eval_to_scalars(vec![start_expr, end_expr], Some(ctx), datafusion_params.as_ref()).await?;
                 if scalars.len() == 2 {
                     Some((scalars[0].as_f64()?, scalars[1].as_f64()?))
                 } else {
@@ -459,8 +460,9 @@ impl<S: ScaleSpec> Scale<S> {
         }
 
         // Create ConfiguredScale to apply normalization
+        let empty_params = indexmap::IndexMap::new();
         let configured = self
-            .create_configured_scale(plot_area_width, plot_area_height, ctx)
+            .create_configured_scale(plot_area_width, plot_area_height, ctx, &empty_params)
             .await?;
 
         // Update domain with normalized values
@@ -479,6 +481,7 @@ impl<S: ScaleSpec> Scale<S> {
         _plot_area_width: f32,
         _plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
+        params: &indexmap::IndexMap<String, ScalarValue>,
     ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
         use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
         use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
@@ -504,7 +507,8 @@ impl<S: ScaleSpec> Scale<S> {
             ScaleDefaultDomain::Interval(start, end) => {
                 let start_expr = start.to_expr(ctx)?;
                 let end_expr = end.to_expr(ctx)?;
-                let scalars = eval_to_scalars(vec![start_expr, end_expr], Some(ctx), None).await?;
+                let datafusion_params = crate::utils::params_to_datafusion(params);
+                let scalars = eval_to_scalars(vec![start_expr, end_expr], Some(ctx), datafusion_params.as_ref()).await?;
                 let [start_val, end_val] = scalars.as_slice() else {
                     return Err(AvengerChartError::InternalError(
                         "Expected two scalar values for interval domain".to_string(),

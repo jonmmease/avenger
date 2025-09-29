@@ -1523,6 +1523,7 @@ impl CompiledPlot {
                 context.plot_width,
                 context.plot_height,
                 &context.session_context,
+                &context.params,
             )
             .await?;
 
