@@ -232,14 +232,14 @@ pub trait CoordinateSystemTransform: Send + Sync {
     ///
     /// # Arguments
     /// * `channel` - The channel name
-    /// * `scale_type` - The type of scale being configured
+    /// * `scale_impl` - The scale implementation being configured
     ///
     /// # Returns
     /// Map of option names to their values
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
     ) -> HashMap<String, datafusion::scalar::ScalarValue>;
 }
 

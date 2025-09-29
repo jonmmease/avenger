@@ -212,18 +212,16 @@ impl CoordinateSystemTransform for Polar {
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
     ) -> HashMap<String, datafusion::scalar::ScalarValue> {
-        // Use the same logic as the CoordinateSystem implementation
-        use crate::scales::infer_scale_type_from_name;
         use avenger_scales::scales::{DomainKind, RangeKind};
         use datafusion::scalar::ScalarValue;
 
         let mut options = HashMap::new();
 
-        // Determine domain and range kinds from scale type
-        let scale_spec = infer_scale_type_from_name(scale_type);
-        let (domain_kind, range_kind) = (scale_spec.domain_kind(), scale_spec.range_kind());
+        // Get domain and range kinds directly from scale implementation
+        let domain_kind = scale_impl.domain_kind();
+        let range_kind = scale_impl.range_kind();
 
         // Apply polar-specific defaults
         if channel == "r" {

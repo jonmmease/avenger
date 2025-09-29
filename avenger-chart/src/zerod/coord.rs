@@ -149,7 +149,7 @@ impl CoordinateSystemTransform for ZeroDCoord {
     fn default_scale_options(
         &self,
         _channel: &str,
-        _scale_type: &str,
+        _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
     ) -> HashMap<String, datafusion::scalar::ScalarValue> {
         // Zero-dimensional coordinate system has no positional channels
         HashMap::new()
