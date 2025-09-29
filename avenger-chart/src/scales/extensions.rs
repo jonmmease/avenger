@@ -99,7 +99,7 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
 
         // Use the stored Scale<Auto> directly - no need to recreate from scale type!
         // This preserves full extensibility for external scale types
-        let udf = create_scale_udf(self.scale.clone(), domain_type.clone(), range_type.clone(), options_type)?;
+        let udf = create_scale_udf(self.spec().clone(), domain_type.clone(), range_type.clone(), options_type)?;
 
         // Convert arrays to ScalarValue::List for the UDF call
         let domain_scalar = array_to_list_scalar(self.configured.config.domain.clone())?;
@@ -144,10 +144,10 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
             };
 
             // Create a new wrapper with the modified configured scale
-            let temp_wrapper = ConfiguredScaleWithSpec {
-                scale: self.scale.clone(),
-                configured: temp_configured,
-            };
+            let temp_wrapper = ConfiguredScaleWithSpec::new(
+                self.spec().clone(),
+                temp_configured,
+            );
 
             temp_wrapper.to_expr(input)
         } else {

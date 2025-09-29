@@ -988,7 +988,7 @@ impl CompiledPlot {
                 .find(|m| m.data_context().channels().contains_key(channel))
             {
                 // If the mark that has the channel says no legend, skip it
-                if mark.preferred_legend_renderer(channel, &scale.configured).is_none() {
+                if mark.preferred_legend_renderer(channel, scale.configured()).is_none() {
                     skip_channels.insert(channel.clone());
                 }
             }
@@ -1054,7 +1054,7 @@ impl CompiledPlot {
         // Find the first mark that has this channel and get its preference
         for mark in &self.marks {
             if mark.data_context().channels().contains_key(channel) {
-                return mark.preferred_legend_renderer(channel, &scale.configured);
+                return mark.preferred_legend_renderer(channel, scale.configured());
             }
         }
         None
@@ -1211,7 +1211,7 @@ impl CompiledPlot {
                     // Channel has a scale
                     ChannelInfo::Scaled {
                         expr: other_value.expr(ctx),
-                        scale: other_scale.configured.clone(),
+                        scale: other_scale.configured().clone(),
                     }
                 } else if let Some(expr) = other_value.expr(ctx) {
                     // Channel has a constant expression
@@ -1253,7 +1253,7 @@ impl CompiledPlot {
         LegendChannel {
             name: channel_name.to_string(),
             expression: channel_value.expr(ctx),
-            scale: scale.configured.clone(),
+            scale: scale.configured().clone(),
             channel_type: channel_name.to_string(), // Use channel name as type
             mark_type,
             mark_index,
@@ -1892,7 +1892,7 @@ impl CompiledPlot {
                 // Extract ConfiguredScale from ConfiguredScaleWithSpec for mark's renderer
                 let configured_scales: HashMap<String, ConfiguredScale> = scales
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.configured.clone()))
+                    .map(|(k, v)| (k.clone(), v.configured().clone()))
                     .collect();
                 mark_opt
                     .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &configured_scales))
@@ -2137,7 +2137,7 @@ impl CompiledPlot {
             // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
             let configured_scales: HashMap<String, ConfiguredScale> = scales
                 .iter()
-                .map(|(k, v)| (k.clone(), v.configured.clone()))
+                .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
             guide_renderer
                 .render(&configured_scales, plot_width, plot_height, plot_bounds, theme.as_ref())
@@ -2174,7 +2174,7 @@ impl CompiledPlot {
             // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
             let configured_scales: HashMap<String, ConfiguredScale> = scales
                 .iter()
-                .map(|(k, v)| (k.clone(), v.configured.clone()))
+                .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
             guide_renderer
                 .measure_overflow(&configured_scales, width_estimate, height_estimate, theme.as_ref())
@@ -2255,7 +2255,7 @@ impl CompiledPlot {
                     // Extract ConfiguredScale from ConfiguredScaleWithSpec for mark's renderer
                     let configured_scales: HashMap<String, ConfiguredScale> = scales
                         .iter()
-                        .map(|(k, v)| (k.clone(), v.configured.clone()))
+                        .map(|(k, v)| (k.clone(), v.configured().clone()))
                         .collect();
 
                     mark_opt
@@ -2478,7 +2478,7 @@ impl CompiledPlot {
             // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
             let configured_scales: HashMap<String, ConfiguredScale> = final_configured_scales
                 .iter()
-                .map(|(k, v)| (k.clone(), v.configured.clone()))
+                .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
             guide.get_clip(plot_area_width, plot_area_height, &configured_scales)
         } else {
