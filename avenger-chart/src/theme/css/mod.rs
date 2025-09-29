@@ -11,18 +11,17 @@ pub use selector_impl::ChartString;
 use crate::theme::{LengthUnit, Rgba, ThemeValue};
 use indexmap::IndexMap;
 use selectors::matching::SelectorCaches;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// CSS-based theme with full selector support
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct CssTheme {
-    #[serde(skip)]
     rules: Vec<CompiledRule>,
-    #[serde(skip)]
     variables: IndexMap<String, ThemeValue>,
-    #[serde(skip)]
     inherited_properties: std::collections::HashSet<&'static str>,
     base_font_size: f32,
+    /// List of CSS sources in order they were added
+    css_sources: Vec<String>,
 }
 
 /// A compiled CSS rule with selector and declarations
@@ -338,7 +337,17 @@ impl CssTheme {
             compiled_rules.push(rule);
         }
 
-        // Define inherited properties
+        Ok(Self {
+            rules: compiled_rules,
+            variables,
+            inherited_properties: Self::default_inherited_properties(),
+            base_font_size: 12.0,
+            css_sources: vec![css.to_string()],
+        })
+    }
+
+    /// Get the default set of inherited CSS properties
+    fn default_inherited_properties() -> std::collections::HashSet<&'static str> {
         let mut inherited_properties = std::collections::HashSet::new();
         inherited_properties.insert("color");
         inherited_properties.insert("font-family");
@@ -348,13 +357,44 @@ impl CssTheme {
         inherited_properties.insert("line-height");
         inherited_properties.insert("text-align");
         inherited_properties.insert("visibility");
+        inherited_properties
+    }
 
-        Ok(Self {
-            rules: compiled_rules,
-            variables,
-            inherited_properties,
-            base_font_size: 12.0,
-        })
+    /// Append additional CSS rules to the theme
+    pub fn append_css(&mut self, css: &str) -> Result<(), String> {
+        // Parse the new CSS
+        let new_rules = parser::parse_stylesheet(css)?;
+
+        // Get current max source_order
+        let current_max_order = self.rules
+            .iter()
+            .map(|r| r.source_order)
+            .max()
+            .unwrap_or(0);
+
+        // Add new rules with updated source_order
+        for (i, mut rule) in new_rules.into_iter().enumerate() {
+            rule.source_order = current_max_order + i + 1;
+
+            // Extract any new variables
+            for (key, value) in &rule.declarations {
+                if key.starts_with("--") {
+                    self.variables.insert(key.clone(), value.clone());
+                }
+            }
+
+            self.rules.push(rule);
+        }
+
+        // Store the CSS source
+        self.css_sources.push(css.to_string());
+
+        Ok(())
+    }
+
+    /// Get the combined CSS source
+    pub fn to_css(&self) -> String {
+        self.css_sources.join("\n\n")
     }
 
     /// Query a CSS property for an element
@@ -496,6 +536,53 @@ impl CssTheme {
     }
 }
 
+/// Helper struct for serializing CssTheme
+#[derive(Serialize, Deserialize)]
+struct CssThemeData {
+    css_sources: Vec<String>,
+    base_font_size: f32,
+}
+
+impl Serialize for CssTheme {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let data = CssThemeData {
+            css_sources: self.css_sources.clone(),
+            base_font_size: self.base_font_size,
+        };
+        data.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CssTheme {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let data = CssThemeData::deserialize(deserializer)?;
+
+        // Start with empty theme
+        let mut theme = CssTheme {
+            rules: Vec::new(),
+            variables: IndexMap::new(),
+            inherited_properties: Self::default_inherited_properties(),
+            base_font_size: data.base_font_size,
+            css_sources: Vec::new(),
+        };
+
+        // Rebuild by parsing each CSS source in order
+        for css in data.css_sources {
+            theme
+                .append_css(&css)
+                .map_err(serde::de::Error::custom)?;
+        }
+
+        Ok(theme)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,10 +597,25 @@ mod tests {
         let json = serde_json::to_string(&theme).unwrap();
 
         // Deserialize back
-        let _deserialized: CssTheme = serde_json::from_str(&json).unwrap();
+        let deserialized: CssTheme = serde_json::from_str(&json).unwrap();
 
-        // Basic check - just ensure it doesn't panic
-        assert!(json.contains("base_font_size"));
+        // Check that CSS sources are preserved
+        assert_eq!(theme.css_sources.len(), deserialized.css_sources.len());
+        assert_eq!(theme.base_font_size, deserialized.base_font_size);
+
+        // Verify the theme works correctly after deserialization
+        let context = crate::theme::ThemeContext {
+            element_type: "axis".to_string(),
+            subtype: Some("domain".to_string()),
+            classes: vec![],
+            id: None,
+            parent: None,
+        };
+
+        // Both themes should return the same value
+        let original_value = theme.query(&context, "stroke");
+        let deserialized_value = deserialized.query(&context, "stroke");
+        assert_eq!(original_value, deserialized_value);
     }
 
     #[test]
@@ -523,24 +625,103 @@ mod tests {
 
         // Serialize the trait object
         let json = serde_json::to_string(&theme).unwrap();
-        println!("Serialized JSON: {}", json);
 
         // Deserialize back as trait object
         let deserialized: Box<dyn Theme> = serde_json::from_str(&json).unwrap();
 
-        // Test that it works - note that deserialized CssTheme will have empty rules
-        // because those fields are marked with #[serde(skip)]
+        // Test that it works correctly now that CSS is preserved
         let context = crate::theme::ThemeContext {
             element_type: "axis".to_string(),
-            subtype: None,
+            subtype: Some("domain".to_string()),
             classes: vec![],
             id: None,
             parent: None,
         };
 
         let value = deserialized.query(&context, "stroke");
-        // The value will be None (not Initial) because get_initial_value returns None for stroke
-        // when there's no specific context match (axis domain would return a color)
-        assert_eq!(value, ThemeValue::None);
+        // Should get the actual stroke value for axis domain from dark theme
+        assert!(matches!(value, ThemeValue::Color(_)));
+    }
+
+    #[test]
+    fn test_append_css() {
+        // Create a base theme
+        let mut theme = CssTheme::from_css(r#"
+            mark {
+                fill: red;
+            }
+        "#).unwrap();
+
+        // Append additional CSS
+        theme.append_css(r#"
+            mark {
+                fill: blue;
+                stroke: green;
+            }
+        "#).unwrap();
+
+        // Check that we have both CSS sources
+        assert_eq!(theme.css_sources.len(), 2);
+
+        // Test that later rules override earlier ones
+        let context = crate::theme::ThemeContext {
+            element_type: "mark".to_string(),
+            subtype: None,
+            classes: vec![],
+            id: None,
+            parent: None,
+        };
+
+        let fill = theme.query(&context, "fill");
+        // The second rule should override, so fill should be blue
+        assert!(matches!(fill, ThemeValue::Color(c) if c.blue == 255));
+
+        let stroke = theme.query(&context, "stroke");
+        // Stroke was only defined in the second rule
+        assert!(matches!(stroke, ThemeValue::Color(c) if c.green == 128));
+    }
+
+    #[test]
+    fn test_append_css_with_serialization() {
+        // Create a base theme and append CSS
+        let mut theme = CssTheme::from_css(r#"
+            mark {
+                fill: red;
+            }
+        "#).unwrap();
+
+        theme.append_css(r#"
+            mark {
+                fill: blue;
+            }
+            axis {
+                stroke: black;
+            }
+        "#).unwrap();
+
+        // Serialize and deserialize
+        let json = serde_json::to_string(&theme).unwrap();
+        let deserialized: CssTheme = serde_json::from_str(&json).unwrap();
+
+        // Verify both CSS sources are preserved
+        assert_eq!(deserialized.css_sources.len(), 2);
+
+        // Test combined CSS export
+        let combined_css = deserialized.to_css();
+        assert!(combined_css.contains("fill: red"));
+        assert!(combined_css.contains("fill: blue"));
+        assert!(combined_css.contains("stroke: black"));
+
+        // Verify behavior is preserved
+        let context = crate::theme::ThemeContext {
+            element_type: "mark".to_string(),
+            subtype: None,
+            classes: vec![],
+            id: None,
+            parent: None,
+        };
+
+        let fill = deserialized.query(&context, "fill");
+        assert!(matches!(fill, ThemeValue::Color(c) if c.blue == 255));
     }
 }
