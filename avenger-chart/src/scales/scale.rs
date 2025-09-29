@@ -405,6 +405,7 @@ impl<S: ScaleSpec> Scale<S> {
         _plot_area_width: f32,
         _plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
+        params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Result<Self, AvengerChartError> {
         // Get scale implementation (required for inference)
         let scale_impl = self.get_scale_impl_or_err()?;
@@ -427,7 +428,7 @@ impl<S: ScaleSpec> Scale<S> {
         // Infer domain using DomainInferrer - unwrap the Maybe<ScaleDomain> or use a default
         let current_domain = self.domain.unwrap_or(infer_default_domain(&scale_impl));
         let inferred_domain =
-            DomainInferrer::infer(&scale_impl, current_domain, range_hint, ctx).await?;
+            DomainInferrer::infer(&scale_impl, current_domain, range_hint, ctx, params).await?;
         self.domain = Maybe::Set(inferred_domain);
         Ok(self)
     }

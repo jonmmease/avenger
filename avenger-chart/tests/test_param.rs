@@ -1,0 +1,122 @@
+//! Test parameter functionality
+
+use avenger_chart::param::Param;
+use avenger_chart::plot::Plot;
+use datafusion::prelude::*;
+use datafusion::scalar::ScalarValue;
+
+#[tokio::test]
+async fn test_param_creation() {
+    // Create a parameter with a name and default value
+    let param = Param::new("threshold", ScalarValue::Float64(Some(50.0)));
+
+    // Verify the parameter has the correct name and default
+    assert_eq!(param.name, "threshold");
+    assert_eq!(param.default, ScalarValue::Float64(Some(50.0)));
+
+    // Verify we can create an expression from the parameter
+    let expr = param.expr();
+    match expr {
+        Expr::Placeholder(placeholder) => {
+            assert_eq!(placeholder.id, "$threshold");
+            assert!(placeholder.data_type.is_some());
+        }
+        _ => panic!("Expected placeholder expression"),
+    }
+}
+
+#[tokio::test]
+async fn test_plot_with_params() {
+    use avenger_chart::cartesian::Cartesian;
+    use avenger_chart::marks::rect::Rect;
+
+    let ctx = SessionContext::new();
+
+    // Create sample data
+    let df = ctx
+        .sql("SELECT * FROM (VALUES (1, 10), (2, 20), (3, 30)) AS t(x, y)")
+        .await
+        .unwrap();
+
+    // Create parameters
+    let param1 = Param::new("scale_factor", ScalarValue::Float64(Some(2.0)));
+    let param2 = Param::new("offset", ScalarValue::Int32(Some(5)));
+
+    // Create plot with parameters
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .add_param(param1.clone())
+        .add_param(param2.clone())
+        .mark(
+            Rect::new()
+                .x(col("x"))
+                .y(col("y") * param1.expr() + param2.expr())
+        );
+
+    // Compile the plot
+    let compiled = plot.compile(&ctx).await.unwrap();
+
+    // Verify default parameters were extracted
+    let default_params = compiled.get_default_params();
+    assert_eq!(default_params.len(), 2);
+    assert_eq!(
+        default_params.get("scale_factor"),
+        Some(&ScalarValue::Float64(Some(2.0)))
+    );
+    assert_eq!(
+        default_params.get("offset"),
+        Some(&ScalarValue::Int32(Some(5)))
+    );
+}
+
+#[tokio::test]
+async fn test_param_from_tuple() {
+    // Test creating param from tuple
+    let param: Param = ("my_param".to_string(), ScalarValue::Boolean(Some(true))).into();
+    assert_eq!(param.name, "my_param");
+    assert_eq!(param.default, ScalarValue::Boolean(Some(true)));
+}
+
+#[tokio::test]
+async fn test_param_into_expr() {
+    let param = Param::new("test", ScalarValue::Int64(Some(42)));
+
+    // Test Into<Expr> for owned Param
+    let expr1: Expr = param.clone().into();
+    match expr1 {
+        Expr::Placeholder(p) => assert_eq!(p.id, "$test"),
+        _ => panic!("Expected placeholder"),
+    }
+
+    // Test Into<Expr> for borrowed Param
+    let expr2: Expr = (&param).into();
+    match expr2 {
+        Expr::Placeholder(p) => assert_eq!(p.id, "$test"),
+        _ => panic!("Expected placeholder"),
+    }
+}
+
+#[tokio::test]
+async fn test_add_params_multiple() {
+    use avenger_chart::cartesian::Cartesian;
+
+    let ctx = SessionContext::new();
+
+    let params = vec![
+        Param::new("p1", ScalarValue::Float32(Some(1.0))),
+        Param::new("p2", ScalarValue::Float32(Some(2.0))),
+        Param::new("p3", ScalarValue::Float32(Some(3.0))),
+    ];
+
+    let plot = Plot::<Cartesian>::new()
+        .add_params(params);
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+
+    // Verify all params were added
+    let default_params = compiled.get_default_params();
+    assert_eq!(default_params.len(), 3);
+    assert!(default_params.contains_key("p1"));
+    assert!(default_params.contains_key("p2"));
+    assert!(default_params.contains_key("p3"));
+}
