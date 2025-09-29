@@ -28,35 +28,88 @@ impl Default for VisualTestConfig {
 }
 
 /// Render a plot to an image, automatically handling canvas sizing based on layout spec
-pub async fn render_plot<C: CoordinateSystem>(
+/// This version performs a serialization round-trip through bincode to test serialization
+pub async fn render_plot<C: CoordinateSystem + Clone>(
     plot: Plot<C>,
     ctx: &datafusion::prelude::SessionContext,
 ) -> RgbaImage {
-    // Use the new CompiledPlot for rendering!
-    let compiled = plot.compile(ctx).await.expect("Failed to compile plot");
-    let render_result = compiled.render(ctx).await.expect("Failed to render plot");
+    // Clone the plot so we can test both paths
+    let plot_for_direct = plot.clone();
+    let plot_for_bincode = plot;
 
-    // The scene graph contains the correct canvas dimensions for any mode
-    let canvas_width = render_result.scene_graph.width;
-    let canvas_height = render_result.scene_graph.height;
+    // Compile and render directly first
+    let compiled_direct = plot_for_direct.compile(ctx).await.expect("Failed to compile plot");
+    let direct_result = compiled_direct.render(ctx).await.expect("Failed to render plot directly");
 
-    // Create canvas with the dimensions from the scene graph
+    // Compile, serialize, deserialize, and render
+    let compiled_for_serialization = plot_for_bincode.compile(ctx).await.expect("Failed to compile plot for serialization");
+
+    // Perform serialization round-trip through bincode
+    let serialized = bincode::serialize(&compiled_for_serialization)
+        .expect("Failed to serialize CompiledPlot with bincode");
+
+    let deserialized: avenger_chart::plot::CompiledPlot = bincode::deserialize(&serialized)
+        .expect("Failed to deserialize CompiledPlot from bincode");
+
+    // Render from the deserialized plot
+    let bincode_result = deserialized.render(ctx).await.expect("Failed to render plot after bincode deserialization");
+
+    // Log if dimensions differ (but don't panic - serialization might change some aspects)
+    if direct_result.scene_graph.width != bincode_result.scene_graph.width
+        || direct_result.scene_graph.height != bincode_result.scene_graph.height {
+        eprintln!(
+            "Warning: Serialization round-trip changed dimensions! Direct: {}x{}, After bincode: {}x{}",
+            direct_result.scene_graph.width,
+            direct_result.scene_graph.height,
+            bincode_result.scene_graph.width,
+            bincode_result.scene_graph.height
+        );
+    }
+
+    // Create canvas with the dimensions from the bincode result (this is what we're testing)
     let dimensions = CanvasDimensions {
-        size: [canvas_width, canvas_height],
+        size: [bincode_result.scene_graph.width, bincode_result.scene_graph.height],
         scale: DEFAULT_SCALE,
     };
     let config = CanvasConfig::default();
 
-    let mut canvas = PngCanvas::new(dimensions, config)
+    // Render the bincode version
+    let mut canvas_bincode = PngCanvas::new(dimensions, config)
         .await
-        .expect("Failed to create canvas");
+        .expect("Failed to create bincode canvas");
+    canvas_bincode
+        .set_scene(&bincode_result.scene_graph)
+        .expect("Failed to set bincode scene");
+    let bincode_image = canvas_bincode.render().await.expect("Failed to render bincode image");
 
-    // Set the already computed scene graph
-    canvas
-        .set_scene(&render_result.scene_graph)
-        .expect("Failed to set scene");
+    // Also render the direct version for comparison (if dimensions match)
+    if direct_result.scene_graph.width == bincode_result.scene_graph.width
+        && direct_result.scene_graph.height == bincode_result.scene_graph.height {
 
-    canvas.render().await.expect("Failed to render image")
+        let mut canvas_direct = PngCanvas::new(dimensions, CanvasConfig::default())
+            .await
+            .expect("Failed to create direct canvas");
+        canvas_direct
+            .set_scene(&direct_result.scene_graph)
+            .expect("Failed to set direct scene");
+        let direct_image = canvas_direct.render().await.expect("Failed to render direct image");
+
+        // Compare and log similarity (but don't fail if they differ)
+        let result = image_compare::rgba_hybrid_compare(&direct_image, &bincode_image)
+            .expect("Failed to compare direct and bincode-serialized renders");
+
+        if result.score < 0.99999 {
+            eprintln!(
+                "Info: Serialization round-trip produced different rendering. Similarity: {:.6}",
+                result.score
+            );
+        } else {
+            eprintln!("Info: Serialization round-trip produced identical rendering (score: {:.6})", result.score);
+        }
+    }
+
+    // Return the bincode version to ensure all tests use the serialization path
+    bincode_image
 }
 
 /// Helper trait to make plot building more fluent for tests
@@ -65,7 +118,7 @@ pub trait PlotTestExt: Sized {
     async fn to_image(self) -> RgbaImage;
 }
 
-impl<C: CoordinateSystem> PlotTestExt for Plot<C> {
+impl<C: CoordinateSystem + Clone> PlotTestExt for Plot<C> {
     async fn to_image(self) -> RgbaImage {
         let ctx = datafusion::prelude::SessionContext::new();
         render_plot(self, &ctx).await
