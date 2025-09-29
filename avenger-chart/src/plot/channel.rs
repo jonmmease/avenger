@@ -7,9 +7,8 @@ use crate::error::AvengerChartError;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::plot::{AxisSpec, Plot, ScaleSpec};
 use crate::render::RenderContext;
-use crate::scales::{ConfiguredScaleDataFusionExt, Scale, create_default_scale_for_channel};
+use crate::scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec, Scale, create_default_scale_for_channel};
 use crate::serialization::LogicalExprNodeExt;
-use avenger_scales::scales::ConfiguredScale;
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use std::collections::hash_map::Entry;
@@ -123,7 +122,7 @@ impl<C: CoordinateSystem> Plot<C> {
     pub(crate) fn create_channel_resolver<'a>(
         mark: &'a dyn crate::marks::CompiledMark,
         encodings: &'a IndexMap<String, ChannelValue>,
-        configured_scales: &'a HashMap<String, ConfiguredScale>,
+        configured_scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
         context: &'a RenderContext,
         ctx: &'a datafusion::prelude::SessionContext,
     ) -> impl Fn(&str) -> datafusion::logical_expr::Expr + 'a {
@@ -428,7 +427,7 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn gather_scale_domain_expressions_with_radius(
         &self,
         scale_name: &str,
-        configured_scales: &HashMap<String, ConfiguredScale>,
+        configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         context: &RenderContext,
     ) -> Result<ScaleDomainWithRadius, AvengerChartError> {
         let mut data_expressions = Vec::new();

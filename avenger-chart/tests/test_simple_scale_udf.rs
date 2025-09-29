@@ -34,10 +34,14 @@ mod tests {
 
         // Try to create configured scale
         println!("Creating configured scale...");
-        let configured_scale = scale
+        let configured = scale
             .create_configured_scale(100.0, 100.0, &ctx)
             .await
             .unwrap();
+
+        // Wrap in ConfiguredScaleWithSpec
+        use avenger_chart::scales::ConfiguredScaleWithSpec;
+        let configured_scale = ConfiguredScaleWithSpec::new(scale.clone(), configured);
 
         println!("Creating expression...");
         // Create an expression using the scale

@@ -5,6 +5,7 @@
 
 use crate::error::AvengerChartError;
 use crate::scales::udf::create_scale_udf;
+use crate::scales::ConfiguredScaleWithSpec;
 use crate::utils::ScalarValueHelpers;
 use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind};
 use datafusion::arrow::array::{Array, ArrayRef, AsArray, Float32Array, ListArray};
@@ -60,19 +61,19 @@ pub enum DomainValues {
     Interval(ScalarValue, ScalarValue),
 }
 
-impl ConfiguredScaleDataFusionExt for ConfiguredScale {
+impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
     fn to_expr(&self, input: Expr) -> Result<Expr, AvengerChartError> {
         use datafusion::logical_expr::lit;
         use datafusion::prelude::named_struct;
         use datafusion_common::DFSchema;
 
-        // Get data types
-        let domain_type = self.config.domain.data_type();
-        let range_type = self.config.range.data_type();
+        // Get data types from the configured scale
+        let domain_type = self.configured.config.domain.data_type();
+        let range_type = self.configured.config.range.data_type();
         let empty_schema = DFSchema::empty();
 
         // Build options struct - convert avenger_scales::Scalar to expressions
-        let options_expr = if self.config.options.is_empty() {
+        let options_expr = if self.configured.config.options.is_empty() {
             // Create empty struct
             lit(ScalarValue::Struct(
                 datafusion::arrow::array::StructArray::new_empty_fields(1, None).into(),
@@ -80,6 +81,7 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScale {
         } else {
             // Convert HashMap<String, Scalar> to named_struct expression
             let struct_args: Vec<Expr> = self
+                .configured
                 .config
                 .options
                 .iter()
@@ -95,34 +97,13 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScale {
 
         let options_type = options_expr.get_type(&empty_schema)?;
 
-        // Create a minimal Scale<Auto> for serialization
-        // We just need to store the scale type so we can recreate the ScaleImpl on deserialization
-        use crate::scales::spec::*;
-
-        let scale_spec: Box<dyn ScaleSpec> = match self.scale_impl.scale_type() {
-            "linear" => Box::new(Linear),
-            "log" => Box::new(Log),
-            "sqrt" => Box::new(Sqrt),
-            "symlog" => Box::new(Symlog),
-            "pow" => Box::new(Pow),
-            "ordinal" => Box::new(Ordinal),
-            "band" => Box::new(Band),
-            "point" => Box::new(Point),
-            "time" => Box::new(Time),
-            "threshold" => Box::new(Threshold),
-            "quantile" => Box::new(Quantile),
-            "quantize" => Box::new(Quantize),
-            _ => Box::new(Auto),
-        };
-
-        let scale = crate::scales::Scale::<Auto>::from_spec(scale_spec);
-
-        // Create the scale UDF with the Scale<Auto>
-        let udf = create_scale_udf(scale, domain_type.clone(), range_type.clone(), options_type)?;
+        // Use the stored Scale<Auto> directly - no need to recreate from scale type!
+        // This preserves full extensibility for external scale types
+        let udf = create_scale_udf(self.scale.clone(), domain_type.clone(), range_type.clone(), options_type)?;
 
         // Convert arrays to ScalarValue::List for the UDF call
-        let domain_scalar = array_to_list_scalar(self.config.domain.clone())?;
-        let range_scalar = array_to_list_scalar(self.config.range.clone())?;
+        let domain_scalar = array_to_list_scalar(self.configured.config.domain.clone())?;
+        let range_scalar = array_to_list_scalar(self.configured.config.range.clone())?;
 
         // Cast input to match domain type if needed
         let casted_input = datafusion::logical_expr::cast(input, domain_type.clone());
@@ -143,25 +124,32 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScale {
         // - 1.0 = end of band
         // For non-band scales, this parameter is ignored
         if self
+            .configured
             .scale_impl
             .option_definitions()
             .iter()
             .any(|def| def.name == "band")
         {
             // Clone config and add band option
-            let mut config = self.config.clone();
+            let mut config = self.configured.config.clone();
             config.options.insert(
                 "band".to_string(),
                 avenger_scales::scalar::Scalar::from_f32(band as f32),
             );
 
             // Create a temporary ConfiguredScale with the band option
-            let temp_scale = ConfiguredScale {
-                scale_impl: self.scale_impl.clone(),
+            let temp_configured = ConfiguredScale {
+                scale_impl: self.configured.scale_impl.clone(),
                 config,
             };
 
-            temp_scale.to_expr(input)
+            // Create a new wrapper with the modified configured scale
+            let temp_wrapper = ConfiguredScaleWithSpec {
+                scale: self.scale.clone(),
+                configured: temp_configured,
+            };
+
+            temp_wrapper.to_expr(input)
         } else {
             // For non-band scales, ignore the band parameter
             self.to_expr(input)
@@ -169,6 +157,44 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScale {
     }
 }
 
+// Implementation for ConfiguredScaleWithSpec - delegates to inner ConfiguredScale
+impl ConfiguredScaleLegendExt for ConfiguredScaleWithSpec {
+    fn domain_values(&self) -> Result<DomainValues, AvengerChartError> {
+        self.configured.domain_values()
+    }
+
+    fn domain_labels(&self) -> Result<Vec<String>, AvengerChartError> {
+        self.configured.domain_labels()
+    }
+
+    fn range_colors(&self) -> Result<Vec<[f32; 4]>, AvengerChartError> {
+        self.configured.range_colors()
+    }
+
+    fn range_strings(&self) -> Result<Vec<String>, AvengerChartError> {
+        self.configured.range_strings()
+    }
+
+    fn scale_scalars_to_numeric(
+        &self,
+        values: &[ScalarValue],
+    ) -> Result<Vec<f32>, AvengerChartError> {
+        self.configured.scale_scalars_to_numeric(values)
+    }
+
+    fn scale_scalars_to_colors(
+        &self,
+        values: &[ScalarValue],
+    ) -> Result<Vec<[f32; 4]>, AvengerChartError> {
+        self.configured.scale_scalars_to_colors(values)
+    }
+
+    fn scale_scalars_to_dash_patterns(&self, values: &[ScalarValue]) -> Vec<Option<Vec<f32>>> {
+        self.configured.scale_scalars_to_dash_patterns(values)
+    }
+}
+
+// Keep the original implementation for ConfiguredScale for internal use
 impl ConfiguredScaleLegendExt for ConfiguredScale {
     fn domain_values(&self) -> Result<DomainValues, AvengerChartError> {
         // First check if scale provides custom legend entries

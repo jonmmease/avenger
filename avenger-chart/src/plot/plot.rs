@@ -11,7 +11,8 @@ use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
 use crate::marks::{CompiledMark, Mark};
 use crate::render::RenderContext;
-use crate::scales::Scale;
+use crate::scales::{ConfiguredScaleWithSpec, Scale};
+use avenger_scales::scales::ConfiguredScale;
 use crate::serialization::{SerializableDataFrame, LogicalExprNodeExt, LogicalPlanNodeExt};
 use crate::theme::{Theme, css::CssTheme};
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -297,7 +298,7 @@ impl CompiledPlot {
     fn gather_scale_domain_expressions_with_radius(
         &self,
         scale_name: &str,
-        configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         context: &crate::render::RenderContext,
     ) -> Result<
         Vec<(
@@ -811,7 +812,7 @@ impl CompiledPlot {
         &self,
         channel_name: &str,
         channel_value: &ChannelValue,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
     ) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
         use crate::channel::value::strip_trailing_numbers;
 
@@ -952,7 +953,7 @@ impl CompiledPlot {
     /// Create default legends for channels with scales
     fn create_default_legends(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         session_context: &datafusion::prelude::SessionContext,
     ) -> IndexMap<String, Legend> {
         let mut default_legends = IndexMap::new();
@@ -976,7 +977,7 @@ impl CompiledPlot {
                 .find(|m| m.data_context().channels().contains_key(channel))
             {
                 // If the mark that has the channel says no legend, skip it
-                if mark.preferred_legend_renderer(channel, scale).is_none() {
+                if mark.preferred_legend_renderer(channel, &scale.configured).is_none() {
                     skip_channels.insert(channel.clone());
                 }
             }
@@ -1037,12 +1038,12 @@ impl CompiledPlot {
     fn get_legend_renderer(
         &self,
         channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
+        scale: &ConfiguredScaleWithSpec,
     ) -> Option<Arc<dyn crate::legend::renderer::LegendRenderer>> {
         // Find the first mark that has this channel and get its preference
         for mark in &self.marks {
             if mark.data_context().channels().contains_key(channel) {
-                return mark.preferred_legend_renderer(channel, scale);
+                return mark.preferred_legend_renderer(channel, &scale.configured);
             }
         }
         None
@@ -1051,7 +1052,7 @@ impl CompiledPlot {
     /// Get legends with theme applied (matching PlotRenderer behavior)
     fn get_legends_with_theme(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         session_context: &datafusion::prelude::SessionContext,
     ) -> IndexMap<String, Legend> {
         // 1. Start with plot-level legends
@@ -1178,10 +1179,10 @@ impl CompiledPlot {
         &self,
         channel_name: &str,
         channel_value: &crate::channel::value::ChannelValue,
-        scale: &avenger_scales::scales::ConfiguredScale,
+        scale: &ConfiguredScaleWithSpec,
         mark: &dyn crate::marks::CompiledMark,
         mark_index: usize,
-        configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
     ) -> crate::legend::LegendChannel {
         use crate::legend::{ChannelInfo, LegendChannel};
@@ -1198,7 +1199,7 @@ impl CompiledPlot {
                     // Channel has a scale
                     ChannelInfo::Scaled {
                         expr: other_value.expr(ctx),
-                        scale: other_scale.clone(),
+                        scale: other_scale.configured.clone(),
                     }
                 } else if let Some(expr) = other_value.expr(ctx) {
                     // Channel has a constant expression
@@ -1239,7 +1240,7 @@ impl CompiledPlot {
         LegendChannel {
             name: channel_name.to_string(),
             expression: channel_value.expr(ctx),
-            scale: scale.clone(),
+            scale: scale.configured.clone(),
             channel_type: channel_name.to_string(), // Use channel name as type
             mark_type,
             mark_index,
@@ -1252,7 +1253,7 @@ impl CompiledPlot {
     /// Validate that all required positional scales exist
     fn validate_positional_scales_exist(
         &self,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _scales: &HashMap<String, ConfiguredScaleWithSpec>,
     ) -> Result<(), AvengerChartError> {
         // Get the required positional channels from the coordinate system
         let required_channels = self.coord_transform.required_channels();
@@ -1287,10 +1288,8 @@ impl CompiledPlot {
         mut scale: Scale,
         name: &str,
         context: &crate::render::RenderContext,
-        configured_non_positional: Option<
-            &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        >,
-    ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
+        configured_non_positional: Option<&HashMap<String, ConfiguredScaleWithSpec>>,
+    ) -> Result<ConfiguredScaleWithSpec, AvengerChartError> {
         // Process domain with radius if applicable
         if scale
             .domain
@@ -1503,14 +1502,17 @@ impl CompiledPlot {
             }
         }
 
-        // Create the configured scale
-        scale
+        // Create the configured scale and wrap with the original spec
+        let configured = scale
+            .clone()
             .create_configured_scale(
                 context.plot_width,
                 context.plot_height,
                 &context.session_context,
             )
-            .await
+            .await?;
+
+        Ok(ConfiguredScaleWithSpec::new(scale, configured))
     }
 
     /// Build initial scales with estimated dimensions
@@ -1520,8 +1522,8 @@ impl CompiledPlot {
     ) -> Result<
         (
             HashMap<String, Scale>,
-            HashMap<String, avenger_scales::scales::ConfiguredScale>,
-            HashMap<String, avenger_scales::scales::ConfiguredScale>,
+            HashMap<String, ConfiguredScaleWithSpec>,
+            HashMap<String, ConfiguredScaleWithSpec>,
         ),
         AvengerChartError,
     > {
@@ -1607,9 +1609,9 @@ impl CompiledPlot {
     pub async fn rebuild_scales_with_final_dimensions(
         &self,
         initial_scales: &HashMap<String, Scale>,
-        configured_non_positional: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        configured_non_positional: &HashMap<String, ConfiguredScaleWithSpec>,
         context: &crate::render::RenderContext,
-    ) -> Result<HashMap<String, avenger_scales::scales::ConfiguredScale>, AvengerChartError> {
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         let mut final_configured_scales = configured_non_positional.clone();
 
         // Get the positional channels from the coordinate system
@@ -1650,7 +1652,7 @@ impl CompiledPlot {
         &self,
         channel: &str,
         _legend: &Legend,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
     ) -> Result<Vec<crate::legend::LegendChannel>, AvengerChartError> {
         // Find the mark that has this channel
@@ -1699,7 +1701,7 @@ impl CompiledPlot {
     pub fn merge_legend_channels(
         &self,
         all_legends: &IndexMap<String, Legend>,
-        configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
     ) -> (
         Vec<Vec<crate::legend::LegendChannel>>,
@@ -1820,7 +1822,7 @@ impl CompiledPlot {
     pub fn prepare_legend_measurements(
         &self,
         legends: &IndexMap<String, Legend>,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         available_space: taffy::Size<f32>,
         ctx: &SessionContext,
     ) -> Result<crate::render::LegendMeasurements, AvengerChartError> {
@@ -1866,8 +1868,13 @@ impl CompiledPlot {
             let renderer = if channels.len() > 1 {
                 // Multiple channels - try to get a merged renderer
                 let mark_opt = self.marks.get(primary_channel.mark_index);
+                // Extract ConfiguredScale from ConfiguredScaleWithSpec for mark's renderer
+                let configured_scales: HashMap<String, ConfiguredScale> = scales
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.configured.clone()))
+                    .collect();
                 mark_opt
-                    .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, scales))
+                    .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &configured_scales))
                     .or_else(|| self.get_legend_renderer(&primary_channel.channel_type, scale))
             } else {
                 // Single channel - use the unified renderer selection
@@ -1895,7 +1902,7 @@ impl CompiledPlot {
     pub async fn render_mark(
         &self,
         mark: &dyn CompiledMark,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_width: f32,
         plot_height: f32,
         ctx: &SessionContext,
@@ -2080,7 +2087,7 @@ impl CompiledPlot {
     /// Create guide marks (axes, grids) for the coordinate system
     pub async fn create_guide_marks(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
@@ -2088,8 +2095,13 @@ impl CompiledPlot {
         // Use the pre-built guide renderer if available
         if let Some(guide_renderer) = &self.guide_renderer {
             let theme = self.get_theme();
+            // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
+            let configured_scales: HashMap<String, ConfiguredScale> = scales
+                .iter()
+                .map(|(k, v)| (k.clone(), v.configured.clone()))
+                .collect();
             guide_renderer
-                .render(scales, plot_width, plot_height, plot_bounds, theme.as_ref())
+                .render(&configured_scales, plot_width, plot_height, plot_bounds, theme.as_ref())
                 .await
         } else {
             // No guide renderer available
@@ -2104,7 +2116,7 @@ impl CompiledPlot {
         &self,
         width: f32,
         height: f32,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
         use crate::layout::ChartLayout;
@@ -2119,8 +2131,13 @@ impl CompiledPlot {
             let height_estimate = height * INITIAL_PLOT_AREA_RATIO;
 
             let theme = self.get_theme();
+            // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
+            let configured_scales: HashMap<String, ConfiguredScale> = scales
+                .iter()
+                .map(|(k, v)| (k.clone(), v.configured.clone()))
+                .collect();
             guide_renderer
-                .measure_overflow(scales, width_estimate, height_estimate, theme.as_ref())
+                .measure_overflow(&configured_scales, width_estimate, height_estimate, theme.as_ref())
                 .await?
         } else {
             // No guide renderer - no overflow
@@ -2160,7 +2177,7 @@ impl CompiledPlot {
     /// Create legends positioned according to layout
     pub fn create_legends_with_layout(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         layout: &crate::layout::LayoutResult,
         _plot_width: f32,
         _plot_height: f32,
@@ -2194,9 +2211,14 @@ impl CompiledPlot {
                     // Multiple channels - try to get a merged renderer
                     // Find the mark that these channels belong to
                     let mark_opt = self.marks.get(primary_channel.mark_index);
+                    // Extract ConfiguredScale from ConfiguredScaleWithSpec for mark's renderer
+                    let configured_scales: HashMap<String, ConfiguredScale> = scales
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.configured.clone()))
+                        .collect();
 
                     mark_opt
-                        .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, scales))
+                        .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &configured_scales))
                 } else {
                     // Single channel - use the unified renderer selection
                     scales.get(&primary_channel.name).and_then(|scale| {
@@ -2230,7 +2252,7 @@ impl CompiledPlot {
     /// Render all components (marks, axes, legends, titles)
     async fn render_all_components(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         layout: &crate::render::LayoutSolution,
         _width: f32,
         _height: f32,
@@ -2395,7 +2417,12 @@ impl CompiledPlot {
         // Get the appropriate clipping region from the coordinate system
         // Get the appropriate clipping region from the guide renderer if available
         let clip = if let Some(ref guide) = self.guide_renderer {
-            guide.get_clip(plot_area_width, plot_area_height, &final_configured_scales)
+            // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
+            let configured_scales: HashMap<String, ConfiguredScale> = final_configured_scales
+                .iter()
+                .map(|(k, v)| (k.clone(), v.configured.clone()))
+                .collect();
+            guide.get_clip(plot_area_width, plot_area_height, &configured_scales)
         } else {
             // Default to rectangular clip for plot area
             avenger_scenegraph::marks::group::Clip::Rect {
