@@ -260,7 +260,7 @@ impl CompiledPlot {
             // The coord_transform has a default_scale_options method that returns ScalarValue
             let coord_options = self
                 .coord_transform
-                .default_scale_options(channel, scale_impl.scale_type());
+                .default_scale_options(channel, scale_impl.as_ref());
 
             // Convert ScalarValue to Expr for compatibility
             let coord_options_expr: HashMap<String, datafusion::logical_expr::Expr> = coord_options

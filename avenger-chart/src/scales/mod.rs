@@ -26,22 +26,3 @@ pub use spec::{
     Threshold, Time,
 };
 pub use udf::create_scale_udf;
-
-/// Infer a scale specification from its name
-pub fn infer_scale_type_from_name(scale_type: &str) -> Box<dyn ScaleSpec> {
-    match scale_type {
-        "linear" => Box::new(Linear),
-        "log" => Box::new(Log),
-        "pow" => Box::new(Pow),
-        "sqrt" => Box::new(Sqrt),
-        "symlog" => Box::new(Symlog),
-        "time" => Box::new(Time),
-        "band" => Box::new(Band),
-        "point" => Box::new(Point),
-        "ordinal" => Box::new(Ordinal),
-        "threshold" => Box::new(Threshold),
-        "quantile" => Box::new(Quantile),
-        "quantize" => Box::new(Quantize),
-        _ => Box::new(Auto), // Default to Auto for unknown types
-    }
-}

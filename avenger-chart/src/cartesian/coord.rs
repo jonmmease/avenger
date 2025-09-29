@@ -217,27 +217,24 @@ impl CoordinateSystemTransform for Cartesian {
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
     ) -> HashMap<String, datafusion::scalar::ScalarValue> {
-        // Get the scale implementation to query its properties
-        // For now, we'll use a simplified version that just checks the scale type name
-        use crate::scales::infer_scale_type_from_name;
         use avenger_scales::scales::{DomainKind, RangeKind};
-
-        // Determine domain and range kinds from scale type
-        let scale_spec = infer_scale_type_from_name(scale_type);
-        let (domain_kind, range_kind) = (scale_spec.domain_kind(), scale_spec.range_kind());
-
-        // Use the same logic as the CoordinateSystem implementation
-        let mut options = HashMap::new();
         use datafusion::scalar::ScalarValue;
+
+        // Get domain and range kinds directly from scale implementation
+        let domain_kind = scale_impl.domain_kind();
+        let range_kind = scale_impl.range_kind();
+        let scale_type = scale_impl.scale_type();
+
+        let mut options = HashMap::new();
 
         // Apply coordinate-specific defaults
         if channel == "x" || channel == "y" {
             // For quantitative scales (linear, log, etc.)
             if domain_kind == DomainKind::Numeric && range_kind == RangeKind::Continuous {
-                // Include zero for y-axis by default (bar charts)
-                if channel == "y" {
+                // Include zero for y-axis by default (bar charts) - but only for linear scales
+                if channel == "y" && scale_type == "linear" {
                     options.insert("zero".to_string(), ScalarValue::Boolean(Some(true)));
                 }
 
@@ -255,9 +252,15 @@ impl CoordinateSystemTransform for Cartesian {
             // For categorical scales
             else if domain_kind == DomainKind::Categorical && range_kind == RangeKind::Continuous
             {
-                // Only band scales support padding, not point scales
-                if scale_type == "band" {
-                    options.insert("padding".to_string(), ScalarValue::Float64(Some(0.1)));
+                // Check if scale actually supports padding option
+                // Band scales typically support padding, point scales may support different padding
+                let option_defs = scale_impl.option_definitions();
+                if option_defs.iter().any(|def| def.name == "padding") {
+                    // Only set padding for band scales (which typically have padding default of 0.0)
+                    // Point scales typically default to 0.5 padding already
+                    if scale_type == "band" {
+                        options.insert("padding".to_string(), ScalarValue::Float64(Some(0.1)));
+                    }
                 }
             }
         }
