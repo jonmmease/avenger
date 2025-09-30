@@ -65,7 +65,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
 
     /// Build a CompiledMark from this Mark
     /// This enables type-erased rendering without the coordinate system generic
-    fn build(&self) -> Arc<dyn CompiledMark>;
+    fn compile(&self) -> Arc<dyn CompiledMark>;
 }
 
 #[typetag::serde(tag = "type")]
