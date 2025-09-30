@@ -871,14 +871,14 @@ impl CompiledPlot {
         plot_bounds: &crate::layout::LayoutBounds,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use the pre-built guide renderer if available
-        if let Some(guide_renderer) = &self.guide_renderer {
+        if let Some(compiled_guide) = &self.compiled_guide {
             let theme = self.get_theme();
             // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
             let configured_scales: HashMap<String, ConfiguredScale> = scales
                 .iter()
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
-            guide_renderer
+            compiled_guide
                 .render(
                     &configured_scales,
                     plot_width,
@@ -911,7 +911,7 @@ impl CompiledPlot {
         self.validate_positional_scales_exist(scales)?;
 
         // Measure how much space the guide needs if we have one
-        let overflow = if let Some(guide_renderer) = &self.guide_renderer {
+        let overflow = if let Some(compiled_guide) = &self.compiled_guide {
             let width_estimate = width * INITIAL_PLOT_AREA_RATIO;
             let height_estimate = height * INITIAL_PLOT_AREA_RATIO;
 
@@ -921,7 +921,7 @@ impl CompiledPlot {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
-            guide_renderer
+            compiled_guide
                 .measure_overflow(
                     &configured_scales,
                     width_estimate,
@@ -1226,7 +1226,7 @@ impl CompiledPlot {
 
         // Get the appropriate clipping region from the coordinate system
         // Get the appropriate clipping region from the guide renderer if available
-        let clip = if let Some(ref guide) = self.guide_renderer {
+        let clip = if let Some(ref guide) = self.compiled_guide {
             // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
             let configured_scales: HashMap<String, ConfiguredScale> = final_configured_scales
                 .iter()

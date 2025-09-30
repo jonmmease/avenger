@@ -32,7 +32,7 @@ pub struct CompiledPlot {
     pub(crate) coord_transform: Box<dyn CoordinateSystemTransform>,
 
     /// Guide renderer for axes/grids
-    pub(crate) guide_renderer: Option<Arc<dyn CompiledGuide>>,
+    pub(crate) compiled_guide: Option<Arc<dyn CompiledGuide>>,
 
     /// Mark renderers
     pub(crate) marks: Vec<Arc<dyn CompiledMark>>,
@@ -96,6 +96,21 @@ impl CompiledPlot {
     /// Get default parameter values
     pub fn get_default_params(&self) -> &IndexMap<String, datafusion::common::ScalarValue> {
         &self.default_params
+    }
+
+    /// Get compiled mark renderers
+    pub fn marks(&self) -> &[Arc<dyn CompiledMark>] {
+        &self.marks
+    }
+
+    /// Get scale specifications
+    pub fn scale_specs(&self) -> &HashMap<String, ScaleSpec> {
+        &self.scale_specs
+    }
+
+    /// Get legends
+    pub fn legends(&self) -> &IndexMap<String, Legend> {
+        &self.legends
     }
 
     /// Collect all channels that need scales from marks

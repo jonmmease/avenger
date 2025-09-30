@@ -7,7 +7,11 @@ use std::collections::hash_map::Entry;
 
 impl<C: CoordinateSystem> Plot<C> {
     /// Extract scale, legend, and axis configurations from a mark's channels
-    pub(crate) fn extract_channel_configs(&mut self, mark: &impl Mark<C>) {
+    pub(crate) fn extract_channel_configs(
+        &mut self,
+        mark: &dyn Mark<C>,
+        ctx: &datafusion::prelude::SessionContext,
+    ) {
         // Extract axis configurations from the mark
         for (channel_name, axis_config) in mark.state().axis_configs.iter() {
             match self.axis_specs.entry(channel_name.clone()) {
@@ -27,15 +31,11 @@ impl<C: CoordinateSystem> Plot<C> {
         // Get all channel encodings from the mark
         let encodings = mark.data_context().channels();
 
-        // Try to resolve channel references, but if it fails (e.g., due to conditional references),
-        // we still want to extract configs from non-reference channels
-        // Create a temporary SessionContext for resolution - we're only extracting configs, not evaluating
-        let temp_ctx = datafusion::prelude::SessionContext::new();
-        let resolved_encodings = match resolve_all_channel_refs(encodings, &temp_ctx) {
+        // Resolve channel references with the proper SessionContext
+        let resolved_encodings = match resolve_all_channel_refs(encodings, ctx) {
             Ok(resolved) => resolved,
             Err(_) => {
-                // Resolution failed (probably due to conditional references)
-                // Use original encodings - we'll handle the error later during rendering
+                // Resolution failed - use original encodings
                 encodings.clone()
             }
         };
