@@ -1,9 +1,16 @@
 //! Plot builder for creating visualizations
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use datafusion::dataframe::DataFrame;
+use datafusion_proto::protobuf::LogicalPlanNode;
+use indexmap::IndexMap;
+use serde_with::{FromInto, serde_as};
+
 use super::compiled_plot::CompiledPlot;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
-
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::guide::{CompiledGuide, CoordinateGuideBuilder};
@@ -12,19 +19,15 @@ use crate::legend::Legend;
 use crate::marks::{CompiledMark, Mark};
 use crate::serialization::{LogicalPlanNodeExt, SerializableDataFrame};
 use crate::theme::{Theme, css::CssTheme};
-use datafusion::dataframe::DataFrame;
-use datafusion_proto::protobuf::LogicalPlanNode;
-use indexmap::IndexMap;
-use serde_with::{FromInto, serde_as};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
     pub(crate) legends: IndexMap<String, Legend>,
-    pub(crate) mark_renderers: Vec<Arc<dyn CompiledMark>>,
+
+    /// Marks stored until compilation
+    marks: Vec<Arc<dyn Mark<C>>>,
 
     /// Plot-level data for mark inheritance
     pub(crate) data: Option<DataFrame>,
@@ -51,9 +54,6 @@ pub struct Plot<C: CoordinateSystem> {
     /// Guide configuration
     pub(crate) guide_config: Option<C::Guide>,
 
-    /// Built guide renderer (for serialization)
-    pub(crate) guide_renderer: Option<Arc<dyn CompiledGuide>>,
-
     /// Parameters that can be used in expressions
     pub(crate) params: Vec<crate::param::Param>,
 }
@@ -64,7 +64,7 @@ impl<C: CoordinateSystem> Plot<C> {
             coord_system,
             axis_specs: HashMap::new(),
             legends: IndexMap::new(),
-            mark_renderers: Vec::new(),
+            marks: Vec::new(),
             data: None,
             scale_specs: HashMap::new(),
             scale_to_coord_channel: HashMap::new(),
@@ -73,7 +73,6 @@ impl<C: CoordinateSystem> Plot<C> {
             subtitle: None,
             theme: None,
             guide_config: None,
-            guide_renderer: None,
             params: Vec::new(),
         }
     }
@@ -97,49 +96,59 @@ impl<C: CoordinateSystem> Plot<C> {
         mut self,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        // Always build guide renderer - either from config or default
-        if self.guide_renderer.is_none() {
-            let mut guide = if let Some(config) = &self.guide_config {
-                config.clone()
-            } else {
-                // Create default guide for the coordinate system
-                C::Guide::default()
-            };
-
-            // We need to populate axes from axis_specs before building
-            // This mirrors what PlotRenderer does in render/guide.rs
-            use crate::guide::CoordinateGuideBuilder;
-
-            // Create axes map for the guide
-            let mut guide_axes = HashMap::new();
-
-            // Add user-specified axes from axis_specs
-            for (channel, axis_spec) in &self.axis_specs {
-                let crate::plot::AxisSpec::Local(axis_config) = axis_spec;
-                // The axis_config is already the correct type for this coordinate system
-                // We need to downcast it to the specific axis type for the guide
-                // This is safe because the axis type matches the coordinate system
-                if let Some(typed_axis) = axis_config
-                    .as_any()
-                    .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>(
-                ) {
-                    guide_axes.insert(channel.clone(), typed_axis.clone());
-                }
-            }
-
-            // Set the axes on the guide
-            guide.set_axes(guide_axes);
-
-            // Pass mark renderers to the guide so it can extract titles at render time
-            guide.set_mark_renderers(self.mark_renderers.clone(), session_context);
-
-            self.guide_renderer = Some(Arc::from(guide.build()));
+        // 1. Extract channel configs from all marks with proper SessionContext
+        // Clone the Arc refs to avoid borrow checker issues
+        let marks = self.marks.clone();
+        for mark in marks {
+            self.extract_channel_configs(mark.as_ref(), session_context);
         }
 
+        // 2. Compile all marks
+        let compiled_marks: Vec<Arc<dyn CompiledMark>> = self
+            .marks
+            .iter()
+            .map(|m| m.compile())
+            .collect();
+
+        // 3. Build guide renderer - either from config or default
+        let mut guide = if let Some(config) = &self.guide_config {
+            config.clone()
+        } else {
+            // Create default guide for the coordinate system
+            C::Guide::default()
+        };
+
+        // We need to populate axes from axis_specs before building
+        // Create axes map for the guide
+        let mut guide_axes = HashMap::new();
+
+        // Add user-specified axes from axis_specs
+        for (channel, axis_spec) in &self.axis_specs {
+            let crate::plot::AxisSpec::Local(axis_config) = axis_spec;
+            // The axis_config is already the correct type for this coordinate system
+            // We need to downcast it to the specific axis type for the guide
+            // This is safe because the axis type matches the coordinate system
+            if let Some(typed_axis) = axis_config
+                .as_any()
+                .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>(
+            ) {
+                guide_axes.insert(channel.clone(), typed_axis.clone());
+            }
+        }
+
+        // Set the axes on the guide
+        guide.set_axes(guide_axes);
+
+        // Pass compiled marks to the guide so it can extract titles at render time
+        guide.set_mark_renderers(compiled_marks.clone(), session_context);
+
+        let compiled_guide = Arc::from(guide.build());
+
+        // 4. Build CompiledPlot
         Ok(CompiledPlot {
             coord_transform: self.coord_system.create_transform(),
-            guide_renderer: self.guide_renderer,
-            marks: self.mark_renderers,
+            compiled_guide: Some(compiled_guide),
+            marks: compiled_marks,
             axis_specs: self.axis_specs,
             legends: self.legends,
             layout_spec: self.layout_spec,
@@ -153,12 +162,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     let plan = df.logical_plan().clone();
                     Some(LogicalPlanNode::from_logical_plan(&plan).map_err(|e| {
                         AvengerChartError::InternalError(format!(
-                            "Failed to serialize logical plan: {}. \
-                            This can happen when using:\n\
-                            - Custom data sources or table providers\n\
-                            - User-defined functions (UDFs) that aren't built-in\n\
-                            - Unsupported DataFusion operations\n\
-                            Try using built-in data sources (CSV, Parquet, in-memory data) and built-in functions.",
+                            "Failed to serialize logical plan: {}",
                             e
                         ))
                     })?)
@@ -193,26 +197,14 @@ impl<C: CoordinateSystem> Plot<C> {
         &self.scale_to_coord_channel
     }
 
-    /// Get a reference to the mark renderers
-    pub fn mark_renderers(&self) -> &[Arc<dyn CompiledMark>] {
-        &self.mark_renderers
-    }
-
     /// Get a reference to the legends
     pub fn legends(&self) -> &IndexMap<String, Legend> {
         &self.legends
     }
 
     pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
-        // Extract scale and legend configurations from the mark's channels
-        self.extract_channel_configs(&mark);
-
-        // Build the CompiledMark from the Mark
-        let renderer = mark.compile();
-
-        // Add the renderer
-        self.mark_renderers.push(renderer);
-
+        // Just store the mark - config extraction happens during compile()
+        self.marks.push(Arc::new(mark));
         self
     }
 

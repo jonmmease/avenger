@@ -2,11 +2,19 @@
 
 use avenger_chart::maybe::Maybe;
 use avenger_chart::prelude::*;
-
+use datafusion::prelude::SessionContext;
 use palette::Srgba;
 
-#[test]
-fn test_channel_scale_config() {
+// Helper macro to compile plot and extract configs
+macro_rules! compile_and_check {
+    ($plot:expr) => {{
+        let ctx = SessionContext::new();
+        $plot.compile(&ctx).await.unwrap()
+    }};
+}
+
+#[tokio::test]
+async fn test_channel_scale_config() {
     // Test that we can configure scales directly on channel values
     let plot = Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -26,13 +34,15 @@ fn test_channel_scale_config() {
             }),
     );
 
-    // The scale configs should be extracted and stored in the plot
-    assert!(plot.scale_specs().contains_key("fill"));
-    assert!(plot.scale_specs().contains_key("size"));
+    let compiled = compile_and_check!(plot);
+
+    // The scale configs should be extracted and stored in the compiled plot
+    assert!(compiled.scale_specs().contains_key("fill"));
+    assert!(compiled.scale_specs().contains_key("size"));
 }
 
-#[test]
-fn test_channel_legend_config() {
+#[tokio::test]
+async fn test_channel_legend_config() {
     // Test that we can configure legends directly on channel values
     let plot = Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -44,20 +54,22 @@ fn test_channel_legend_config() {
             .size_with(col("value"), |c| c.legend(|l| l.visible(false))),
     );
 
-    // The legend configs should be extracted and stored in the plot
-    assert!(plot.legends().contains_key("fill"));
+    let compiled = compile_and_check!(plot);
+
+    // The legend configs should be extracted and stored in the compiled plot
+    assert!(compiled.legends().contains_key("fill"));
     assert_eq!(
-        plot.legends()["fill"].title,
+        compiled.legends()["fill"].title,
         Maybe::Set("Category".to_string())
     );
-    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(true));
+    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(true));
 
-    assert!(plot.legends().contains_key("size"));
-    assert_eq!(plot.legends()["size"].visible, Maybe::Set(false));
+    assert!(compiled.legends().contains_key("size"));
+    assert_eq!(compiled.legends()["size"].visible, Maybe::Set(false));
 }
 
-#[test]
-fn test_channel_scale_with_typed() {
+#[tokio::test]
+async fn test_channel_scale_with_typed() {
     // Test that we can use typed scales on channel values
     let plot = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")).fill_with(
         col("category"),
@@ -72,12 +84,14 @@ fn test_channel_scale_with_typed() {
         },
     ));
 
+    let compiled = compile_and_check!(plot);
+
     // The scale config should be extracted
-    assert!(plot.scale_specs().contains_key("fill"));
+    assert!(compiled.scale_specs().contains_key("fill"));
 }
 
-#[test]
-fn test_channel_config() {
+#[tokio::test]
+async fn test_channel_config() {
     // Test that channel-level configs work properly
     let plot = Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -90,21 +104,23 @@ fn test_channel_config() {
             }),
     );
 
-    // Channel-level configs should exist
-    assert!(plot.scale_specs().contains_key("x")); // From channel
-    assert!(plot.scale_specs().contains_key("y")); // From channel
-    assert!(plot.scale_specs().contains_key("fill")); // From channel with scale config
+    let compiled = compile_and_check!(plot);
 
-    assert!(plot.legends().contains_key("fill")); // From channel
-    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(false));
+    // Channel-level configs should exist
+    assert!(compiled.scale_specs().contains_key("x")); // From channel
+    assert!(compiled.scale_specs().contains_key("y")); // From channel
+    assert!(compiled.scale_specs().contains_key("fill")); // From channel with scale config
+
+    assert!(compiled.legends().contains_key("fill")); // From channel
+    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(false));
 
     // Position channels don't have legends, they have axes
-    assert!(!plot.legends().contains_key("x"));
-    assert!(!plot.legends().contains_key("y"));
+    assert!(!compiled.legends().contains_key("x"));
+    assert!(!compiled.legends().contains_key("y"));
 }
 
-#[test]
-fn test_no_legend_helper() {
+#[tokio::test]
+async fn test_no_legend_helper() {
     // Test the no_legend helper method
     let plot = Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -113,13 +129,15 @@ fn test_no_legend_helper() {
             .fill_with(col("category"), |c| c.no_legend()),
     );
 
+    let compiled = compile_and_check!(plot);
+
     // The legend should be created but marked as not visible
-    assert!(plot.legends().contains_key("fill"));
-    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(false));
+    assert!(compiled.legends().contains_key("fill"));
+    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(false));
 }
 
-#[test]
-fn test_direct_expr_scale_config() {
+#[tokio::test]
+async fn test_direct_expr_scale_config() {
     // Test that we can call scale() directly on expressions
     let plot = Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -136,14 +154,16 @@ fn test_direct_expr_scale_config() {
             }),
     );
 
+    let compiled = compile_and_check!(plot);
+
     // The scale configs should be extracted and stored
-    assert!(plot.scale_specs().contains_key("x"));
-    assert!(plot.scale_specs().contains_key("y"));
-    assert!(plot.scale_specs().contains_key("fill"));
+    assert!(compiled.scale_specs().contains_key("x"));
+    assert!(compiled.scale_specs().contains_key("y"));
+    assert!(compiled.scale_specs().contains_key("fill"));
 }
 
-#[test]
-fn test_direct_expr_legend_config() {
+#[tokio::test]
+async fn test_direct_expr_legend_config() {
     // Test that we can call legend() directly on expressions
     let plot = Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -155,20 +175,22 @@ fn test_direct_expr_legend_config() {
             .size_with(col("value"), |c| c.no_legend()),
     );
 
+    let compiled = compile_and_check!(plot);
+
     // The legend configs should be extracted
-    assert!(plot.legends().contains_key("fill"));
+    assert!(compiled.legends().contains_key("fill"));
     assert_eq!(
-        plot.legends()["fill"].title,
+        compiled.legends()["fill"].title,
         Maybe::Set("Category".to_string())
     );
-    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(true));
+    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(true));
 
-    assert!(plot.legends().contains_key("size"));
-    assert_eq!(plot.legends()["size"].visible, Maybe::Set(false));
+    assert!(compiled.legends().contains_key("size"));
+    assert_eq!(compiled.legends()["size"].visible, Maybe::Set(false));
 }
 
-#[test]
-fn test_direct_expr_combined_config() {
+#[tokio::test]
+async fn test_direct_expr_combined_config() {
     // Test combining scale and legend config on expressions
     let plot = Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -184,18 +206,20 @@ fn test_direct_expr_combined_config() {
             }),
     );
 
-    // Check that scale config is present for y
-    assert!(plot.scale_specs().contains_key("y"));
-    // Position channels don't have legends
-    assert!(!plot.legends().contains_key("y"));
+    let compiled = compile_and_check!(plot);
 
-    assert!(plot.scale_specs().contains_key("fill"));
-    assert!(plot.legends().contains_key("fill"));
-    assert_eq!(plot.legends()["fill"].visible, Maybe::Set(false));
+    // Check that scale config is present for y
+    assert!(compiled.scale_specs().contains_key("y"));
+    // Position channels don't have legends
+    assert!(!compiled.legends().contains_key("y"));
+
+    assert!(compiled.scale_specs().contains_key("fill"));
+    assert!(compiled.legends().contains_key("fill"));
+    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(false));
 }
 
-#[test]
-fn test_band_with_scale_config() {
+#[tokio::test]
+async fn test_band_with_scale_config() {
     // Test that band() and scale() can be chained on expressions
     let plot = Plot::<Cartesian>::new().mark(
         Symbol::new()
@@ -206,13 +230,15 @@ fn test_band_with_scale_config() {
             .y_with(col("value"), |c| c.scale(|s| s.domain((0.0, 100.0)))),
     );
 
+    let compiled = compile_and_check!(plot);
+
     // The scale configs should be extracted
-    assert!(plot.scale_specs().contains_key("x"));
-    assert!(plot.scale_specs().contains_key("y"));
+    assert!(compiled.scale_specs().contains_key("x"));
+    assert!(compiled.scale_specs().contains_key("y"));
 }
 
-#[test]
-fn test_identity_unscaled() {
+#[tokio::test]
+async fn test_identity_unscaled() {
     // Test that identity() creates unscaled values
     // Note: we need to add scale config to make it show up in scale_specs
     let plot = Plot::<Cartesian>::new().mark(
@@ -222,8 +248,10 @@ fn test_identity_unscaled() {
             .fill("red"),
     ); // String literal unscaled
 
+    let compiled = compile_and_check!(plot);
+
     // Only x should have a scale config
-    assert!(plot.scale_specs().contains_key("x"));
-    assert!(!plot.scale_specs().contains_key("y"));
-    assert!(!plot.scale_specs().contains_key("fill"));
+    assert!(compiled.scale_specs().contains_key("x"));
+    assert!(!compiled.scale_specs().contains_key("y"));
+    assert!(!compiled.scale_specs().contains_key("fill"));
 }
