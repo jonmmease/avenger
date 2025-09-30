@@ -154,8 +154,11 @@ impl<C: CoordinateSystem> Plot<C> {
                     Some(LogicalPlanNode::from_logical_plan(&plan).map_err(|e| {
                         AvengerChartError::InternalError(format!(
                             "Failed to serialize logical plan: {}. \
-                            This typically happens when using a DataFrame created with a different SessionContext. \
-                            Make sure to use the same SessionContext for creating data and compiling the plot.",
+                            This can happen when using:\n\
+                            - Custom data sources or table providers\n\
+                            - User-defined functions (UDFs) that aren't built-in\n\
+                            - Unsupported DataFusion operations\n\
+                            Try using built-in data sources (CSV, Parquet, in-memory data) and built-in functions.",
                             e
                         ))
                     })?)
