@@ -2776,7 +2776,7 @@ impl<C: CoordinateSystem> Plot<C> {
         self.extract_channel_configs(&mark);
 
         // Build the CompiledMark from the Mark
-        let renderer = mark.build();
+        let renderer = mark.compile();
 
         // Add the renderer
         self.mark_renderers.push(renderer);
