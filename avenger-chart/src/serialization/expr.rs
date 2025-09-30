@@ -54,7 +54,8 @@ impl From<LogicalExprNode> for SerializableExpr {
     fn from(node: LogicalExprNode) -> Self {
         // Encode protobuf to bytes
         let mut buf = Vec::new();
-        node.encode(&mut buf).expect("Failed to encode LogicalExprNode");
+        node.encode(&mut buf)
+            .expect("Failed to encode LogicalExprNode");
         SerializableExpr(buf)
     }
 }
@@ -92,7 +93,8 @@ impl<'de> Deserialize<'de> for SerializableExpr {
         if deserializer.is_human_readable() {
             // For JSON and other text formats, expect base64
             let base64_str = String::deserialize(deserializer)?;
-            let bytes = BASE64.decode(&base64_str)
+            let bytes = BASE64
+                .decode(&base64_str)
                 .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64: {}", e)))?;
             Ok(SerializableExpr(bytes))
         } else {

@@ -15,7 +15,13 @@ async fn test_symbol_default_channel_values() {
 
     // Create a RenderContext with default theme
     let theme = CssTheme::light();
-    let context = RenderContext::new(Arc::new(theme), 500.0, 400.0, Arc::new(ctx), indexmap::IndexMap::new());
+    let context = RenderContext::new(
+        Arc::new(theme),
+        500.0,
+        400.0,
+        Arc::new(ctx),
+        indexmap::IndexMap::new(),
+    );
 
     // Build the CompiledMark
     let renderer = symbol.build();
@@ -166,10 +172,16 @@ async fn test_symbol_radius_includes_stroke_width() {
         if let Ok(decoded) = expr.to_expr(&ctx) {
             let expr_str = format!("{:?}", decoded);
             // Now we can check the decoded expression contains our values
-            assert!(expr_str.contains("100") || expr_str.contains("Int64(100)"),
-                "Expression should contain size value 100: {}", expr_str);
-            assert!(expr_str.contains("4") || expr_str.contains("Int64(4)"),
-                "Expression should contain stroke_width value 4: {}", expr_str);
+            assert!(
+                expr_str.contains("100") || expr_str.contains("Int64(100)"),
+                "Expression should contain size value 100: {}",
+                expr_str
+            );
+            assert!(
+                expr_str.contains("4") || expr_str.contains("Int64(4)"),
+                "Expression should contain stroke_width value 4: {}",
+                expr_str
+            );
         }
     } else {
         panic!("Expected symmetric radius expression");
@@ -205,8 +217,13 @@ async fn test_line_radius_expression() {
         let ctx = SessionContext::new();
         if let Ok(decoded) = expr.to_expr(&ctx) {
             let expr_str = format!("{:?}", decoded);
-            assert!(expr_str.contains("3") || expr_str.contains("Int64(3)") || expr_str.contains("Float64(3"),
-                "Expression should contain stroke_width value 3: {}", expr_str);
+            assert!(
+                expr_str.contains("3")
+                    || expr_str.contains("Int64(3)")
+                    || expr_str.contains("Float64(3"),
+                "Expression should contain stroke_width value 3: {}",
+                expr_str
+            );
         }
     }
 

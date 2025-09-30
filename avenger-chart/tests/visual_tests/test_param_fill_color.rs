@@ -1,12 +1,12 @@
 use super::datasets;
-use super::helpers::{get_baseline_path, compare_images, VisualTestConfig, DEFAULT_SCALE};
-use avenger_chart::prelude::*;
+use super::helpers::{DEFAULT_SCALE, VisualTestConfig, compare_images, get_baseline_path};
 use avenger_chart::param::Param;
-use datafusion::scalar::ScalarValue;
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+use avenger_chart::prelude::*;
 use avenger_common::canvas::CanvasDimensions;
-use indexmap::IndexMap;
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+use datafusion::scalar::ScalarValue;
 use image::RgbaImage;
+use indexmap::IndexMap;
 
 /// Helper function to render compiled plot with specific params
 async fn render_compiled_plot(
@@ -15,7 +15,10 @@ async fn render_compiled_plot(
     params: Option<IndexMap<String, ScalarValue>>,
 ) -> RgbaImage {
     // Render with the specified params
-    let result = compiled.render(ctx, params).await.expect("Failed to render plot");
+    let result = compiled
+        .render(ctx, params)
+        .await
+        .expect("Failed to render plot");
 
     // Create canvas and render to image
     let dimensions = CanvasDimensions {
@@ -27,7 +30,8 @@ async fn render_compiled_plot(
         .await
         .expect("Failed to create canvas");
 
-    canvas.set_scene(&result.scene_graph)
+    canvas
+        .set_scene(&result.scene_graph)
         .expect("Failed to set scene");
 
     canvas.render().await.expect("Failed to render image")
@@ -48,13 +52,7 @@ async fn test_param_fill_color() {
             Rect::new()
                 .x_with(col("category"), |c| {
                     c.scale_with::<Band>(|s| {
-                        s.domain_discrete(vec![
-                            lit("A"),
-                            lit("B"),
-                            lit("C"),
-                            lit("D"),
-                            lit("E"),
-                        ])
+                        s.domain_discrete(vec![lit("A"), lit("B"), lit("C"), lit("D"), lit("E")])
                     })
                     .axis(|a| a.title("Category").grid(false))
                 })
@@ -82,7 +80,10 @@ async fn test_param_fill_color() {
 
     // Render with override params (red)
     let mut override_params = IndexMap::new();
-    override_params.insert("fill_color".to_string(), ScalarValue::Utf8(Some("#ff6b6b".to_string())));
+    override_params.insert(
+        "fill_color".to_string(),
+        ScalarValue::Utf8(Some("#ff6b6b".to_string())),
+    );
     let image_override = render_compiled_plot(&compiled, &ctx, Some(override_params)).await;
     let baseline_path_override = get_baseline_path("param", "fill_color_override");
     compare_images(&baseline_path_override, image_override, &config)

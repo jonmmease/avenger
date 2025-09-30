@@ -50,7 +50,7 @@ async fn test_plot_with_params() {
         .mark(
             Rect::new()
                 .x(col("x"))
-                .y(col("y") * param1.expr() + param2.expr())
+                .y(col("y") * param1.expr() + param2.expr()),
         );
 
     // Compile the plot
@@ -108,8 +108,7 @@ async fn test_add_params_multiple() {
         Param::new("p3", ScalarValue::Float32(Some(3.0))),
     ];
 
-    let plot = Plot::<Cartesian>::new()
-        .add_params(params);
+    let plot = Plot::<Cartesian>::new().add_params(params);
 
     let compiled = plot.compile(&ctx).await.unwrap();
 

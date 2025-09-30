@@ -1,11 +1,11 @@
 use crate::error::AvengerChartError;
 use crate::scales::ScaleRange;
-use crate::serialization::{SerializableExpr, LogicalExprNodeExt, LogicalPlanNodeExt};
+use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt, SerializableExpr};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 use std::sync::Arc;
 
 #[serde_as]
@@ -21,16 +21,11 @@ pub struct ScaleDomain {
 pub enum ScaleDefaultDomain {
     // Intervals
     Interval(
-        #[serde_as(as = "FromInto<SerializableExpr>")]
-        LogicalExprNode,
-        #[serde_as(as = "Box<FromInto<SerializableExpr>>")]
-        Box<LogicalExprNode>
+        #[serde_as(as = "FromInto<SerializableExpr>")] LogicalExprNode,
+        #[serde_as(as = "Box<FromInto<SerializableExpr>>")] Box<LogicalExprNode>,
     ),
     // Discrete values
-    Discrete(
-        #[serde_as(as = "Vec<FromInto<SerializableExpr>>")]
-        Vec<LogicalExprNode>
-    ),
+    Discrete(#[serde_as(as = "Vec<FromInto<SerializableExpr>>")] Vec<LogicalExprNode>),
     // Domain derived from data
     DomainExprs(Vec<DomainExpr>),
     // No default domain, must be provided explicitly
@@ -73,8 +68,7 @@ impl ScaleDomain {
     pub fn new_data_field(dataframe: Arc<DataFrame>, expr: Expr) -> Self {
         let plan = dataframe.logical_plan().clone();
         let plan_node = Arc::new(
-            LogicalPlanNode::from_logical_plan(&plan)
-                .expect("Failed to serialize logical plan"),
+            LogicalPlanNode::from_logical_plan(&plan).expect("Failed to serialize logical plan"),
         );
         let expr_node = LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
         Self {
@@ -115,8 +109,7 @@ impl ScaleDomain {
     pub fn new_data_field_with_radius(dataframe: Arc<DataFrame>, expr: Expr, radius: Expr) -> Self {
         let plan = dataframe.logical_plan().clone();
         let plan_node = Arc::new(
-            LogicalPlanNode::from_logical_plan(&plan)
-                .expect("Failed to serialize logical plan"),
+            LogicalPlanNode::from_logical_plan(&plan).expect("Failed to serialize logical plan"),
         );
         let expr_node = LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
         let radius_node =

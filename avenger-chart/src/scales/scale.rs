@@ -6,7 +6,7 @@ use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 use crate::scales::domain_inference::DomainInferrer;
 use crate::scales::range::ScaleRange;
 use crate::scales::spec::*;
-use crate::serialization::{SerializableExpr, LogicalExprNodeExt};
+use crate::serialization::{LogicalExprNodeExt, SerializableExpr};
 use crate::utils::{ScalarValueHelpers, eval_to_scalars, scalar_to_scalar_value};
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::dataframe::DataFrame;
@@ -15,7 +15,7 @@ use datafusion_common::ScalarValue;
 use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use palette::Srgba;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -416,7 +416,12 @@ impl<S: ScaleSpec> Scale<S> {
                 let start_expr = start.to_expr(ctx)?;
                 let end_expr = end.to_expr(ctx)?;
                 let datafusion_params = crate::utils::params_to_datafusion(params);
-                let scalars = eval_to_scalars(vec![start_expr, end_expr], Some(ctx), datafusion_params.as_ref()).await?;
+                let scalars = eval_to_scalars(
+                    vec![start_expr, end_expr],
+                    Some(ctx),
+                    datafusion_params.as_ref(),
+                )
+                .await?;
                 if scalars.len() == 2 {
                     Some((scalars[0].as_f64()?, scalars[1].as_f64()?))
                 } else {
@@ -508,7 +513,12 @@ impl<S: ScaleSpec> Scale<S> {
                 let start_expr = start.to_expr(ctx)?;
                 let end_expr = end.to_expr(ctx)?;
                 let datafusion_params = crate::utils::params_to_datafusion(params);
-                let scalars = eval_to_scalars(vec![start_expr, end_expr], Some(ctx), datafusion_params.as_ref()).await?;
+                let scalars = eval_to_scalars(
+                    vec![start_expr, end_expr],
+                    Some(ctx),
+                    datafusion_params.as_ref(),
+                )
+                .await?;
                 let [start_val, end_val] = scalars.as_slice() else {
                     return Err(AvengerChartError::InternalError(
                         "Expected two scalar values for interval domain".to_string(),
@@ -580,10 +590,8 @@ impl<S: ScaleSpec> Scale<S> {
             }
             Maybe::Set(ScaleRange::Discrete(values)) => {
                 // Convert SerializableScalar values back to ScalarValue
-                let scalar_values: Vec<ScalarValue> = values
-                    .iter()
-                    .map(|v| v.as_scalar().clone())
-                    .collect();
+                let scalar_values: Vec<ScalarValue> =
+                    values.iter().map(|v| v.as_scalar().clone()).collect();
 
                 // Check if all values are numeric - if so, keep as Float32Array
                 // This handles cases like stroke_width which uses ordinal scale with numeric range

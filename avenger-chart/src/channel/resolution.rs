@@ -71,8 +71,8 @@ use super::value::ChannelValue;
 use crate::serialization::LogicalExprNodeExt;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::SessionContext;
-use datafusion_proto::protobuf::LogicalExprNode;
 use datafusion_common::tree_node::{TransformedResult, TreeNode};
+use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet, VecDeque};
 use strsim::levenshtein;
@@ -460,8 +460,8 @@ pub fn resolve_channel_refs(
     channels: &IndexMap<String, ChannelValue>,
     ctx: &SessionContext,
 ) -> LogicalExprNode {
-    use datafusion::common::tree_node::Transformed;
     use crate::serialization::LogicalExprNodeExt;
+    use datafusion::common::tree_node::Transformed;
 
     // Convert to Expr for transformation
     let expr_value = match expr.to_expr(ctx) {

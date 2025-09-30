@@ -366,11 +366,7 @@ impl CssTheme {
         let new_rules = parser::parse_stylesheet(css)?;
 
         // Get current max source_order
-        let current_max_order = self.rules
-            .iter()
-            .map(|r| r.source_order)
-            .max()
-            .unwrap_or(0);
+        let current_max_order = self.rules.iter().map(|r| r.source_order).max().unwrap_or(0);
 
         // Add new rules with updated source_order
         for (i, mut rule) in new_rules.into_iter().enumerate() {
@@ -574,9 +570,7 @@ impl<'de> Deserialize<'de> for CssTheme {
 
         // Rebuild by parsing each CSS source in order
         for css in data.css_sources {
-            theme
-                .append_css(&css)
-                .map_err(serde::de::Error::custom)?;
+            theme.append_css(&css).map_err(serde::de::Error::custom)?;
         }
 
         Ok(theme)
@@ -649,19 +643,26 @@ mod tests {
     #[test]
     fn test_append_css() {
         // Create a base theme
-        let mut theme = CssTheme::from_css(r#"
+        let mut theme = CssTheme::from_css(
+            r#"
             mark {
                 fill: red;
             }
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         // Append additional CSS
-        theme.append_css(r#"
+        theme
+            .append_css(
+                r#"
             mark {
                 fill: blue;
                 stroke: green;
             }
-        "#).unwrap();
+        "#,
+            )
+            .unwrap();
 
         // Check that we have both CSS sources
         assert_eq!(theme.css_sources.len(), 2);
@@ -687,20 +688,27 @@ mod tests {
     #[test]
     fn test_append_css_with_serialization() {
         // Create a base theme and append CSS
-        let mut theme = CssTheme::from_css(r#"
+        let mut theme = CssTheme::from_css(
+            r#"
             mark {
                 fill: red;
             }
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
-        theme.append_css(r#"
+        theme
+            .append_css(
+                r#"
             mark {
                 fill: blue;
             }
             axis {
                 stroke: black;
             }
-        "#).unwrap();
+        "#,
+            )
+            .unwrap();
 
         // Serialize and deserialize
         let json = serde_json::to_string(&theme).unwrap();

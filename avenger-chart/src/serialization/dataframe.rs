@@ -65,7 +65,8 @@ impl From<LogicalPlanNode> for SerializableDataFrame {
     fn from(node: LogicalPlanNode) -> Self {
         // Encode protobuf to bytes
         let mut buf = Vec::new();
-        node.encode(&mut buf).expect("Failed to encode LogicalPlanNode");
+        node.encode(&mut buf)
+            .expect("Failed to encode LogicalPlanNode");
         SerializableDataFrame(buf)
     }
 }
@@ -92,7 +93,9 @@ impl Serialize for SerializableDataFrame {
             struct Wrapper {
                 plan_bytes: String,
             }
-            let wrapper = Wrapper { plan_bytes: base64_str };
+            let wrapper = Wrapper {
+                plan_bytes: base64_str,
+            };
             wrapper.serialize(serializer)
         } else {
             // For binary formats, use raw bytes
@@ -114,7 +117,8 @@ impl<'de> Deserialize<'de> for SerializableDataFrame {
                 plan_bytes: String,
             }
             let wrapper = Wrapper::deserialize(deserializer)?;
-            let bytes = BASE64.decode(&wrapper.plan_bytes)
+            let bytes = BASE64
+                .decode(&wrapper.plan_bytes)
                 .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64: {}", e)))?;
             Ok(SerializableDataFrame(bytes))
         } else {

@@ -16,4 +16,4 @@ pub use expr::SerializableExpr;
 pub use logical_expr_ext::LogicalExprNodeExt;
 pub use logical_plan_ext::LogicalPlanNodeExt;
 pub use scalar::SerializableScalar;
-pub use scalar_map::{SerializableScalarMap, SerializableNestedScalarMap};
+pub use scalar_map::{SerializableNestedScalarMap, SerializableScalarMap};

@@ -86,8 +86,9 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
                 );
             }
             let batch_len = u64::from_le_bytes(
-                buf[0..8].try_into()
-                    .map_err(|_| datafusion_common::plan_datafusion_err!("Invalid length bytes"))?
+                buf[0..8]
+                    .try_into()
+                    .map_err(|_| datafusion_common::plan_datafusion_err!("Invalid length bytes"))?,
             ) as usize;
 
             // Read the batch data
@@ -101,8 +102,7 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
             // Collect all batches
             let mut batches = Vec::new();
             for batch_result in reader {
-                let batch = batch_result
-                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                let batch = batch_result.map_err(|e| DataFusionError::External(Box::new(e)))?;
                 batches.push(batch);
             }
 
@@ -139,9 +139,9 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
             let stream = batches.execute(0, task_ctx)?;
 
             // Collect batches
-            let collected_batches: Vec<RecordBatch> = futures::executor::block_on(async {
-                stream.try_collect::<Vec<_>>().await
-            }).map_err(|e| DataFusionError::External(Box::new(e)))?;
+            let collected_batches: Vec<RecordBatch> =
+                futures::executor::block_on(async { stream.try_collect::<Vec<_>>().await })
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
             // Serialize the batches using Arrow IPC format
             let mut batch_buffer = Vec::new();
@@ -151,11 +151,13 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
                 for batch in &collected_batches {
-                    writer.write(batch)
+                    writer
+                        .write(batch)
                         .map_err(|e| DataFusionError::External(Box::new(e)))?;
                 }
 
-                writer.finish()
+                writer
+                    .finish()
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
             }
 

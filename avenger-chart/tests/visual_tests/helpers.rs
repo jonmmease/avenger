@@ -38,25 +38,38 @@ pub async fn render_plot<C: CoordinateSystem + Clone>(
     let plot_for_bincode = plot;
 
     // Compile and render directly first
-    let compiled_direct = plot_for_direct.compile(ctx).await.expect("Failed to compile plot");
-    let direct_result = compiled_direct.render(ctx, None).await.expect("Failed to render plot directly");
+    let compiled_direct = plot_for_direct
+        .compile(ctx)
+        .await
+        .expect("Failed to compile plot");
+    let direct_result = compiled_direct
+        .render(ctx, None)
+        .await
+        .expect("Failed to render plot directly");
 
     // Compile, serialize, deserialize, and render
-    let compiled_for_serialization = plot_for_bincode.compile(ctx).await.expect("Failed to compile plot for serialization");
+    let compiled_for_serialization = plot_for_bincode
+        .compile(ctx)
+        .await
+        .expect("Failed to compile plot for serialization");
 
     // Perform serialization round-trip through bincode
     let serialized = bincode::serialize(&compiled_for_serialization)
         .expect("Failed to serialize CompiledPlot with bincode");
 
-    let deserialized: avenger_chart::plot::CompiledPlot = bincode::deserialize(&serialized)
-        .expect("Failed to deserialize CompiledPlot from bincode");
+    let deserialized: avenger_chart::plot::CompiledPlot =
+        bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode");
 
     // Render from the deserialized plot
-    let bincode_result = deserialized.render(ctx, None).await.expect("Failed to render plot after bincode deserialization");
+    let bincode_result = deserialized
+        .render(ctx, None)
+        .await
+        .expect("Failed to render plot after bincode deserialization");
 
     // Log if dimensions differ (but don't panic - serialization might change some aspects)
     if direct_result.scene_graph.width != bincode_result.scene_graph.width
-        || direct_result.scene_graph.height != bincode_result.scene_graph.height {
+        || direct_result.scene_graph.height != bincode_result.scene_graph.height
+    {
         eprintln!(
             "Warning: Serialization round-trip changed dimensions! Direct: {}x{}, After bincode: {}x{}",
             direct_result.scene_graph.width,
@@ -68,7 +81,10 @@ pub async fn render_plot<C: CoordinateSystem + Clone>(
 
     // Create canvas with the dimensions from the bincode result (this is what we're testing)
     let dimensions = CanvasDimensions {
-        size: [bincode_result.scene_graph.width, bincode_result.scene_graph.height],
+        size: [
+            bincode_result.scene_graph.width,
+            bincode_result.scene_graph.height,
+        ],
         scale: DEFAULT_SCALE,
     };
     let config = CanvasConfig::default();
@@ -80,19 +96,25 @@ pub async fn render_plot<C: CoordinateSystem + Clone>(
     canvas_bincode
         .set_scene(&bincode_result.scene_graph)
         .expect("Failed to set bincode scene");
-    let bincode_image = canvas_bincode.render().await.expect("Failed to render bincode image");
+    let bincode_image = canvas_bincode
+        .render()
+        .await
+        .expect("Failed to render bincode image");
 
     // Also render the direct version for comparison (if dimensions match)
     if direct_result.scene_graph.width == bincode_result.scene_graph.width
-        && direct_result.scene_graph.height == bincode_result.scene_graph.height {
-
+        && direct_result.scene_graph.height == bincode_result.scene_graph.height
+    {
         let mut canvas_direct = PngCanvas::new(dimensions, CanvasConfig::default())
             .await
             .expect("Failed to create direct canvas");
         canvas_direct
             .set_scene(&direct_result.scene_graph)
             .expect("Failed to set direct scene");
-        let direct_image = canvas_direct.render().await.expect("Failed to render direct image");
+        let direct_image = canvas_direct
+            .render()
+            .await
+            .expect("Failed to render direct image");
 
         // Compare and log similarity (but don't fail if they differ)
         let result = image_compare::rgba_hybrid_compare(&direct_image, &bincode_image)
@@ -104,7 +126,10 @@ pub async fn render_plot<C: CoordinateSystem + Clone>(
                 result.score
             );
         } else {
-            eprintln!("Info: Serialization round-trip produced identical rendering (score: {:.6})", result.score);
+            eprintln!(
+                "Info: Serialization round-trip produced identical rendering (score: {:.6})",
+                result.score
+            );
         }
     }
 
@@ -136,32 +161,46 @@ pub async fn render_plot_with_serialization_test<C: CoordinateSystem + Clone>(
     let plot_for_serialized = plot;
 
     // Compile and render directly
-    let compiled_direct = plot_for_direct.compile(ctx).await
+    let compiled_direct = plot_for_direct
+        .compile(ctx)
+        .await
         .expect("Failed to compile plot directly");
-    let direct_result = compiled_direct.render(ctx, None).await
+    let direct_result = compiled_direct
+        .render(ctx, None)
+        .await
         .expect("Failed to render plot directly");
 
     // Compile, serialize, deserialize, and render
-    let compiled_for_serialization = plot_for_serialized.compile(ctx).await
+    let compiled_for_serialization = plot_for_serialized
+        .compile(ctx)
+        .await
         .expect("Failed to compile plot for serialization");
 
     let serialized = bincode::serialize(&compiled_for_serialization)
         .expect("Failed to serialize CompiledPlot with bincode");
 
-    let deserialized: avenger_chart::plot::CompiledPlot = bincode::deserialize(&serialized)
-        .expect("Failed to deserialize CompiledPlot from bincode");
+    let deserialized: avenger_chart::plot::CompiledPlot =
+        bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode");
 
-    let serialized_result = deserialized.render(ctx, None).await
+    let serialized_result = deserialized
+        .render(ctx, None)
+        .await
         .expect("Failed to render plot after bincode deserialization");
 
     // Render both to images
     let dimensions_direct = CanvasDimensions {
-        size: [direct_result.scene_graph.width, direct_result.scene_graph.height],
+        size: [
+            direct_result.scene_graph.width,
+            direct_result.scene_graph.height,
+        ],
         scale: DEFAULT_SCALE,
     };
 
     let dimensions_serialized = CanvasDimensions {
-        size: [serialized_result.scene_graph.width, serialized_result.scene_graph.height],
+        size: [
+            serialized_result.scene_graph.width,
+            serialized_result.scene_graph.height,
+        ],
         scale: DEFAULT_SCALE,
     };
 
@@ -172,7 +211,9 @@ pub async fn render_plot_with_serialization_test<C: CoordinateSystem + Clone>(
     canvas_direct
         .set_scene(&direct_result.scene_graph)
         .expect("Failed to set direct scene");
-    let direct_image = canvas_direct.render().await
+    let direct_image = canvas_direct
+        .render()
+        .await
         .expect("Failed to render direct image");
 
     // Create serialized image
@@ -182,7 +223,9 @@ pub async fn render_plot_with_serialization_test<C: CoordinateSystem + Clone>(
     canvas_serialized
         .set_scene(&serialized_result.scene_graph)
         .expect("Failed to set serialized scene");
-    let serialized_image = canvas_serialized.render().await
+    let serialized_image = canvas_serialized
+        .render()
+        .await
         .expect("Failed to render serialized image");
 
     (direct_image, serialized_image)
@@ -340,12 +383,18 @@ pub async fn assert_visual_match<C: CoordinateSystem + Clone>(
 
     // Test direct rendering against baseline
     if let Err(msg) = compare_images(&baseline_path, direct_image.clone(), &config) {
-        panic!("Visual test '{}' failed (direct rendering): {}", baseline_name, msg);
+        panic!(
+            "Visual test '{}' failed (direct rendering): {}",
+            baseline_name, msg
+        );
     }
 
     // Test serialized rendering against baseline
     if let Err(msg) = compare_images(&baseline_path, serialized_image.clone(), &config) {
-        panic!("Visual test '{}' failed (after serialization): {}", baseline_name, msg);
+        panic!(
+            "Visual test '{}' failed (after serialization): {}",
+            baseline_name, msg
+        );
     }
 
     // Also verify that direct and serialized produce identical results
@@ -382,7 +431,8 @@ pub async fn assert_visual_match_with_theme<
 ) {
     let plot_with_theme = plot.theme(theme);
     let ctx = datafusion::prelude::SessionContext::new();
-    let (direct_image, serialized_image) = render_plot_with_serialization_test(plot_with_theme, &ctx).await;
+    let (direct_image, serialized_image) =
+        render_plot_with_serialization_test(plot_with_theme, &ctx).await;
     let baseline_path = get_baseline_path(category, baseline_name);
 
     let config = VisualTestConfig {
@@ -392,12 +442,18 @@ pub async fn assert_visual_match_with_theme<
 
     // Test direct rendering against baseline
     if let Err(msg) = compare_images(&baseline_path, direct_image.clone(), &config) {
-        panic!("Visual test '{}' failed (direct rendering with theme): {}", baseline_name, msg);
+        panic!(
+            "Visual test '{}' failed (direct rendering with theme): {}",
+            baseline_name, msg
+        );
     }
 
     // Test serialized rendering against baseline
     if let Err(msg) = compare_images(&baseline_path, serialized_image.clone(), &config) {
-        panic!("Visual test '{}' failed (after serialization with theme): {}", baseline_name, msg);
+        panic!(
+            "Visual test '{}' failed (after serialization with theme): {}",
+            baseline_name, msg
+        );
     }
 
     // Also verify that direct and serialized produce identical results

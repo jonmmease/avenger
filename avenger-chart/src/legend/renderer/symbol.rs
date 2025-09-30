@@ -12,7 +12,7 @@ use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
 use avenger_scenegraph::marks::group::SceneGroup;
 use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 use std::collections::HashMap;
 
 /// Symbol legend renderer for discrete channels

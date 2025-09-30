@@ -22,33 +22,30 @@ async fn test_datafusion_context_mismatch() {
     let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)])
         .expect("Failed to create RecordBatch");
 
-    let df = ctx1.read_batch(batch)
+    let df = ctx1
+        .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
     // Create a plot with the DataFrame
-    let plot = Plot::<Cartesian>::new()
-        .data(df.clone())
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke("#4682b4")
-                .stroke_width(2.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df.clone()).mark(
+        Line::new()
+            .x(col("x"))
+            .y(col("y"))
+            .stroke("#4682b4")
+            .stroke_width(2.0),
+    );
 
     // Now try to compile with a DIFFERENT SessionContext
     let ctx2 = SessionContext::new();
 
     // Clone plot for first test
-    let plot_clone = Plot::<Cartesian>::new()
-        .data(df)
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke("#4682b4")
-                .stroke_width(2.0),
-        );
+    let plot_clone = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x(col("x"))
+            .y(col("y"))
+            .stroke("#4682b4")
+            .stroke_width(2.0),
+    );
 
     // With our MemTable serialization support, this should now work!
     match plot_clone.compile(&ctx2).await {

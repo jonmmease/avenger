@@ -53,7 +53,8 @@ impl DomainInferrer {
         if let ScaleDefaultDomain::DomainExprs(data_fields) = default_domain {
             // Process radius-aware domains first, transforming fields in place
             let processed_fields =
-                Self::process_radius_domains(scale_impl, data_fields, range_hint, ctx, params).await?;
+                Self::process_radius_domains(scale_impl, data_fields, range_hint, ctx, params)
+                    .await?;
 
             // Process standard domain inference
             let inferred_domain =
@@ -86,7 +87,8 @@ impl DomainInferrer {
                 // Process each field with radius expressions
                 for field in &mut data_fields {
                     if let Some(radius_expr) = &field.radius {
-                        let expr_ser: crate::serialization::SerializableExpr = field.expr.clone().into();
+                        let expr_ser: crate::serialization::SerializableExpr =
+                            field.expr.clone().into();
                         let computed_domain = Self::compute_radius_aware_domain(
                             &field.dataframe,
                             &expr_ser,
@@ -151,7 +153,10 @@ impl DomainInferrer {
         let df_with_exprs = df.select(select_exprs)?;
         let datafusion_params = crate::utils::params_to_datafusion(params);
         let batches = if let Some(param_values) = datafusion_params {
-            df_with_exprs.with_param_values(param_values)?.collect().await?
+            df_with_exprs
+                .with_param_values(param_values)?
+                .collect()
+                .await?
         } else {
             df_with_exprs.collect().await?
         };
@@ -246,9 +251,7 @@ impl DomainInferrer {
         let domain_df = Arc::new(ctx.read_batch(batch)?);
         let plan = domain_df.logical_plan().clone();
         use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
-        let plan_node = Arc::new(
-            LogicalPlanNode::from_logical_plan(&plan)?
-        );
+        let plan_node = Arc::new(LogicalPlanNode::from_logical_plan(&plan)?);
         let expr_node = LogicalExprNode::from_expr(col(DOMAIN_FIELD))?;
 
         Ok(Some(DomainExpr {
@@ -296,8 +299,8 @@ impl DomainInferrer {
         // Union all DataFrames
         let union_df = if single_col_dfs.is_empty() {
             // No data to infer from - return default interval
-            use datafusion_proto::protobuf::LogicalExprNode;
             use datafusion::logical_expr::lit;
+            use datafusion_proto::protobuf::LogicalExprNode;
             let start = LogicalExprNode::from_expr(lit(0.0))?;
             let end = LogicalExprNode::from_expr(lit(1.0))?;
             return Ok(ScaleDefaultDomain::Interval(start, Box::new(end)));

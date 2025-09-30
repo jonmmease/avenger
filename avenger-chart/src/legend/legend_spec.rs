@@ -2,7 +2,7 @@ use super::LegendRenderer;
 use crate::maybe::Maybe;
 use crate::serialization::SerializableNestedScalarMap;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 use std::sync::Arc;
 
 /// Legend configuration for visualizations

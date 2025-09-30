@@ -475,9 +475,7 @@ impl CssTheme {
                 let scalars: Vec<SerializableScalar> = colors
                     .iter()
                     .take(domain_cardinality.unwrap_or(colors.len()))
-                    .map(|c| {
-                        SerializableScalar::new(ScalarValue::Utf8(Some(c.clone())))
-                    })
+                    .map(|c| SerializableScalar::new(ScalarValue::Utf8(Some(c.clone()))))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -500,9 +498,7 @@ impl CssTheme {
                 let scalars: Vec<SerializableScalar> = sizes
                     .iter()
                     .take(domain_cardinality.unwrap_or(sizes.len()))
-                    .map(|s| {
-                        SerializableScalar::new(ScalarValue::Float32(Some(*s as f32)))
-                    })
+                    .map(|s| SerializableScalar::new(ScalarValue::Float32(Some(*s as f32))))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -515,9 +511,7 @@ impl CssTheme {
                 let scalars: Vec<SerializableScalar> = opacities
                     .iter()
                     .take(domain_cardinality.unwrap_or(opacities.len()))
-                    .map(|o| {
-                        SerializableScalar::new(ScalarValue::Float32(Some(*o as f32)))
-                    })
+                    .map(|o| SerializableScalar::new(ScalarValue::Float32(Some(*o as f32))))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -530,9 +524,7 @@ impl CssTheme {
                 let scalars: Vec<SerializableScalar> = widths
                     .iter()
                     .take(domain_cardinality.unwrap_or(widths.len()))
-                    .map(|w| {
-                        SerializableScalar::new(ScalarValue::Float32(Some(*w as f32)))
-                    })
+                    .map(|w| SerializableScalar::new(ScalarValue::Float32(Some(*w as f32))))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -545,9 +537,7 @@ impl CssTheme {
                 let scalars: Vec<SerializableScalar> = shapes
                     .iter()
                     .take(domain_cardinality.unwrap_or(shapes.len()))
-                    .map(|s| {
-                        SerializableScalar::new(ScalarValue::Utf8(Some(s.to_string())))
-                    })
+                    .map(|s| SerializableScalar::new(ScalarValue::Utf8(Some(s.to_string()))))
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -556,9 +546,9 @@ impl CssTheme {
             _ => match range_kind {
                 RangeKind::Discrete => {
                     use crate::serialization::SerializableScalar;
-                    ScaleRange::Discrete(vec![
-                        SerializableScalar::new(ScalarValue::Float32(Some(1.0))),
-                    ])
+                    ScaleRange::Discrete(vec![SerializableScalar::new(ScalarValue::Float32(Some(
+                        1.0,
+                    )))])
                 }
                 RangeKind::Continuous => ScaleRange::new_interval(lit(0.0), lit(1.0)),
             },

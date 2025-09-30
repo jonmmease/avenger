@@ -5,7 +5,6 @@ use crate::marks::{ChannelValue, Mark};
 use crate::plot::{AxisSpec, Plot, ScaleSpec};
 use std::collections::hash_map::Entry;
 
-
 impl<C: CoordinateSystem> Plot<C> {
     /// Extract scale, legend, and axis configurations from a mark's channels
     pub(crate) fn extract_channel_configs(&mut self, mark: &impl Mark<C>) {

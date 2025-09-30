@@ -31,7 +31,8 @@ impl LogicalPlanNodeExt for LogicalPlanNode {
         let codec = crate::scales::AvengerChartExtensionCodec::new();
 
         // Convert LogicalPlanNode back to LogicalPlan using AsLogicalPlan trait
-        <Self as AsLogicalPlan>::try_into_logical_plan(self, ctx, &codec)
-            .map_err(|e| AvengerChartError::InternalError(format!("Failed to parse logical plan: {}", e)))
+        <Self as AsLogicalPlan>::try_into_logical_plan(self, ctx, &codec).map_err(|e| {
+            AvengerChartError::InternalError(format!("Failed to parse logical plan: {}", e))
+        })
     }
 }

@@ -1,7 +1,7 @@
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::channel::{ChannelConfig, LegendableChannel};
-use avenger_chart::prelude::Line;
 use avenger_chart::plot::Plot;
+use avenger_chart::prelude::Line;
 use datafusion::arrow::array::{Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -23,11 +23,7 @@ async fn test_stroke_dash_with_scale_inference() {
 
     let batch = RecordBatch::try_new(
         schema,
-        vec![
-            Arc::new(x_values),
-            Arc::new(y_values),
-            Arc::new(line_type),
-        ],
+        vec![Arc::new(x_values), Arc::new(y_values), Arc::new(line_type)],
     )
     .unwrap();
 
@@ -35,16 +31,14 @@ async fn test_stroke_dash_with_scale_inference() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a line chart with stroke_dash_with channel
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke_dash_with(col("line_type"), |c| {
-                    c.scale(|s| s).legend(|legend| legend.title("Line Pattern"))
-                }),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x(col("x"))
+            .y(col("y"))
+            .stroke_dash_with(col("line_type"), |c| {
+                c.scale(|s| s).legend(|legend| legend.title("Line Pattern"))
+            }),
+    );
 
     // Try to compile the plot
     let compiled = plot.compile(&ctx).await;
@@ -54,7 +48,11 @@ async fn test_stroke_dash_with_scale_inference() {
         Ok(_) => println!("Plot with stroke_dash_with compiled successfully!"),
         Err(e) => {
             println!("Error compiling plot with stroke_dash_with: {:?}", e);
-            assert!(false, "Failed to compile plot with stroke_dash_with: {:?}", e);
+            assert!(
+                false,
+                "Failed to compile plot with stroke_dash_with: {:?}",
+                e
+            );
         }
     }
 }
