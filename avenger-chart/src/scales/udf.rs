@@ -46,6 +46,9 @@ pub struct ScaleUDF {
     /// Options struct type
     #[serde_as(as = "FromInto<SerializableDataType>")]
     pub(crate) options_type: DataType,
+    /// Cached signature - skip serialization since it's derived from types
+    #[serde(skip)]
+    cached_signature: std::sync::OnceLock<Signature>,
 }
 
 impl ScaleUDF {
@@ -60,6 +63,7 @@ impl ScaleUDF {
             domain_type,
             range_type,
             options_type,
+            cached_signature: std::sync::OnceLock::new(),
         })
     }
 
@@ -74,6 +78,11 @@ impl ScaleUDF {
             ]),
             Volatility::Immutable,
         )
+    }
+
+    /// Get the cached signature, building it on first access
+    fn get_signature(&self) -> &Signature {
+        self.cached_signature.get_or_init(|| self.build_signature())
     }
 
     /// Get scale implementation on demand
@@ -93,10 +102,8 @@ impl ScalarUDFImpl for ScaleUDF {
     }
 
     fn signature(&self) -> &Signature {
-        // This is a bit of a hack - we return a static signature that we build on demand.
-        // DataFusion only calls this once per UDF registration.
-        // For proper implementation, we'd need to cache this somehow.
-        Box::leak(Box::new(self.build_signature()))
+        // Return cached signature, building it on first access
+        self.get_signature()
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
