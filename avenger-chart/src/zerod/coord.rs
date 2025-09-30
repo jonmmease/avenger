@@ -5,11 +5,9 @@
 
 use crate::coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry};
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuideBuilder, NoGuide};
-use avenger_scenegraph::marks::group::Clip;
+use crate::guide::NoGuide;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// A zero-dimensional coordinate system
 ///
@@ -25,48 +23,27 @@ impl ZeroDCoord {
     }
 }
 
-#[async_trait::async_trait]
 impl CoordinateSystem for ZeroDCoord {
     type Guide = NoGuide;
-    type PlotGeometry = PointGeometry;
 
     fn required_channels(&self) -> &'static [&'static str] {
         // ZeroDCoord has no position channels (0D space)
         &[]
     }
 
-    fn default_range(&self, _channel: &str, _width: f64, _height: f64) -> Option<(f64, f64)> {
-        // No ranges in 0D space
-        None
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+}
+
+#[typetag::serde]
+impl CoordinateSystemTransform for ZeroDCoord {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
     }
 
-    fn create_default_axes(
-        &self,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn crate::marks::CompiledMark>],
-        _session_context: &datafusion::prelude::SessionContext,
-    ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
-        // No axes exist in zero-dimensional space
-        HashMap::new()
-    }
-
-    fn create_default_guide(
-        &self,
-        _axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn crate::marks::CompiledMark>],
-    ) -> Self::Guide {
-        NoGuide::default()
-    }
-
-    fn get_clip(
-        &self,
-        _plot_width: f32,
-        _plot_height: f32,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> Clip {
-        // No clipping needed in 0D space
-        Clip::None
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 
     fn transform(
@@ -74,7 +51,7 @@ impl CoordinateSystem for ZeroDCoord {
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
         plot_width: f32,
         plot_height: f32,
-    ) -> Result<PointGeometry, AvengerChartError> {
+    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
         use avenger_common::value::ScalarOrArray;
 
         // In 0D space, all points collapse to the center of the plot area
@@ -104,46 +81,17 @@ impl CoordinateSystem for ZeroDCoord {
             )
         };
 
-        Ok(PointGeometry { x, y })
-    }
-
-    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
-    }
-}
-
-#[typetag::serde]
-impl CoordinateSystemTransform for ZeroDCoord {
-    fn required_channels(&self) -> &'static [&'static str] {
-        &[]
-    }
-
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
-    }
-
-    fn transform(
-        &self,
-        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
-        let geom = <Self as CoordinateSystem>::transform(
-            self,
-            position_channels,
-            plot_width,
-            plot_height,
-        )?;
-        Ok(Box::new(geom))
+        Ok(Box::new(PointGeometry { x, y }))
     }
 
     fn default_range(
         &self,
-        channel: &str,
-        plot_area_width: f64,
-        plot_area_height: f64,
+        _channel: &str,
+        _plot_area_width: f64,
+        _plot_area_height: f64,
     ) -> Option<(f64, f64)> {
-        <Self as CoordinateSystem>::default_range(self, channel, plot_area_width, plot_area_height)
+        // No ranges in 0D space
+        None
     }
 
     fn default_scale_options(
@@ -165,16 +113,21 @@ mod tests {
     fn test_zerod_transform_to_center() {
         // Create ZeroD coordinate system
         let coord = ZeroDCoord::new();
+        let coord_transform = coord.create_transform();
 
         // Test with empty position channels (single point)
         let position_channels = HashMap::new();
-        let geometry =
-            <ZeroDCoord as CoordinateSystem>::transform(&coord, &position_channels, 100.0, 100.0)
-                .unwrap();
+        let geometry = coord_transform
+            .transform(&position_channels, 100.0, 100.0)
+            .unwrap();
+        let point_geometry = geometry
+            .as_any()
+            .downcast_ref::<PointGeometry>()
+            .expect("Expected PointGeometry");
 
         // Verify single point is at center (50, 50)
         use avenger_common::value::ScalarOrArrayValue;
-        match (geometry.x.value(), geometry.y.value()) {
+        match (point_geometry.x.value(), point_geometry.y.value()) {
             (ScalarOrArrayValue::Scalar(x_val), ScalarOrArrayValue::Scalar(y_val)) => {
                 assert_eq!(*x_val, 50.0);
                 assert_eq!(*y_val, 50.0);
@@ -189,15 +142,15 @@ mod tests {
             avenger_common::value::ScalarOrArray::new_array(vec![1.0, 2.0, 3.0]),
         );
 
-        let geometry_arr = <ZeroDCoord as CoordinateSystem>::transform(
-            &coord,
-            &position_channels_with_data,
-            100.0,
-            100.0,
-        )
-        .unwrap();
+        let geometry_arr = coord_transform
+            .transform(&position_channels_with_data, 100.0, 100.0)
+            .unwrap();
+        let point_geometry_arr = geometry_arr
+            .as_any()
+            .downcast_ref::<PointGeometry>()
+            .expect("Expected PointGeometry");
 
-        match (geometry_arr.x.value(), geometry_arr.y.value()) {
+        match (point_geometry_arr.x.value(), point_geometry_arr.y.value()) {
             (ScalarOrArrayValue::Array(x_vals), ScalarOrArrayValue::Array(y_vals)) => {
                 assert_eq!(x_vals.len(), 3);
                 assert_eq!(y_vals.len(), 3);

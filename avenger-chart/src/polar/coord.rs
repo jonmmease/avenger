@@ -1,13 +1,8 @@
-use crate::coords::{
-    CoordinateSystem, CoordinateSystemTransform, PointGeometry, extract_channel_title_from_marks,
-};
+use crate::coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry};
 use crate::error::AvengerChartError;
-use crate::guide::CoordinateGuideBuilder;
-use crate::polar::{PolarAxis, PolarAxisType, PolarGuide};
-use avenger_scenegraph::marks::group::Clip;
+use crate::polar::PolarGuide;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Polar coordinate system with radial and angular axes
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -19,91 +14,26 @@ impl Polar {
     }
 }
 
-#[async_trait::async_trait]
 impl CoordinateSystem for Polar {
     type Guide = PolarGuide;
-    type PlotGeometry = PointGeometry;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
     }
 
-    fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {
-        match channel {
-            "theta" => Some((0.0, 2.0 * std::f64::consts::PI)),
-            "r" => {
-                let max_radius = f64::min(width, height) / 2.0;
-                Some((0.0, max_radius))
-            }
-            _ => None,
-        }
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+}
+
+#[typetag::serde]
+impl CoordinateSystemTransform for Polar {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &["r", "theta"]
     }
 
-    fn create_default_axes(
-        &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn crate::marks::CompiledMark>],
-        session_context: &datafusion::prelude::SessionContext,
-    ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis> {
-        let mut default_axes = HashMap::new();
-
-        // Create default axes for r and theta channels if they have scales
-        for channel in ["r", "theta"] {
-            if scales.get(channel).is_some() {
-                let axis_type = match channel {
-                    "r" => PolarAxisType::Radial,
-                    "theta" => PolarAxisType::Angular,
-                    _ => continue,
-                };
-
-                let mut axis = PolarAxis::new().axis_type(axis_type).grid(true); // Both radial and angular axes should show grid by default
-
-                // Extract title from mark encodings
-                if let Some(title) =
-                    extract_channel_title_from_marks(marks, channel, session_context)
-                {
-                    axis = axis.title(title);
-                }
-
-                default_axes.insert(channel.to_string(), axis);
-            }
-        }
-
-        default_axes
-    }
-
-    fn create_default_guide(
-        &self,
-        axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn crate::marks::CompiledMark>],
-    ) -> Self::Guide {
-        let mut guide = PolarGuide::new();
-        guide.set_axes(axes);
-        guide
-    }
-
-    fn get_clip(
-        &self,
-        plot_width: f32,
-        plot_height: f32,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> Clip {
-        // Circular clipping for polar coordinates
-        let center_x = plot_width / 2.0;
-        let center_y = plot_height / 2.0;
-        let radius = plot_width.min(plot_height) / 2.0;
-
-        // Create a circular path for clipping
-        let mut builder = lyon_path::Path::builder();
-        builder.add_circle(
-            lyon_path::geom::point(center_x, center_y),
-            radius,
-            lyon_path::Winding::Positive,
-        );
-        let path = builder.build();
-
-        Clip::Path(path)
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
     }
 
     fn transform(
@@ -111,7 +41,7 @@ impl CoordinateSystem for Polar {
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
         plot_width: f32,
         plot_height: f32,
-    ) -> Result<PointGeometry, AvengerChartError> {
+    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
         use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 
         // Get r and theta channels
@@ -167,37 +97,7 @@ impl CoordinateSystem for Polar {
             }
         };
 
-        Ok(PointGeometry { x, y })
-    }
-
-    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
-    }
-}
-
-#[typetag::serde]
-impl CoordinateSystemTransform for Polar {
-    fn required_channels(&self) -> &'static [&'static str] {
-        &["r", "theta"]
-    }
-
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
-    }
-
-    fn transform(
-        &self,
-        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
-        let geom = <Self as CoordinateSystem>::transform(
-            self,
-            position_channels,
-            plot_width,
-            plot_height,
-        )?;
-        Ok(Box::new(geom))
+        Ok(Box::new(PointGeometry { x, y }))
     }
 
     fn default_range(
@@ -206,7 +106,14 @@ impl CoordinateSystemTransform for Polar {
         plot_area_width: f64,
         plot_area_height: f64,
     ) -> Option<(f64, f64)> {
-        <Self as CoordinateSystem>::default_range(self, channel, plot_area_width, plot_area_height)
+        match channel {
+            "theta" => Some((0.0, 2.0 * std::f64::consts::PI)),
+            "r" => {
+                let max_radius = f64::min(plot_area_width, plot_area_height) / 2.0;
+                Some((0.0, max_radius))
+            }
+            _ => None,
+        }
     }
 
     fn default_scale_options(

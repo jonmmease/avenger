@@ -209,7 +209,6 @@ impl CoordinateGuide for IsometricGuide {
     }
 }
 
-#[async_trait::async_trait]
 impl CoordinateSystem for Isometric {
     type Guide = IsometricGuide;
     type PlotGeometry = PointGeometry;

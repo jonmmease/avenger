@@ -12,16 +12,16 @@ use crate::legend::Legend;
 use crate::marks::{CompiledMark, Mark};
 use crate::render::RenderContext;
 use crate::scales::{ConfiguredScaleWithSpec, Scale};
-use avenger_scales::scales::ConfiguredScale;
-use crate::serialization::{SerializableDataFrame, LogicalExprNodeExt, LogicalPlanNodeExt};
+use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt, SerializableDataFrame};
 use crate::theme::{Theme, css::CssTheme};
+use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::dataframe::DataFrame;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -133,7 +133,8 @@ impl CompiledPlot {
         let base_name = strip_trailing_numbers(name);
 
         // Build the default scale for the base name
-        let mut base_scale = self.create_default_scale_for_channel_internal(base_name, ctx, params)?;
+        let mut base_scale =
+            self.create_default_scale_for_channel_internal(base_name, ctx, params)?;
 
         // Apply coordinate-specific default range if applicable
         if let Some(range) = self.get_coordinate_default_range(name, plot_width, plot_height) {
@@ -366,14 +367,11 @@ impl CompiledPlot {
             let mark_df = mark
                 .data_context()
                 .dataframe_with_context(&context.session_context);
-            let plot_df = self
-                .data
-                .as_ref()
-                .and_then(|node| {
-                    node.to_logical_plan(&context.session_context)
-                        .ok()
-                        .map(|plan| DataFrame::new(context.session_context.state().clone(), plan))
-                });
+            let plot_df = self.data.as_ref().and_then(|node| {
+                node.to_logical_plan(&context.session_context)
+                    .ok()
+                    .map(|plan| DataFrame::new(context.session_context.state().clone(), plan))
+            });
 
             let df = if let Some(mark_df) = mark_df {
                 // Mark has explicit data
@@ -988,7 +986,10 @@ impl CompiledPlot {
                 .find(|m| m.data_context().channels().contains_key(channel))
             {
                 // If the mark that has the channel says no legend, skip it
-                if mark.preferred_legend_renderer(channel, scale.configured()).is_none() {
+                if mark
+                    .preferred_legend_renderer(channel, scale.configured())
+                    .is_none()
+                {
                     skip_channels.insert(channel.clone());
                 }
             }
@@ -1437,7 +1438,6 @@ impl CompiledPlot {
                     start.to_expr(&context.session_context),
                     end.to_expr(&context.session_context),
                 ) {
-                    
                     match (&start_expr, &end_expr) {
                         (Expr::Literal(v1, _), Expr::Literal(v2, _)) => match (v1, v2) {
                             (ScalarValue::Float64(Some(v1)), ScalarValue::Float64(Some(v2))) => {
@@ -1480,14 +1480,16 @@ impl CompiledPlot {
                             let mark_df = mark
                                 .data_context()
                                 .dataframe_with_context(&context.session_context);
-                            let plot_df = self
-                                .data
-                                .as_ref()
-                                .and_then(|node| {
-                                    node.to_logical_plan(&context.session_context)
-                                        .ok()
-                                        .map(|plan| DataFrame::new(context.session_context.state().clone(), plan))
-                                });
+                            let plot_df = self.data.as_ref().and_then(|node| {
+                                node.to_logical_plan(&context.session_context)
+                                    .ok()
+                                    .map(|plan| {
+                                        DataFrame::new(
+                                            context.session_context.state().clone(),
+                                            plan,
+                                        )
+                                    })
+                            });
                             let df = mark_df.or(plot_df)?;
                             use datafusion::logical_expr::ExprSchemable;
                             expr.get_type(df.schema()).ok()
@@ -1855,7 +1857,8 @@ impl CompiledPlot {
         let all_legends = self.get_legends_with_theme(scales, ctx);
 
         // Merge channels to get the same groups that will be used for rendering
-        let (sorted_channel_groups, _) = self.merge_legend_channels(&all_legends, scales, ctx, params);
+        let (sorted_channel_groups, _) =
+            self.merge_legend_channels(&all_legends, scales, ctx, params);
 
         for channels in sorted_channel_groups {
             if channels.is_empty() {
@@ -1895,7 +1898,9 @@ impl CompiledPlot {
                     .map(|(k, v)| (k.clone(), v.configured().clone()))
                     .collect();
                 mark_opt
-                    .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &configured_scales))
+                    .and_then(|mark| {
+                        mark.preferred_merged_legend_renderer(&channels, &configured_scales)
+                    })
                     .or_else(|| self.get_legend_renderer(&primary_channel.channel_type, scale))
             } else {
                 // Single channel - use the unified renderer selection
@@ -2045,10 +2050,12 @@ impl CompiledPlot {
 
             let datafusion_params = crate::utils::params_to_datafusion(params);
             let batch = if let Some(param_values) = datafusion_params {
-                (*df).clone()
+                (*df)
+                    .clone()
                     .select(select_exprs)?
                     .with_param_values(param_values)?
-                    .collect().await?
+                    .collect()
+                    .await?
             } else {
                 (*df).clone().select(select_exprs)?.collect().await?
             };
@@ -2071,10 +2078,12 @@ impl CompiledPlot {
         let scalar_batch = if !scalar_select_exprs.is_empty() {
             let datafusion_params = crate::utils::params_to_datafusion(params);
             let batch = if let Some(param_values) = datafusion_params {
-                (*df).clone()
+                (*df)
+                    .clone()
                     .select(scalar_select_exprs)?
                     .with_param_values(param_values)?
-                    .collect().await?
+                    .collect()
+                    .await?
             } else {
                 (*df).clone().select(scalar_select_exprs)?.collect().await?
             };
@@ -2140,7 +2149,13 @@ impl CompiledPlot {
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
             guide_renderer
-                .render(&configured_scales, plot_width, plot_height, plot_bounds, theme.as_ref())
+                .render(
+                    &configured_scales,
+                    plot_width,
+                    plot_height,
+                    plot_bounds,
+                    theme.as_ref(),
+                )
                 .await
         } else {
             // No guide renderer available
@@ -2177,7 +2192,12 @@ impl CompiledPlot {
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
             guide_renderer
-                .measure_overflow(&configured_scales, width_estimate, height_estimate, theme.as_ref())
+                .measure_overflow(
+                    &configured_scales,
+                    width_estimate,
+                    height_estimate,
+                    theme.as_ref(),
+                )
                 .await?
         } else {
             // No guide renderer - no overflow
@@ -2188,7 +2208,8 @@ impl CompiledPlot {
         let all_legends = self.get_legends_with_theme(scales, ctx);
 
         // Use the helper to merge legend channels
-        let (_channel_groups, legends_map) = self.merge_legend_channels(&all_legends, scales, ctx, params);
+        let (_channel_groups, legends_map) =
+            self.merge_legend_channels(&all_legends, scales, ctx, params);
 
         // Prepare legend measurements
         let available_size = taffy::Size {
@@ -2258,8 +2279,9 @@ impl CompiledPlot {
                         .map(|(k, v)| (k.clone(), v.configured().clone()))
                         .collect();
 
-                    mark_opt
-                        .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &configured_scales))
+                    mark_opt.and_then(|mark| {
+                        mark.preferred_merged_legend_renderer(&channels, &configured_scales)
+                    })
                 } else {
                     // Single channel - use the unified renderer selection
                     scales.get(&primary_channel.name).and_then(|scale| {
@@ -2711,7 +2733,9 @@ impl<C: CoordinateSystem> Plot<C> {
                 }
                 None => None,
             },
-            default_params: self.params.iter()
+            default_params: self
+                .params
+                .iter()
                 .map(|p| (p.name.clone(), p.default.clone()))
                 .collect(),
         })
@@ -2745,26 +2769,6 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Get a reference to the legends
     pub fn legends(&self) -> &IndexMap<String, Legend> {
         &self.legends
-    }
-
-
-    /// Get the default range for a coordinate channel based on plot area dimensions
-    /// Returns None if the channel is not a coordinate channel
-    pub fn get_coordinate_default_range(
-        &self,
-        name: &str,
-        plot_area_width: f64,
-        plot_area_height: f64,
-    ) -> Option<(f64, f64)> {
-        // Check if this scale is mapped to a coordinate channel
-        let coord_channel = self
-            .scale_to_coord_channel
-            .get(name)
-            .map(|s| s.as_str())
-            .unwrap_or(name);
-
-        self.coord_system
-            .default_range(coord_channel, plot_area_width, plot_area_height)
     }
 
     pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
