@@ -3,7 +3,6 @@ use crate::guide::CoordinateGuideBuilder;
 pub use crate::guide::OverflowSpaceRequirement;
 use crate::marks::CompiledMark;
 use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::group::Clip;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,7 +26,6 @@ impl PlotGeometry for PointGeometry {
     }
 }
 
-#[async_trait::async_trait]
 pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// The guide type for this coordinate system
     ///
@@ -35,76 +33,11 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// camera controls (3D), or no guide at all (ZeroD)
     type Guide: CoordinateGuideBuilder;
 
-    /// The plot geometry type produced by this coordinate system's transform
-    type PlotGeometry: PlotGeometry;
+    // /// The plot geometry type produced by this coordinate system's transform
+    // type PlotGeometry: PlotGeometry;
 
     /// Get the names of position channels required by this coordinate system
     fn required_channels(&self) -> &'static [&'static str];
-
-    /// Get default range for a specific position channel based on inner plot dimensions
-    /// Returns the range as a tuple of (start, end) values
-    fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)>;
-
-    /// Create default guide for this coordinate system
-    ///
-    /// # Arguments
-    /// * `axes` - Axes that were configured at the channel level
-    /// * `scales` - The scale registry containing all configured scales
-    /// * `marks` - The mark renderers in the plot, used to extract information for guide configuration
-    ///
-    /// # Returns
-    /// The default guide configuration for this coordinate system with axes set
-    fn create_default_guide(
-        &self,
-        axes: HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn CompiledMark>],
-    ) -> Self::Guide;
-
-    /// Create default axes for channels that don't have explicit axis configuration
-    ///
-    /// This is called during plot construction to create axes for position channels
-    /// that have scales but no user-provided axis configuration.
-    fn create_default_axes(
-        &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Arc<dyn CompiledMark>],
-        session_context: &datafusion::prelude::SessionContext,
-    ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>;
-
-
-    /// Get clipping specification for this coordinate system
-    ///
-    /// Different coordinate systems may use different clipping regions.
-    /// For example, Cartesian uses rectangular clipping while Polar uses circular.
-    fn get_clip(
-        &self,
-        plot_width: f32,
-        plot_height: f32,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> Clip;
-
-    /// Transform position channels to coordinate system geometry
-    ///
-    /// Takes position data in the coordinate system's native space (after scaling)
-    /// and transforms it to the coordinate system's geometry type.
-    ///
-    /// # Arguments
-    /// * `position_channels` - Map of position channel names to their scaled data
-    /// * `plot_width` - Width of the plot area
-    /// * `plot_height` - Height of the plot area
-    ///
-    /// # Returns
-    /// The coordinate system's plot geometry type containing transformed positions
-    fn transform(
-        &self,
-        position_channels: &std::collections::HashMap<
-            &str,
-            avenger_common::value::ScalarOrArray<f32>,
-        >,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<Self::PlotGeometry, AvengerChartError>;
 
     /// Create a boxed coordinate system transform for use with CompiledMark
     ///
