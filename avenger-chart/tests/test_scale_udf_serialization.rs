@@ -113,19 +113,24 @@ mod tests {
         let empty_params = indexmap::IndexMap::new();
         for scale in scales {
             // Just test that we can create a configured scale and convert to expression
-            let configured_result = scale.create_configured_scale(100.0, 100.0, &ctx, &empty_params).await;
+            let configured_result = scale
+                .create_configured_scale(100.0, 100.0, &ctx, &empty_params)
+                .await;
 
             // Band and other discrete scales require discrete domains, so some may fail
             // That's ok for this test - we're just testing the serialization machinery
             if let Ok(configured) = configured_result {
-                use avenger_chart::scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec};
+                use avenger_chart::scales::{
+                    ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec,
+                };
                 let configured_scale = ConfiguredScaleWithSpec::new(scale.clone(), configured);
                 let expr = configured_scale.to_expr(lit(0.5));
 
                 if let Ok(expr) = expr {
                     // Test serialization roundtrip
                     let serializable = LogicalExprNode::from_expr(expr).unwrap();
-                    let json = serde_json::to_string(&SerializableExpr::from(serializable)).unwrap();
+                    let json =
+                        serde_json::to_string(&SerializableExpr::from(serializable)).unwrap();
                     let _deserialized: SerializableExpr = serde_json::from_str(&json).unwrap();
 
                     // If we get here, serialization works for this scale type

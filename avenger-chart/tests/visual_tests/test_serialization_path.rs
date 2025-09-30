@@ -35,7 +35,10 @@ async fn test_serialization_rendering_path() {
 
     // Render from the original built plot (not the deserialized one)
     // to ensure consistent results for the visual test
-    let render_result = compiled.render(&ctx, None).await.expect("Failed to render plot");
+    let render_result = compiled
+        .render(&ctx, None)
+        .await
+        .expect("Failed to render plot");
 
     // Create canvas and render
     let dimensions = CanvasDimensions {

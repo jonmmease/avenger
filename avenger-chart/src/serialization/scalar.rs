@@ -42,16 +42,19 @@ impl Serialize for SerializableScalar {
     where
         S: Serializer,
     {
-        use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+        use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
         use prost::Message;
 
         // Convert ScalarValue to protobuf
         let proto_scalar = datafusion_proto_common::protobuf_common::ScalarValue::try_from(&self.0)
-            .map_err(|e| serde::ser::Error::custom(format!("Failed to convert to protobuf: {}", e)))?;
+            .map_err(|e| {
+                serde::ser::Error::custom(format!("Failed to convert to protobuf: {}", e))
+            })?;
 
         // Serialize to bytes
         let mut buf = Vec::new();
-        proto_scalar.encode(&mut buf)
+        proto_scalar
+            .encode(&mut buf)
             .map_err(|e| serde::ser::Error::custom(format!("Failed to encode protobuf: {}", e)))?;
 
         // Encode as base64 for JSON compatibility
@@ -65,14 +68,15 @@ impl<'de> Deserialize<'de> for SerializableScalar {
     where
         D: Deserializer<'de>,
     {
-        use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+        use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
         use prost::Message;
 
         // Deserialize as string
         let base64_str = String::deserialize(deserializer)?;
 
         // Decode base64
-        let buf = BASE64.decode(&base64_str)
+        let buf = BASE64
+            .decode(&base64_str)
             .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64: {}", e)))?;
 
         // Decode protobuf
@@ -80,11 +84,10 @@ impl<'de> Deserialize<'de> for SerializableScalar {
             .map_err(|e| serde::de::Error::custom(format!("Failed to decode protobuf: {}", e)))?;
 
         // Convert back to ScalarValue
-        let scalar = ScalarValue::try_from(&proto_scalar)
-            .map_err(|e| serde::de::Error::custom(format!("Failed to convert from protobuf: {}", e)))?;
+        let scalar = ScalarValue::try_from(&proto_scalar).map_err(|e| {
+            serde::de::Error::custom(format!("Failed to convert from protobuf: {}", e))
+        })?;
 
         Ok(Self(scalar))
     }
 }
-
-

@@ -9,7 +9,7 @@ use datafusion::{
     },
 };
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 use std::sync::Arc;
 
 /// Convert DataFusion ScalarValue to avenger_scales Scalar
@@ -29,7 +29,6 @@ fn scalar_value_to_avenger_scalar(
         _ => None,
     }
 }
-
 
 /// DataFusion UDF that applies scale transformation with dynamic domain/range/options
 #[serde_as]
@@ -73,8 +72,8 @@ impl ScaleUDF {
             TypeSignature::Exact(vec![
                 DataType::new_list(self.domain_type.clone(), true), // Domain array
                 DataType::new_list(self.range_type.clone(), true),  // Range array
-                self.options_type.clone(),                         // Options struct
-                self.domain_type.clone(),                          // Values to scale
+                self.options_type.clone(),                          // Options struct
+                self.domain_type.clone(),                           // Values to scale
             ]),
             Volatility::Immutable,
         )
@@ -86,10 +85,11 @@ impl ScaleUDF {
     }
 
     /// Get scale implementation on demand
-    fn get_scale_impl(&self) -> Result<Arc<dyn avenger_scales::scales::ScaleImpl>, AvengerChartError> {
+    fn get_scale_impl(
+        &self,
+    ) -> Result<Arc<dyn avenger_scales::scales::ScaleImpl>, AvengerChartError> {
         self.scale.to_scale_impl()
     }
-
 }
 
 impl ScalarUDFImpl for ScaleUDF {
@@ -110,9 +110,9 @@ impl ScalarUDFImpl for ScaleUDF {
         use avenger_scales::scales::RangeKind;
 
         // Get scale implementation
-        let scale_impl = self.get_scale_impl().map_err(|e|
+        let scale_impl = self.get_scale_impl().map_err(|e| {
             DataFusionError::Execution(format!("Failed to get scale implementation: {}", e))
-        )?;
+        })?;
 
         // All scales with discrete ranges return dictionary arrays for efficiency
         if scale_impl.range_kind() == RangeKind::Discrete {
@@ -195,14 +195,11 @@ impl ScalarUDFImpl for ScaleUDF {
         };
 
         // Get scale implementation
-        let scale_impl = self.get_scale_impl().map_err(|e|
+        let scale_impl = self.get_scale_impl().map_err(|e| {
             DataFusionError::Execution(format!("Failed to get scale implementation: {}", e))
-        )?;
+        })?;
 
-        let scale = ConfiguredScale {
-            scale_impl,
-            config,
-        };
+        let scale = ConfiguredScale { scale_impl, config };
 
         // Apply scale to values (fourth argument)
         let scaled = match &args.args[3] {

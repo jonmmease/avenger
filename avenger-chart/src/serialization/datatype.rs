@@ -1,9 +1,9 @@
 //! Serializable wrapper for DataType
 
+use super::scalar::SerializableScalar;
 use datafusion::arrow::datatypes::DataType;
 use datafusion_common::ScalarValue;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use super::scalar::SerializableScalar;
 
 /// Wrapper for DataType that implements Serialize/Deserialize
 /// using a null ScalarValue of the appropriate type
@@ -45,8 +45,9 @@ impl Serialize for SerializableDataType {
         S: Serializer,
     {
         // Create a null ScalarValue of this type
-        let null_scalar = ScalarValue::try_from(&self.0)
-            .map_err(|e| serde::ser::Error::custom(format!("Failed to create null scalar: {}", e)))?;
+        let null_scalar = ScalarValue::try_from(&self.0).map_err(|e| {
+            serde::ser::Error::custom(format!("Failed to create null scalar: {}", e))
+        })?;
 
         // Use SerializableScalar to serialize it
         SerializableScalar(null_scalar).serialize(serializer)

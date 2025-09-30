@@ -2,7 +2,7 @@
 
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::{CompiledPlot, Plot};
-use datafusion::prelude::{col, SessionContext};
+use datafusion::prelude::{SessionContext, col};
 
 #[tokio::test]
 async fn test_compiled_plot() {

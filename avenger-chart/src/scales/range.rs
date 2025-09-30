@@ -1,19 +1,17 @@
-use crate::serialization::{SerializableExpr, SerializableScalar, LogicalExprNodeExt};
+use crate::serialization::{LogicalExprNodeExt, SerializableExpr, SerializableScalar};
 use datafusion::logical_expr::Expr;
 use datafusion_common::ScalarValue;
 use datafusion_proto::protobuf::LogicalExprNode;
 use palette::Srgba;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ScaleRange {
     Numeric(
-        #[serde_as(as = "FromInto<SerializableExpr>")]
-        LogicalExprNode,
-        #[serde_as(as = "Box<FromInto<SerializableExpr>>")]
-        Box<LogicalExprNode>
+        #[serde_as(as = "FromInto<SerializableExpr>")] LogicalExprNode,
+        #[serde_as(as = "Box<FromInto<SerializableExpr>>")] Box<LogicalExprNode>,
     ),
     Discrete(Vec<SerializableScalar>),
     Color(Vec<[f32; 4]>), // Store as RGBA arrays for serialization
@@ -41,9 +39,7 @@ impl ScaleRange {
         Self::Discrete(
             values
                 .into_iter()
-                .map(|v| {
-                    SerializableScalar::new(v.into())
-                })
+                .map(|v| SerializableScalar::new(v.into()))
                 .collect(),
         )
     }
@@ -56,9 +52,7 @@ impl ScaleRange {
             0.0
         };
         let values: Vec<SerializableScalar> = (0..num)
-            .map(|i| {
-                SerializableScalar::new(ScalarValue::Float32(Some(start + i as f32 * step)))
-            })
+            .map(|i| SerializableScalar::new(ScalarValue::Float32(Some(start + i as f32 * step))))
             .collect();
         Self::Discrete(values)
     }

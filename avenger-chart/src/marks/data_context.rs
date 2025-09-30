@@ -5,7 +5,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 
 /// Stores a mark's data source and channel-to-expression mappings
 /// (e.g., x -> col("price"), fill -> lit("blue")
@@ -28,13 +28,11 @@ impl DataContext {
 
     /// Get the DataFrame using the provided SessionContext
     pub fn dataframe_with_context(&self, ctx: &SessionContext) -> Option<DataFrame> {
-        self.dataframe
-            .as_ref()
-            .and_then(|node| {
-                node.to_logical_plan(ctx)
-                    .ok()
-                    .map(|plan| DataFrame::new(ctx.state().clone(), plan))
-            })
+        self.dataframe.as_ref().and_then(|node| {
+            node.to_logical_plan(ctx)
+                .ok()
+                .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+        })
     }
 
     /// Legacy method - returns None since we no longer store DataFrames directly

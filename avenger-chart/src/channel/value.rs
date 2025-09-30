@@ -1,11 +1,11 @@
 use crate::legend::Legend;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
-use crate::serialization::{SerializableExpr, LogicalExprNodeExt};
+use crate::serialization::{LogicalExprNodeExt, SerializableExpr};
 use datafusion::logical_expr::{Expr, lit};
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 
 /// Helper to format floats nicely (avoid unnecessary decimals)
 fn format_float(f: f64) -> String {
@@ -96,12 +96,12 @@ pub enum ConditionalValue {
     /// Value that gets scaled
     Scaled {
         #[serde_as(as = "FromInto<SerializableExpr>")]
-        expr: LogicalExprNode
+        expr: LogicalExprNode,
     },
     /// Literal value that bypasses scaling
     Value {
         #[serde_as(as = "FromInto<SerializableExpr>")]
-        expr: LogicalExprNode
+        expr: LogicalExprNode,
     },
 }
 
@@ -115,7 +115,7 @@ impl ConditionalValue {
         }
     }
 
-/// Check if this is a field (scaled) value
+    /// Check if this is a field (scaled) value
     pub fn is_scaled(&self) -> bool {
         matches!(self, ConditionalValue::Scaled { .. })
     }
@@ -141,7 +141,7 @@ pub enum ChannelValue {
     /// Expression that bypasses scaling (identity transformation)
     Value {
         #[serde_as(as = "FromInto<SerializableExpr>")]
-        expr: LogicalExprNode
+        expr: LogicalExprNode,
     },
     /// Conditional encoding with multiple branches
     Conditional {
@@ -161,10 +161,7 @@ impl std::fmt::Debug for ChannelValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChannelValue::Scaled {
-                
-                scale_name,
-                band,
-                ..
+                scale_name, band, ..
             } => f
                 .debug_struct("Scaled")
                 .field("expr", &format!("<SerializableExpr>"))
@@ -482,9 +479,10 @@ impl ChannelValue {
         // Skip channel references - they need to be resolved first
         if let Expr::Column(c) = &expr {
             if c.name.starts_with(':') {
-                return Err(datafusion::error::DataFusionError::Plan(
-                    format!("Cannot get data type for channel reference: {}", c.name)
-                ));
+                return Err(datafusion::error::DataFusionError::Plan(format!(
+                    "Cannot get data type for channel reference: {}",
+                    c.name
+                )));
             }
         }
 
@@ -736,8 +734,7 @@ mod tests {
                 LogicalExprNode::from_expr(col("category").eq(lit("A")))
                     .expect("Failed to serialize expr"),
                 ConditionalValue::Value {
-                    expr: LogicalExprNode::from_expr(lit("red"))
-                        .expect("Failed to serialize expr"),
+                    expr: LogicalExprNode::from_expr(lit("red")).expect("Failed to serialize expr"),
                 },
             )],
             otherwise: ConditionalValue::Scaled {
