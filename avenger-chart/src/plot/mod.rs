@@ -4,13 +4,16 @@
 //! along with supporting types for titles, scales, and axes.
 
 mod channel;
+mod compiled_plot;
+mod compiled_plot_rendering;
 mod plot;
 mod scales;
 mod specs;
 mod title;
 
-// Re-export core plot type
-pub use plot::{CompiledPlot, Plot};
+// Re-export core plot types
+pub use compiled_plot::CompiledPlot;
+pub use plot::Plot;
 
 // Re-export title types
 pub use title::{PlotSubtitle, PlotTitle, TitleAlign};
