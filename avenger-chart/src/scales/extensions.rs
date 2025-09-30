@@ -546,25 +546,10 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
             }
             DataType::Dictionary(_, value_type) => {
                 // Dictionary arrays (e.g., from ordinal scales)
-                // Extract the dictionary values
-                let dict_array = scaled_array.as_any_dictionary();
-                let values_array = dict_array.values();
-
                 // Process based on the value type
                 match value_type.as_ref() {
                     DataType::Utf8 => {
                         // String values (hex colors)
-                        use datafusion::arrow::array::StringArray;
-
-                        let _string_values = values_array
-                            .as_any()
-                            .downcast_ref::<StringArray>()
-                            .ok_or_else(|| {
-                                AvengerChartError::InternalError(
-                                    "Expected StringArray in dictionary values".to_string(),
-                                )
-                            })?;
-
                         // Process each entry in the dictionary array
                         let mut colors = Vec::new();
                         for i in 0..scaled_array.len() {
