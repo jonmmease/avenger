@@ -4,17 +4,26 @@
 //! scale UDFs, allowing them to work on fresh SessionContexts without
 //! requiring pre-registration.
 
-use datafusion::arrow::datatypes::{DataType, Field, SchemaRef};
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::arrow::ipc::reader::StreamReader;
+use datafusion::arrow::ipc::writer::StreamWriter;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::datasource::MemTable;
 use datafusion::datasource::TableProvider;
 use datafusion::error::{DataFusionError, Result as DataFusionResult};
 use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
 use datafusion::prelude::SessionContext;
 use datafusion_common::TableReference;
 use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtensionCodec};
+use futures::TryStreamExt;
+use std::io::Cursor;
 use std::sync::Arc;
 
 /// Magic header for identifying serialized scale UDFs
 const SCALE_UDF_MAGIC: &[u8] = b"SCALE_UDF_V1";
+
+/// Magic header for identifying serialized MemTables
+const MEMTABLE_MAGIC: &[u8] = b"MEMTABLE_V1";
 
 /// Extension codec for avenger-chart that handles scale UDF serialization
 ///
@@ -65,10 +74,7 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         schema: SchemaRef,
         ctx: &SessionContext,
     ) -> DataFusionResult<Arc<dyn TableProvider>> {
-        use datafusion::datasource::MemTable;
-
         // Check if this is a serialized MemTable
-        const MEMTABLE_MAGIC: &[u8] = b"MEMTABLE_V1";
         if buf.starts_with(MEMTABLE_MAGIC) {
             // Skip magic header
             let buf = &buf[MEMTABLE_MAGIC.len()..];
@@ -88,9 +94,6 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
             let batch_data = &buf[8..8 + batch_len];
 
             // Deserialize the batches using Arrow IPC format
-            use datafusion::arrow::ipc::reader::StreamReader;
-            use std::io::Cursor;
-
             let cursor = Cursor::new(batch_data);
             let reader = StreamReader::try_new(cursor, None)
                 .map_err(|e| DataFusionError::External(Box::new(e)))?;
@@ -121,37 +124,22 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         node: Arc<dyn TableProvider>,
         buf: &mut Vec<u8>,
     ) -> DataFusionResult<()> {
-        use datafusion::datasource::MemTable;
-
         // Check if this is a MemTable
         if let Some(mem_table) = node.as_any().downcast_ref::<MemTable>() {
-            // Serialize MemTable
             // Write a magic header to identify this as a serialized MemTable
-            buf.extend_from_slice(b"MEMTABLE_V1");
+            buf.extend_from_slice(MEMTABLE_MAGIC);
 
             // Get the record batches from the MemTable
-            // MemTable stores data as partitions of RecordBatches
-            use datafusion::execution::context::SessionState;
-            let state = SessionState::new_with_config_rt(
-                datafusion::execution::context::SessionConfig::default(),
-                Arc::new(datafusion::execution::runtime_env::RuntimeEnv::default()),
-            );
+            let state = SessionContext::new().state();
             let batches = futures::executor::block_on(async {
                 mem_table.scan(&state, None, &[], None).await
             })?;
-
-            // Collect all batches from the execution plan
-            use datafusion::physical_plan::ExecutionPlan;
-            use datafusion::arrow::record_batch::RecordBatch;
-            use datafusion::arrow::ipc::writer::StreamWriter;
 
             let task_ctx = Arc::new(datafusion::execution::context::TaskContext::default());
             let stream = batches.execute(0, task_ctx)?;
 
             // Collect batches
             let collected_batches: Vec<RecordBatch> = futures::executor::block_on(async {
-                use futures::TryStreamExt;
-
                 stream.try_collect::<Vec<_>>().await
             }).map_err(|e| DataFusionError::External(Box::new(e)))?;
 
@@ -209,14 +197,14 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         if node.name() == "scale" {
             // Try to downcast to ScaleUDF
             if let Some(scale_udf) = node.inner().as_any().downcast_ref::<ScaleUDF>() {
-                // Serialize the ScaleUDF directly as JSON
-                let json_bytes = serde_json::to_vec(scale_udf)
+                // Serialize the ScaleUDF using postcard
+                let postcard_bytes = postcard::to_allocvec(scale_udf)
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
-                // Write magic header, length, and JSON data
+                // Write magic header, length, and postcard data
                 buf.extend_from_slice(SCALE_UDF_MAGIC);
-                buf.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
-                buf.extend_from_slice(&json_bytes);
+                buf.extend_from_slice(&(postcard_bytes.len() as u32).to_le_bytes());
+                buf.extend_from_slice(&postcard_bytes);
             }
             // If it's not a ScaleUDF implementation, don't serialize
         }
@@ -233,47 +221,28 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
                 // Skip magic header
                 let buf = &buf[SCALE_UDF_MAGIC.len()..];
 
-                // Read JSON length
+                // Read postcard length
                 if buf.len() < 4 {
                     return datafusion_common::plan_err!(
                         "Invalid scale UDF serialization: missing length"
                     );
                 }
-                let json_len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+                let postcard_len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
 
-                // Read JSON data
-                if buf.len() < 4 + json_len {
+                // Read postcard data
+                if buf.len() < 4 + postcard_len {
                     return datafusion_common::plan_err!(
                         "Invalid scale UDF serialization: truncated data"
                     );
                 }
-                let json_bytes = &buf[4..4 + json_len];
+                let postcard_bytes = &buf[4..4 + postcard_len];
 
-                // Deserialize ScaleUDF directly
-                let scale_udf: ScaleUDF = serde_json::from_slice(json_bytes)
+                // Deserialize ScaleUDF
+                let scale_udf: ScaleUDF = postcard::from_bytes(postcard_bytes)
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
                 return Ok(Arc::new(ScalarUDF::new_from_impl(scale_udf)));
             }
-        }
-
-        // For backward compatibility: scale UDF without serialized data
-        if name == "scale" && buf.is_empty() {
-            // Create a default linear scale for backward compatibility
-            use crate::scales::{Linear, Scale};
-
-            let scale = Scale::<Linear>::new().into_auto();
-            let scale_udf = ScaleUDF::new(
-                scale,
-                DataType::Float64,
-                DataType::Float64,
-                DataType::Struct(datafusion::arrow::datatypes::Fields::from(vec![
-                    Field::new("", DataType::Null, true),
-                ])),
-            )
-            .map_err(|e| DataFusionError::External(Box::new(e)))?;
-
-            return Ok(Arc::new(ScalarUDF::new_from_impl(scale_udf)));
         }
 
         // User UDF - fail with informative error
@@ -287,7 +256,6 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion::arrow::datatypes::DataType;
 
     #[test]
     fn test_codec_creation() {
@@ -297,8 +265,10 @@ mod tests {
     }
 
     #[test]
-    fn test_magic_header() {
+    fn test_magic_headers() {
         assert_eq!(SCALE_UDF_MAGIC.len(), 12);
         assert_eq!(SCALE_UDF_MAGIC, b"SCALE_UDF_V1");
+        assert_eq!(MEMTABLE_MAGIC.len(), 11);
+        assert_eq!(MEMTABLE_MAGIC, b"MEMTABLE_V1");
     }
 }
