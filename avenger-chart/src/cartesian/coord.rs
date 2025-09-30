@@ -125,55 +125,6 @@ impl CoordinateSystem for Cartesian {
         Ok(PointGeometry { x, y })
     }
 
-    fn default_scale_options(
-        &self,
-        channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-    ) -> HashMap<String, datafusion::logical_expr::Expr> {
-        use avenger_scales::scales::{DomainKind, RangeKind};
-        use datafusion::logical_expr::lit;
-
-        let mut options = HashMap::new();
-
-        // Check if this is a position channel
-        let is_position = matches!(channel, "x" | "x2" | "y" | "y2");
-        let is_y_axis = matches!(channel, "y" | "y2");
-
-        if is_position {
-            let domain_kind = scale_impl.domain_kind();
-            let range_kind = scale_impl.range_kind();
-            let scale_type = scale_impl.scale_type();
-
-            // For continuous numeric scales
-            if domain_kind == DomainKind::Numeric && range_kind == RangeKind::Continuous {
-                // Y-axis scales typically include zero, X-axis scales don't necessarily
-                if is_y_axis && scale_type == "linear" {
-                    options.insert("zero".to_string(), lit(true));
-                }
-
-                // Nice domain for better tick values
-                options.insert("nice".to_string(), lit(true));
-
-                // Pixel-aligned positions for crisp rendering
-                options.insert("round".to_string(), lit(true));
-            }
-            // For temporal scales
-            else if domain_kind == DomainKind::Temporal && range_kind == RangeKind::Continuous {
-                // Pixel-aligned positions
-                options.insert("round".to_string(), lit(true));
-            }
-            // For categorical scales
-            else if domain_kind == DomainKind::Categorical && range_kind == RangeKind::Continuous
-            {
-                // Only band scales support padding, not point scales
-                if scale_type == "band" {
-                    options.insert("padding".to_string(), lit(0.1));
-                }
-            }
-        }
-
-        options
-    }
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())

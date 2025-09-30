@@ -2747,37 +2747,6 @@ impl<C: CoordinateSystem> Plot<C> {
         &self.legends
     }
 
-    /// Build a scale by name, applying any configured transformations
-    /// Note: Default range will be applied during rendering when actual dimensions are known
-    pub fn get_scale(
-        &self,
-        name: &str,
-        ctx: &SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<Scale, AvengerChartError> {
-        // Strip trailing numbers to get the base scale name
-        // e.g., "x2" -> "x", "y2" -> "y"
-        let base_name = strip_trailing_numbers(name);
-
-        // Build the default scale for the base name
-        let mut base_scale = self.create_default_scale_for_channel_internal(base_name, ctx, params)?;
-
-        // Gather domain expressions from marks
-        if let Ok(domain_exprs) = self.gather_scale_domain_expressions(base_name, ctx) {
-            if !domain_exprs.is_empty() {
-                base_scale = base_scale.domain_data_fields(domain_exprs);
-            }
-        }
-
-        match self.scale_specs.get(base_name) {
-            Some(ScaleSpec::Local(scale_changes)) => {
-                // Apply the plot-level scale configuration using update()
-                let user_scale = base_scale.update(scale_changes.clone());
-                Ok(user_scale)
-            }
-            None => Ok(base_scale),
-        }
-    }
 
     /// Get the default range for a coordinate channel based on plot area dimensions
     /// Returns None if the channel is not a coordinate channel

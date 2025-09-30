@@ -72,16 +72,6 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         session_context: &datafusion::prelude::SessionContext,
     ) -> HashMap<String, <Self::Guide as CoordinateGuideBuilder>::Axis>;
 
-    /// Get default scale options for channels in this coordinate system
-    /// Each coordinate system knows its own position channels and their optimal defaults
-    fn default_scale_options(
-        &self,
-        _channel: &str,
-        _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-    ) -> HashMap<String, datafusion::logical_expr::Expr> {
-        // Default implementation returns empty - each coord system overrides as needed
-        HashMap::new()
-    }
 
     /// Get clipping specification for this coordinate system
     ///
