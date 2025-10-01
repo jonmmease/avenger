@@ -7,7 +7,6 @@ use super::LogicalPlanNodeExt;
 use crate::error::AvengerChartError;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::Expr;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use prost::Message;
@@ -25,38 +24,11 @@ impl SerializableDataFrame {
         Ok(Self::from(node))
     }
 
-    /// Create from a DataFrame (legacy method for compatibility)
-    /// Panics if serialization fails - use from_dataframe for proper error handling
-    pub fn from_dataframe_unchecked(df: DataFrame) -> Self {
-        Self::from_dataframe(df).expect("Failed to serialize DataFrame")
-    }
-
     /// Convert to a DataFrame using the provided SessionContext
     pub fn to_dataframe(&self, ctx: &SessionContext) -> Result<DataFrame, AvengerChartError> {
         let node: LogicalPlanNode = self.clone().into();
         let plan = node.to_logical_plan(ctx)?;
         Ok(DataFrame::new(ctx.state().clone(), plan))
-    }
-
-    /// Get the raw protobuf bytes (for advanced use cases)
-    pub fn to_protobuf_bytes(&self) -> Result<Vec<u8>, AvengerChartError> {
-        Ok(self.0.clone())
-    }
-
-    /// Create from raw protobuf bytes
-    pub fn from_protobuf_bytes(bytes: &[u8]) -> Self {
-        Self(bytes.to_vec())
-    }
-
-    /// Apply a select operation to the DataFrame
-    pub fn select(
-        &self,
-        exprs: Vec<Expr>,
-        ctx: &SessionContext,
-    ) -> Result<DataFrame, AvengerChartError> {
-        let df = self.to_dataframe(ctx)?;
-        df.select(exprs)
-            .map_err(|e| AvengerChartError::InternalError(format!("Failed to select: {}", e)))
     }
 }
 
@@ -88,15 +60,7 @@ impl Serialize for SerializableDataFrame {
         if serializer.is_human_readable() {
             // For JSON and other text formats, use base64
             let base64_str = BASE64.encode(&self.0);
-            // Wrap in an object to maintain backward compatibility
-            #[derive(Serialize)]
-            struct Wrapper {
-                plan_bytes: String,
-            }
-            let wrapper = Wrapper {
-                plan_bytes: base64_str,
-            };
-            wrapper.serialize(serializer)
+            base64_str.serialize(serializer)
         } else {
             // For binary formats, use raw bytes
             self.0.serialize(serializer)
@@ -110,15 +74,10 @@ impl<'de> Deserialize<'de> for SerializableDataFrame {
         D: Deserializer<'de>,
     {
         if deserializer.is_human_readable() {
-            // For JSON and other text formats, expect base64 in an object
-            #[derive(Deserialize)]
-            struct Wrapper {
-                #[serde(alias = "plan_bytes_base64")]
-                plan_bytes: String,
-            }
-            let wrapper = Wrapper::deserialize(deserializer)?;
+            // For JSON and other text formats, expect base64
+            let base64_str = String::deserialize(deserializer)?;
             let bytes = BASE64
-                .decode(&wrapper.plan_bytes)
+                .decode(&base64_str)
                 .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64: {}", e)))?;
             Ok(SerializableDataFrame(bytes))
         } else {

@@ -3,51 +3,14 @@
 //! This module provides SerializableExpr which stores Expr
 //! as protobuf bytes for efficient binary serialization.
 
-use super::LogicalExprNodeExt;
-use crate::error::AvengerChartError;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use datafusion::logical_expr::Expr;
-use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::HashSet;
 
 /// A serializable wrapper for Expr that stores protobuf bytes
 #[derive(Clone, Debug, PartialEq)]
 pub struct SerializableExpr(pub Vec<u8>);
-
-impl SerializableExpr {
-    /// Create from an Expr, converting it to protobuf bytes
-    pub fn from_expr(expr: Expr) -> Result<Self, AvengerChartError> {
-        let node = LogicalExprNode::from_expr(expr)?;
-        Ok(Self::from(node))
-    }
-
-    /// Convert back to an Expr using the provided SessionContext
-    pub fn to_expr(&self, ctx: &SessionContext) -> Result<Expr, AvengerChartError> {
-        let node: LogicalExprNode = self.clone().into();
-        node.to_expr(ctx)
-    }
-
-    /// Add an alias to the expression
-    pub fn alias(&self, name: &str, ctx: &SessionContext) -> Result<Self, AvengerChartError> {
-        // We need to deserialize, add alias, and re-serialize
-        // This requires a context to parse UDFs, but we want to preserve the serialized form
-        let expr = self.to_expr(ctx)?;
-        Self::from_expr(expr.alias(name))
-    }
-
-    /// Get column references from the expression
-    pub fn column_refs(&self, ctx: &SessionContext) -> Result<HashSet<String>, AvengerChartError> {
-        let expr = self.to_expr(ctx)?;
-        Ok(expr
-            .column_refs()
-            .into_iter()
-            .map(|c| c.name.clone())
-            .collect())
-    }
-}
 
 // Conversion implementations
 impl From<LogicalExprNode> for SerializableExpr {

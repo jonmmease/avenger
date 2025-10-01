@@ -33,7 +33,7 @@ impl From<ScalarValue> for SerializableScalar {
 
 impl From<SerializableScalar> for ScalarValue {
     fn from(serializable: SerializableScalar) -> Self {
-        serializable.into_inner()
+        serializable.0
     }
 }
 
@@ -42,7 +42,6 @@ impl Serialize for SerializableScalar {
     where
         S: Serializer,
     {
-        use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
         use prost::Message;
 
         // Convert ScalarValue to protobuf
@@ -57,9 +56,15 @@ impl Serialize for SerializableScalar {
             .encode(&mut buf)
             .map_err(|e| serde::ser::Error::custom(format!("Failed to encode protobuf: {}", e)))?;
 
-        // Encode as base64 for JSON compatibility
-        let base64_str = BASE64.encode(&buf);
-        serializer.serialize_str(&base64_str)
+        if serializer.is_human_readable() {
+            // For JSON and other text formats, use base64
+            use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+            let base64_str = BASE64.encode(&buf);
+            serializer.serialize_str(&base64_str)
+        } else {
+            // For binary formats, use raw bytes
+            buf.serialize(serializer)
+        }
     }
 }
 
@@ -68,16 +73,19 @@ impl<'de> Deserialize<'de> for SerializableScalar {
     where
         D: Deserializer<'de>,
     {
-        use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
         use prost::Message;
 
-        // Deserialize as string
-        let base64_str = String::deserialize(deserializer)?;
-
-        // Decode base64
-        let buf = BASE64
-            .decode(&base64_str)
-            .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64: {}", e)))?;
+        let buf = if deserializer.is_human_readable() {
+            // For JSON and other text formats, expect base64
+            use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+            let base64_str = String::deserialize(deserializer)?;
+            BASE64
+                .decode(&base64_str)
+                .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64: {}", e)))?
+        } else {
+            // For binary formats, expect raw bytes
+            Vec::<u8>::deserialize(deserializer)?
+        };
 
         // Decode protobuf
         let proto_scalar = datafusion_proto_common::protobuf_common::ScalarValue::decode(&buf[..])

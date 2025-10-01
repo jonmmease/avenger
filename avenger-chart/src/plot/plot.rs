@@ -7,7 +7,7 @@ use datafusion::dataframe::DataFrame;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
-use super::compiled_plot::CompiledPlot;
+use super::compiled::CompiledPlot;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
 use crate::coords::CoordinateSystem;
@@ -109,11 +109,8 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         // 2. Compile all marks
-        let compiled_marks: Vec<Arc<dyn CompiledMark>> = self
-            .marks
-            .iter()
-            .map(|m| m.compile())
-            .collect();
+        let compiled_marks: Vec<Arc<dyn CompiledMark>> =
+            self.marks.iter().map(|m| m.compile()).collect();
 
         // 3. Build guide renderer - either from config or default
         let mut guide = if let Some(config) = &self.guide_config {
@@ -135,8 +132,8 @@ impl<C: CoordinateSystem> Plot<C> {
             // This is safe because the axis type matches the coordinate system
             if let Some(typed_axis) = axis_config
                 .as_any()
-                .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>(
-            ) {
+                .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
+            {
                 guide_axes.insert(channel.clone(), typed_axis.clone());
             }
         }

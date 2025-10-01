@@ -87,11 +87,9 @@ impl DomainInferrer {
                 // Process each field with radius expressions
                 for field in &mut data_fields {
                     if let Some(radius_expr) = &field.radius {
-                        let expr_ser: crate::serialization::SerializableExpr =
-                            field.expr.clone().into();
                         let computed_domain = Self::compute_radius_aware_domain(
                             &field.dataframe,
-                            &expr_ser,
+                            &field.expr,
                             radius_expr,
                             range,
                             ctx,
@@ -113,7 +111,7 @@ impl DomainInferrer {
     /// Compute domain with radius-aware padding
     async fn compute_radius_aware_domain(
         dataframe: &Arc<datafusion_proto::protobuf::LogicalPlanNode>,
-        position_expr: &crate::serialization::SerializableExpr,
+        position_expr: &datafusion_proto::protobuf::LogicalExprNode,
         radius_expr: &RadiusExpression,
         range_hint: (f64, f64),
         ctx: &SessionContext,
@@ -122,7 +120,7 @@ impl DomainInferrer {
         let (range_min, range_max) = range_hint;
         let range_width = (range_max - range_min).abs();
 
-        // Convert SerializableExpr to Expr
+        // Convert LogicalExprNode to Expr
         let position_expr_df = position_expr.to_expr(ctx)?;
 
         // Select both position and radius expressions

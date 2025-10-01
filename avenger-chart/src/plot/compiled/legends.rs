@@ -1,0 +1,518 @@
+//! Legend construction and configuration for CompiledPlot
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use datafusion::prelude::SessionContext;
+use indexmap::IndexMap;
+
+use crate::error::AvengerChartError;
+use crate::legend::Legend;
+use crate::render::RenderContext;
+use crate::scales::ConfiguredScaleWithSpec;
+
+use super::CompiledPlot;
+
+impl CompiledPlot {
+    /// Create default legends for channels with scales
+    fn create_default_legends(
+        &self,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> IndexMap<String, Legend> {
+        let mut default_legends = IndexMap::new();
+
+        // Build set of channels to skip for legends
+        let mut skip_channels = std::collections::HashSet::new();
+
+        // Add positional channels from the coordinate system
+        for &channel in self.coord_transform.required_channels() {
+            skip_channels.insert(channel.to_string());
+            // Also skip interval variants (e.g., "x2" for "x")
+            skip_channels.insert(format!("{}2", channel));
+        }
+
+        // Add channels that marks indicate shouldn't have legends
+        for (channel, scale) in scales {
+            // Find the mark that has this channel
+            if let Some(mark) = self
+                .marks
+                .iter()
+                .find(|m| m.data_context().channels().contains_key(channel))
+            {
+                // If the mark that has the channel says no legend, skip it
+                if mark
+                    .preferred_legend_renderer(channel, scale.configured())
+                    .is_none()
+                {
+                    skip_channels.insert(channel.clone());
+                }
+            }
+        }
+
+        // Sort channels for deterministic ordering
+        let mut sorted_channels: Vec<_> = scales.keys().collect();
+        sorted_channels.sort();
+
+        for channel in sorted_channels {
+            // Skip channels that don't need legends
+            if skip_channels.contains(channel) {
+                continue;
+            }
+
+            // Skip if legend already configured
+            if self.legends.contains_key(channel) {
+                continue;
+            }
+
+            // Create legend with theme defaults
+            let theme = self.get_theme();
+            let mut legend = Legend::new()
+                .title(self.infer_legend_title(channel, session_context))
+                .position(self.default_legend_position(channel))
+                .background_padding(theme.legend_background_padding())
+                .background_corner_radius(theme.legend_background_corner_radius());
+
+            // Apply optional theme defaults
+            if let Some(fill) = theme.legend_background_fill() {
+                legend = legend.background_fill(fill);
+            }
+            if let Some(stroke) = theme.legend_background_stroke() {
+                legend = legend.background_stroke(stroke);
+            }
+
+            // Set text colors and typography from theme
+            legend.title_color = crate::maybe::Maybe::Set(theme.legend_title_color());
+            legend.label_color = crate::maybe::Maybe::Set(theme.legend_label_color());
+            legend.title_font_family = crate::maybe::Maybe::Set(theme.legend_title_font_family());
+            legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size());
+            legend.title_font_weight = crate::maybe::Maybe::Set(theme.legend_title_font_weight());
+            legend.label_font_family = crate::maybe::Maybe::Set(theme.legend_label_font_family());
+            legend.label_font_size = crate::maybe::Maybe::Set(theme.legend_label_font_size());
+            legend.label_font_weight = crate::maybe::Maybe::Set(theme.legend_label_font_weight());
+            legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family());
+            legend.tick_font_size = crate::maybe::Maybe::Set(theme.legend_tick_font_size());
+            legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight());
+            legend.tick_color = crate::maybe::Maybe::Set(theme.legend_tick_color());
+
+            default_legends.insert(channel.clone(), legend);
+        }
+
+        default_legends
+    }
+
+    /// Get the appropriate legend renderer for a channel
+    pub(super) fn get_legend_renderer(
+        &self,
+        channel: &str,
+        scale: &ConfiguredScaleWithSpec,
+    ) -> Option<Arc<dyn crate::legend::renderer::LegendRenderer>> {
+        // Find the first mark that has this channel and get its preference
+        for mark in &self.marks {
+            if mark.data_context().channels().contains_key(channel) {
+                return mark.preferred_legend_renderer(channel, scale.configured());
+            }
+        }
+        None
+    }
+
+    /// Get legends with theme applied (matching PlotRenderer behavior)
+    pub(super) fn get_legends_with_theme(
+        &self,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> IndexMap<String, Legend> {
+        // 1. Start with plot-level legends
+        let mut all_legends = self.legends.clone();
+
+        // 2. Apply channel-level legend configs (from mark encodings)
+        for mark in &self.marks {
+            for (channel_name, channel_value) in mark.data_context().channels() {
+                if let Some(channel_legend) = channel_value.get_legend_config() {
+                    all_legends
+                        .entry(channel_name.clone())
+                        .and_modify(|legend| {
+                            *legend = legend.clone().update(channel_legend.clone())
+                        })
+                        .or_insert_with(|| channel_legend.clone());
+                }
+            }
+        }
+
+        // 3. Apply defaults for channels with scales but no legend config
+        let default_legends = self.create_default_legends(scales, session_context);
+        for (channel, default_legend) in default_legends {
+            all_legends
+                .entry(channel)
+                .and_modify(|legend| *legend = default_legend.clone().update(legend.clone()))
+                .or_insert(default_legend);
+        }
+
+        // 4. Apply theme (only for Unset properties)
+        let theme = self.get_theme();
+        for legend in all_legends.values_mut() {
+            // Theme only fills in Unset values
+            // Apply theme fonts if not explicitly set
+            if matches!(legend.title_color, crate::maybe::Maybe::Unset) {
+                legend.title_color = crate::maybe::Maybe::Set(theme.legend_title_color());
+            }
+            if matches!(legend.label_color, crate::maybe::Maybe::Unset) {
+                legend.label_color = crate::maybe::Maybe::Set(theme.legend_label_color());
+            }
+            if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
+                legend.title_font_family =
+                    crate::maybe::Maybe::Set(theme.legend_title_font_family());
+            }
+            if matches!(legend.title_font_size, crate::maybe::Maybe::Unset) {
+                legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size());
+            }
+            if matches!(legend.title_font_weight, crate::maybe::Maybe::Unset) {
+                legend.title_font_weight =
+                    crate::maybe::Maybe::Set(theme.legend_title_font_weight());
+            }
+            if matches!(legend.label_font_family, crate::maybe::Maybe::Unset) {
+                legend.label_font_family =
+                    crate::maybe::Maybe::Set(theme.legend_label_font_family());
+            }
+            if matches!(legend.label_font_size, crate::maybe::Maybe::Unset) {
+                legend.label_font_size = crate::maybe::Maybe::Set(theme.legend_label_font_size());
+            }
+            if matches!(legend.label_font_weight, crate::maybe::Maybe::Unset) {
+                legend.label_font_weight =
+                    crate::maybe::Maybe::Set(theme.legend_label_font_weight());
+            }
+            if matches!(legend.tick_font_family, crate::maybe::Maybe::Unset) {
+                legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family());
+            }
+            if matches!(legend.tick_font_size, crate::maybe::Maybe::Unset) {
+                legend.tick_font_size = crate::maybe::Maybe::Set(theme.legend_tick_font_size());
+            }
+            if matches!(legend.tick_font_weight, crate::maybe::Maybe::Unset) {
+                legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight());
+            }
+            if matches!(legend.tick_color, crate::maybe::Maybe::Unset) {
+                legend.tick_color = crate::maybe::Maybe::Set(theme.legend_tick_color());
+            }
+            // Note: Don't apply theme background settings - they're only for default legends
+            // This matches PlotRenderer behavior
+        }
+
+        all_legends
+    }
+
+    /// Build a legend channel for a specific channel in a mark
+    fn build_legend_channel(
+        &self,
+        channel_name: &str,
+        channel_value: &crate::channel::value::ChannelValue,
+        scale: &ConfiguredScaleWithSpec,
+        mark: &dyn crate::marks::CompiledMark,
+        mark_index: usize,
+        configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> crate::legend::LegendChannel {
+        use crate::legend::{ChannelInfo, LegendChannel};
+        use datafusion::logical_expr::lit;
+
+        // Collect related channels from the mark
+        let mut related_channels = HashMap::new();
+
+        // First add explicitly set channels
+        for (other_name, other_value) in mark.data_context().channels() {
+            if other_name != channel_name {
+                // Check if this channel has a scale or is constant
+                let channel_info = if let Some(other_scale) = configured_scales.get(other_name) {
+                    // Channel has a scale
+                    ChannelInfo::Scaled {
+                        expr: other_value.expr(ctx),
+                        scale: other_scale.configured().clone(),
+                    }
+                } else if let Some(expr) = other_value.expr(ctx) {
+                    // Channel has a constant expression
+                    ChannelInfo::Constant { expr: expr.clone() }
+                } else {
+                    // Skip channels without expressions
+                    continue;
+                };
+                related_channels.insert(other_name.clone(), channel_info);
+            }
+        }
+
+        // For channels not explicitly set, check if they have theme defaults
+        // This ensures legend symbols match the chart's actual appearance
+        let context = RenderContext {
+            plot_width: 100.0, // Dummy values for getting defaults
+            plot_height: 100.0,
+            theme: self.get_theme(),
+            session_context: Arc::new(ctx.clone()),
+            params: params.clone(),
+        };
+
+        // Iterate through all supported channels of this mark
+        for channel_desc in mark.supported_channels() {
+            let other_name = channel_desc.name;
+            if other_name != channel_name && !related_channels.contains_key(other_name) {
+                // Channel not explicitly set - check for theme default
+                if let Some(default_value) = mark.default_channel_value(other_name, &context) {
+                    // Add as a constant channel
+                    let expr = lit(default_value);
+                    related_channels.insert(other_name.to_string(), ChannelInfo::Constant { expr });
+                }
+            }
+        }
+
+        // Get the mark type name
+        let mark_type = mark.mark_type().to_string();
+
+        LegendChannel {
+            name: channel_name.to_string(),
+            expression: channel_value.expr(ctx),
+            scale: scale.configured().clone(),
+            channel_type: channel_name.to_string(), // Use channel name as type
+            mark_type,
+            mark_index,
+            related_channels,
+        }
+    }
+
+    /// Merge legend channels based on merge keys
+    pub(super) fn merge_legend_channels(
+        &self,
+        all_legends: &IndexMap<String, Legend>,
+        configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> (
+        Vec<Vec<crate::legend::LegendChannel>>,
+        IndexMap<String, Legend>,
+    ) {
+        use crate::legend::MergeKey;
+
+        // Collect all channels that need legends from all marks
+        let mut all_channels = Vec::new();
+
+        for (mark_index, mark) in self.marks.iter().enumerate() {
+            for (channel_name, channel_value) in mark.data_context().channels() {
+                // Skip if no scale or no legend config
+                if !configured_scales.contains_key(channel_name)
+                    || !all_legends.contains_key(channel_name)
+                {
+                    continue;
+                }
+
+                let legend_config = &all_legends[channel_name];
+                if matches!(legend_config.visible, crate::maybe::Maybe::Set(false)) {
+                    continue;
+                }
+
+                let scale = &configured_scales[channel_name];
+
+                let legend_channel = self.build_legend_channel(
+                    channel_name,
+                    channel_value,
+                    scale,
+                    mark.as_ref(),
+                    mark_index,
+                    configured_scales,
+                    ctx,
+                    params,
+                );
+
+                all_channels.push(legend_channel);
+            }
+        }
+
+        // Group channels by MergeKey
+        let mut channel_groups: Vec<Vec<crate::legend::LegendChannel>> = Vec::new();
+
+        for channel in all_channels {
+            let merge_key = MergeKey::from_channel(&channel);
+
+            if merge_key.is_none() {
+                // Continuous scales or channels without expressions should not be merged
+                channel_groups.push(vec![channel]);
+            } else {
+                // Find if this key already exists in any group
+                let mut found = false;
+                for group in channel_groups.iter_mut() {
+                    if !group.is_empty() {
+                        // Check if this group has the same merge key
+                        let group_key = MergeKey::from_channel(&group[0]);
+                        if group_key == merge_key {
+                            group.push(channel.clone());
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !found {
+                    // Create a new group for this merge key
+                    channel_groups.push(vec![channel]);
+                }
+            }
+        }
+
+        // Sort channel groups by their legend order
+        let mut groups_with_order: Vec<(Vec<crate::legend::LegendChannel>, i32)> = Vec::new();
+
+        for channels in channel_groups {
+            if !channels.is_empty() {
+                let primary_channel = &channels[0];
+                if let Some(legend_config) = all_legends.get(&primary_channel.name) {
+                    let order = legend_config.order.clone().unwrap_or(i32::MAX);
+                    groups_with_order.push((channels, order));
+                }
+            }
+        }
+
+        // Sort by order value
+        groups_with_order.sort_by_key(|(_, order)| *order);
+
+        // Extract sorted channel groups
+        let sorted_channel_groups: Vec<Vec<crate::legend::LegendChannel>> = groups_with_order
+            .iter()
+            .map(|(channels, _)| channels.clone())
+            .collect();
+
+        // Create the legends map with merged channel info for layout
+        let mut legends_map: IndexMap<String, Legend> = IndexMap::new();
+        for (channels, _) in groups_with_order {
+            if !channels.is_empty() {
+                let primary_channel = &channels[0];
+                if let Some(legend_config) = all_legends.get(&primary_channel.name) {
+                    if !matches!(legend_config.visible, crate::maybe::Maybe::Set(false)) {
+                        // Clone the legend config and add merged channel information
+                        let mut legend_with_merged = legend_config.clone();
+                        // Populate merged_channels with all channel types in this group
+                        legend_with_merged.merged_channels =
+                            channels.iter().map(|ch| ch.channel_type.clone()).collect();
+                        legends_map.insert(primary_channel.name.clone(), legend_with_merged);
+                    }
+                }
+            }
+        }
+
+        (sorted_channel_groups, legends_map)
+    }
+
+    /// Prepare legend measurements for layout computation
+    /// Note: This should be called with the legends_map from merge_legend_channels
+    /// to ensure measurements match rendering
+    pub(super) fn prepare_legend_measurements(
+        &self,
+        legends: &IndexMap<String, Legend>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        available_space: taffy::Size<f32>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> Result<crate::render::LegendMeasurements, AvengerChartError> {
+        use crate::layout::legend::measure_legend_size_with_channels;
+        use avenger_scales::scales::ConfiguredScale;
+
+        let mut legend_measurements = crate::render::LegendMeasurements::new();
+
+        // Get all legends including channel-level configs
+        let all_legends = self.get_legends_with_theme(scales, ctx);
+
+        // Merge channels to get the same groups that will be used for rendering
+        let (sorted_channel_groups, _) =
+            self.merge_legend_channels(&all_legends, scales, ctx, params);
+
+        for channels in sorted_channel_groups {
+            if channels.is_empty() {
+                continue;
+            }
+
+            // Get the primary channel (first in group)
+            let primary_channel = &channels[0];
+
+            // Get legend config - first try the passed-in legends (from merge),
+            // then fall back to all_legends
+            let legend = legends
+                .get(&primary_channel.name)
+                .or_else(|| all_legends.get(&primary_channel.name))
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Legend configuration not found for channel '{}'",
+                        primary_channel.name
+                    ))
+                })?;
+
+            // Get scale for primary channel
+            let scale = scales.get(&primary_channel.name).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Scale not found for channel '{}'",
+                    primary_channel.name
+                ))
+            })?;
+
+            // Determine the appropriate renderer for this group of channels
+            let renderer = if channels.len() > 1 {
+                // Multiple channels - try to get a merged renderer
+                let mark_opt = self.marks.get(primary_channel.mark_index);
+                // Extract ConfiguredScale from ConfiguredScaleWithSpec for mark's renderer
+                let configured_scales: HashMap<String, ConfiguredScale> = scales
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.configured().clone()))
+                    .collect();
+                mark_opt
+                    .and_then(|mark| {
+                        mark.preferred_merged_legend_renderer(&channels, &configured_scales)
+                    })
+                    .or_else(|| self.get_legend_renderer(&primary_channel.channel_type, scale))
+            } else {
+                // Single channel - use the unified renderer selection
+                self.get_legend_renderer(&primary_channel.channel_type, scale)
+            };
+
+            if let Some(renderer) = renderer {
+                // Measure the legend with the same channels that will be used for rendering
+                let (size, flexible) = measure_legend_size_with_channels(
+                    &channels,
+                    legend,
+                    renderer,
+                    available_space,
+                )?;
+                legend_measurements.insert(primary_channel.name.clone(), (size, flexible));
+            }
+        }
+
+        Ok(legend_measurements)
+    }
+
+    /// Infer a title for the legend based on channel
+    fn infer_legend_title(
+        &self,
+        channel: &str,
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> String {
+        // First try to extract from marks (like we do for axes)
+        use crate::coords::extract_channel_title_from_marks;
+        if let Some(title) = extract_channel_title_from_marks(&self.marks, channel, session_context)
+        {
+            return title;
+        }
+
+        // Fallback: convert underscores to spaces and apply title case
+        channel
+            .split('_')
+            .map(|word| {
+                // Capitalize first letter of each word
+                let mut chars = word.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Get default legend position for a channel
+    fn default_legend_position(&self, _channel: &str) -> crate::legend::LegendPosition {
+        // All legends default to the right
+        crate::legend::LegendPosition::Right
+    }
+}
