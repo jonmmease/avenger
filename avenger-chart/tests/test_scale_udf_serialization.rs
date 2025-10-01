@@ -70,8 +70,10 @@ mod tests {
         new_ctx.register_batch("test_data", batch2).unwrap();
 
         // Deserialize the expression
+        use avenger_chart::serialization::LogicalExprNodeExt;
         let deserialized: SerializableExpr = serde_json::from_str(&json).unwrap();
-        let restored_expr = deserialized.to_expr(&new_ctx).unwrap();
+        let expr_node: datafusion_proto::protobuf::LogicalExprNode = deserialized.into();
+        let restored_expr = expr_node.to_expr(&new_ctx).unwrap();
 
         // Execute the expression and verify results
         let df = new_ctx.table("test_data").await.unwrap();

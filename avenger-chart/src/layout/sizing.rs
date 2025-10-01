@@ -168,6 +168,42 @@ impl LayoutSpec {
             margins,
         }
     }
+
+    /// Determine if horizontal margins should be expandable
+    ///
+    /// Margins expand horizontally when canvas width is fixed AND plot width is constrained
+    /// (either directly fixed, or can be computed from height + aspect ratio)
+    pub(crate) fn should_expand_margins_horizontal(&self) -> bool {
+        let canvas_width_fixed = matches!(
+            self.canvas,
+            SizeMode::Fixed { .. } | SizeMode::Width(_)
+        );
+
+        let plot_width_constrained = matches!(
+            self.plot_area,
+            SizeMode::Fixed { .. } | SizeMode::Width(_)
+        );
+
+        canvas_width_fixed && plot_width_constrained
+    }
+
+    /// Determine if vertical margins should be expandable
+    ///
+    /// Margins expand vertically when canvas height is fixed AND plot height is constrained
+    /// (either directly fixed, or can be computed from width + aspect ratio)
+    pub(crate) fn should_expand_margins_vertical(&self) -> bool {
+        let canvas_height_fixed = matches!(
+            self.canvas,
+            SizeMode::Fixed { .. } | SizeMode::Height(_)
+        );
+
+        let plot_height_constrained = matches!(
+            self.plot_area,
+            SizeMode::Fixed { .. } | SizeMode::Height(_)
+        );
+
+        canvas_height_fixed && plot_height_constrained
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

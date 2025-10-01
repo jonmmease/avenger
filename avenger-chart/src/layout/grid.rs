@@ -210,6 +210,11 @@ impl GridBuilder {
     ) -> Result<GridLayout, AvengerChartError> {
         // Use margins from layout spec
         let margins = &layout_spec.margins;
+
+        // Determine if margins should be expandable
+        let expand_horizontal = layout_spec.should_expand_margins_horizontal();
+        let expand_vertical = layout_spec.should_expand_margins_vertical();
+
         let mut grid = GridLayout::new();
 
         // === Build Column Template ===
@@ -217,7 +222,12 @@ impl GridBuilder {
         // [margin] [overflow-left?] [plot-area] [overflow-right?] [legends*] [margin]
 
         // 1. Start with left margin
-        grid.cols.push(length(margins.left));
+        // Use fr(1.0) if margins should expand horizontally, otherwise use fixed length
+        if expand_horizontal {
+            grid.cols.push(fr(1.0));
+        } else {
+            grid.cols.push(length(margins.left));
+        }
         let mut col_index = 1;
 
         // 2. Add left overflow column if needed for guide overflow (e.g., axis labels extending left)
@@ -230,9 +240,16 @@ impl GridBuilder {
             None
         };
 
-        // 3. Add plot area column (flexible - takes remaining space)
+        // 3. Add plot area column
+        // Use fixed width if plot width is specified, otherwise flexible (fr)
         let plot_col_index = col_index;
-        grid.cols.push(fr(1.0));
+        let plot_col_size = match &layout_spec.plot_area {
+            crate::layout::SizeMode::Fixed { width, .. } | crate::layout::SizeMode::Width(width) => {
+                length(*width)
+            }
+            _ => fr(1.0), // Flexible - takes remaining space
+        };
+        grid.cols.push(plot_col_size);
         col_index += 1;
 
         // 4. Add right overflow column if needed for guide overflow (e.g., axis labels extending right)
@@ -257,14 +274,24 @@ impl GridBuilder {
         }
 
         // 6. End with right margin
-        grid.cols.push(length(margins.right));
+        // Use fr(1.0) if margins should expand horizontally, otherwise use fixed length
+        if expand_horizontal {
+            grid.cols.push(fr(1.0));
+        } else {
+            grid.cols.push(length(margins.right));
+        }
 
         // === Build Row Template ===
         // Rows are built top-to-bottom:
         // [margin] [title?] [subtitle?] [overflow-top?] [plot-area] [overflow-bottom?] [margin]
 
         // 1. Start with top margin
-        grid.rows.push(length(margins.top));
+        // Use fr(1.0) if margins should expand vertically, otherwise use fixed length
+        if expand_vertical {
+            grid.rows.push(fr(1.0));
+        } else {
+            grid.rows.push(length(margins.top));
+        }
         let mut row_index = 1;
 
         // 2. Add title row if present
@@ -329,9 +356,16 @@ impl GridBuilder {
             row_index += 1;
         }
 
-        // 5. Add plot area row (flexible - takes remaining vertical space)
+        // 5. Add plot area row
+        // Use fixed height if plot height is specified, otherwise flexible (fr)
         let plot_row_index = row_index;
-        grid.rows.push(fr(1.0));
+        let plot_row_size = match &layout_spec.plot_area {
+            crate::layout::SizeMode::Fixed { height, .. } | crate::layout::SizeMode::Height(height) => {
+                length(*height)
+            }
+            _ => fr(1.0), // Flexible - takes remaining vertical space
+        };
+        grid.rows.push(plot_row_size);
         grid.add_component(ComponentType::PlotArea, plot_row_index, plot_col_index);
 
         // 6. Position left/right guide overflows in their columns at the plot row
@@ -377,7 +411,12 @@ impl GridBuilder {
         }
 
         // 9. End with bottom margin
-        grid.rows.push(length(margins.bottom));
+        // Use fr(1.0) if margins should expand vertically, otherwise use fixed length
+        if expand_vertical {
+            grid.rows.push(fr(1.0));
+        } else {
+            grid.rows.push(length(margins.bottom));
+        }
 
         Ok(grid)
     }
