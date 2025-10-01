@@ -10,6 +10,7 @@ use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, text::SceneT
 use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
 
 /// Symbol legends
+#[derive(Debug)]
 pub struct LineLegendConfig {
     pub title: Option<String>,
     pub text: ScalarOrArray<String>,
