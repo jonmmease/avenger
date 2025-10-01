@@ -219,6 +219,8 @@ impl<C: CoordinateSystem> Plot<C> {
     /// The plot area will fill the available space within the canvas
     pub fn canvas_size(mut self, width: f32, height: f32) -> Self {
         self.layout_spec.canvas = crate::layout::SizeMode::Fixed { width, height };
+        // Set plot area to Auto so it fills the canvas
+        self.layout_spec.plot_area = crate::layout::SizeMode::Auto;
         self
     }
 
@@ -241,6 +243,8 @@ impl<C: CoordinateSystem> Plot<C> {
     /// The canvas will expand to accommodate the plot area plus margins, axes, and legends
     pub fn plot_size(mut self, width: f32, height: f32) -> Self {
         self.layout_spec.plot_area = crate::layout::SizeMode::Fixed { width, height };
+        // Set canvas to Auto so it expands to fit the plot area
+        self.layout_spec.canvas = crate::layout::SizeMode::Auto;
         self
     }
 

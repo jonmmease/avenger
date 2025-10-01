@@ -135,7 +135,7 @@ impl ChartLayout {
             .map(|(k, m)| (k.clone(), m.flexible))
             .collect();
 
-        let legend_positions: HashMap<String, LegendPosition> = legend_measurements
+        let legend_positions: IndexMap<String, LegendPosition> = legend_measurements
             .iter()
             .map(|(k, m)| (k.clone(), m.position))
             .collect();
@@ -448,7 +448,7 @@ pub(crate) struct TaffyNodes {
     pub plot_area_node: Option<NodeId>,
     pub guide_overflow_nodes: HashMap<AxisPosition, NodeId>,
     pub legend_container_nodes: HashMap<LegendPosition, NodeId>,
-    pub legend_nodes: HashMap<String, NodeId>,
+    pub legend_nodes: IndexMap<String, NodeId>,
     pub title_node: Option<NodeId>,
     pub subtitle_node: Option<NodeId>,
 }
@@ -457,7 +457,7 @@ pub(crate) struct TaffyNodes {
 fn build_taffy_tree(
     grid_layout: &GridLayout,
     overflow: &crate::coords::OverflowSpaceRequirement,
-    legend_positions: &HashMap<String, LegendPosition>,
+    legend_positions: &IndexMap<String, LegendPosition>,
     legend_sizes: &HashMap<String, Size<f32>>,
     legend_flexible: &HashMap<String, bool>,
     title: Option<&PlotTitle>,
@@ -484,7 +484,7 @@ fn build_taffy_tree(
         plot_area_node: None,
         guide_overflow_nodes: HashMap::new(),
         legend_container_nodes: HashMap::new(),
-        legend_nodes: HashMap::new(),
+        legend_nodes: IndexMap::new(),
         title_node: None,
         subtitle_node: None,
     };
@@ -672,7 +672,7 @@ fn create_legend_nodes(
     taffy: &mut TaffyTree,
     nodes: &mut TaffyNodes,
     grid_layout: &GridLayout,
-    legend_positions: &HashMap<String, LegendPosition>,
+    legend_positions: &IndexMap<String, LegendPosition>,
     legend_sizes: &HashMap<String, Size<f32>>,
     legend_flexible: &HashMap<String, bool>,
 ) -> Result<(), AvengerChartError> {
