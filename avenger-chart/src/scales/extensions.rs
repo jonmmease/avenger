@@ -8,7 +8,7 @@ use crate::scales::ConfiguredScaleWithSpec;
 use crate::scales::udf::create_scale_udf;
 use crate::utils::ScalarValueHelpers;
 use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind};
-use datafusion::arrow::array::{Array, ArrayRef, AsArray, Float32Array, ListArray};
+use datafusion::arrow::array::{Array, ArrayRef, Float32Array, ListArray};
 use datafusion::arrow::datatypes::{Field, Float32Type};
 use datafusion::logical_expr::{Expr, ExprSchemable};
 use datafusion_common::ScalarValue;

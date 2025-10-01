@@ -68,7 +68,6 @@
 //! For typical visualizations with < 20 channels, this is very efficient.
 
 use super::value::ChannelValue;
-use crate::serialization::LogicalExprNodeExt;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::SessionContext;
 use datafusion_common::tree_node::{TransformedResult, TreeNode};

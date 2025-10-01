@@ -13,12 +13,6 @@ pub trait LogicalExprNodeExt: Sized {
 
     /// Convert to an Expr using the provided SessionContext
     fn to_expr(&self, ctx: &SessionContext) -> Result<Expr, AvengerChartError>;
-
-    /// Get column references from the expression
-    fn column_refs(
-        &self,
-        ctx: &SessionContext,
-    ) -> Result<std::collections::HashSet<String>, AvengerChartError>;
 }
 
 impl LogicalExprNodeExt for LogicalExprNode {
@@ -39,17 +33,5 @@ impl LogicalExprNodeExt for LogicalExprNode {
         // Convert LogicalExprNode back to Expr
         parse_expr(self, ctx, &codec)
             .map_err(|e| AvengerChartError::InternalError(format!("Failed to parse expr: {}", e)))
-    }
-
-    fn column_refs(
-        &self,
-        ctx: &SessionContext,
-    ) -> Result<std::collections::HashSet<String>, AvengerChartError> {
-        let expr = self.to_expr(ctx)?;
-        Ok(expr
-            .column_refs()
-            .into_iter()
-            .map(|c| c.name.clone())
-            .collect())
     }
 }

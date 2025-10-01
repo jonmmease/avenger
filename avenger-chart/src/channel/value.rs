@@ -170,7 +170,7 @@ impl std::fmt::Debug for ChannelValue {
                 .field("has_scale_config", &self.has_scale_config())
                 .field("has_legend_config", &self.has_legend_config())
                 .finish(),
-            ChannelValue::Value { expr } => f
+            ChannelValue::Value { expr: _ } => f
                 .debug_struct("Identity")
                 .field("expr", &format!("<SerializableExpr>"))
                 .finish(),
@@ -234,15 +234,6 @@ impl ChannelValue {
         match self {
             ChannelValue::Scaled { expr, .. } => expr.to_expr(ctx).ok(),
             ChannelValue::Value { expr } => expr.to_expr(ctx).ok(),
-            ChannelValue::Conditional { .. } => None,
-        }
-    }
-
-    /// Get the internal logical expression node (for non-conditional values)
-    pub(crate) fn expr_node_ref(&self) -> Option<&LogicalExprNode> {
-        match self {
-            ChannelValue::Scaled { expr, .. } => Some(expr),
-            ChannelValue::Value { expr } => Some(expr),
             ChannelValue::Conditional { .. } => None,
         }
     }

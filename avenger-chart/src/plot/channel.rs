@@ -19,7 +19,7 @@ pub(crate) fn extract_channel_configs<C: CoordinateSystem>(
     axis_specs: &mut HashMap<String, AxisSpec>,
     legends: &mut IndexMap<String, Legend>,
     scale_specs: &mut HashMap<String, ScaleSpec>,
-    scale_to_coord_channel: &mut HashMap<String, String>,
+    _scale_to_coord_channel: &mut HashMap<String, String>,
 ) {
     // Extract axis configurations from the mark
     for (channel_name, axis_config) in mark.state().axis_configs.iter() {
