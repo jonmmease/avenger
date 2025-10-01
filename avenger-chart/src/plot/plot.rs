@@ -218,8 +218,7 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set fixed canvas dimensions (traditional mode)
     /// The plot area will fill the available space within the canvas
     pub fn canvas_size(mut self, width: f32, height: f32) -> Self {
-        self.layout_spec =
-            LayoutSpec::fixed_canvas(width, height, self.layout_spec.margins.clone());
+        self.layout_spec.canvas = crate::layout::SizeMode::Fixed { width, height };
         self
     }
 
@@ -241,8 +240,7 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set fixed plot area dimensions (data-first mode)
     /// The canvas will expand to accommodate the plot area plus margins, axes, and legends
     pub fn plot_size(mut self, width: f32, height: f32) -> Self {
-        self.layout_spec =
-            LayoutSpec::fixed_plot_area(width, height, self.layout_spec.margins.clone());
+        self.layout_spec.plot_area = crate::layout::SizeMode::Fixed { width, height };
         self
     }
 

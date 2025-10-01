@@ -418,8 +418,9 @@ impl CompiledPlot {
         let all_legends = self.get_legends_with_theme(scales, ctx);
 
         // Merge channels to get the same groups that will be used for rendering
+        // Use the passed-in legends parameter which is already sorted
         let (sorted_channel_groups, _) =
-            self.merge_legend_channels(&all_legends, scales, ctx, params);
+            self.merge_legend_channels(legends, scales, ctx, params);
 
         for channels in sorted_channel_groups {
             if channels.is_empty() {

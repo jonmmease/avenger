@@ -2,6 +2,7 @@
 
 use crate::cartesian::axis::AxisPosition;
 use crate::legend::LegendPosition;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 
 /// Result of layout computation
@@ -9,7 +10,7 @@ use std::collections::HashMap;
 pub struct LayoutResult {
     pub plot_area: LayoutBounds,
     pub guide_overflows: HashMap<AxisPosition, LayoutBounds>,
-    pub legends: HashMap<String, LayoutBounds>,
+    pub legends: IndexMap<String, LayoutBounds>,
     pub title: Option<LayoutBounds>,
     pub subtitle: Option<LayoutBounds>,
 }

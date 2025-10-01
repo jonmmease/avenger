@@ -10,6 +10,7 @@ use crate::error::AvengerChartError;
 use crate::legend::LegendPosition;
 use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};
 use crate::render::{LayoutSolution, LegendMeasurements};
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use taffy::prelude::*;
 use taffy::{NodeId, TaffyTree};
@@ -304,7 +305,7 @@ impl ChartLayout {
                 height: 0.0,
             },
             guide_overflows: HashMap::new(),
-            legends: HashMap::new(),
+            legends: IndexMap::new(),
             title: None,
             subtitle: None,
         };
