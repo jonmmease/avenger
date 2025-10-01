@@ -111,15 +111,10 @@ pub trait CompiledMark {
     /// Returns the default value for a channel if not explicitly mapped
     /// First checks theme defaults, then falls back to mark-specific defaults
     fn default_channel_value(&self, channel: &str, context: &RenderContext) -> Option<ScalarValue> {
-        // Check theme defaults first, using computed font properties for text marks
+        // Check theme defaults first
         let mark_type = self.mark_type();
 
-        if let Some(default) = context.theme.mark_default_with_computed_fonts(
-            mark_type,
-            channel,
-            context.theme.text_mark_font_size(),
-            &context.theme.base_font_family(),
-        ) {
+        if let Some(default) = context.theme.mark_default(mark_type, channel) {
             return Some(default);
         }
 

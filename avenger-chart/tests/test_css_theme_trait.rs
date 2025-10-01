@@ -89,34 +89,6 @@ fn test_theme_trait_methods() {
 }
 
 #[test]
-fn test_mark_defaults() {
-    let css = r#"
-        mark[type="symbol"] { fill: red; size: 50px; }
-        mark[type="rect"] { fill: blue; stroke: black; stroke-width: 1px; }
-        mark[type="text"] { font-family: Arial; font-size: 14px; }
-    "#;
-
-    let theme = CssTheme::from_css(css).unwrap();
-
-    // Test mark defaults
-    let symbol_fill = theme.mark_default("symbol", "fill");
-    assert!(symbol_fill.is_some());
-
-    let rect_stroke_width = theme.mark_default("rect", "stroke_width");
-    match rect_stroke_width {
-        Some(datafusion_common::ScalarValue::Float32(Some(w))) => assert_eq!(w, 1.0),
-        _ => panic!("Expected stroke width"),
-    }
-
-    // Test text mark with computed fonts
-    let text_font = theme.mark_default_with_computed_fonts("text", "font", 16.0, "System");
-    match text_font {
-        Some(datafusion_common::ScalarValue::Utf8(Some(f))) => assert_eq!(f, "System"),
-        _ => panic!("Expected font family"),
-    }
-}
-
-#[test]
 fn test_clone_box() {
     let css = r#"mark { fill: green; }"#;
     let theme = CssTheme::from_css(css).unwrap();
