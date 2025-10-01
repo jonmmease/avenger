@@ -101,7 +101,6 @@ async fn test_comparison_canvas_vs_plot_area() {
 
     // Fixed plot area - canvas expands (build plot again)
     let plot_area = Plot::<Cartesian>::new()
-        .canvas_size(400.0, 300.0)
         .plot_size(400.0, 300.0)
         .data(df.clone())
         .mark(
