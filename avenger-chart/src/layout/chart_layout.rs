@@ -7,16 +7,16 @@ use super::types::{
 };
 use crate::cartesian::axis::AxisPosition;
 use crate::error::AvengerChartError;
+use crate::guide::OverflowSpaceRequirement;
 use crate::legend::LegendPosition;
 use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};
 use crate::render::{LayoutSolution, LegendMeasurements};
+use crate::theme::Theme;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use taffy::prelude::*;
 use taffy::{NodeId, TaffyTree};
 use tracing::debug;
-use crate::guide::OverflowSpaceRequirement;
-use crate::theme::Theme;
 
 /// Dynamic grid-based layout manager for data visualization charts.
 ///
@@ -178,25 +178,16 @@ impl ChartLayout {
                 };
                 spec
             }
-            // Case 2: Canvas aspect ratio with Auto plot area - compute canvas size
-            (SizeMode::AspectRatio(ratio), SizeMode::Auto) => {
-                let width = 400.0;
-                let height = width / ratio;
-                let mut spec = layout_spec.clone();
-                spec.canvas = SizeMode::Fixed { width, height };
-                spec
-            }
             // All other cases: use as-is
             _ => layout_spec.clone(),
         };
 
         // Step 1: Configure canvas (root) dimensions
-        let (canvas_width, canvas_height, canvas_aspect) = match &normalized_spec.canvas {
-            SizeMode::Fixed { width, height } => (length(*width), length(*height), None),
-            SizeMode::Width(w) => (length(*w), auto(), None),
-            SizeMode::Height(h) => (auto(), length(*h), None),
-            SizeMode::AspectRatio(ratio) => (auto(), auto(), Some(*ratio)),
-            SizeMode::Auto => (auto(), auto(), None),
+        let (canvas_width, canvas_height) = match &normalized_spec.canvas {
+            SizeMode::Fixed { width, height } => (length(*width), length(*height)),
+            SizeMode::Width(w) => (length(*w), auto()),
+            SizeMode::Height(h) => (auto(), length(*h)),
+            SizeMode::Auto => (auto(), auto()),
         };
 
         let root_style = Style {
@@ -207,7 +198,6 @@ impl ChartLayout {
                 width: canvas_width,
                 height: canvas_height,
             },
-            aspect_ratio: canvas_aspect,
             ..Default::default()
         };
         self.taffy.set_style(self.nodes.root_node, root_style)?;
@@ -216,13 +206,11 @@ impl ChartLayout {
         if let Some(plot_node) = self.nodes.plot_area_node {
             let current_style = self.taffy.style(plot_node)?;
 
-            let (plot_width, plot_height, aspect_ratio) = match &normalized_spec.plot_area {
-                SizeMode::Fixed { width, height } => (length(*width), length(*height), None),
-                SizeMode::Width(w) => (length(*w), auto(), None),
-                SizeMode::Height(h) => (auto(), length(*h), None),
-                // For aspect ratio, set width to 100% and let height be determined by ratio
-                SizeMode::AspectRatio(ratio) => (auto(), auto(), Some(*ratio)),
-                SizeMode::Auto => (auto(), auto(), None),
+            let (plot_width, plot_height) = match &normalized_spec.plot_area {
+                SizeMode::Fixed { width, height } => (length(*width), length(*height)),
+                SizeMode::Width(w) => (length(*w), auto()),
+                SizeMode::Height(h) => (auto(), length(*h)),
+                SizeMode::Auto => (auto(), auto()),
             };
 
             let plot_style = Style {
@@ -231,7 +219,6 @@ impl ChartLayout {
                     width: plot_width,
                     height: plot_height,
                 },
-                aspect_ratio,
                 grid_row: current_style.grid_row,
                 grid_column: current_style.grid_column,
                 flex_grow: 1.0,
@@ -256,12 +243,11 @@ impl ChartLayout {
         }
 
         // Step 3: Determine available space for layout computation
-        // If dimension is fixed, use Definite; otherwise use MaxContent for aspect ratio, MinContent otherwise
+        // If dimension is fixed, use Definite; otherwise use MinContent
         let available_width = match &normalized_spec.canvas {
             SizeMode::Fixed { width, .. } | SizeMode::Width(width) => {
                 AvailableSpace::Definite(*width)
             }
-            SizeMode::AspectRatio(_) => AvailableSpace::MaxContent,
             _ => AvailableSpace::MinContent,
         };
 
@@ -269,7 +255,6 @@ impl ChartLayout {
             SizeMode::Fixed { height, .. } | SizeMode::Height(height) => {
                 AvailableSpace::Definite(*height)
             }
-            SizeMode::AspectRatio(_) => AvailableSpace::MaxContent,
             _ => AvailableSpace::MinContent,
         };
 
@@ -439,7 +424,6 @@ impl ChartLayout {
         Ok(result)
     }
 }
-
 
 /// Structure to hold all the node IDs from the TaffyTree
 #[derive(Debug, Clone)]
@@ -679,7 +663,6 @@ fn create_legend_nodes(
     let mut legend_nodes_by_container: HashMap<LegendPosition, Vec<NodeId>> = HashMap::new();
 
     for (channel, &legend_position) in legend_positions {
-
         for ((row, col), comp_type) in &grid_layout.component_cells {
             if let ComponentType::LegendContainer(pos) = comp_type {
                 if *pos == legend_position {
