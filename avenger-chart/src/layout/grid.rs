@@ -27,8 +27,8 @@ const SUBTITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.1;
 /// Components are positioned in layers moving outward from the plot area:
 /// - **Innermost**: Plot area (where data marks are rendered)
 /// - **Next layer**: Guide overflows (directly adjacent to plot area, in overflow regions)
-/// - **Outer layers**: Legends (farther from plot, after axes)
-/// - **Outermost**: Titles/subtitles (top only, before any axes/legends)
+/// - **Outer layers**: Legends (farther from plot, after guide overflows)
+/// - **Outermost**: Titles/subtitles (top only, before any guide overflows/legends)
 ///
 /// ## Grid Structure
 ///
@@ -60,11 +60,11 @@ const SUBTITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.1;
 /// ## Dynamic Columns and Rows
 ///
 /// The builder dynamically adds columns and rows based on:
-/// - **Overflow requirements**: Space needed for axis labels/ticks beyond plot area
+/// - **Overflow requirements**: Space needed for guide elements beyond plot area
 /// - **Legend containers**: Each legend position gets its own column/row
 /// - **Titles**: Title and subtitle each get their own row
 ///
-/// Only overflow regions larger than `MIN_GUIDE_OVERFLOW_SIZE` (2px) are created to avoid
+/// Only overflow regions larger than `MIN_GUIDE_OVERFLOW_SIZE` are created to avoid
 /// unnecessary grid complexity for minimal overflows.
 ///
 /// ## Component Positioning Rules
@@ -88,11 +88,11 @@ const SUBTITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.1;
 /// ## Build Process
 ///
 /// The `build_with_overflow()` method:
-/// 1. Creates margin columns/rows using `EDGE_MARGIN` constant
-/// 2. Adds guide overflow columns/rows based on measured requirements
-/// 3. Places the plot area in the center (flexible sizing with `fr(1.0)`)
-/// 4. Adds legend container columns with measured widths
-/// 5. Adds title/subtitle rows with measured heights
+/// 1. Creates margin columns/rows from `layout_spec.margins`
+/// 2. Adds title/subtitle rows with measured heights
+/// 3. Adds guide overflow columns/rows based on measured requirements
+/// 4. Places the plot area in the center (flexible sizing with `fr(1.0)`)
+/// 5. Adds legend container columns with measured widths
 /// 6. Returns a `GridLayout` with track sizing functions and component positions
 ///    mapping components to their grid positions
 pub(crate) struct GridBuilder {
@@ -167,9 +167,6 @@ impl GridBuilder {
         self.has_subtitle = true;
     }
 
-    // Note: Guide overflow regions are determined directly from overflow measurements
-    // in build_with_overflow(), so we don't need an add method for them
-
     pub fn add_legend(&mut self, channel: String, position: LegendPosition) {
         // Only store channel names, preserving insertion order per position
         self.legends_by_position
@@ -222,7 +219,7 @@ impl GridBuilder {
         grid.cols.push(length(margins.left));
         let mut col_index = 1;
 
-        // 2. Add left overflow column if needed (for axis labels extending left)
+        // 2. Add left overflow column if needed for guide overflow (e.g., axis labels extending left)
         let left_overflow_col = if overflow.left > MIN_GUIDE_OVERFLOW_SIZE {
             grid.cols.push(length(overflow.left)); // Exact overflow size
             let idx = col_index;
@@ -237,7 +234,7 @@ impl GridBuilder {
         grid.cols.push(fr(1.0));
         col_index += 1;
 
-        // 4. Add right overflow column if needed (for axis labels extending right)
+        // 4. Add right overflow column if needed for guide overflow (e.g., axis labels extending right)
         let right_overflow_col = if overflow.right > MIN_GUIDE_OVERFLOW_SIZE {
             grid.cols.push(length(overflow.right)); // Exact overflow size
             let idx = col_index;
@@ -300,7 +297,7 @@ impl GridBuilder {
             }
         }
 
-        // 4. Add top overflow row if needed (for axis labels extending upward)
+        // 4. Add top overflow row if needed for guide overflow (e.g., axis labels extending upward)
         if overflow.top > MIN_GUIDE_OVERFLOW_SIZE {
             grid.rows.push(length(overflow.top)); // Exact overflow size
             grid.add_component(
@@ -316,7 +313,7 @@ impl GridBuilder {
         grid.rows.push(fr(1.0));
         grid.add_component(ComponentType::PlotArea, plot_row_index, plot_col_index);
 
-        // 6. Position left/right axes in their overflow columns at the plot row
+        // 6. Position left/right guide overflows in their columns at the plot row
         if let Some(col) = left_overflow_col {
             grid.add_component(
                 ComponentType::GuideOverflow(OverflowSide::Left),
@@ -348,7 +345,7 @@ impl GridBuilder {
 
         row_index += 1;
 
-        // 8. Add bottom overflow row if needed (for axis labels extending downward)
+        // 8. Add bottom overflow row if needed for guide overflow (e.g., axis labels extending downward)
         if overflow.bottom > MIN_GUIDE_OVERFLOW_SIZE {
             grid.rows.push(length(overflow.bottom));
             grid.add_component(

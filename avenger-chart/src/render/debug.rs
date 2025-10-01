@@ -36,9 +36,9 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
     };
     debug_marks.push(SceneMark::Text(Arc::new(plot_label)));
 
-    // Axes - magenta outlines with labels
-    for (position, bounds) in &layout.axes {
-        let axis_rect = SceneRectMark {
+    // Guide overflows - magenta outlines with labels
+    for (position, bounds) in &layout.guide_overflows {
+        let overflow_rect = SceneRectMark {
             x: bounds.x.into(),
             y: bounds.y.into(),
             width: Some(bounds.width.into()),
@@ -49,10 +49,10 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             zindex: Some(20),
             ..Default::default()
         };
-        debug_marks.push(SceneMark::Rect(axis_rect));
+        debug_marks.push(SceneMark::Rect(overflow_rect));
 
-        // Add axis label - check if it's an overflow pseudo-axis
-        let (axis_label, label_x, label_y, angle, align, baseline) = match position {
+        // Add overflow region label
+        let (overflow_label, label_x, label_y, angle, align, baseline) = match position {
             crate::cartesian::axis::AxisPosition::Left => (
                 "of-left",
                 bounds.x + 2.0,
@@ -87,8 +87,8 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             ),
         };
 
-        let label = SceneTextMark {
-            text: axis_label.into(),
+        let overflow_label_mark = SceneTextMark {
+            text: overflow_label.into(),
             x: label_x.into(),
             y: label_y.into(),
             font_size: 8.0.into(),
@@ -99,7 +99,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             zindex: Some(20),
             ..Default::default()
         };
-        debug_marks.push(SceneMark::Text(Arc::new(label)));
+        debug_marks.push(SceneMark::Text(Arc::new(overflow_label_mark)));
     }
 
     // Legends - magenta outlines

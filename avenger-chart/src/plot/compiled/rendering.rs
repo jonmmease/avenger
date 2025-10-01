@@ -457,9 +457,8 @@ impl CompiledPlot {
 
         // Create ChartLayout with overflow directly
         let layout_spec = self.get_layout_spec();
-        let mut layout = ChartLayout::new_with_overflow(
+        let mut layout = ChartLayout::new(
             &overflow,
-            &legends_map,
             layout_spec,
             self.get_title(),
             self.get_subtitle(),
