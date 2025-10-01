@@ -35,10 +35,10 @@
 //!
 //! # Margin Behavior
 //!
-//! Margins are treated as **minimum values** that can expand as needed to satisfy
-//! layout constraints. For example:
-//! - Canvas width (400) + Plot width (200) = horizontal margins expand to fill the gap
-//! - Canvas size (400x300) + Plot size (200x150) = margins expand to center the plot
+//! Margins are treated as **fixed values** that reserve space around the chart.
+//! The plot area is flexible and expands/shrinks to fill remaining space. For example:
+//! - Canvas size (400x400) with margins (50px all sides) = plot area gets 300x300
+//! - Fixed canvas with large margins = plot area shrinks to fit
 //!
 //! # Limitations
 //!
@@ -133,7 +133,7 @@ pub struct LayoutSpec {
     /// Plot area sizing mode (internal representation)
     pub(crate) plot_area: SizeMode,
 
-    /// Minimum margins around entire chart (can expand to satisfy layout constraints)
+    /// Fixed margins around entire chart
     pub margins: Margins,
 }
 

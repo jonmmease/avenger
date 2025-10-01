@@ -4,7 +4,6 @@ mod chart_layout;
 mod grid;
 pub(crate) mod legend;
 mod sizing;
-mod text;
 mod types;
 
 // Re-export main types
