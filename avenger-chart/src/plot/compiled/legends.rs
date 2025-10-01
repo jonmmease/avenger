@@ -409,6 +409,7 @@ impl CompiledPlot {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<crate::render::LegendMeasurements, AvengerChartError> {
         use crate::layout::legend::measure_legend_size_with_channels;
+        use crate::render::types::LegendMeasurement;
         use avenger_scales::scales::ConfiguredScale;
 
         let mut legend_measurements = crate::render::LegendMeasurements::new();
@@ -475,7 +476,15 @@ impl CompiledPlot {
                     renderer,
                     available_space,
                 )?;
-                legend_measurements.insert(primary_channel.name.clone(), (size, flexible));
+                let position = legend.position.clone().unwrap_or(crate::legend::LegendPosition::Right);
+                legend_measurements.insert(
+                    primary_channel.name.clone(),
+                    LegendMeasurement {
+                        size,
+                        flexible,
+                        position,
+                    },
+                );
             }
         }
 

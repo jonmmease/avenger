@@ -8,7 +8,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct LayoutResult {
     pub plot_area: LayoutBounds,
-    pub axes: HashMap<AxisPosition, LayoutBounds>,
+    pub guide_overflows: HashMap<AxisPosition, LayoutBounds>,
     pub legends: HashMap<String, LayoutBounds>,
     pub title: Option<LayoutBounds>,
     pub subtitle: Option<LayoutBounds>,

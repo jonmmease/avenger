@@ -3,8 +3,19 @@
 use avenger_scenegraph::scene_graph::SceneGraph;
 use indexmap::IndexMap;
 
+/// Measurement and layout information for a single legend
+#[derive(Debug, Clone)]
+pub struct LegendMeasurement {
+    /// Size of the legend (width, height)
+    pub size: taffy::Size<f32>,
+    /// Whether the legend height is flexible (e.g., for colorbars)
+    pub flexible: bool,
+    /// Position of the legend
+    pub position: crate::legend::LegendPosition,
+}
+
 /// Type for legend measurements used in layout computation
-pub type LegendMeasurements = IndexMap<String, (taffy::Size<f32>, bool)>;
+pub type LegendMeasurements = IndexMap<String, LegendMeasurement>;
 
 /// Result of layout computation from Taffy
 #[derive(Debug, Clone)]
