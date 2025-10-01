@@ -3,7 +3,6 @@
 use super::CssTheme;
 use crate::theme::{Theme, ThemeContext, ThemeValue};
 use datafusion_common::ScalarValue;
-use indexmap::IndexMap;
 
 impl CssTheme {
     /// Parse a CSS list value into individual string values
@@ -266,64 +265,12 @@ impl Theme for CssTheme {
         ]
     }
 
-    fn mark_defaults_map(&self) -> IndexMap<String, IndexMap<String, ScalarValue>> {
-        let mut defaults = IndexMap::new();
-
-        // Query mark defaults from CSS
-        for mark_type in &["symbol", "rect", "line", "area", "text", "arc"] {
-            let mut mark_defaults = IndexMap::new();
-            let context = ThemeContext::new("mark").with_mark(*mark_type);
-
-            // Handle fill - can be Color or Keyword (named color)
-            match self.query_css(&context, "fill") {
-                ThemeValue::Color(rgba) => {
-                    let hex = format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
-                    mark_defaults.insert("fill".to_string(), ScalarValue::Utf8(Some(hex)));
-                }
-                ThemeValue::String(s) => {
-                    mark_defaults.insert("fill".to_string(), ScalarValue::Utf8(Some(s)));
-                }
-                _ => {}
-            }
-
-            // Handle stroke - can be Color or Keyword (named color)
-            match self.query_css(&context, "stroke") {
-                ThemeValue::Color(rgba) => {
-                    let hex = format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
-                    mark_defaults.insert("stroke".to_string(), ScalarValue::Utf8(Some(hex)));
-                }
-                ThemeValue::String(s) => {
-                    mark_defaults.insert("stroke".to_string(), ScalarValue::Utf8(Some(s)));
-                }
-                _ => {}
-            }
-
-            if let Some(width) = self
-                .query_css(&context, "stroke-width")
-                .as_pixels(self.base_font_size)
-            {
-                mark_defaults.insert(
-                    "stroke_width".to_string(),
-                    ScalarValue::Float32(Some(width)),
-                );
-            }
-
-            if let Some(size) = self
-                .query_css(&context, "size")
-                .as_pixels(self.base_font_size)
-            {
-                mark_defaults.insert("size".to_string(), ScalarValue::Float32(Some(size)));
-            }
-
-            if !mark_defaults.is_empty() {
-                defaults.insert(mark_type.to_string(), mark_defaults);
-            }
-        }
-
-        defaults
-    }
-
-    fn mark_default(&self, mark_type: &str, channel: &str) -> Option<ScalarValue> {
+    fn mark_default(
+        &self,
+        mark_type: &str,
+        channel: &str,
+    ) -> Option<ScalarValue> {
+        // Query CSS theme for mark defaults
         let context = ThemeContext::new("mark").with_mark(mark_type);
 
         // Map channel to CSS property
@@ -332,8 +279,6 @@ impl Theme for CssTheme {
             "stroke" => "stroke",
             "stroke_width" => "stroke-width",
             "size" => "size",
-            "font" => "font-family",
-            "font_size" => "font-size",
             _ => return None,
         };
 
@@ -349,26 +294,6 @@ impl Theme for CssTheme {
             }
             _ => None,
         }
-    }
-
-    fn mark_default_with_computed_fonts(
-        &self,
-        mark_type: &str,
-        channel: &str,
-        computed_font_size: f32,
-        base_font_family: &str,
-    ) -> Option<ScalarValue> {
-        // Handle text marks with computed fonts
-        if mark_type == "text" {
-            match channel {
-                "font_size" => return Some(ScalarValue::Float32(Some(computed_font_size))),
-                "font" => return Some(ScalarValue::Utf8(Some(base_font_family.to_string()))),
-                _ => {}
-            }
-        }
-
-        // For all other cases, use the regular mark_default
-        self.mark_default(mark_type, channel)
     }
 }
 

@@ -130,52 +130,23 @@ pub trait Theme: Send + Sync {
         }
     }
 
-    /// Get mark defaults as a cloned IndexMap
-    fn mark_defaults_map(
+    /// Get mark default value for a channel
+    ///
+    /// Returns the default value for a specific mark type and channel.
+    /// Default implementation returns None; theme implementations should override
+    /// to provide mark-specific defaults.
+    fn mark_default(
         &self,
-    ) -> indexmap::IndexMap<String, indexmap::IndexMap<String, datafusion_common::ScalarValue>>
-    {
-        // This is a placeholder - actual implementation would query mark defaults
-        indexmap::IndexMap::new()
-    }
-
-    /// Get mark default with computed fonts
-    fn mark_default_with_computed_fonts(
-        &self,
-        mark_type: &str,
-        channel: &str,
-        computed_font_size: f32,
-        base_font_family: &str,
+        _mark_type: &str,
+        _channel: &str,
     ) -> Option<datafusion_common::ScalarValue> {
-        eprintln!(
-            "DEBUG trait default mark_default_with_computed_fonts: mark_type={}, channel={}",
-            mark_type, channel
-        );
-        use datafusion_common::ScalarValue;
-
-        if mark_type == "text" {
-            match channel {
-                "font_size" => return Some(ScalarValue::Float32(Some(computed_font_size))),
-                "font" => {
-                    // Use the base font family for text marks by default
-                    return Some(ScalarValue::Utf8(Some(base_font_family.to_string())));
-                }
-                _ => {}
-            }
-        }
-
-        // For other marks/channels, return None (actual implementation would query defaults)
+        // Default implementation returns None
         None
     }
 
     /// Get base font family
     fn base_font_family(&self) -> String {
         self.font_family(&ThemeContext::new("base"))
-    }
-
-    /// Get text mark font size
-    fn text_mark_font_size(&self) -> f32 {
-        self.font_size(&ThemeContext::new("mark").with_mark("text"))
     }
 
     // Legend-specific methods
@@ -475,17 +446,6 @@ pub trait Theme: Send + Sync {
             "even-short".to_string(),
             "double-dash".to_string(),
         ]
-    }
-
-    /// Get mark default for a specific mark type and channel
-    fn mark_default(
-        &self,
-        _mark_type: &str,
-        _channel: &str,
-    ) -> Option<datafusion_common::ScalarValue> {
-        // Default implementation returns None
-        // Actual implementation would query mark defaults
-        None
     }
 
     /// Get default shape range for ordinal scales
