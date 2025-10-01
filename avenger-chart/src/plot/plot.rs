@@ -6,25 +6,22 @@ use std::sync::Arc;
 use datafusion::dataframe::DataFrame;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
-use serde_with::{FromInto, serde_as};
 
 use super::compiled_plot::CompiledPlot;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::{CompiledGuide, CoordinateGuideBuilder};
+use crate::guide::CoordinateGuideBuilder;
 use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
 use crate::marks::{CompiledMark, Mark};
-use crate::serialization::{LogicalPlanNodeExt, SerializableDataFrame};
+use crate::serialization::LogicalPlanNodeExt;
 use crate::theme::{Theme, css::CssTheme};
 
 #[derive(Clone)]
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
-    pub(crate) axis_specs: HashMap<String, AxisSpec>,
-    pub(crate) legends: IndexMap<String, Legend>,
 
     /// Marks stored until compilation
     marks: Vec<Arc<dyn Mark<C>>>,
@@ -32,12 +29,11 @@ pub struct Plot<C: CoordinateSystem> {
     /// Plot-level data for mark inheritance
     pub(crate) data: Option<DataFrame>,
 
-    /// Scale specifications (local or referenced)
+    /// Plot-level scale configurations (set via .scale())
     pub(crate) scale_specs: HashMap<String, ScaleSpec>,
 
-    /// Mapping from scale names to their coordinate channel
-    /// e.g., "y2" -> "y", "x2" -> "x"
-    pub(crate) scale_to_coord_channel: HashMap<String, String>,
+    /// Plot-level legend configurations (set via .legend())
+    pub(crate) legends: IndexMap<String, Legend>,
 
     /// Layout specification for sizing and margins
     pub(crate) layout_spec: LayoutSpec,
@@ -62,12 +58,10 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn with_coord(coord_system: C) -> Self {
         Plot {
             coord_system,
-            axis_specs: HashMap::new(),
-            legends: IndexMap::new(),
             marks: Vec::new(),
             data: None,
             scale_specs: HashMap::new(),
-            scale_to_coord_channel: HashMap::new(),
+            legends: IndexMap::new(),
             layout_spec: LayoutSpec::default(),
             title: None,
             subtitle: None,
@@ -93,14 +87,25 @@ impl<C: CoordinateSystem + Default> Plot<C> {
 impl<C: CoordinateSystem> Plot<C> {
     /// Compile this plot into a renderable form (consuming self)
     pub async fn compile(
-        mut self,
+        self,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        // 1. Extract channel configs from all marks with proper SessionContext
-        // Clone the Arc refs to avoid borrow checker issues
-        let marks = self.marks.clone();
-        for mark in marks {
-            self.extract_channel_configs(mark.as_ref(), session_context);
+        // Start with plot-level configurations
+        let mut axis_specs: HashMap<String, AxisSpec> = HashMap::new();
+        let mut legends: IndexMap<String, Legend> = self.legends.clone();
+        let mut scale_specs: HashMap<String, ScaleSpec> = self.scale_specs.clone();
+        let mut scale_to_coord_channel: HashMap<String, String> = HashMap::new();
+
+        // 1. Extract and merge channel configs from all marks with proper SessionContext
+        for mark in &self.marks {
+            crate::plot::channel::extract_channel_configs(
+                mark.as_ref(),
+                session_context,
+                &mut axis_specs,
+                &mut legends,
+                &mut scale_specs,
+                &mut scale_to_coord_channel,
+            );
         }
 
         // 2. Compile all marks
@@ -123,7 +128,7 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut guide_axes = HashMap::new();
 
         // Add user-specified axes from axis_specs
-        for (channel, axis_spec) in &self.axis_specs {
+        for (channel, axis_spec) in &axis_specs {
             let crate::plot::AxisSpec::Local(axis_config) = axis_spec;
             // The axis_config is already the correct type for this coordinate system
             // We need to downcast it to the specific axis type for the guide
@@ -149,14 +154,14 @@ impl<C: CoordinateSystem> Plot<C> {
             coord_transform: self.coord_system.create_transform(),
             compiled_guide: Some(compiled_guide),
             marks: compiled_marks,
-            axis_specs: self.axis_specs,
-            legends: self.legends,
+            axis_specs,
+            legends,
             layout_spec: self.layout_spec,
             title: self.title,
             subtitle: self.subtitle,
             theme: self.theme,
-            scale_to_coord_channel: self.scale_to_coord_channel,
-            scale_specs: self.scale_specs,
+            scale_to_coord_channel,
+            scale_specs,
             data: match self.data {
                 Some(df) => {
                     let plan = df.logical_plan().clone();
@@ -180,26 +185,6 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Get a reference to the coordinate system
     pub fn coord_system(&self) -> &C {
         &self.coord_system
-    }
-
-    /// Get a reference to the scale specifications
-    pub fn scale_specs(&self) -> &HashMap<String, ScaleSpec> {
-        &self.scale_specs
-    }
-
-    /// Get a reference to the axis specifications
-    pub fn axis_specs(&self) -> &HashMap<String, AxisSpec> {
-        &self.axis_specs
-    }
-
-    /// Get a reference to the scale to coordinate channel mapping
-    pub fn scale_to_coord_channel(&self) -> &HashMap<String, String> {
-        &self.scale_to_coord_channel
-    }
-
-    /// Get a reference to the legends
-    pub fn legends(&self) -> &IndexMap<String, Legend> {
-        &self.legends
     }
 
     pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
