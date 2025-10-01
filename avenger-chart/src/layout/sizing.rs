@@ -140,10 +140,7 @@ pub struct LayoutSpec {
 impl Default for LayoutSpec {
     fn default() -> Self {
         Self {
-            canvas: SizeMode::Fixed {
-                width: 400.0,
-                height: 300.0,
-            },
+            canvas: SizeMode::Auto,
             plot_area: SizeMode::Auto,
             margins: Margins::default(),
         }
