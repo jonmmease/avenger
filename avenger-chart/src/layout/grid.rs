@@ -244,9 +244,8 @@ impl GridBuilder {
         // Use fixed width if plot width is specified, otherwise flexible (fr)
         let plot_col_index = col_index;
         let plot_col_size = match &layout_spec.plot_area {
-            crate::layout::SizeMode::Fixed { width, .. } | crate::layout::SizeMode::Width(width) => {
-                length(*width)
-            }
+            crate::layout::SizeMode::Fixed { width, .. }
+            | crate::layout::SizeMode::Width(width) => length(*width),
             _ => fr(1.0), // Flexible - takes remaining space
         };
         grid.cols.push(plot_col_size);
@@ -311,7 +310,8 @@ impl GridBuilder {
                     font_style: &FontStyle::Normal,
                 };
                 let bounds = measurer.measure_text_bounds(&config);
-                grid.rows.push(length(bounds.line_height * TITLE_ROW_HEIGHT_MULTIPLIER));
+                grid.rows
+                    .push(length(bounds.line_height * TITLE_ROW_HEIGHT_MULTIPLIER));
                 // Title spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Title, row_index, start_col);
@@ -360,9 +360,8 @@ impl GridBuilder {
         // Use fixed height if plot height is specified, otherwise flexible (fr)
         let plot_row_index = row_index;
         let plot_row_size = match &layout_spec.plot_area {
-            crate::layout::SizeMode::Fixed { height, .. } | crate::layout::SizeMode::Height(height) => {
-                length(*height)
-            }
+            crate::layout::SizeMode::Fixed { height, .. }
+            | crate::layout::SizeMode::Height(height) => length(*height),
             _ => fr(1.0), // Flexible - takes remaining vertical space
         };
         grid.rows.push(plot_row_size);

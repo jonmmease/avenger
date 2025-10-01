@@ -17,11 +17,7 @@ fn create_test_data() -> DataFrame {
         Field::new("y", DataType::Float64, false),
     ]));
 
-    let batch = RecordBatch::try_new(
-        schema,
-        vec![Arc::new(x_values), Arc::new(y_values)],
-    )
-    .unwrap();
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)]).unwrap();
 
     let ctx = SessionContext::new();
     ctx.read_batch(batch).unwrap()
@@ -49,12 +45,7 @@ async fn test_fixed_canvas_500x400_fixed_plot_200x150() {
                 .fill("#3498db"),
         );
 
-    assert_visual_match_default(
-        plot,
-        "fixed_canvas_and_plot",
-        "canvas_500x400_plot_200x150",
-    )
-    .await;
+    assert_visual_match_default(plot, "fixed_canvas_and_plot", "canvas_500x400_plot_200x150").await;
 }
 
 #[tokio::test]
@@ -79,8 +70,12 @@ async fn test_canvas_width_400_plot_width_250() {
                 .fill("#e74c3c"),
         );
 
-    assert_visual_match_default(plot, "fixed_canvas_and_plot", "canvas_width_400_plot_width_250")
-        .await;
+    assert_visual_match_default(
+        plot,
+        "fixed_canvas_and_plot",
+        "canvas_width_400_plot_width_250",
+    )
+    .await;
 }
 
 #[tokio::test]

@@ -25,12 +25,12 @@
 //!
 //! # Responsive Sizing
 //! Flexible mode with constraints on canvas and/or plot area. Supports partial
-//! constraints like fixed width with flexible height, aspect ratios, etc.
+//! constraints like fixed width with flexible height, fixed height with flexible width, etc.
 //!
 //! ```ignore
 //! Plot::new()
 //!     .canvas_constraint(CanvasConstraint::Width(600.0))  // Fixed width, height adjusts
-//!     .plot_constraint(PlotConstraint::AspectRatio(16.0/9.0))  // Plot maintains aspect ratio
+//!     .plot_constraint(PlotConstraint::Width(400.0))      // Fixed plot width
 //! ```
 //!
 //! # Margin Behavior
@@ -40,10 +40,8 @@
 //! - Canvas size (400x400) with margins (50px all sides) = plot area gets 300x300
 //! - Fixed canvas with large margins = plot area shrinks to fit
 //!
-//! # Limitations
-//!
-//! - Canvas aspect ratio is "preferred" - it may be overridden if content requires more space
-//! - Canvas and plot aspect ratios cannot be used together (creates conflicting constraints)
+//! When both canvas and plot dimensions are fixed in the same direction, margins become
+//! expandable and will grow to center the plot within the canvas.
 
 use serde::{Deserialize, Serialize};
 
@@ -58,10 +56,6 @@ pub enum CanvasConstraint {
 
     /// Fixed height, width adjusts to content
     Height(f32),
-
-    /// Preferred aspect ratio (width/height)
-    /// Note: This is a "preferred" ratio that may be overridden if content requires more space
-    PreferredAspectRatio(f32),
 }
 
 impl Default for CanvasConstraint {
@@ -75,9 +69,6 @@ impl Default for CanvasConstraint {
 pub enum PlotConstraint {
     /// Plot area fills available space in canvas
     Auto,
-
-    /// Plot area maintains aspect ratio within available space
-    AspectRatio(f32),
 
     /// Fixed plot width, height adjusts
     Width(f32),
@@ -98,7 +89,6 @@ pub(crate) enum SizeMode {
     Fixed { width: f32, height: f32 },
     Width(f32),
     Height(f32),
-    AspectRatio(f32),
     Auto,
 }
 
@@ -108,7 +98,6 @@ impl From<CanvasConstraint> for SizeMode {
             CanvasConstraint::None => SizeMode::Auto,
             CanvasConstraint::Width(w) => SizeMode::Width(w),
             CanvasConstraint::Height(h) => SizeMode::Height(h),
-            CanvasConstraint::PreferredAspectRatio(r) => SizeMode::AspectRatio(r),
         }
     }
 }
@@ -117,7 +106,6 @@ impl From<PlotConstraint> for SizeMode {
     fn from(constraint: PlotConstraint) -> Self {
         match constraint {
             PlotConstraint::Auto => SizeMode::Auto,
-            PlotConstraint::AspectRatio(r) => SizeMode::AspectRatio(r),
             PlotConstraint::Width(w) => SizeMode::Width(w),
             PlotConstraint::Height(h) => SizeMode::Height(h),
         }
@@ -168,36 +156,25 @@ impl LayoutSpec {
 
     /// Determine if horizontal margins should be expandable
     ///
-    /// Margins expand horizontally when canvas width is fixed AND plot width is constrained
-    /// (either directly fixed, or can be computed from height + aspect ratio)
+    /// Margins expand horizontally when canvas width is fixed AND plot width is directly fixed.
     pub(crate) fn should_expand_margins_horizontal(&self) -> bool {
-        let canvas_width_fixed = matches!(
-            self.canvas,
-            SizeMode::Fixed { .. } | SizeMode::Width(_)
-        );
+        let canvas_width_fixed = matches!(self.canvas, SizeMode::Fixed { .. } | SizeMode::Width(_));
 
-        let plot_width_constrained = matches!(
-            self.plot_area,
-            SizeMode::Fixed { .. } | SizeMode::Width(_)
-        );
+        let plot_width_constrained =
+            matches!(self.plot_area, SizeMode::Fixed { .. } | SizeMode::Width(_));
 
         canvas_width_fixed && plot_width_constrained
     }
 
     /// Determine if vertical margins should be expandable
     ///
-    /// Margins expand vertically when canvas height is fixed AND plot height is constrained
-    /// (either directly fixed, or can be computed from width + aspect ratio)
+    /// Margins expand vertically when canvas height is fixed AND plot height is directly fixed.
     pub(crate) fn should_expand_margins_vertical(&self) -> bool {
-        let canvas_height_fixed = matches!(
-            self.canvas,
-            SizeMode::Fixed { .. } | SizeMode::Height(_)
-        );
+        let canvas_height_fixed =
+            matches!(self.canvas, SizeMode::Fixed { .. } | SizeMode::Height(_));
 
-        let plot_height_constrained = matches!(
-            self.plot_area,
-            SizeMode::Fixed { .. } | SizeMode::Height(_)
-        );
+        let plot_height_constrained =
+            matches!(self.plot_area, SizeMode::Fixed { .. } | SizeMode::Height(_));
 
         canvas_height_fixed && plot_height_constrained
     }

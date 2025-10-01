@@ -477,7 +477,10 @@ impl CompiledPlot {
                     renderer,
                     available_space,
                 )?;
-                let position = legend.position.clone().unwrap_or(crate::legend::LegendPosition::Right);
+                let position = legend
+                    .position
+                    .clone()
+                    .unwrap_or(crate::legend::LegendPosition::Right);
                 legend_measurements.insert(
                     primary_channel.name.clone(),
                     LegendMeasurement {

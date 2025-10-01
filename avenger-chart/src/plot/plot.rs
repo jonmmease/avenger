@@ -224,15 +224,6 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Set canvas sizing constraint for responsive layouts
     pub fn canvas_constraint(mut self, constraint: CanvasConstraint) -> Self {
-        // If setting aspect ratio, clear plot aspect ratio to avoid conflicts
-        if matches!(constraint, CanvasConstraint::PreferredAspectRatio(_))
-            && matches!(
-                self.layout_spec.plot_area,
-                crate::layout::SizeMode::AspectRatio(_)
-            )
-        {
-            self.layout_spec.plot_area = crate::layout::SizeMode::Auto;
-        }
         self.layout_spec.canvas = constraint.into();
         self
     }
@@ -248,19 +239,9 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn plot_constraint(mut self, constraint: PlotConstraint) -> Self {
         self.layout_spec.plot_area = match constraint {
             PlotConstraint::Auto => crate::layout::SizeMode::Auto,
-            PlotConstraint::AspectRatio(r) => crate::layout::SizeMode::AspectRatio(r),
             PlotConstraint::Width(w) => crate::layout::SizeMode::Width(w),
             PlotConstraint::Height(h) => crate::layout::SizeMode::Height(h),
         };
-        // If setting aspect ratio, clear canvas aspect ratio to avoid conflicts
-        if matches!(constraint, PlotConstraint::AspectRatio(_))
-            && matches!(
-                self.layout_spec.canvas,
-                crate::layout::SizeMode::AspectRatio(_)
-            )
-        {
-            self.layout_spec.canvas = crate::layout::SizeMode::Auto;
-        }
         self
     }
 
