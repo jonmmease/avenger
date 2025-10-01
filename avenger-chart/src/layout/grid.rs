@@ -1,11 +1,12 @@
 //! Grid layout building logic
 
 use super::sizing::LayoutSpec;
-use super::text::measure_text;
 use super::types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide};
 use crate::error::AvengerChartError;
 use crate::legend::LegendPosition;
 use crate::plot::{PlotSubtitle, PlotTitle};
+use avenger_text::measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer};
+use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use taffy::Size;
@@ -272,8 +273,18 @@ impl GridBuilder {
                 let font_size = t.font_size.unwrap_or(theme.title_font_size());
                 let title_font_family = theme.title_font_family();
                 let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
-                let (height, _) = measure_text(&t.text, font_size, font_family);
-                grid.rows.push(length(height * TITLE_ROW_HEIGHT_MULTIPLIER));
+
+                // Measure text for layout (using Normal weight/style as approximation)
+                let measurer = default_text_measurer();
+                let config = TextMeasurementConfig {
+                    text: &t.text,
+                    font: font_family,
+                    font_size,
+                    font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
+                    font_style: &FontStyle::Normal,
+                };
+                let bounds = measurer.measure_text_bounds(&config);
+                grid.rows.push(length(bounds.line_height * TITLE_ROW_HEIGHT_MULTIPLIER));
                 // Title spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Title, row_index, start_col);
@@ -287,9 +298,19 @@ impl GridBuilder {
                 let font_size = s.font_size.unwrap_or(theme.subtitle_font_size());
                 let subtitle_font_family = theme.subtitle_font_family();
                 let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
-                let (height, _) = measure_text(&s.text, font_size, font_family);
+
+                // Measure text for layout (using Normal weight/style as approximation)
+                let measurer = default_text_measurer();
+                let config = TextMeasurementConfig {
+                    text: &s.text,
+                    font: font_family,
+                    font_size,
+                    font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
+                    font_style: &FontStyle::Normal,
+                };
+                let bounds = measurer.measure_text_bounds(&config);
                 grid.rows
-                    .push(length(height * SUBTITLE_ROW_HEIGHT_MULTIPLIER));
+                    .push(length(bounds.line_height * SUBTITLE_ROW_HEIGHT_MULTIPLIER));
                 // Subtitle spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Subtitle, row_index, start_col);
