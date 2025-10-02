@@ -47,7 +47,7 @@ define_position_channels! {
 
 // Implement the Mark trait for Cartesian
 impl Mark<Cartesian> for HexBin<Cartesian> {
-    impl_mark_trait_common!(HexBin, "hexbin");
+    impl_mark_trait_common!(HexBin);
 
     fn render_from_data(
         &self,

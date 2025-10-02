@@ -17,7 +17,7 @@ use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
 use crate::marks::{CompiledMark, Mark};
 use crate::serialization::LogicalPlanNodeExt;
-use crate::theme::{Theme, css::CssTheme};
+use crate::theme::css::CssTheme;
 
 #[derive(Clone)]
 pub struct Plot<C: CoordinateSystem> {
@@ -45,7 +45,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) subtitle: Option<PlotSubtitle>,
 
     /// Theme for visual styling
-    pub(crate) theme: Option<Arc<dyn Theme>>,
+    pub(crate) theme: Option<Arc<CssTheme>>,
 
     /// Guide configuration
     pub(crate) guide_config: Option<C::Guide>,
@@ -252,7 +252,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Set the theme for the plot
-    pub fn theme(mut self, theme: impl Theme + 'static) -> Self {
+    pub fn theme(mut self, theme: CssTheme) -> Self {
         self.theme = Some(Arc::new(theme));
         self
     }
@@ -271,7 +271,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Access the configured theme (or default if not set)
-    pub fn get_theme(&self) -> Arc<dyn Theme> {
+    pub fn get_theme(&self) -> Arc<CssTheme> {
         self.theme
             .clone()
             .unwrap_or_else(|| Arc::new(CssTheme::light()))

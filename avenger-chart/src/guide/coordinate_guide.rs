@@ -1,10 +1,10 @@
 //! Core trait for coordinate system guides
+use crate::theme::CssTheme;
 
 use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use crate::guide::OverflowSpaceRequirement;
 use crate::layout::LayoutBounds;
-use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 
@@ -46,7 +46,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        theme: &dyn Theme,
+        theme: &CssTheme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
     /// Render this guide to scene marks
@@ -56,7 +56,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
-        theme: &dyn Theme,
+        theme: &CssTheme,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Get the clipping region for the coordinate system

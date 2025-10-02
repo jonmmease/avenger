@@ -22,7 +22,7 @@ use crate::layout::LayoutSpec;
 use crate::legend::Legend;
 use crate::marks::CompiledMark;
 use crate::serialization::SerializableDataFrame;
-use crate::theme::{Theme, css::CssTheme};
+use crate::theme::css::CssTheme;
 
 #[serde_as]
 #[derive(Serialize, Deserialize)]
@@ -52,7 +52,7 @@ pub struct CompiledPlot {
     pub(crate) subtitle: Option<PlotSubtitle>,
 
     /// Theme
-    pub(crate) theme: Option<Arc<dyn Theme>>,
+    pub(crate) theme: Option<Arc<CssTheme>>,
 
     /// Mapping from scale names to coordinate channel
     pub(crate) scale_to_coord_channel: HashMap<String, String>,
@@ -71,7 +71,7 @@ pub struct CompiledPlot {
 
 impl CompiledPlot {
     /// Get the theme or create default if not set
-    pub fn get_theme(&self) -> Arc<dyn Theme> {
+    pub fn get_theme(&self) -> Arc<CssTheme> {
         self.theme
             .clone()
             .unwrap_or_else(|| Arc::new(CssTheme::light()))

@@ -20,12 +20,12 @@ async fn test_css_axis_and_legend_subtype_selectors() {
 
         /* Axis subtype selectors - nested under guide - different colors for x vs y */
         guide[type="cartesian"] axis[type="x"] title {
-            color: #2563eb;  /* Blue for x-axis */
+            color: #2563eb;
             font-weight: 600;
         }
 
         guide[type="cartesian"] axis[type="y"] title {
-            color: #dc2626;  /* Red for y-axis */
+            color: #dc2626;
             font-weight: 600;
         }
 

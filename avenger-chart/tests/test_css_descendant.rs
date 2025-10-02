@@ -1,7 +1,7 @@
 //! Test CSS descendant selectors
 
 use avenger_chart::theme::css::CssTheme;
-use avenger_chart::theme::{Theme, ThemeContext};
+use avenger_chart::theme::ThemeContext;
 
 #[test]
 fn test_descendant_selectors() {

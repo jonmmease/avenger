@@ -1,9 +1,9 @@
 //! Empty guide implementation for coordinate systems without visual guides
+use crate::theme::CssTheme;
 
 use crate::error::AvengerChartError;
 use crate::guide::{CompiledGuide, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
-use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -54,7 +54,7 @@ impl CompiledGuide for NoGuide {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _theme: &dyn Theme,
+        _theme: &CssTheme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
     }
@@ -65,7 +65,7 @@ impl CompiledGuide for NoGuide {
         _plot_width: f32,
         _plot_height: f32,
         _plot_bounds: &LayoutBounds,
-        _theme: &dyn Theme,
+        _theme: &CssTheme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }

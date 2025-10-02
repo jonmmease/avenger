@@ -1,7 +1,7 @@
-//! Tests for CSS Theme implementing the Theme trait
+//! Tests for CSS Theme
 
 use avenger_chart::theme::css::CssTheme;
-use avenger_chart::theme::{Theme, ThemeContext, ThemeValue};
+use avenger_chart::theme::{ThemeContext, ThemeValue};
 
 #[test]
 fn test_css_theme_implements_trait() {
@@ -93,8 +93,8 @@ fn test_clone_box() {
     let css = r#"mark { fill: green; }"#;
     let theme = CssTheme::from_css(css).unwrap();
 
-    // Test that clone_box works
-    let cloned: Box<dyn Theme> = theme.clone_box();
+    // Test that clone works
+    let cloned = theme.clone();
     let context = ThemeContext::new("mark");
     let fill = cloned.query(&context, "fill");
 

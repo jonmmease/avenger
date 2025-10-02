@@ -1,7 +1,7 @@
 //! Test how CSS handles color values vs strings
 
 use avenger_chart::theme::css::CssTheme;
-use avenger_chart::theme::{Theme, ThemeContext, ThemeValue};
+use avenger_chart::theme::{ThemeContext, ThemeValue};
 
 #[test]
 fn test_color_parsing_behavior() {

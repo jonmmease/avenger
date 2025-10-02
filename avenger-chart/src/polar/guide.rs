@@ -5,7 +5,7 @@ use crate::error::AvengerChartError;
 use crate::guide::{CompiledGuide, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::polar::{PolarAxis, PolarAxisType};
-use crate::theme::Theme;
+use crate::theme::CssTheme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -151,7 +151,7 @@ impl CompiledGuide for PolarGuide {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        theme: &dyn Theme,
+        theme: &CssTheme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
 
@@ -222,7 +222,7 @@ impl CompiledGuide for PolarGuide {
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
-        theme: &dyn Theme,
+        theme: &CssTheme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

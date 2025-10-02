@@ -419,12 +419,9 @@ pub async fn assert_visual_match_default<C: CoordinateSystem + Clone>(
 }
 
 /// Test a plot with a custom theme against its baseline
-pub async fn assert_visual_match_with_theme<
-    C: CoordinateSystem + Clone,
-    T: avenger_chart::theme::Theme + 'static,
->(
+pub async fn assert_visual_match_with_theme<C: CoordinateSystem + Clone>(
     plot: Plot<C>,
-    theme: T,
+    theme: avenger_chart::theme::CssTheme,
     category: &str,
     baseline_name: &str,
     tolerance: f64,

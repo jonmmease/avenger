@@ -1,6 +1,7 @@
 use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use crate::maybe::Maybe;
+use crate::theme::CssTheme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
@@ -127,7 +128,7 @@ impl PolarAxis {
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
-        theme: &dyn crate::theme::Theme,
+        theme: &CssTheme,
         _plot_background_color: Option<[f32; 4]>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use coordinate system type and channel for CSS selector support
@@ -162,7 +163,7 @@ impl PolarAxis {
         center_x: f32,
         center_y: f32,
         _max_radius: f32,
-        theme: &dyn crate::theme::Theme,
+        theme: &CssTheme,
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -381,7 +382,7 @@ impl PolarAxis {
         center_y: f32,
         radius: f32,
         scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        theme: &dyn crate::theme::Theme,
+        theme: &CssTheme,
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
