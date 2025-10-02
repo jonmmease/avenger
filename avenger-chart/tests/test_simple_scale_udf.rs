@@ -57,7 +57,6 @@ mod tests {
 
         println!("Deserializing expression...");
         // Deserialize
-        use avenger_chart::serialization::LogicalExprNodeExt;
         let new_ctx = SessionContext::new();
         let deserialized: SerializableExpr = serde_json::from_str(&json).unwrap();
         let expr_node: datafusion_proto::protobuf::LogicalExprNode = deserialized.into();

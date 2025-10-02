@@ -1007,7 +1007,6 @@ mod tests {
 
     #[test]
     fn test_similar_channel_suggestion() {
-        let ctx = SessionContext::new();
         let channels = vec!["fill".to_string(), "stroke".to_string(), "size".to_string()];
 
         // Test exact case-insensitive match
