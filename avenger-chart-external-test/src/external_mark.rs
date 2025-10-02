@@ -15,7 +15,6 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::scalar::ScalarValue;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 /// A custom hexbin mark defined in an external crate
 pub struct HexBin<C: CoordinateSystem> {

@@ -59,6 +59,7 @@ fn is_axis_aligned_angle(angle: f32) -> bool {
         || ((normalized - 270.0).abs() < 0.001)
 }
 
+#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MultiUniform {
@@ -67,6 +68,7 @@ pub struct MultiUniform {
     _pad: [f32; 1],
 }
 
+#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MultiVertex {
