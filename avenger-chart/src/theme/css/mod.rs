@@ -164,8 +164,8 @@ impl CssTheme {
                 shape-discrete: circle, cross, diamond, square, star, triangle-up, wye, cushion;
                 size-discrete: 30, 80, 140, 200, 260;
                 size-continuous: 30, 200;
-                stroke_dash-discrete: solid, dashed, dotted, long-dash, dash-dot, long-short, even-short, double-dash;
-                stroke_width-discrete: 0.5, 1.0, 2.0, 3.0, 5.0;
+                stroke-dash-discrete: solid, dashed, dotted, long-dash, dash-dot, long-short, even-short, double-dash;
+                stroke-width-discrete: 0.5, 1.0, 2.0, 3.0, 5.0;
             }
         "#;
 
@@ -311,8 +311,8 @@ impl CssTheme {
                 shape-discrete: circle, cross, diamond, square, star, triangle-up, wye, cushion;
                 size-discrete: 30, 80, 140, 200, 260;
                 size-continuous: 30, 200;
-                stroke_dash-discrete: solid, dashed, dotted, long-dash, dash-dot, long-short, even-short, double-dash;
-                stroke_width-discrete: 0.5, 1.0, 2.0, 3.0, 5.0;
+                stroke-dash-discrete: solid, dashed, dotted, long-dash, dash-dot, long-short, even-short, double-dash;
+                stroke-width-discrete: 0.5, 1.0, 2.0, 3.0, 5.0;
             }
         "#;
 
