@@ -121,7 +121,7 @@ impl PolarAxis {
     /// Render this axis to scene marks
     pub fn render(
         &self,
-        _channel: &str,
+        channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
         scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
@@ -130,6 +130,8 @@ impl PolarAxis {
         theme: &dyn crate::theme::Theme,
         _plot_background_color: Option<[f32; 4]>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        // Use channel as subtype for CSS selector support (e.g., axis[type="theta"], axis[type="radius"])
+        let subtype = Some(channel);
         // Skip if invisible (default to visible if not set)
         if !self.visible.clone().unwrap_or(true) {
             return Ok(vec![]);
@@ -143,11 +145,11 @@ impl PolarAxis {
         match self.axis_type.clone().unwrap_or(PolarAxisType::Radial) {
             PolarAxisType::Radial => {
                 // Render radial axis (circles from center)
-                self.render_radial_axis(scale, center_x, center_y, radius, theme)
+                self.render_radial_axis(scale, center_x, center_y, radius, theme, subtype)
             }
             PolarAxisType::Angular => {
                 // Render angular axis (lines from center)
-                self.render_angular_axis(scale, center_x, center_y, radius, scales, theme)
+                self.render_angular_axis(scale, center_x, center_y, radius, scales, theme, subtype)
             }
         }
     }
@@ -159,6 +161,7 @@ impl PolarAxis {
         center_y: f32,
         _max_radius: f32,
         theme: &dyn crate::theme::Theme,
+        subtype: Option<&str>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::types::ColorOrGradient;
         use avenger_common::value::ScalarOrArray;
@@ -240,8 +243,8 @@ impl PolarAxis {
                     corner_radius: ScalarOrArray::new_scalar(0.0),
                     fill: ScalarOrArray::new_scalar(ColorOrGradient::Color({
                         let mut color =
-                            crate::utils::parse_color_to_array(&theme.axis_grid_color());
-                        color[3] = theme.axis_grid_opacity();
+                            crate::utils::parse_color_to_array(&theme.axis_grid_color(subtype));
+                        color[3] = theme.axis_grid_opacity(subtype);
                         color
                     })),
                     stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
@@ -343,14 +346,14 @@ impl PolarAxis {
                     x: ScalarOrArray::new_array(x_vals),
                     y: ScalarOrArray::new_array(y_vals),
                     text: ScalarOrArray::new_array(text_vals),
-                    font: ScalarOrArray::new_scalar(theme.axis_label_font_family().to_string()),
+                    font: ScalarOrArray::new_scalar(theme.axis_label_font_family(subtype).to_string()),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(theme.axis_label_font_weight()),
+                        avenger_text::types::FontWeight::Number(theme.axis_label_font_weight(subtype)),
                     ),
-                    font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size()),
+                    font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size(subtype)),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        crate::utils::parse_color_to_array(&theme.axis_label_color()),
+                        crate::utils::parse_color_to_array(&theme.axis_label_color(subtype)),
                     )),
                     align: ScalarOrArray::new_scalar(TextAlign::Center),
                     baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
@@ -376,6 +379,7 @@ impl PolarAxis {
         radius: f32,
         scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
         theme: &dyn crate::theme::Theme,
+        subtype: Option<&str>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::types::ColorOrGradient;
         use avenger_common::types::StrokeCap;
@@ -458,11 +462,11 @@ impl PolarAxis {
                 x2: ScalarOrArray::new_array(x2_values),
                 y2: ScalarOrArray::new_array(y2_values),
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color({
-                    let mut color = crate::utils::parse_color_to_array(&theme.axis_grid_color());
-                    color[3] = theme.axis_grid_opacity();
+                    let mut color = crate::utils::parse_color_to_array(&theme.axis_grid_color(subtype));
+                    color[3] = theme.axis_grid_opacity(subtype);
                     color
                 })),
-                stroke_width: ScalarOrArray::new_scalar(theme.axis_grid_width()),
+                stroke_width: ScalarOrArray::new_scalar(theme.axis_grid_width(subtype)),
                 stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Butt),
                 stroke_dash: None,
                 indices: None,
@@ -553,14 +557,14 @@ impl PolarAxis {
                     text: ScalarOrArray::new_array(text_vals),
                     align: ScalarOrArray::new_array(label_aligns),
                     baseline: ScalarOrArray::new_array(label_baselines),
-                    font: ScalarOrArray::new_scalar(theme.axis_label_font_family().to_string()),
+                    font: ScalarOrArray::new_scalar(theme.axis_label_font_family(subtype).to_string()),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(theme.axis_label_font_weight()),
+                        avenger_text::types::FontWeight::Number(theme.axis_label_font_weight(subtype)),
                     ),
-                    font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size()),
+                    font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size(subtype)),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        crate::utils::parse_color_to_array(&theme.axis_label_color()),
+                        crate::utils::parse_color_to_array(&theme.axis_label_color(subtype)),
                     )),
                     angle: ScalarOrArray::new_scalar(0.0),
                     limit: ScalarOrArray::new_scalar(200.0),

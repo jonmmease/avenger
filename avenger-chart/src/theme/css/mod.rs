@@ -513,6 +513,15 @@ impl CssTheme {
             }
         }
 
+        // Background-specific defaults (legend/axis backgrounds default to transparent)
+        if context.element_type == "background" {
+            match property {
+                "fill" => return ThemeValue::None,
+                "stroke" => return ThemeValue::None,
+                _ => {}
+            }
+        }
+
         // General defaults
         match property {
             "fill" => ThemeValue::Color(Rgba {
