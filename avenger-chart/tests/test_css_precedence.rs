@@ -1,11 +1,11 @@
 //! Tests for CSS selector precedence and cascade rules
 
 use avenger_chart::theme::Theme;
-use avenger_chart::theme::{Rgba, ThemeContext, ThemeValue};
+use avenger_chart::theme::{CssRgba, ThemeContext, ThemeValue};
 
 // Helper function to check if a color matches expected RGB values
 fn is_color(value: &ThemeValue, r: u8, g: u8, b: u8) -> bool {
-    matches!(value, ThemeValue::Color(Rgba { red, green, blue, .. }) if *red == r && *green == g && *blue == b)
+    matches!(value, ThemeValue::Color(CssRgba { red, green, blue, .. }) if *red == r && *green == g && *blue == b)
 }
 
 #[test]

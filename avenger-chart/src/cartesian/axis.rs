@@ -165,11 +165,11 @@ impl CartesianAxis {
         let coord_type = Some("cartesian");
         let axis_type = Some(channel);
 
-        // Always use theme colors for axis elements
-        let label_color = crate::utils::parse_color_to_array(&theme.axis_label_color(coord_type, axis_type));
-        let title_color = crate::utils::parse_color_to_array(&theme.axis_title_color(coord_type, axis_type));
-        let domain_color = crate::utils::parse_color_to_array(&theme.axis_domain_color(coord_type, axis_type));
-        let tick_color = crate::utils::parse_color_to_array(&theme.axis_tick_color(coord_type, axis_type));
+        // Get theme colors (already in normalized [f32; 4] format)
+        let label_color = theme.axis_label_color(coord_type, axis_type);
+        let title_color = theme.axis_title_color(coord_type, axis_type);
+        let domain_color = theme.axis_domain_color(coord_type, axis_type);
+        let tick_color = theme.axis_tick_color(coord_type, axis_type);
 
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {
@@ -182,7 +182,7 @@ impl CartesianAxis {
             domain_color: Some(domain_color),
             tick_color: Some(tick_color),
             grid_color: Some({
-                let mut color = crate::utils::parse_color_to_array(&theme.axis_grid_color(coord_type, axis_type));
+                let mut color = theme.axis_grid_color(coord_type, axis_type);
                 color[3] = theme.axis_grid_opacity(coord_type, axis_type); // Apply opacity to alpha channel
                 color
             }),

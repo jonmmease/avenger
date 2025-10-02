@@ -81,10 +81,18 @@ fn test_theme_trait_methods() {
     assert_eq!(theme.font_size(&text_context), 12.0);
 
     let axis_context = ThemeContext::new("axis");
-    assert_eq!(theme.color(&axis_context), "#666666");
+    // Colors are now returned as [f32; 4] arrays
+    let axis_color = theme.color(&axis_context);
+    assert!((axis_color[0] - 0.4).abs() < 0.01); // ~102/255 = 0.4
+    assert!((axis_color[1] - 0.4).abs() < 0.01);
+    assert!((axis_color[2] - 0.4).abs() < 0.01);
 
     let mark_context = ThemeContext::new("mark");
-    assert_eq!(theme.fill_color(&mark_context), "#4682b4"); // steelblue hex
+    let fill = theme.fill_color(&mark_context);
+    // Steelblue #4682b4 = rgb(70, 130, 180)
+    assert!((fill[0] - 70.0/255.0).abs() < 0.01);
+    assert!((fill[1] - 130.0/255.0).abs() < 0.01);
+    assert!((fill[2] - 180.0/255.0).abs() < 0.01);
     assert_eq!(theme.opacity(&mark_context), 0.8);
 }
 

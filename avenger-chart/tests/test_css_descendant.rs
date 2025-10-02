@@ -21,13 +21,19 @@ fn test_descendant_selectors() {
     let domain_ctx = axis_ctx.child("domain");
 
     let stroke = theme.stroke_color(&domain_ctx);
-    println!("axis domain stroke: {}", stroke);
-    assert_eq!(stroke, "#ff0000", "axis domain should have red stroke");
+    println!("axis domain stroke: {:?}", stroke);
+    // Red #ff0000 = rgb(255, 0, 0) = [1.0, 0.0, 0.0, 1.0]
+    assert!((stroke[0] - 1.0).abs() < 0.01, "axis domain should have red stroke");
+    assert!(stroke[1].abs() < 0.01);
+    assert!(stroke[2].abs() < 0.01);
 
     // Test query on axis itself
     let axis_stroke = theme.stroke_color(&axis_ctx);
-    println!("axis stroke: {}", axis_stroke);
-    assert_eq!(axis_stroke, "#0000ff", "axis should have blue stroke");
+    println!("axis stroke: {:?}", axis_stroke);
+    // Blue #0000ff = rgb(0, 0, 255) = [0.0, 0.0, 1.0, 1.0]
+    assert!(axis_stroke[0].abs() < 0.01, "axis should have blue stroke");
+    assert!(axis_stroke[1].abs() < 0.01);
+    assert!((axis_stroke[2] - 1.0).abs() < 0.01);
 }
 
 #[test]
@@ -45,15 +51,21 @@ fn test_chart_title_subtitle() {
 
     let title_ctx = ThemeContext::new("chart-title");
     let title_color = theme.color(&title_ctx);
-    assert_eq!(
-        title_color, "#800080",
+    // Purple #800080 = rgb(128, 0, 128) = [128/255, 0, 128/255, 1]
+    assert!(
+        (title_color[0] - 128.0/255.0).abs() < 0.01,
         "chart-title should have purple color"
     );
+    assert!(title_color[1].abs() < 0.01);
+    assert!((title_color[2] - 128.0/255.0).abs() < 0.01);
 
     let subtitle_ctx = ThemeContext::new("chart-subtitle");
     let subtitle_color = theme.color(&subtitle_ctx);
-    assert_eq!(
-        subtitle_color, "#008000",
+    // Green #008000 = rgb(0, 128, 0) = [0, 128/255, 0, 1]
+    assert!(subtitle_color[0].abs() < 0.01);
+    assert!(
+        (subtitle_color[1] - 128.0/255.0).abs() < 0.01,
         "chart-subtitle should have green color"
     );
+    assert!(subtitle_color[2].abs() < 0.01);
 }

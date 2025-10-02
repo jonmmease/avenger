@@ -57,38 +57,32 @@ impl PrecomputedHash for ChartString {
     }
 }
 
-/// Pseudo-classes for chart elements
+/// Pseudo-classes (none supported for charts)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ChartPseudoClass {
-    Hover,
-    Active,
-}
+pub enum ChartPseudoClass {}
 
 impl NonTSPseudoClass for ChartPseudoClass {
     type Impl = ChartSelectors;
 
     fn is_active_or_hover(&self) -> bool {
-        matches!(*self, ChartPseudoClass::Active | ChartPseudoClass::Hover)
+        match *self {}
     }
 
     fn is_user_action_state(&self) -> bool {
-        matches!(*self, ChartPseudoClass::Active | ChartPseudoClass::Hover)
+        match *self {}
     }
 }
 
 impl ToCss for ChartPseudoClass {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
+    fn to_css<W>(&self, _dest: &mut W) -> fmt::Result
     where
         W: fmt::Write,
     {
-        match self {
-            ChartPseudoClass::Hover => dest.write_str(":hover"),
-            ChartPseudoClass::Active => dest.write_str(":active"),
-        }
+        match *self {}
     }
 }
 
-/// Pseudo-elements (none for charts)
+/// Pseudo-elements (none supported for charts)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ChartPseudoElement {}
 

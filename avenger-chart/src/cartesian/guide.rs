@@ -238,16 +238,8 @@ impl CompiledGuide for CartesianGuide {
         // Render background if specified (behind everything else)
         // First check explicit option, then fall back to theme
         let bg_color = self.options.plot_background_color.or_else(|| {
-            theme
-                .guide_background_color(Some("cartesian"))
-                .and_then(|color_str| {
-                    crate::utils::parse_color_string(&color_str).and_then(|cog| {
-                        match cog {
-                            avenger_common::types::ColorOrGradient::Color(rgba) => Some(rgba),
-                            _ => None,
-                        }
-                    })
-                })
+            // Theme already returns color in normalized [f32; 4] format
+            theme.guide_background_color(Some("cartesian"))
         });
 
         if let Some(bg_color) = bg_color {
