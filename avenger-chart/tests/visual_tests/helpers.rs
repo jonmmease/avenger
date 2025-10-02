@@ -29,6 +29,7 @@ impl Default for VisualTestConfig {
 
 /// Render a plot to an image, automatically handling canvas sizing based on layout spec
 /// This version performs a serialization round-trip through bincode to test serialization
+#[allow(dead_code)]
 pub async fn render_plot<C: CoordinateSystem + Clone>(
     plot: Plot<C>,
     ctx: &datafusion::prelude::SessionContext,
@@ -138,6 +139,7 @@ pub async fn render_plot<C: CoordinateSystem + Clone>(
 }
 
 /// Helper trait to make plot building more fluent for tests
+#[allow(dead_code)]
 pub trait PlotTestExt: Sized {
     /// Render this plot to an image using default test dimensions
     async fn to_image(self) -> RgbaImage;

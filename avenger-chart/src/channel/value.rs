@@ -640,7 +640,6 @@ mod tests {
     #[test]
     fn test_as_column_name() {
         use super::ConditionalValue;
-        use crate::serialization::SerializableExpr;
         use datafusion::functions::expr_fn::sqrt;
         use datafusion::logical_expr::col;
         use datafusion::prelude::SessionContext;
