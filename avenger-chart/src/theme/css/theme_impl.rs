@@ -302,7 +302,7 @@ impl CssTheme {
     fn create_scale_range(
         &self,
         values: &[String],
-        channel: &str,
+        _channel: &str,
         range_kind: avenger_scales::scales::RangeKind,
         domain_cardinality: Option<usize>,
     ) -> crate::scales::ScaleRange {
@@ -331,38 +331,14 @@ impl CssTheme {
                 ScaleRange::Discrete(scalars)
             }
             RangeKind::Continuous => {
-                // Check if this is a color channel
-                if channel == "fill" || channel == "stroke" || channel == "color" {
-                    // For continuous color ranges, parse as Srgba colors
-                    let colors: Vec<Srgba> = values
-                        .iter()
-                        .filter_map(|v| {
-                            // Parse hex color to Srgba
-                            if v.starts_with('#') && v.len() >= 7 {
-                                let r = u8::from_str_radix(&v[1..3], 16).ok()? as f32 / 255.0;
-                                let g = u8::from_str_radix(&v[3..5], 16).ok()? as f32 / 255.0;
-                                let b = u8::from_str_radix(&v[5..7], 16).ok()? as f32 / 255.0;
-                                Some(Srgba::new(r, g, b, 1.0))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                // First, try to parse as numbers - if successful, it's a numeric range
+                // Only attempt color parsing if numeric parsing fails
+                let first_is_number = values.first()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .is_some();
 
-                    if !colors.is_empty() {
-                        ScaleRange::new_color(colors)
-                    } else {
-                        // Fallback to viridis-like palette
-                        let colors = vec![
-                            Srgba::new(0.267, 0.004, 0.329, 1.0), // Dark purple
-                            Srgba::new(0.193, 0.408, 0.556, 1.0), // Blue
-                            Srgba::new(0.208, 0.718, 0.473, 1.0), // Green
-                            Srgba::new(0.993, 0.906, 0.144, 1.0), // Yellow
-                        ];
-                        ScaleRange::new_color(colors)
-                    }
-                } else {
-                    // For numeric continuous ranges, expect 2 values (min, max)
+                if first_is_number {
+                    // Numeric continuous range - expect 2 values (min, max)
                     if values.len() >= 2 {
                         let min = values[0].parse::<f64>().unwrap_or(0.0);
                         let max = values[1].parse::<f64>().unwrap_or(1.0);
@@ -373,6 +349,37 @@ impl CssTheme {
                         ScaleRange::new_interval(lit(0.0), lit(max))
                     } else {
                         // Default range
+                        ScaleRange::new_interval(lit(0.0), lit(1.0))
+                    }
+                } else {
+                    // Try to detect if values are colors by attempting to parse them
+                    // This works for any channel, not just hardcoded ones
+                    let colors: Vec<Srgba> = values
+                        .iter()
+                        .filter_map(|v| {
+                            // Try to parse as color using avenger-scales color parser
+                            // This handles hex colors, rgb(), hsl(), and named colors
+                            crate::utils::parse_color_string(v).and_then(|cog| {
+                                match cog {
+                                    avenger_common::types::ColorOrGradient::Color(rgba) => {
+                                        Some(Srgba::new(
+                                            rgba[0],
+                                            rgba[1],
+                                            rgba[2],
+                                            rgba[3],
+                                        ))
+                                    }
+                                    _ => None,
+                                }
+                            })
+                        })
+                        .collect();
+
+                    if !colors.is_empty() {
+                        // Successfully parsed as colors, use color range
+                        ScaleRange::new_color(colors)
+                    } else {
+                        // Couldn't parse as numbers or colors, use default numeric range
                         ScaleRange::new_interval(lit(0.0), lit(1.0))
                     }
                 }
