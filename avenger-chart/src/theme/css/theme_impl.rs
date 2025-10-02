@@ -40,9 +40,12 @@ impl Theme for CssTheme {
         use avenger_scales::scales::RangeKind;
 
         // Build property name based on channel and range kind
+        // Convert underscores to hyphens for CSS-friendly property names
+        // e.g., "glow_color" -> "glow-color-continuous"
+        let css_channel = channel.replace('_', "-");
         let property = format!(
             "{}-{}",
-            channel,
+            css_channel,
             match range_kind {
                 RangeKind::Discrete => "discrete",
                 RangeKind::Continuous => "continuous",
