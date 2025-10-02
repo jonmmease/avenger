@@ -142,6 +142,8 @@ impl ThemeValue {
                     ))
                 }
             }
+            ThemeValue::Initial => None,  // Initial values should not produce a string
+            ThemeValue::None => None,     // Explicit None values should return None
             _ => None,
         }
     }
