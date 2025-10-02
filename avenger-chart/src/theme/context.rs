@@ -53,12 +53,6 @@ impl ThemeContext {
         self
     }
 
-    /// Deprecated: Use with_subtype() instead
-    pub fn with_mark(mut self, mark: impl Into<String>) -> Self {
-        self.subtype = Some(mark.into());
-        self
-    }
-
     /// Add a channel to the context (adds as a class)
     pub fn with_channel(mut self, channel: impl Into<String>) -> Self {
         self.classes.push(channel.into());
@@ -77,29 +71,3 @@ impl ThemeContext {
         self
     }
 }
-
-/// Helper trait for building contexts fluently
-pub trait ContextBuilder {
-    fn axis_context(subtype: &str) -> ThemeContext {
-        ThemeContext::new("axis").with_subtype(subtype)
-    }
-
-    fn legend_context(subtype: &str) -> ThemeContext {
-        ThemeContext::new("legend").with_subtype(subtype)
-    }
-
-    fn mark_context(mark_type: &str) -> ThemeContext {
-        ThemeContext::new("mark").with_subtype(mark_type)
-    }
-
-    fn title_context() -> ThemeContext {
-        ThemeContext::new("title")
-    }
-
-    fn subtitle_context() -> ThemeContext {
-        ThemeContext::new("subtitle")
-    }
-}
-
-// Blanket implementation
-impl ContextBuilder for ThemeContext {}

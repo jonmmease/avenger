@@ -13,6 +13,20 @@ use crate::scales::ConfiguredScaleWithSpec;
 
 use super::CompiledPlot;
 
+/// Convert normalized color array [0.0-1.0] to hex string
+fn color_array_to_hex(color: [f32; 4]) -> String {
+    let r = (color[0] * 255.0) as u8;
+    let g = (color[1] * 255.0) as u8;
+    let b = (color[2] * 255.0) as u8;
+    let a = (color[3] * 255.0) as u8;
+
+    if a < 255 {
+        format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)
+    } else {
+        format!("#{:02x}{:02x}{:02x}", r, g, b)
+    }
+}
+
 impl CompiledPlot {
     /// Create default legends for channels with scales
     fn create_default_legends(
@@ -101,15 +115,17 @@ impl CompiledPlot {
 
             // Apply optional theme defaults
             if let Some(fill) = theme.legend_background_fill(legend_type) {
-                legend = legend.background_fill(fill);
+                // Convert [f32; 4] to hex string
+                legend = legend.background_fill(color_array_to_hex(fill));
             }
             if let Some(stroke) = theme.legend_background_stroke(legend_type) {
-                legend = legend.background_stroke(stroke);
+                // Convert [f32; 4] to hex string
+                legend = legend.background_stroke(color_array_to_hex(stroke));
             }
 
             // Set text colors and typography from theme
-            legend.title_color = crate::maybe::Maybe::Set(theme.legend_title_color(legend_type));
-            legend.label_color = crate::maybe::Maybe::Set(theme.legend_label_color(legend_type));
+            legend.title_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_title_color(legend_type)));
+            legend.label_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_label_color(legend_type)));
             legend.title_font_family = crate::maybe::Maybe::Set(theme.legend_title_font_family(legend_type));
             legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size(legend_type));
             legend.title_font_weight = crate::maybe::Maybe::Set(theme.legend_title_font_weight(legend_type));
@@ -119,7 +135,7 @@ impl CompiledPlot {
             legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family(legend_type));
             legend.tick_font_size = crate::maybe::Maybe::Set(theme.legend_tick_font_size(legend_type));
             legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight(legend_type));
-            legend.tick_color = crate::maybe::Maybe::Set(theme.legend_tick_color(legend_type));
+            legend.tick_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_tick_color(legend_type)));
 
             default_legends.insert(channel.clone(), legend);
         }
@@ -202,10 +218,10 @@ impl CompiledPlot {
             // Theme only fills in Unset values
             // Apply theme fonts if not explicitly set
             if matches!(legend.title_color, crate::maybe::Maybe::Unset) {
-                legend.title_color = crate::maybe::Maybe::Set(theme.legend_title_color(legend_type));
+                legend.title_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_title_color(legend_type)));
             }
             if matches!(legend.label_color, crate::maybe::Maybe::Unset) {
-                legend.label_color = crate::maybe::Maybe::Set(theme.legend_label_color(legend_type));
+                legend.label_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_label_color(legend_type)));
             }
             if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
                 legend.title_font_family =
@@ -239,7 +255,7 @@ impl CompiledPlot {
                 legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight(legend_type));
             }
             if matches!(legend.tick_color, crate::maybe::Maybe::Unset) {
-                legend.tick_color = crate::maybe::Maybe::Set(theme.legend_tick_color(legend_type));
+                legend.tick_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_tick_color(legend_type)));
             }
             // Note: Don't apply theme background settings - they're only for default legends
             // This matches PlotRenderer behavior

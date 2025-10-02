@@ -14,7 +14,7 @@ fn test_basic_theme_creation() {
     // Just check that parsing succeeded and we have rules
     // Can't check internal rules field directly as it's private
     let context = ThemeContext::new("mark");
-    let fill = theme.query_css(&context, "fill");
+    let fill = theme.query(&context, "fill");
     assert!(matches!(fill, ThemeValue::Color(_)));
 }
 
@@ -30,12 +30,12 @@ fn test_context_matching() {
 
     // Test basic context selector
     let context = ThemeContext::new("mark");
-    let fill = theme.query_css(&context, "fill");
+    let fill = theme.query(&context, "fill");
     assert!(matches!(fill, ThemeValue::Color(_)));
 
     // Test type attribute selector (should override element selector)
     let context_with_type = ThemeContext::new("mark").with_subtype("symbol");
-    let fill_type = theme.query_css(&context_with_type, "fill");
+    let fill_type = theme.query(&context_with_type, "fill");
     if let ThemeValue::Color(color) = fill_type {
         assert_eq!(color.red, 255); // Red color
     }
@@ -44,7 +44,7 @@ fn test_context_matching() {
     let context_with_id = ThemeContext::new("mark")
         .with_subtype("symbol")
         .with_id("main-mark");
-    let fill_id = theme.query_css(&context_with_id, "fill");
+    let fill_id = theme.query(&context_with_id, "fill");
     if let ThemeValue::Color(color) = fill_id {
         assert_eq!(color.green, 128); // Green color
     }
@@ -61,7 +61,7 @@ fn test_property_inheritance() {
 
     // Test that properties work without parent traversal
     let context = ThemeContext::new("text");
-    let font_size = theme.query_css(&context, "font-size");
+    let font_size = theme.query(&context, "font-size");
     // Should get default value
     assert!(matches!(font_size, ThemeValue::Length(_, _)));
 }
@@ -83,7 +83,7 @@ fn test_css_variables() {
 
     // Test that variables are resolved
     let context = ThemeContext::new("mark");
-    let fill = theme.query_css(&context, "fill");
+    let fill = theme.query(&context, "fill");
     // Should resolve to the color
     if let ThemeValue::Variable(var_name) = fill {
         // Variable reference stored, not resolved value
@@ -105,7 +105,7 @@ fn test_color_parsing() {
     // All should parse as colors
     for class in ["a", "b", "c", "d"] {
         let context = ThemeContext::new("mark").with_class(class);
-        let fill = theme.query_css(&context, "fill");
+        let fill = theme.query(&context, "fill");
         assert!(matches!(fill, ThemeValue::Color(_)));
     }
 }
@@ -121,18 +121,18 @@ fn test_length_units() {
     let theme = Theme::from_css(css).unwrap();
 
     let px_context = ThemeContext::new("mark").with_class("px");
-    let px_value = theme.query_css(&px_context, "stroke-width");
+    let px_value = theme.query(&px_context, "stroke-width");
     assert!(matches!(px_value, ThemeValue::Length(2.0, LengthUnit::Px)));
 
     let rem_context = ThemeContext::new("mark").with_class("rem");
-    let rem_value = theme.query_css(&rem_context, "font-size");
+    let rem_value = theme.query(&rem_context, "font-size");
     assert!(matches!(
         rem_value,
         ThemeValue::Length(1.5, LengthUnit::Rem)
     ));
 
     let percent_context = ThemeContext::new("mark").with_class("percent");
-    let percent_value = theme.query_css(&percent_context, "width");
+    let percent_value = theme.query(&percent_context, "width");
     assert!(matches!(percent_value, ThemeValue::Percentage(50.0)));
 }
 
@@ -189,7 +189,7 @@ fn test_specificity_cascade() {
         .with_class("highlight")
         .with_id("main");
 
-    let fill = theme.query_css(&context, "fill");
+    let fill = theme.query(&context, "fill");
     // ID selector should win (highest specificity)
     if let ThemeValue::Color(color) = fill {
         assert_eq!(color.green, 128); // Green
@@ -209,14 +209,14 @@ fn test_value_conversions() {
     let theme = Theme::from_css(css).unwrap();
     let context = ThemeContext::new("mark");
 
-    let size = theme.query_css(&context, "size");
-    assert_eq!(size.as_pixels(12.0), Some(100.0));
+    let size = theme.query(&context, "size");
+    assert_eq!(size.as_font_size(12.0), Some(100.0));
 
-    let opacity = theme.query_css(&context, "opacity");
-    assert_eq!(opacity.as_double(), Some(0.5));
+    let opacity = theme.query(&context, "opacity");
+    assert_eq!(opacity.as_number(), Some(0.5));
 
-    let stroke_width = theme.query_css(&context, "stroke-width");
-    assert_eq!(stroke_width.as_pixels(12.0), Some(2.0));
+    let stroke_width = theme.query(&context, "stroke-width");
+    assert_eq!(stroke_width.as_font_size(12.0), Some(2.0));
 }
 
 #[test]
@@ -235,7 +235,7 @@ fn test_descendant_selectors() {
     let canvas = ThemeContext::new("canvas");
     let coords = canvas.child("coords");
     let mark = coords.child("mark");
-    let fill = theme.query_css(&mark, "fill");
+    let fill = theme.query(&mark, "fill");
     if let ThemeValue::Color(color) = fill {
         // Should match "coords mark { fill: blue; }"
         assert_eq!(color.blue, 255);
@@ -245,7 +245,7 @@ fn test_descendant_selectors() {
     // Test descendant with attribute selector
     let cartesian_coords = canvas.child("coords").with_subtype("cartesian");
     let mark_in_cartesian = cartesian_coords.child("mark");
-    let fill = theme.query_css(&mark_in_cartesian, "fill");
+    let fill = theme.query(&mark_in_cartesian, "fill");
     if let ThemeValue::Color(color) = fill {
         // Should match "coords[type='cartesian'] mark { fill: red; }"
         assert_eq!(color.red, 255);
@@ -254,9 +254,9 @@ fn test_descendant_selectors() {
 
     // Test multiple levels with attributes
     let symbol_in_cartesian = cartesian_coords.child("mark").with_subtype("symbol");
-    let size = theme.query_css(&symbol_in_cartesian, "size");
+    let size = theme.query(&symbol_in_cartesian, "size");
     assert!(matches!(size, ThemeValue::Length(100.0, _)));
-    let fill = theme.query_css(&symbol_in_cartesian, "fill");
+    let fill = theme.query(&symbol_in_cartesian, "fill");
     if let ThemeValue::Color(color) = fill {
         // Should match the more specific selector
         assert_eq!(color.green, 128);
@@ -265,11 +265,11 @@ fn test_descendant_selectors() {
     // Test guide > axis
     let guide = coords.child("guide");
     let axis = guide.child("axis");
-    let font_size = theme.query_css(&axis, "font-size");
+    let font_size = theme.query(&axis, "font-size");
     assert!(matches!(font_size, ThemeValue::Length(12.0, _)));
 
     // Test canvas > title
     let title = canvas.child("title");
-    let title_size = theme.query_css(&title, "font-size");
+    let title_size = theme.query(&title, "font-size");
     assert!(matches!(title_size, ThemeValue::Length(20.0, _)));
 }

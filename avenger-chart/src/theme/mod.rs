@@ -1,7 +1,61 @@
 //! Theme system for visual styling of charts
 //!
 //! The theme system provides a centralized way to control the visual appearance
-//! of charts, including colors, fonts, shapes, and other styling properties.
+//! of charts using CSS-like syntax. Themes are defined using CSS stylesheets that
+//! target chart elements with selectors, properties, and values.
+//!
+//! # Basic Usage
+//!
+//! ## Using Built-in Themes
+//!
+//! ```rust,no_run
+//! use avenger_chart::theme::Theme;
+//!
+//! // Use the default theme (light)
+//! let theme = Theme::default();
+//!
+//! // Or use a specific built-in theme
+//! let theme = Theme::light();
+//! let theme = Theme::dark();
+//! ```
+//!
+//! ## Creating Custom Themes
+//!
+//! ```rust,no_run
+//! use avenger_chart::theme::Theme;
+//!
+//! let css = r#"
+//!     mark[type="symbol"] {
+//!         size: 100px;
+//!         fill-discrete: #E69F00, #56B4E9, #009E73;
+//!     }
+//!
+//!     guide[type="cartesian"] axis label {
+//!         font-size: 11px;
+//!         color: #666;
+//!     }
+//! "#;
+//!
+//! let theme = Theme::from_css(css).unwrap();
+//! ```
+//!
+//! ## Combining Themes
+//!
+//! ```rust,no_run
+//! use avenger_chart::theme::Theme;
+//!
+//! // Start with a base theme
+//! let mut theme = Theme::dark();
+//!
+//! // Add custom CSS on top
+//! let custom_css = r#"
+//!     mark[type="symbol"] {
+//!         fill-discrete: #ff0000, #00ff00, #0000ff;
+//!     }
+//! "#;
+//!
+//! theme.append_css(custom_css).unwrap();
+//! ```
 //!
 //! # Element Hierarchy and CSS Selectors
 //!
@@ -170,24 +224,42 @@
 //!     intensity-continuous: 0, 100;              /* Detected as numbers */
 //! }
 //! ```
+//!
+//! ## Limitations
+//!
+//! ### No Positional Pseudo-Classes
+//!
+//! Positional pseudo-classes (`:first-child`, `:last-child`, `:nth-child()`) are not
+//! supported because `ThemeContext` instances are created independently on demand without
+//! sibling relationships. The theme system uses a lazy context creation model rather than
+//! a materialized tree structure.
+//!
+//! **Workaround**: Use explicit classes instead:
+//! ```rust
+//! // Instead of CSS: axis:first-child { color: red; }
+//! // Use: axis.first { color: red; }
+//! let ctx = ThemeContext::new("axis").with_class("first");
+//! ```
+//!
+//! ### No Interactive Pseudo-Classes
+//!
+//! Interactive pseudo-classes (`:hover`, `:active`, `:focus`) are not supported as the
+//! theme system is designed for static chart styling, not runtime interactivity.
 
 // Core theme modules
 mod context;
 mod value;
 
-// Theme implementation modules (formerly in css/)
+// CSS-based theme implementation modules
 pub(crate) mod element;
 pub(crate) mod parser;
 pub(crate) mod selector_impl;
 mod theme;
-pub(crate) mod theme_impl;
 pub(crate) mod css_value;
 
 // Re-export core types
-pub use context::{ContextBuilder, ThemeContext};
-pub use value::{
-    LengthUnit, Rgba, ThemeValue, parse_color_string, parse_hex_color, parse_named_color,
-};
+pub use context::ThemeContext;
+pub use value::{CssRgba, LengthUnit, ThemeValue};
 
 // Re-export Theme as the main theme type
 pub use theme::Theme;

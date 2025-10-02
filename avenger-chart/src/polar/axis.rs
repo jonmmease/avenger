@@ -247,7 +247,7 @@ impl PolarAxis {
                     corner_radius: ScalarOrArray::new_scalar(0.0),
                     fill: ScalarOrArray::new_scalar(ColorOrGradient::Color({
                         let mut color =
-                            crate::utils::parse_color_to_array(&theme.axis_grid_color(coord_type, axis_type));
+                            theme.axis_grid_color(coord_type, axis_type);
                         color[3] = theme.axis_grid_opacity(coord_type, axis_type);
                         color
                     })),
@@ -357,7 +357,7 @@ impl PolarAxis {
                     font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size(coord_type, axis_type)),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        crate::utils::parse_color_to_array(&theme.axis_label_color(coord_type, axis_type)),
+                        theme.axis_label_color(coord_type, axis_type),
                     )),
                     align: ScalarOrArray::new_scalar(TextAlign::Center),
                     baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
@@ -467,7 +467,7 @@ impl PolarAxis {
                 x2: ScalarOrArray::new_array(x2_values),
                 y2: ScalarOrArray::new_array(y2_values),
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color({
-                    let mut color = crate::utils::parse_color_to_array(&theme.axis_grid_color(coord_type, axis_type));
+                    let mut color = theme.axis_grid_color(coord_type, axis_type);
                     color[3] = theme.axis_grid_opacity(coord_type, axis_type);
                     color
                 })),
@@ -569,7 +569,7 @@ impl PolarAxis {
                     font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size(coord_type, axis_type)),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        crate::utils::parse_color_to_array(&theme.axis_label_color(coord_type, axis_type)),
+                        theme.axis_label_color(coord_type, axis_type),
                     )),
                     angle: ScalarOrArray::new_scalar(0.0),
                     limit: ScalarOrArray::new_scalar(200.0),

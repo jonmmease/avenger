@@ -34,11 +34,7 @@ impl CompiledPlot {
             text: title.text.clone().into(),
             x: x.into(),
             y: y.into(),
-            color: crate::utils::parse_color_string(&theme.title_color())
-                .unwrap_or(avenger_common::types::ColorOrGradient::Color([
-                    0.102, 0.102, 0.102, 1.0,
-                ]))
-                .into(),
+            color: avenger_common::types::ColorOrGradient::Color(theme.title_color()).into(),
             font_size: title.font_size.unwrap_or(theme.title_font_size()).into(),
             font: title
                 .font_family
@@ -80,11 +76,7 @@ impl CompiledPlot {
             text: subtitle.text.clone().into(),
             x: x.into(),
             y: y.into(),
-            color: crate::utils::parse_color_string(&theme.subtitle_color())
-                .unwrap_or(avenger_common::types::ColorOrGradient::Color([
-                    0.290, 0.290, 0.290, 1.0,
-                ]))
-                .into(),
+            color: avenger_common::types::ColorOrGradient::Color(theme.subtitle_color()).into(),
             font_size: subtitle
                 .font_size
                 .unwrap_or(theme.subtitle_font_size())

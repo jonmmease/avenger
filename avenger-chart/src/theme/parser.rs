@@ -3,8 +3,10 @@
 use crate::theme::theme::CompiledRule;
 use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
 use crate::theme::css_value::parse_rgb_function;
-use crate::theme::{LengthUnit, ThemeValue, parse_color_string};
+use crate::theme::value::parse_color_string;
+use crate::theme::{CssRgba, LengthUnit, ThemeValue};
 use cssparser::{
+    color::{parse_hash_color, OPAQUE},
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
 };
@@ -282,10 +284,14 @@ fn token_to_theme_value<'i>(
             Ok(ThemeValue::Percentage((*unit_value * 100.0) as f64))
         }
         Token::Hash(h) | Token::IDHash(h) => {
-            // The Hash token doesn't include the # character, so we need to add it
-            let hex_with_hash = format!("#{}", h.as_ref());
-            if let Some(color) = parse_color_string(&hex_with_hash) {
-                Ok(ThemeValue::Color(color))
+            // Use cssparser's parse_hash_color for efficient hex parsing
+            if let Ok((r, g, b, a)) = parse_hash_color(h.as_bytes()) {
+                Ok(ThemeValue::Color(CssRgba {
+                    red: r,
+                    green: g,
+                    blue: b,
+                    alpha: if a == OPAQUE { 255 } else { (a * 255.0) as u8 },
+                }))
             } else {
                 Err(())
             }
@@ -398,15 +404,10 @@ impl<'i> SelectorParser<'i> for ChartSelectorParser {
         location: cssparser::SourceLocation,
         name: cssparser::CowRcStr<'i>,
     ) -> Result<ChartPseudoClass, cssparser::ParseError<'i, Self::Error>> {
-        use ChartPseudoClass::*;
-
-        match name.as_ref() {
-            "hover" => Ok(Hover),
-            "active" => Ok(Active),
-            _ => Err(location.new_custom_error(
-                selectors::parser::SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name),
-            )),
-        }
+        // No pseudo-classes are supported
+        Err(location.new_custom_error(
+            selectors::parser::SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name),
+        ))
     }
 
     fn parse_non_ts_functional_pseudo_class<'t>(

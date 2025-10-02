@@ -757,12 +757,11 @@ impl CompiledPlot {
         };
 
         // Add background rect if theme specifies one
-        if let Some(bg_color) = theme.canvas_background() {
+        if let Some(color) = theme.canvas_background() {
             use avenger_common::types::ColorOrGradient;
             use avenger_scenegraph::marks::rect::SceneRectMark;
 
-            // Parse the color string to RGBA - fail if color is invalid
-            let color = crate::utils::parse_color_to_array_strict(&bg_color)?;
+            // Color is already in normalized [f32; 4] format
 
             let background_rect = SceneRectMark {
                 x: 0.0.into(),

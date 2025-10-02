@@ -1,9 +1,9 @@
 //! CSS value parsing utilities
 
-use crate::theme::{Rgba, ThemeValue};
+use crate::theme::{CssRgba, ThemeValue};
 
 /// Parse an rgb() or rgba() function from parsed CSS arguments
-pub fn parse_rgb_function(args: &[ThemeValue]) -> Option<Rgba> {
+pub fn parse_rgb_function(args: &[ThemeValue]) -> Option<CssRgba> {
     if args.len() < 3 {
         return None;
     }
@@ -32,7 +32,7 @@ pub fn parse_rgb_function(args: &[ThemeValue]) -> Option<Rgba> {
         255
     };
 
-    Some(Rgba {
+    Some(CssRgba {
         red,
         green,
         blue,

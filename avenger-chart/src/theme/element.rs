@@ -11,21 +11,29 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct CssElement {
     pub element_type: ChartString,
-    // The "type" attribute for [type="..."] selectors
+
+    /// The "type" attribute for [type="..."] selectors
     pub type_attr: Option<ChartString>,
+
     pub id: Option<ChartString>,
     pub classes: Vec<ChartString>,
+
+    /// Parent context stored as ThemeContext rather than CssElement for efficiency.
+    ///
+    /// This allows multiple CssElements to share the same Arc<ThemeContext> parent
+    /// rather than each maintaining separate CssElement parent chains. The parent
+    /// is converted to CssElement lazily in parent_element() only when selector
+    /// matching needs to traverse up the tree.
     pub parent: Option<Arc<ThemeContext>>,
 }
 
 impl From<&ThemeContext> for CssElement {
     fn from(context: &ThemeContext) -> Self {
-        let mut classes = Vec::new();
-
-        // Add regular classes only (NOT subtype)
-        for class in &context.classes {
-            classes.push(ChartString::from(class.as_str()));
-        }
+        let classes = context
+            .classes
+            .iter()
+            .map(|c| ChartString::from(c.as_str()))
+            .collect();
 
         Self {
             element_type: ChartString::from(context.element_type.as_str()),
@@ -68,12 +76,12 @@ impl Element for CssElement {
     }
 
     fn prev_sibling_element(&self) -> Option<Self> {
-        // No sibling support - we removed pseudo-classes like :first-child
+        // No sibling support - positional pseudo-classes are not supported
         None
     }
 
     fn next_sibling_element(&self) -> Option<Self> {
-        // No sibling support - we removed pseudo-classes like :last-child
+        // No sibling support - positional pseudo-classes are not supported
         None
     }
 
@@ -120,17 +128,15 @@ impl Element for CssElement {
         pc: &ChartPseudoClass,
         _context: &mut selectors::context::MatchingContext<ChartSelectors>,
     ) -> bool {
-        match pc {
-            ChartPseudoClass::Hover | ChartPseudoClass::Active => false,
-        }
+        match *pc {}
     }
 
     fn match_pseudo_element(
         &self,
-        _pe: &ChartPseudoElement,
+        pe: &ChartPseudoElement,
         _context: &mut selectors::context::MatchingContext<ChartSelectors>,
     ) -> bool {
-        match *_pe {}
+        match *pe {}
     }
 
     fn is_link(&self) -> bool {
