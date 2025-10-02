@@ -18,29 +18,29 @@ async fn test_css_axis_and_legend_subtype_selectors() {
             background-color: #f5f5f5;
         }
 
-        /* Axis subtype selectors - different colors for x vs y */
-        axis[type="x"] title {
+        /* Axis subtype selectors - nested under guide - different colors for x vs y */
+        guide[type="cartesian"] axis[type="x"] title {
             color: #2563eb;  /* Blue for x-axis */
             font-weight: 600;
         }
 
-        axis[type="y"] title {
+        guide[type="cartesian"] axis[type="y"] title {
             color: #dc2626;  /* Red for y-axis */
             font-weight: 600;
         }
 
         /* General axis styling */
-        axis label {
+        guide axis label {
             color: #4b5563;
             font-size: 11px;
         }
 
-        axis grid {
+        guide axis grid {
             stroke: #d1d5db;
             opacity: 0.5;
         }
 
-        axis domain {
+        guide axis domain {
             stroke: #6b7280;
         }
 

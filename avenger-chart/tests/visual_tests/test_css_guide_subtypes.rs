@@ -27,27 +27,45 @@ async fn test_css_guide_subtypes() {
             background-color: #fff3e0;  /* Light orange for polar */
         }
 
-        /* Axis styling */
-        axis title {
-            font-size: 13px;
-            font-weight: 600;
-            color: #1976d2;
+        /* Cartesian axis styling - nested under guide[type="cartesian"] */
+        guide[type="cartesian"] axis title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #1976d2;  /* Blue for cartesian */
         }
 
-        axis label {
+        guide[type="cartesian"] axis label {
             font-size: 11px;
             color: #424242;
         }
 
-        axis grid {
+        guide[type="cartesian"] axis grid {
             stroke: #90caf9;
-            stroke-width: 1px;
-            opacity: 0.3;
+            stroke-width: 1.5px;
+            opacity: 0.4;
         }
 
-        axis domain {
+        guide[type="cartesian"] axis domain {
             stroke: #1976d2;
             stroke-width: 2px;
+        }
+
+        /* Polar axis styling - different from cartesian */
+        guide[type="polar"] axis title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #e65100;  /* Orange for polar */
+        }
+
+        guide[type="polar"] axis label {
+            font-size: 10px;
+            color: #5d4037;
+        }
+
+        guide[type="polar"] axis grid {
+            stroke: #ffb74d;
+            stroke-width: 1px;
+            opacity: 0.5;
         }
 
         /* Mark styling */
@@ -110,21 +128,22 @@ async fn test_css_guide_subtypes_polar() {
             background-color: #fff3e0;  /* Light orange for polar */
         }
 
-        axis title {
+        /* Polar-specific axis styling */
+        guide[type="polar"] axis title {
             font-size: 13px;
             font-weight: 600;
-            color: #e65100;
+            color: #e65100;  /* Orange */
         }
 
-        axis label {
-            font-size: 11px;
-            color: #424242;
+        guide[type="polar"] axis label {
+            font-size: 10px;
+            color: #5d4037;  /* Brown */
         }
 
-        axis grid {
-            stroke: #ffb74d;
+        guide[type="polar"] axis grid {
+            stroke: #ffb74d;  /* Light orange */
             stroke-width: 1px;
-            opacity: 0.4;
+            opacity: 0.5;
         }
 
         mark[type="symbol"] {
