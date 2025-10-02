@@ -1,6 +1,6 @@
 //! Tests for CSS Theme
 
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use avenger_chart::theme::{ThemeContext, ThemeValue};
 
 #[test]
@@ -13,7 +13,7 @@ fn test_css_theme_implements_trait() {
         legend.title { font-size: 16px; font-weight: bold; }
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Test basic mark styling
     let mark_context = ThemeContext::new("mark");
@@ -73,7 +73,7 @@ fn test_theme_trait_methods() {
         mark { fill: steelblue; opacity: 0.8; }
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Test helper methods from Theme trait
     let text_context = ThemeContext::new("text");
@@ -91,7 +91,7 @@ fn test_theme_trait_methods() {
 #[test]
 fn test_clone_box() {
     let css = r#"mark { fill: green; }"#;
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Test that clone works
     let cloned = theme.clone();
@@ -111,7 +111,7 @@ fn test_clone_box() {
 #[test]
 fn test_categorical_colors_and_shapes() {
     let css = r#""#; // Empty CSS, will use defaults
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Test categorical colors
     let colors = theme.categorical_colors();

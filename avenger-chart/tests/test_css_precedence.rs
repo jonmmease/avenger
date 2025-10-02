@@ -1,6 +1,6 @@
 //! Tests for CSS selector precedence and cascade rules
 
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use avenger_chart::theme::{Rgba, ThemeContext, ThemeValue};
 
 // Helper function to check if a color matches expected RGB values
@@ -18,7 +18,7 @@ fn test_specificity_precedence() {
         mark.special[type="symbol"] { fill: yellow; } /* specificity: 0,0,2,1 */
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Test basic mark - should be red
     let basic_mark = ThemeContext::new("mark");
@@ -51,7 +51,7 @@ fn test_source_order_precedence() {
         mark { fill: blue; }  /* Later rule for same property wins */
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     let mark = ThemeContext::new("mark");
     let fill = theme.query(&mark, "fill");
@@ -70,7 +70,7 @@ fn test_attribute_selector_specificity() {
         mark[type="symbol"][opacity="0.5"] { color: green; } /* specificity: 0,0,2,1 */
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Basic mark
     let basic_mark = ThemeContext::new("mark");
@@ -93,7 +93,7 @@ fn test_inheritance_with_specificity() {
         mark.special { color: blue; }
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Test that only specified properties are overridden
     let special_mark = ThemeContext::new("mark").with_class("special");
@@ -128,7 +128,7 @@ fn test_cascade_order() {
         mark.important[type="symbol"] { fill: yellow; }
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Test cascading with same specificity - later wins
     let important_mark = ThemeContext::new("mark").with_class("important");
@@ -160,7 +160,7 @@ fn test_multiple_classes_specificity() {
         mark.class1.class2 { color: red; }
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Multiple classes increase specificity
     let multi_class_mark = ThemeContext::new("mark")

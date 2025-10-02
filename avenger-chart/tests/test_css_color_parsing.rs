@@ -1,6 +1,6 @@
 //! Test how CSS handles color values vs strings
 
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use avenger_chart::theme::{ThemeContext, ThemeValue};
 
 #[test]
@@ -27,7 +27,7 @@ fn test_color_parsing_behavior() {
         .test7 { font-family: "Arial"; }
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     // Test bare color keyword
     let ctx1 = ThemeContext::new("element").with_class("test1");
@@ -111,7 +111,7 @@ fn test_css_spec_behavior() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
 
     let ctx = ThemeContext::new("element").with_class("weird");
 
@@ -155,7 +155,7 @@ fn test_practical_implications() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
     let ctx = ThemeContext::new("mark");
 
     let fill = theme.query(&ctx, "fill");

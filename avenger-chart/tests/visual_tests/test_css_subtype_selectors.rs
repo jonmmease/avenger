@@ -2,7 +2,7 @@
 
 use super::helpers::assert_visual_match;
 use avenger_chart::prelude::*;
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use datafusion::arrow::array::{Float64Array, Int32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -105,7 +105,7 @@ async fn test_css_axis_and_legend_subtype_selectors() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS theme");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
     // Create data with multiple series for both symbols and lines
     let symbol_data = vec![
