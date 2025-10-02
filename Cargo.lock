@@ -504,7 +504,9 @@ dependencies = [
  "avenger-scenegraph",
  "datafusion",
  "paste",
+ "serde",
  "tokio",
+ "typetag",
 ]
 
 [[package]]
