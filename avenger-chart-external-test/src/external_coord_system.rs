@@ -1,19 +1,22 @@
 //! Integration test to verify external coordinate systems can be defined and used
 
+use avenger_chart::channel::ChannelDescriptor;
+use avenger_chart::coords::CoordinateSystemTransform;
+use avenger_chart::render::RenderContext;
 use avenger_chart::{
-    coords::{CoordinateSystem, OverflowSpaceRequirement, PointGeometry},
+    coords::{CoordinateSystem, OverflowSpaceRequirement, PlotGeometry, PointGeometry},
     define_common_mark_channels, define_position_channels,
     error::AvengerChartError,
-    guide::CoordinateGuide,
+    guide::CoordinateGuideBuilder,
     impl_mark_base, impl_mark_trait_common,
-    marks::{ChannelValue, Mark, MarkState},
-    render::Padding,
+    marks::{ChannelValue, CompiledMark, DataContext, Mark, MarkState},
     scales::{Auto, Scale},
 };
-use avenger_scenegraph::marks::group::Clip;
+use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::scalar::ScalarValue;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -95,13 +98,17 @@ impl avenger_chart::channel::PositionConfig for IsometricPositionConfig {
         }
     }
 
-    fn take_axis_config(
-        self,
-    ) -> (
-        ChannelValue,
-        Option<std::sync::Arc<dyn Fn(IsometricAxis) -> IsometricAxis + Send + Sync>>,
-    ) {
-        (self.inner, self.axis_config)
+    fn take_axis_config(self) -> (ChannelValue, Option<IsometricAxis>) {
+        // For now, return a default axis if config exists
+        // In a real implementation, you'd apply the config function
+        let axis = self.axis_config.map(|config_fn| {
+            // Apply the config function to a default axis
+            config_fn(IsometricAxis {
+                channel: "".to_string(),
+                visible: true,
+            })
+        });
+        (self.inner, axis)
     }
 
     fn into_inner(self) -> ChannelValue {
@@ -129,10 +136,27 @@ impl From<&str> for IsometricPositionConfig {
 }
 
 /// Custom axis type for the isometric coordinate system
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IsometricAxis {
     pub channel: String,
     pub visible: bool,
+}
+
+#[typetag::serde]
+impl avenger_chart::axis::Axis for IsometricAxis {
+    fn update(&mut self, other: &dyn avenger_chart::axis::Axis) {
+        if let Some(other_iso) = other.as_any().downcast_ref::<IsometricAxis>() {
+            self.visible = other_iso.visible;
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn box_clone(&self) -> Box<dyn avenger_chart::axis::Axis> {
+        Box::new(self.clone())
+    }
 }
 
 /// Options for Isometric coordinate system
@@ -159,6 +183,12 @@ pub struct IsometricGuide {
     pub options: IsometricOptions,
 }
 
+impl Default for IsometricGuide {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IsometricGuide {
     pub fn new() -> Self {
         Self {
@@ -168,18 +198,15 @@ impl IsometricGuide {
     }
 }
 
+/// Compiled version of the isometric guide for rendering
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledIsometricGuide {
+    axes: HashMap<String, IsometricAxis>,
+}
+
 #[async_trait::async_trait]
-impl CoordinateGuide for IsometricGuide {
-    type Axis = IsometricAxis;
-
-    fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
-        self.axes = axes;
-    }
-
-    fn axes(&self) -> &HashMap<String, Self::Axis> {
-        &self.axes
-    }
-
+#[typetag::serde]
+impl avenger_chart::guide::CompiledGuide for CompiledIsometricGuide {
     async fn measure_overflow(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -187,7 +214,6 @@ impl CoordinateGuide for IsometricGuide {
         _plot_height: f32,
         _theme: &avenger_chart::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        // For simplicity, assume isometric axes don't overflow
         Ok(OverflowSpaceRequirement {
             top: 0.0,
             bottom: 0.0,
@@ -201,63 +227,10 @@ impl CoordinateGuide for IsometricGuide {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
-        _padding: &Padding,
+        _plot_bounds: &avenger_chart::layout::LayoutBounds,
         _theme: &avenger_chart::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // For this test, we don't need to actually render axes
         Ok(vec![])
-    }
-}
-
-impl CoordinateSystem for Isometric {
-    type Guide = IsometricGuide;
-    type PlotGeometry = PointGeometry;
-
-    fn required_channels(&self) -> &'static [&'static str] {
-        &["iso_x", "iso_y", "iso_z"]
-    }
-
-    fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {
-        match channel {
-            "iso_x" => Some((0.0, width * 0.8)),
-            "iso_y" => Some((0.0, height * 0.8)),
-            "iso_z" => Some((0.0, height * 0.4)),
-            _ => None,
-        }
-    }
-
-    fn create_default_guide(
-        &self,
-        axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn Mark<Self>>],
-    ) -> Self::Guide {
-        let mut guide = IsometricGuide::new();
-        guide.set_axes(axes);
-        guide
-    }
-
-    fn create_default_axes(
-        &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Arc<dyn Mark<Self>>],
-    ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis> {
-        let mut axes = HashMap::new();
-
-        // Create axes for each channel that has a scale
-        for channel in ["iso_x", "iso_y", "iso_z"] {
-            if scales.contains_key(channel) {
-                axes.insert(
-                    channel.to_string(),
-                    IsometricAxis {
-                        channel: channel.to_string(),
-                        visible: true,
-                    },
-                );
-            }
-        }
-
-        axes
     }
 
     fn get_clip(
@@ -265,23 +238,104 @@ impl CoordinateSystem for Isometric {
         plot_width: f32,
         plot_height: f32,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> Clip {
-        // Use rectangular clipping for isometric view
-        Clip::Rect {
+    ) -> avenger_scenegraph::marks::group::Clip {
+        avenger_scenegraph::marks::group::Clip::Rect {
             x: 0.0,
             y: 0.0,
             width: plot_width,
             height: plot_height,
         }
     }
+}
+
+impl CoordinateGuideBuilder for IsometricGuide {
+    type Axis = IsometricAxis;
+
+    fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
+        self.axes = axes;
+    }
+
+    fn set_mark_renderers(
+        &mut self,
+        _mark_renderers: Vec<std::sync::Arc<dyn CompiledMark>>,
+        _session_context: &datafusion::prelude::SessionContext,
+    ) {
+        // Store mark renderers if needed for axis titles
+    }
+
+    fn update(&mut self, other: Self) {
+        self.axes = other.axes;
+        self.options = other.options;
+    }
+
+    fn build(self) -> Box<dyn avenger_chart::guide::CompiledGuide> {
+        // For this example, we'll just return a dummy compiled guide
+        Box::new(CompiledIsometricGuide {
+            axes: self.axes,
+        })
+    }
+}
+
+impl CoordinateSystem for Isometric {
+    type Guide = IsometricGuide;
+
+    fn required_channels(&self) -> &'static [&'static str] {
+        &["iso_x", "iso_y", "iso_z"]
+    }
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(IsometricTransform {
+            angle: self.angle,
+        })
+    }
+}
+
+/// Transform implementation for the isometric coordinate system
+#[derive(Clone, Serialize, Deserialize)]
+struct IsometricTransform {
+    angle: f64,
+}
+
+#[typetag::serde]
+impl CoordinateSystemTransform for IsometricTransform {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &["iso_x", "iso_y", "iso_z"]
+    }
+
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+
+    fn default_range(
+        &self,
+        channel: &str,
+        plot_area_width: f64,
+        plot_area_height: f64,
+    ) -> Option<(f64, f64)> {
+        match channel {
+            "iso_x" => Some((0.0, plot_area_width * 0.8)),
+            "iso_y" => Some((0.0, plot_area_height * 0.8)),
+            "iso_z" => Some((0.0, plot_area_height * 0.4)),
+            _ => None,
+        }
+    }
+
+    fn default_scale_options(
+        &self,
+        _channel: &str,
+        _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+    ) -> HashMap<String, ScalarValue> {
+        // Return default scale options for this coordinate system
+        HashMap::new()
+    }
 
     fn transform(
         &self,
-        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
         _plot_width: f32,
         _plot_height: f32,
-    ) -> Result<Self::PlotGeometry, AvengerChartError> {
-        use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+        use avenger_common::value::ScalarOrArrayValue;
 
         // Get the position channel values
         let x = position_channels
@@ -343,17 +397,17 @@ impl CoordinateSystem for Isometric {
             }
         };
 
-        Ok(PointGeometry {
+        Ok(Box::new(PointGeometry {
             x: screen_x,
             y: screen_y,
-        })
+        }))
     }
 }
 
 /// A custom cube mark for the isometric coordinate system
 pub struct Cube<C: CoordinateSystem> {
-    state: MarkState<C>,
-    _phantom: PhantomData<C>,
+    pub(crate) state: MarkState,
+    pub(crate) _phantom: PhantomData<C>,
 }
 
 // Use the exported macro for base implementation
@@ -389,14 +443,86 @@ define_position_channels! {
 
 // Implement the Mark trait for Isometric
 impl Mark<Isometric> for Cube<Isometric> {
-    impl_mark_trait_common!(Cube);
+    impl_mark_trait_common!(Cube, CompiledIsometricCube);
+}
+
+/// Compiled version of Cube mark for rendering
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledIsometricCube {
+    pub(crate) state: MarkState,
+}
+
+#[typetag::serde]
+impl CompiledMark for CompiledIsometricCube {
+    fn state(&self) -> &MarkState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut MarkState {
+        &mut self.state
+    }
+
+    fn data_context(&self) -> &DataContext {
+        &self.state.data
+    }
+
+    fn mark_type(&self) -> &str {
+        "cube"
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        vec![
+            ChannelDescriptor {
+                name: "iso_x",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "iso_y",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "iso_z",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "size",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "fill",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "stroke",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "opacity",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+        ]
+    }
 
     fn render_from_data(
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
-        _context: &avenger_chart::render_context::RenderContext,
-        _coord: &Isometric,
+        _context: &RenderContext,
+        _coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Custom cube rendering logic would go here
         // For this test, we just return an empty vector
@@ -406,11 +532,13 @@ impl Mark<Isometric> for Cube<Isometric> {
     fn default_channel_value(
         &self,
         channel: &str,
-        _context: &avenger_chart::render_context::RenderContext,
+        _context: &RenderContext,
     ) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(10.0))),
             "fill" => Some(ScalarValue::Utf8(Some("#3498db".to_string()))),
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
             _ => None,
         }
     }

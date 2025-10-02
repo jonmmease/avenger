@@ -123,14 +123,20 @@ impl ScaleImpl for SmoothLogScale {
 
 /// Custom ScaleSpec marker type for SmoothLog scale
 /// This demonstrates that external crates can define their own scale spec types
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SmoothLog;
 
+#[typetag::serde]
 impl ScaleSpec for SmoothLog {
-    fn name() -> &'static str {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &'static str {
         "smooth_log"
     }
 
-    fn create_impl() -> Arc<dyn ScaleImpl> {
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
         Arc::new(SmoothLogScale::new())
     }
 }
