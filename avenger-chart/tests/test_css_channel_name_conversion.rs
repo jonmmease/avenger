@@ -1,7 +1,6 @@
 //! Test that underscore channel names are automatically converted to hyphens in CSS
 
 use avenger_chart::theme::css::CssTheme;
-use avenger_chart::theme::Theme;
 use avenger_scales::scales::RangeKind;
 
 #[test]

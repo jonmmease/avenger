@@ -1,4 +1,5 @@
 //! Main ChartLayout struct and core implementation
+use crate::theme::CssTheme;
 
 use super::grid::{GridBuilder, GridLayout};
 use super::sizing::{LayoutSpec, SizeMode};
@@ -11,7 +12,6 @@ use crate::guide::OverflowSpaceRequirement;
 use crate::legend::LegendPosition;
 use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};
 use crate::render::{LayoutSolution, LegendMeasurements};
-use crate::theme::Theme;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use taffy::prelude::*;
@@ -92,7 +92,7 @@ impl ChartLayout {
         layout_spec: &LayoutSpec,
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
-        theme: &dyn Theme,
+        theme: &CssTheme,
         legend_measurements: &LegendMeasurements,
     ) -> Result<Self, AvengerChartError> {
         let mut builder = GridBuilder::new();

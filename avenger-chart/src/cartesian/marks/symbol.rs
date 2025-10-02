@@ -1,4 +1,5 @@
 use crate::cartesian::Cartesian;
+use crate::theme::CssTheme;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
 use crate::marks::{CompiledMark, DataContext, Mark, MarkState, RadiusExpression};
@@ -375,7 +376,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         scale_impl: &dyn avenger_scales::scales::ScaleImpl,
         domain: &crate::scales::ResolvedDomain,
         _data_type: &datafusion::arrow::datatypes::DataType,
-        theme: &dyn crate::theme::Theme,
+        theme: &CssTheme,
     ) -> Option<crate::scales::ScaleRange> {
         use crate::scales::ScaleRange;
         use datafusion::logical_expr::lit;

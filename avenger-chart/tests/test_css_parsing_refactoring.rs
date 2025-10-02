@@ -1,7 +1,7 @@
 //! Test the CSS parsing refactoring
 
 use avenger_chart::theme::css::CssTheme;
-use avenger_chart::theme::{Theme, ThemeContext, ThemeValue};
+use avenger_chart::theme::{ThemeContext, ThemeValue};
 
 #[test]
 fn test_always_parse_as_list() {

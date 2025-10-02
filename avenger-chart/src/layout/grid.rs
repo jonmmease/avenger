@@ -1,4 +1,5 @@
 //! Grid layout building logic
+use crate::theme::CssTheme;
 
 use super::sizing::LayoutSpec;
 use super::types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide};
@@ -204,7 +205,7 @@ impl GridBuilder {
         overflow: &crate::coords::OverflowSpaceRequirement,
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
-        theme: &dyn crate::theme::Theme,
+        theme: &CssTheme,
         layout_spec: &LayoutSpec,
         legend_sizes: &HashMap<String, Size<f32>>,
     ) -> Result<GridLayout, AvengerChartError> {

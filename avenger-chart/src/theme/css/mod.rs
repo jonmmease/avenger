@@ -589,7 +589,6 @@ impl<'de> Deserialize<'de> for CssTheme {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::theme::Theme;
 
     #[test]
     fn test_css_theme_serialization() {
@@ -624,13 +623,13 @@ mod tests {
     #[test]
     fn test_theme_trait_object_serialization() {
         // Create a theme as a trait object
-        let theme: Box<dyn Theme> = Box::new(CssTheme::dark());
+        let theme: Box<CssTheme> = Box::new(CssTheme::dark());
 
         // Serialize the trait object
         let json = serde_json::to_string(&theme).unwrap();
 
         // Deserialize back as trait object
-        let deserialized: Box<dyn Theme> = serde_json::from_str(&json).unwrap();
+        let deserialized: Box<CssTheme> = serde_json::from_str(&json).unwrap();
 
         // Test with a mark element which has direct styles
         let context = crate::theme::ThemeContext {
