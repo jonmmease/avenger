@@ -412,11 +412,17 @@ pub trait Theme: Send + Sync {
     /// Get axis domain color
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_domain_color(&self, subtype: Option<&str>) -> String {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_domain_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> String {
+        // Build context: guide[type="cartesian"] axis[type="x"] domain
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         let ctx = axis_ctx.child("domain");
         self.query(&ctx, "stroke")
@@ -427,11 +433,16 @@ pub trait Theme: Send + Sync {
     /// Get axis tick color
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_tick_color(&self, subtype: Option<&str>) -> String {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_tick_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> String {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         let ctx = axis_ctx.child("tick");
         self.query(&ctx, "stroke")
@@ -442,11 +453,16 @@ pub trait Theme: Send + Sync {
     /// Get axis grid color
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_grid_color(&self, subtype: Option<&str>) -> String {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_grid_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> String {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         let ctx = axis_ctx.child("grid");
         self.stroke_color(&ctx)
@@ -455,11 +471,16 @@ pub trait Theme: Send + Sync {
     /// Get axis grid opacity
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_grid_opacity(&self, subtype: Option<&str>) -> f32 {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_grid_opacity(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         let ctx = axis_ctx.child("grid");
         self.query(&ctx, "opacity")
@@ -470,11 +491,16 @@ pub trait Theme: Send + Sync {
     /// Get axis grid width
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_grid_width(&self, subtype: Option<&str>) -> f32 {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_grid_width(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         let ctx = axis_ctx.child("grid");
         self.stroke_width(&ctx)
@@ -483,11 +509,16 @@ pub trait Theme: Send + Sync {
     /// Get axis label color
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_label_color(&self, subtype: Option<&str>) -> String {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_label_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> String {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         self.color(&axis_ctx.child("label"))
     }
@@ -495,11 +526,16 @@ pub trait Theme: Send + Sync {
     /// Get axis title color
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_title_color(&self, subtype: Option<&str>) -> String {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_title_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> String {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         self.color(&axis_ctx.child("title"))
     }
@@ -507,11 +543,16 @@ pub trait Theme: Send + Sync {
     /// Get axis tick length
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_tick_length(&self, subtype: Option<&str>) -> f32 {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_tick_length(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         let ctx = axis_ctx.child("tick");
         self.query(&ctx, "size")
@@ -522,11 +563,16 @@ pub trait Theme: Send + Sync {
     /// Get axis label font size
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_label_font_size(&self, subtype: Option<&str>) -> f32 {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_label_font_size(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         self.font_size(&axis_ctx.child("label"))
     }
@@ -534,11 +580,16 @@ pub trait Theme: Send + Sync {
     /// Get axis label font weight
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_label_font_weight(&self, subtype: Option<&str>) -> f32 {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_label_font_weight(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         self.font_weight(&axis_ctx.child("label"))
     }
@@ -546,11 +597,16 @@ pub trait Theme: Send + Sync {
     /// Get axis title font size
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_title_font_size(&self, subtype: Option<&str>) -> f32 {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_title_font_size(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         self.font_size(&axis_ctx.child("title"))
     }
@@ -558,11 +614,16 @@ pub trait Theme: Send + Sync {
     /// Get axis title font weight
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_title_font_weight(&self, subtype: Option<&str>) -> f32 {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_title_font_weight(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         self.font_weight(&axis_ctx.child("title"))
     }
@@ -570,11 +631,16 @@ pub trait Theme: Send + Sync {
     /// Get axis label font family
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_label_font_family(&self, subtype: Option<&str>) -> String {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_label_font_family(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> String {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         self.font_family(&axis_ctx.child("label"))
     }
@@ -582,11 +648,16 @@ pub trait Theme: Send + Sync {
     /// Get axis title font family
     ///
     /// # Arguments
-    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
-    fn axis_title_font_family(&self, subtype: Option<&str>) -> String {
-        let mut axis_ctx = ThemeContext::new("axis");
-        if let Some(t) = subtype {
-            axis_ctx = axis_ctx.with_subtype(t);
+    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
+    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
+    fn axis_title_font_family(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> String {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
         }
         self.font_family(&axis_ctx.child("title"))
     }
