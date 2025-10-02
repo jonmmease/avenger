@@ -1,6 +1,6 @@
 //! Test CSS descendant selectors
 
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use avenger_chart::theme::ThemeContext;
 
 #[test]
@@ -14,7 +14,7 @@ fn test_descendant_selectors() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
     // Test direct query on axis domain (child element)
     let axis_ctx = ThemeContext::new("axis");
@@ -41,7 +41,7 @@ fn test_chart_title_subtitle() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
     let title_ctx = ThemeContext::new("chart-title");
     let title_color = theme.color(&title_ctx);

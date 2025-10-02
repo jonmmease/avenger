@@ -1,10 +1,10 @@
-//! Implementation of theme methods for CssTheme
+//! Implementation of theme methods for Theme
 
-use super::CssTheme;
+use super::Theme;
 use crate::theme::{ThemeContext, ThemeValue, select_available_font};
 use datafusion_common::ScalarValue;
 
-impl CssTheme {
+impl Theme {
     /// Query a theme property for a given context
     pub fn query(&self, context: &ThemeContext, property: &str) -> ThemeValue {
         self.query_css(context, property)

@@ -1,5 +1,5 @@
 //! Cartesian coordinate system guide implementation
-use crate::theme::CssTheme;
+use crate::theme::Theme;
 
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::extract_channel_title_from_marks;
@@ -152,7 +152,7 @@ impl CompiledGuide for CartesianGuide {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        theme: &CssTheme,
+        theme: &Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
 
@@ -231,7 +231,7 @@ impl CompiledGuide for CartesianGuide {
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
-        theme: &CssTheme,
+        theme: &Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

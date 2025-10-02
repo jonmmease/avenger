@@ -175,8 +175,13 @@
 mod context;
 mod value;
 
-// CSS theme system
-pub mod css;
+// Theme implementation modules (formerly in css/)
+pub(crate) mod element;
+pub(crate) mod parser;
+pub(crate) mod selector_impl;
+mod theme;
+pub(crate) mod theme_impl;
+pub(crate) mod css_value;
 
 // Re-export core types
 pub use context::{ContextBuilder, ThemeContext};
@@ -184,8 +189,8 @@ pub use value::{
     LengthUnit, Rgba, ThemeValue, parse_color_string, parse_hex_color, parse_named_color,
 };
 
-// Re-export CssTheme as the main theme type
-pub use css::CssTheme;
+// Re-export Theme as the main theme type
+pub use theme::Theme;
 
 // Helper function for font selection (used by theme_impl.rs)
 /// Select the first available font from a list of font families

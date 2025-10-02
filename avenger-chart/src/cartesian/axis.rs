@@ -1,5 +1,5 @@
 use crate::axis::Axis;
-use crate::theme::CssTheme;
+use crate::theme::Theme;
 use crate::error::AvengerChartError;
 use crate::maybe::Maybe;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -120,7 +120,7 @@ impl CartesianAxis {
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
-        theme: &CssTheme,
+        theme: &Theme,
     ) -> Result<SceneMark, AvengerChartError> {
         use avenger_guides::axis::{
             band::make_band_axis_marks,

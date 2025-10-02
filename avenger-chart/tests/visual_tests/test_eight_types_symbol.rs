@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
 use avenger_chart::prelude::*;
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -163,7 +163,7 @@ async fn test_eight_types_fill_shape_dark() {
 
     assert_visual_match_with_theme(
         plot,
-        CssTheme::dark(),
+        Theme::dark(),
         "symbol",
         "eight_types_fill_shape_dark",
         0.9999,

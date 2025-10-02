@@ -2,7 +2,7 @@
 
 use super::helpers::assert_visual_match;
 use avenger_chart::prelude::*;
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -82,7 +82,7 @@ async fn test_css_guide_subtypes() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS theme");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
     // Create test data
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
@@ -154,7 +154,7 @@ async fn test_css_guide_subtypes_polar() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS theme");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
     // Create polar data
     let radius_values = Float64Array::from(vec![30.0, 50.0, 70.0, 90.0, 60.0, 40.0]);

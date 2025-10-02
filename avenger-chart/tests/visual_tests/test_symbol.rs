@@ -1,6 +1,6 @@
 use super::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
 use avenger_chart::prelude::*;
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -68,7 +68,7 @@ async fn test_simple_scatter_plot_dark() {
 
     assert_visual_match_with_theme(
         plot,
-        CssTheme::dark(),
+        Theme::dark(),
         "symbol",
         "simple_scatter_plot_dark",
         0.9999,

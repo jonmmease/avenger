@@ -1,6 +1,6 @@
 //! Rendering context that carries theme and dimensions through the rendering pipeline
 
-use crate::theme::CssTheme;
+use crate::theme::Theme;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct RenderContext {
     /// The theme to use for rendering
-    pub theme: Arc<CssTheme>,
+    pub theme: Arc<Theme>,
     /// Width of the plot area
     pub plot_width: f32,
     /// Height of the plot area
@@ -23,7 +23,7 @@ pub struct RenderContext {
 
 impl RenderContext {
     pub fn new(
-        theme: Arc<CssTheme>,
+        theme: Arc<Theme>,
         plot_width: f32,
         plot_height: f32,
         session_context: Arc<SessionContext>,

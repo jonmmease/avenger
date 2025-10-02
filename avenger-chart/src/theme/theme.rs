@@ -1,13 +1,6 @@
 //! Full CSS-compliant theme system using cssparser and selectors
 
-mod element;
-mod parser;
-mod selector_impl;
-mod theme_impl;
-mod value;
-
-pub use selector_impl::ChartString;
-
+use crate::theme::parser;
 use crate::theme::{LengthUnit, Rgba, ThemeValue};
 use indexmap::IndexMap;
 use selectors::matching::SelectorCaches;
@@ -15,25 +8,25 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// CSS-based theme with full selector support
 #[derive(Debug, Clone)]
-pub struct CssTheme {
-    rules: Vec<CompiledRule>,
-    variables: IndexMap<String, ThemeValue>,
-    inherited_properties: std::collections::HashSet<&'static str>,
-    base_font_size: f32,
+pub struct Theme {
+    pub(crate) rules: Vec<CompiledRule>,
+    pub(crate) variables: IndexMap<String, ThemeValue>,
+    pub(crate) inherited_properties: std::collections::HashSet<&'static str>,
+    pub(crate) base_font_size: f32,
     /// List of CSS sources in order they were added
-    css_sources: Vec<String>,
+    pub(crate) css_sources: Vec<String>,
 }
 
 /// A compiled CSS rule with selector and declarations
 #[derive(Debug, Clone)]
-struct CompiledRule {
-    selector: selectors::parser::Selector<selector_impl::ChartSelectors>,
-    specificity: u32,
-    source_order: usize,
-    declarations: IndexMap<String, ThemeValue>,
+pub(crate) struct CompiledRule {
+    pub(crate) selector: selectors::parser::Selector<crate::theme::selector_impl::ChartSelectors>,
+    pub(crate) specificity: u32,
+    pub(crate) source_order: usize,
+    pub(crate) declarations: IndexMap<String, ThemeValue>,
 }
 
-impl CssTheme {
+impl Theme {
     /// Light theme preset with default colors and styling
     pub fn light() -> Self {
         let css = r#"
@@ -395,7 +388,7 @@ impl CssTheme {
 
     /// Query a CSS property for an element
     pub fn query_css(&self, context: &crate::theme::ThemeContext, property: &str) -> ThemeValue {
-        use crate::theme::css::element::CssElement;
+        use crate::theme::element::CssElement;
 
         // Convert ThemeContext to CssElement for selector matching
         let element = CssElement::from(context);
@@ -541,19 +534,19 @@ impl CssTheme {
     }
 }
 
-/// Helper struct for serializing CssTheme
+/// Helper struct for serializing Theme
 #[derive(Serialize, Deserialize)]
-struct CssThemeData {
+struct ThemeData {
     css_sources: Vec<String>,
     base_font_size: f32,
 }
 
-impl Serialize for CssTheme {
+impl Serialize for Theme {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let data = CssThemeData {
+        let data = ThemeData {
             css_sources: self.css_sources.clone(),
             base_font_size: self.base_font_size,
         };
@@ -561,15 +554,15 @@ impl Serialize for CssTheme {
     }
 }
 
-impl<'de> Deserialize<'de> for CssTheme {
+impl<'de> Deserialize<'de> for Theme {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let data = CssThemeData::deserialize(deserializer)?;
+        let data = ThemeData::deserialize(deserializer)?;
 
         // Start with empty theme
-        let mut theme = CssTheme {
+        let mut theme = Theme {
             rules: Vec::new(),
             variables: IndexMap::new(),
             inherited_properties: Self::default_inherited_properties(),
@@ -592,14 +585,14 @@ mod tests {
 
     #[test]
     fn test_css_theme_serialization() {
-        // Create a CssTheme
-        let theme = CssTheme::light();
+        // Create a Theme
+        let theme = Theme::light();
 
         // Serialize to JSON
         let json = serde_json::to_string(&theme).unwrap();
 
         // Deserialize back
-        let deserialized: CssTheme = serde_json::from_str(&json).unwrap();
+        let deserialized: Theme = serde_json::from_str(&json).unwrap();
 
         // Check that CSS sources are preserved
         assert_eq!(theme.css_sources.len(), deserialized.css_sources.len());
@@ -623,13 +616,13 @@ mod tests {
     #[test]
     fn test_theme_trait_object_serialization() {
         // Create a theme as a trait object
-        let theme: Box<CssTheme> = Box::new(CssTheme::dark());
+        let theme: Box<Theme> = Box::new(Theme::dark());
 
         // Serialize the trait object
         let json = serde_json::to_string(&theme).unwrap();
 
         // Deserialize back as trait object
-        let deserialized: Box<CssTheme> = serde_json::from_str(&json).unwrap();
+        let deserialized: Box<Theme> = serde_json::from_str(&json).unwrap();
 
         // Test with a mark element which has direct styles
         let context = crate::theme::ThemeContext {
@@ -651,7 +644,7 @@ mod tests {
     #[test]
     fn test_append_css() {
         // Create a base theme
-        let mut theme = CssTheme::from_css(
+        let mut theme = Theme::from_css(
             r#"
             mark {
                 fill: red;
@@ -696,7 +689,7 @@ mod tests {
     #[test]
     fn test_append_css_with_serialization() {
         // Create a base theme and append CSS
-        let mut theme = CssTheme::from_css(
+        let mut theme = Theme::from_css(
             r#"
             mark {
                 fill: red;
@@ -720,7 +713,7 @@ mod tests {
 
         // Serialize and deserialize
         let json = serde_json::to_string(&theme).unwrap();
-        let deserialized: CssTheme = serde_json::from_str(&json).unwrap();
+        let deserialized: Theme = serde_json::from_str(&json).unwrap();
 
         // Verify both CSS sources are preserved
         assert_eq!(deserialized.css_sources.len(), 2);

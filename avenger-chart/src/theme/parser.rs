@@ -1,8 +1,8 @@
 //! CSS stylesheet parser using cssparser's high-level APIs
 
-use super::CompiledRule;
-use super::selector_impl::{ChartPseudoClass, ChartSelectors};
-use super::value::parse_rgb_function;
+use crate::theme::theme::CompiledRule;
+use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
+use crate::theme::css_value::parse_rgb_function;
 use crate::theme::{LengthUnit, ThemeValue, parse_color_string};
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,

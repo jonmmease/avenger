@@ -1,6 +1,6 @@
 //! Test that underscore channel names are automatically converted to hyphens in CSS
 
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use avenger_scales::scales::RangeKind;
 
 #[test]
@@ -13,7 +13,7 @@ fn test_underscore_to_hyphen_conversion() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
     // Query with underscore channel names - should automatically convert to hyphens
     let glow_color_range = theme.get_range_for_channel(
@@ -51,7 +51,7 @@ fn test_underscore_to_hyphen_conversion() {
 #[test]
 fn test_stroke_dash_conversion() {
     // The built-in theme defines stroke-dash-discrete (with hyphens)
-    let theme = CssTheme::light();
+    let theme = Theme::light();
 
     // Query with stroke_dash (underscore) - should find stroke-dash-discrete (hyphen)
     let dash_names = theme.dash_names();
@@ -77,7 +77,7 @@ fn test_stroke_width_conversion() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
     // Query with stroke_width (underscore)
     let discrete_range = theme.get_range_for_channel(

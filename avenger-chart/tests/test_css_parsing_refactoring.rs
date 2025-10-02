@@ -1,13 +1,13 @@
 //! Test the CSS parsing refactoring
 
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use avenger_chart::theme::{ThemeContext, ThemeValue};
 
 #[test]
 fn test_always_parse_as_list() {
     // Test that single values work
     let css = r#".test { fill: red; }"#;
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
     let ctx = ThemeContext::new("element").with_class("test");
     let fill = theme.query(&ctx, "fill");
 
@@ -16,7 +16,7 @@ fn test_always_parse_as_list() {
 
     // Test that multiple values create a list
     let css = r#".test { fill-discrete: red, blue, green; }"#;
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
     let ctx = ThemeContext::new("element").with_class("test");
     let fill = theme.query(&ctx, "fill-discrete");
 
@@ -34,7 +34,7 @@ fn test_color_parsing() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).unwrap();
+    let theme = Theme::from_css(css).unwrap();
     let ctx = ThemeContext::new("element").with_class("test");
 
     // Bare identifier that is a color becomes Color

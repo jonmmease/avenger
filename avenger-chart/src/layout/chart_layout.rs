@@ -1,5 +1,5 @@
 //! Main ChartLayout struct and core implementation
-use crate::theme::CssTheme;
+use crate::theme::Theme;
 
 use super::grid::{GridBuilder, GridLayout};
 use super::sizing::{LayoutSpec, SizeMode};
@@ -92,7 +92,7 @@ impl ChartLayout {
         layout_spec: &LayoutSpec,
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
-        theme: &CssTheme,
+        theme: &Theme,
         legend_measurements: &LegendMeasurements,
     ) -> Result<Self, AvengerChartError> {
         let mut builder = GridBuilder::new();

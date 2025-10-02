@@ -1,5 +1,5 @@
 pub mod data_context;
-use crate::theme::CssTheme;
+use crate::theme::Theme;
 pub mod facet_strategy;
 pub mod line;
 pub mod rect;
@@ -278,7 +278,7 @@ pub trait CompiledMark {
         _scale_impl: &dyn ScaleImpl,
         _domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
-        _theme: &CssTheme,
+        _theme: &Theme,
     ) -> Option<ScaleRange> {
         None
     }

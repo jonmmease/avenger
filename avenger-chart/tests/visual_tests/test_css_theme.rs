@@ -2,7 +2,7 @@
 
 use super::helpers::assert_visual_match;
 use avenger_chart::prelude::*;
-use avenger_chart::theme::css::CssTheme;
+use avenger_chart::theme::Theme;
 use datafusion::arrow::array::{Float64Array, Int32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -111,7 +111,7 @@ async fn test_css_theme_basic() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS theme");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
     // Create a simple scatter plot with the CSS theme
     let data = vec![
@@ -192,7 +192,7 @@ async fn test_css_theme_scale_ranges() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS theme");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
     // Create a scatter plot that will use the Okabe-Ito colors
     let data = vec![
@@ -336,7 +336,7 @@ async fn test_css_theme_dark_mode() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS dark theme");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS dark theme");
 
     // Create a line chart with the dark theme
     let x_data: Vec<f64> = (0..20).map(|i| i as f64 * 0.5).collect();
@@ -437,7 +437,7 @@ async fn test_css_theme_discrete_continuous_properties() {
         }
     "#;
 
-    let theme = CssTheme::from_css(css).expect("Failed to parse CSS theme");
+    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
     // Create a scatter plot with both categorical and continuous data
     let data = vec![
