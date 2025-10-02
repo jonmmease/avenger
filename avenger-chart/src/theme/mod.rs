@@ -130,6 +130,20 @@ pub trait Theme: Send + Sync {
         }
     }
 
+    // Guide (coordinate system) theme methods
+
+    /// Get guide background color
+    ///
+    /// The subtype parameter allows targeting specific coordinate systems,
+    /// e.g., "cartesian", "polar"
+    fn guide_background_color(&self, subtype: Option<&str>) -> Option<String> {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(t) = subtype {
+            guide_ctx = guide_ctx.with_subtype(t);
+        }
+        self.query(&guide_ctx, "background-color").to_string_value()
+    }
+
     /// Get mark default value for a channel
     ///
     /// Returns the default value for a specific mark type and channel.
@@ -152,28 +166,40 @@ pub trait Theme: Send + Sync {
     // Legend-specific methods
 
     /// Get legend background fill
-    fn legend_background_fill(&self) -> Option<String> {
-        let legend_ctx = ThemeContext::new("legend");
-        let ctx = legend_ctx.child("background");
-        match self.query(&ctx, "fill") {
-            ThemeValue::String(s) => Some(s),
-            _ => None,
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_background_fill(&self, subtype: Option<&str>) -> Option<String> {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
         }
+        let ctx = legend_ctx.child("background");
+        self.query(&ctx, "fill").to_string_value()
     }
 
     /// Get legend background stroke
-    fn legend_background_stroke(&self) -> Option<String> {
-        let legend_ctx = ThemeContext::new("legend");
-        let ctx = legend_ctx.child("background");
-        match self.query(&ctx, "stroke") {
-            ThemeValue::String(s) => Some(s),
-            _ => None,
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_background_stroke(&self, subtype: Option<&str>) -> Option<String> {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
         }
+        let ctx = legend_ctx.child("background");
+        self.query(&ctx, "stroke").to_string_value()
     }
 
     /// Get legend background padding
-    fn legend_background_padding(&self) -> f32 {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_background_padding(&self, subtype: Option<&str>) -> f32 {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         let ctx = legend_ctx.child("background");
         self.query(&ctx, "padding")
             .as_pixels(self.base_font_size())
@@ -181,8 +207,14 @@ pub trait Theme: Send + Sync {
     }
 
     /// Get legend background corner radius
-    fn legend_background_corner_radius(&self) -> f32 {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_background_corner_radius(&self, subtype: Option<&str>) -> f32 {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         let ctx = legend_ctx.child("background");
         self.query(&ctx, "corner-radius")
             .as_pixels(self.base_font_size())
@@ -190,74 +222,146 @@ pub trait Theme: Send + Sync {
     }
 
     /// Get legend title color
-    fn legend_title_color(&self) -> String {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_title_color(&self, subtype: Option<&str>) -> String {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.color(&legend_ctx.child("title"))
     }
 
     /// Get legend label color
-    fn legend_label_color(&self) -> String {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_label_color(&self, subtype: Option<&str>) -> String {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.color(&legend_ctx.child("label"))
     }
 
     /// Get legend tick color
-    fn legend_tick_color(&self) -> String {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_tick_color(&self, subtype: Option<&str>) -> String {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.color(&legend_ctx.child("tick"))
     }
 
     /// Get legend title font family
-    fn legend_title_font_family(&self) -> String {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_title_font_family(&self, subtype: Option<&str>) -> String {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.font_family(&legend_ctx.child("title"))
     }
 
     /// Get legend label font family
-    fn legend_label_font_family(&self) -> String {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_label_font_family(&self, subtype: Option<&str>) -> String {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.font_family(&legend_ctx.child("label"))
     }
 
     /// Get legend tick font family
-    fn legend_tick_font_family(&self) -> String {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_tick_font_family(&self, subtype: Option<&str>) -> String {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.font_family(&legend_ctx.child("tick"))
     }
 
     /// Get legend title font size
-    fn legend_title_font_size(&self) -> f32 {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_title_font_size(&self, subtype: Option<&str>) -> f32 {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.font_size(&legend_ctx.child("title"))
     }
 
     /// Get legend label font size
-    fn legend_label_font_size(&self) -> f32 {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_label_font_size(&self, subtype: Option<&str>) -> f32 {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.font_size(&legend_ctx.child("label"))
     }
 
     /// Get legend tick font size
-    fn legend_tick_font_size(&self) -> f32 {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_tick_font_size(&self, subtype: Option<&str>) -> f32 {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.font_size(&legend_ctx.child("tick"))
     }
 
     /// Get legend title font weight
-    fn legend_title_font_weight(&self) -> f32 {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_title_font_weight(&self, subtype: Option<&str>) -> f32 {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.font_weight(&legend_ctx.child("title"))
     }
 
     /// Get legend label font weight
-    fn legend_label_font_weight(&self) -> f32 {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_label_font_weight(&self, subtype: Option<&str>) -> f32 {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.font_weight(&legend_ctx.child("label"))
     }
 
     /// Get legend tick font weight
-    fn legend_tick_font_weight(&self) -> f32 {
-        let legend_ctx = ThemeContext::new("legend");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
+    fn legend_tick_font_weight(&self, subtype: Option<&str>) -> f32 {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
         self.font_weight(&legend_ctx.child("tick"))
     }
 
@@ -306,8 +410,14 @@ pub trait Theme: Send + Sync {
     // Axis-specific methods
 
     /// Get axis domain color
-    fn axis_domain_color(&self) -> String {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_domain_color(&self, subtype: Option<&str>) -> String {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         let ctx = axis_ctx.child("domain");
         self.query(&ctx, "stroke")
             .to_string_value()
@@ -315,8 +425,14 @@ pub trait Theme: Send + Sync {
     }
 
     /// Get axis tick color
-    fn axis_tick_color(&self) -> String {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_tick_color(&self, subtype: Option<&str>) -> String {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         let ctx = axis_ctx.child("tick");
         self.query(&ctx, "stroke")
             .to_string_value()
@@ -324,15 +440,27 @@ pub trait Theme: Send + Sync {
     }
 
     /// Get axis grid color
-    fn axis_grid_color(&self) -> String {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_grid_color(&self, subtype: Option<&str>) -> String {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         let ctx = axis_ctx.child("grid");
         self.stroke_color(&ctx)
     }
 
     /// Get axis grid opacity
-    fn axis_grid_opacity(&self) -> f32 {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_grid_opacity(&self, subtype: Option<&str>) -> f32 {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         let ctx = axis_ctx.child("grid");
         self.query(&ctx, "opacity")
             .as_pixels(self.base_font_size())
@@ -340,27 +468,51 @@ pub trait Theme: Send + Sync {
     }
 
     /// Get axis grid width
-    fn axis_grid_width(&self) -> f32 {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_grid_width(&self, subtype: Option<&str>) -> f32 {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         let ctx = axis_ctx.child("grid");
         self.stroke_width(&ctx)
     }
 
     /// Get axis label color
-    fn axis_label_color(&self) -> String {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_label_color(&self, subtype: Option<&str>) -> String {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         self.color(&axis_ctx.child("label"))
     }
 
     /// Get axis title color
-    fn axis_title_color(&self) -> String {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_title_color(&self, subtype: Option<&str>) -> String {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         self.color(&axis_ctx.child("title"))
     }
 
     /// Get axis tick length
-    fn axis_tick_length(&self) -> f32 {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_tick_length(&self, subtype: Option<&str>) -> f32 {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         let ctx = axis_ctx.child("tick");
         self.query(&ctx, "size")
             .as_pixels(self.base_font_size())
@@ -368,38 +520,74 @@ pub trait Theme: Send + Sync {
     }
 
     /// Get axis label font size
-    fn axis_label_font_size(&self) -> f32 {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_label_font_size(&self, subtype: Option<&str>) -> f32 {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         self.font_size(&axis_ctx.child("label"))
     }
 
     /// Get axis label font weight
-    fn axis_label_font_weight(&self) -> f32 {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_label_font_weight(&self, subtype: Option<&str>) -> f32 {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         self.font_weight(&axis_ctx.child("label"))
     }
 
     /// Get axis title font size
-    fn axis_title_font_size(&self) -> f32 {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_title_font_size(&self, subtype: Option<&str>) -> f32 {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         self.font_size(&axis_ctx.child("title"))
     }
 
     /// Get axis title font weight
-    fn axis_title_font_weight(&self) -> f32 {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_title_font_weight(&self, subtype: Option<&str>) -> f32 {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         self.font_weight(&axis_ctx.child("title"))
     }
 
     /// Get axis label font family
-    fn axis_label_font_family(&self) -> String {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_label_font_family(&self, subtype: Option<&str>) -> String {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         self.font_family(&axis_ctx.child("label"))
     }
 
     /// Get axis title font family
-    fn axis_title_font_family(&self) -> String {
-        let axis_ctx = ThemeContext::new("axis");
+    ///
+    /// # Arguments
+    /// * `subtype` - Optional axis subtype (e.g., "x", "y", "top", "bottom")
+    fn axis_title_font_family(&self, subtype: Option<&str>) -> String {
+        let mut axis_ctx = ThemeContext::new("axis");
+        if let Some(t) = subtype {
+            axis_ctx = axis_ctx.with_subtype(t);
+        }
         self.font_family(&axis_ctx.child("title"))
     }
 

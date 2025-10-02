@@ -236,7 +236,21 @@ impl CompiledGuide for CartesianGuide {
         let mut marks = Vec::new();
 
         // Render background if specified (behind everything else)
-        if let Some(bg_color) = self.options.plot_background_color {
+        // First check explicit option, then fall back to theme
+        let bg_color = self.options.plot_background_color.or_else(|| {
+            theme
+                .guide_background_color(Some("cartesian"))
+                .and_then(|color_str| {
+                    crate::utils::parse_color_string(&color_str).and_then(|cog| {
+                        match cog {
+                            avenger_common::types::ColorOrGradient::Color(rgba) => Some(rgba),
+                            _ => None,
+                        }
+                    })
+                })
+        });
+
+        if let Some(bg_color) = bg_color {
             use avenger_common::types::ColorOrGradient;
             use avenger_common::value::ScalarOrArray;
             use avenger_scenegraph::marks::rect::SceneRectMark;
