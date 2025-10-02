@@ -231,7 +231,7 @@ impl Theme for CssTheme {
     fn dash_names(&self) -> Vec<String> {
         // Query dash patterns from CSS
         let context = ThemeContext::new("mark");
-        let dashes_value = self.query_css(&context, "stroke_dash-discrete");
+        let dashes_value = self.query_css(&context, "stroke-dash-discrete");
 
         // Parse the result into a list of dash patterns
         match dashes_value {
