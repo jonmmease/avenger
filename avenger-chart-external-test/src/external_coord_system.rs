@@ -19,7 +19,6 @@ use datafusion::scalar::ScalarValue;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 /// A custom 3D isometric coordinate system defined in an external crate
 /// This maps 3D coordinates (x, y, z) to 2D screen space using isometric projection

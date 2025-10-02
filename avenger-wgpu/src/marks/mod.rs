@@ -1,3 +1,6 @@
+// Suppress warnings from bytemuck-generated code in GPU structs
+#![allow(dead_code)]
+
 pub mod gradient;
 pub mod image;
 pub mod instanced_mark;
