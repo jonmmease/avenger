@@ -66,15 +66,6 @@ pub struct Theme {
     pub(crate) css_sources: Vec<String>,
 }
 
-/// A compiled CSS rule with selector and declarations
-#[derive(Debug, Clone)]
-pub(crate) struct CompiledRule {
-    pub(crate) selector: selectors::parser::Selector<crate::theme::selector_impl::ChartSelectors>,
-    pub(crate) specificity: u32,
-    pub(crate) source_order: usize,
-    pub(crate) declarations: IndexMap<String, ThemeValue>,
-}
-
 impl Theme {
     /// Light theme preset with default colors and styling
     pub fn light() -> Self {
@@ -537,64 +528,11 @@ impl Theme {
         // No CSS rule found
         None
     }
-}
 
-/// Helper struct for serializing Theme
-#[derive(Serialize, Deserialize)]
-struct ThemeData {
-    css_sources: Vec<String>,
-    base_font_size: f32,
-}
-
-impl Serialize for Theme {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let data = ThemeData {
-            css_sources: self.css_sources.clone(),
-            base_font_size: self.base_font_size,
-        };
-        data.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for Theme {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let data = ThemeData::deserialize(deserializer)?;
-
-        // Start with empty theme
-        let mut theme = Theme {
-            rules: Vec::new(),
-            variables: IndexMap::new(),
-            inherited_properties: Self::default_inherited_properties(),
-            base_font_size: data.base_font_size,
-            css_sources: Vec::new(),
-        };
-
-        // Rebuild by parsing each CSS source in order
-        for css in data.css_sources {
-            theme.append_css(&css).map_err(serde::de::Error::custom)?;
-        }
-
-        Ok(theme)
-    }
-}
-
-// ============================================================================
-// Theme Query Methods
-// ============================================================================
-
-impl Theme {
     /// Get the base font size in pixels (used for rem unit conversion)
     pub fn base_font_size(&self) -> f32 {
         self.base_font_size
     }
-
-    // Internal helper methods for building contexts
 
     /// Build a legend context with optional subtype
     fn legend_context(&self, subtype: Option<&str>) -> ThemeContext {
@@ -712,13 +650,6 @@ impl Theme {
         self.query(&guide_ctx, "background-color")
             .and_then(|v| v.as_color_array())
     }
-
-    /// Get base font family
-    pub fn base_font_family(&self) -> Option<String> {
-        self.font_family(&ThemeContext::new("base"))
-    }
-
-    // Legend-specific methods
 
     /// Get legend background fill as normalized RGBA array
     ///
@@ -854,8 +785,6 @@ impl Theme {
         self.font_weight(&self.legend_context(subtype).child("tick"))
     }
 
-    // Title-specific methods
-
     /// Get title color as normalized RGBA array
     pub fn title_color(&self) -> Option<[f32; 4]> {
         self.color(&ThemeContext::new("chart-title"))
@@ -895,8 +824,6 @@ impl Theme {
     pub fn subtitle_font_weight(&self) -> Option<f32> {
         self.font_weight(&ThemeContext::new("chart-subtitle"))
     }
-
-    // Axis-specific methods
 
     /// Get axis domain color as normalized RGBA array
     ///
@@ -1126,18 +1053,6 @@ impl Theme {
 
             // Parse the range value into appropriate ScaleRange
             match range_value {
-                Some(ThemeValue::String(s)) => {
-                    // Parse comma-separated list
-                    let values = Self::parse_css_list(&s);
-                    if !values.is_empty() {
-                        return Some(self.create_scale_range(
-                            &values,
-                            channel,
-                            range_kind,
-                            domain_cardinality,
-                        ));
-                    }
-                }
                 Some(ThemeValue::List(values)) => {
                     // Handle pre-parsed list of values
                     let mut parsed_values = Vec::new();
@@ -1166,25 +1081,6 @@ impl Theme {
                         ));
                     }
                 }
-                Some(ThemeValue::Variable(var_name)) => {
-                    // Try to resolve variable manually
-                    if let Some(resolved) = self.variables.get(&var_name) {
-                        match resolved {
-                            ThemeValue::String(s) => {
-                                let values = Self::parse_css_list(&s);
-                                if !values.is_empty() {
-                                    return Some(self.create_scale_range(
-                                        &values,
-                                        channel,
-                                        range_kind,
-                                        domain_cardinality,
-                                    ));
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
                 _ => {}
             }
         }
@@ -1204,16 +1100,10 @@ impl Theme {
         // Query CSS theme for mark defaults
         let context = ThemeContext::new("mark").with_subtype(mark_type);
 
-        // Map channel to CSS property
-        let css_property = match channel {
-            "fill" => "fill",
-            "stroke" => "stroke",
-            "stroke_width" => "stroke-width",
-            "size" => "size",
-            _ => return None,
-        };
+        // Convert underscore to hyphen for CSS property name
+        let css_property = channel.replace('_', "-");
 
-        let theme_value = self.query(&context, css_property);
+        let theme_value = self.query(&context, &css_property);
 
         match theme_value {
             Some(ThemeValue::String(s)) => Some(datafusion_common::ScalarValue::Utf8(Some(s))),
@@ -1229,16 +1119,6 @@ impl Theme {
             }
             _ => None,
         }
-    }
-
-    /// Parse a CSS list value into individual string values
-    /// Handles formats like: "#E69F00", "#56B4E9", "#009E73"
-    fn parse_css_list(value: &str) -> Vec<String> {
-        value
-            .split(',')
-            .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
     }
 
     /// Create a ScaleRange from parsed values
@@ -1322,6 +1202,38 @@ impl Theme {
     }
 }
 
+
+impl Serialize for Theme {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Serialize as combined CSS string
+        let css = self.to_css();
+        css.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Theme {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let css = String::deserialize(deserializer)?;
+        Theme::from_css(&css).map_err(serde::de::Error::custom)
+    }
+}
+
+/// A compiled CSS rule with selector and declarations
+#[derive(Debug, Clone)]
+pub(crate) struct CompiledRule {
+    pub(crate) selector: selectors::parser::Selector<crate::theme::selector_impl::ChartSelectors>,
+    pub(crate) specificity: u32,
+    pub(crate) source_order: usize,
+    pub(crate) declarations: IndexMap<String, ThemeValue>,
+}
+
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -1386,6 +1298,46 @@ mod tests {
 
         // Also test that base_font_size is preserved
         assert_eq!(deserialized.base_font_size(), 12.0);
+    }
+
+    #[test]
+    fn test_css_list_parsing() {
+        let css = r#"
+            :root {
+                --my-colors: #ff0000, #00ff00, #0000ff;
+            }
+            mark {
+                fill-discrete: #ff0000, #00ff00, #0000ff;
+                stroke-discrete: var(--my-colors);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).unwrap();
+
+        // Test direct list value
+        let ctx = ThemeContext::new("mark");
+        let value = theme.query(&ctx, "fill-discrete");
+        println!("Direct value type: {:?}", value);
+        match value {
+            Some(ThemeValue::List(items)) => {
+                println!("Direct: It's a List with {} items!", items.len());
+                assert_eq!(items.len(), 3);
+            }
+            Some(ThemeValue::String(s)) => panic!("Direct: Expected List but got String: {}", s),
+            _ => panic!("Direct: Unexpected value type"),
+        }
+
+        // Test variable value - query() automatically resolves variables
+        let var_value = theme.query(&ctx, "stroke-discrete");
+        println!("Variable value type: {:?}", var_value);
+        match var_value {
+            Some(ThemeValue::List(items)) => {
+                println!("Variable: It's a List with {} items!", items.len());
+                assert_eq!(items.len(), 3);
+            }
+            Some(ThemeValue::String(s)) => panic!("Variable: Expected List but got String: {}", s),
+            _ => panic!("Variable: Unexpected value type"),
+        }
     }
 
     #[test]
@@ -1462,8 +1414,8 @@ mod tests {
         let json = serde_json::to_string(&theme).unwrap();
         let deserialized: Theme = serde_json::from_str(&json).unwrap();
 
-        // Verify both CSS sources are preserved
-        assert_eq!(deserialized.css_sources.len(), 2);
+        // After deserialization, CSS sources are combined into one
+        assert_eq!(deserialized.css_sources.len(), 1);
 
         // Test combined CSS export
         let combined_css = deserialized.to_css();
