@@ -117,7 +117,7 @@ fn test_clone_box() {
 }
 
 #[test]
-fn test_categorical_colors_and_shapes() {
+fn test_categorical_colors_and_default_constants() {
     let css = r#""#; // Empty CSS, will use defaults
     let theme = Theme::from_css(css).unwrap();
 
@@ -126,13 +126,11 @@ fn test_categorical_colors_and_shapes() {
     assert!(!colors.is_empty());
     assert!(colors[0].starts_with("#"));
 
-    // Test shape names
-    let shapes = theme.shape_names();
-    assert!(!shapes.is_empty());
-    assert!(shapes.contains(&"circle".to_string()));
-
-    // Test dash names
-    let dashes = theme.dash_names();
-    assert!(!dashes.is_empty());
-    assert!(dashes.contains(&"solid".to_string()));
+    // Test that default constants are available
+    use avenger_chart::theme::{DEFAULT_SHAPE_NAMES, DEFAULT_DASH_NAMES, DEFAULT_CATEGORICAL_COLORS};
+    assert!(!DEFAULT_SHAPE_NAMES.is_empty());
+    assert!(DEFAULT_SHAPE_NAMES.contains(&"circle"));
+    assert!(!DEFAULT_DASH_NAMES.is_empty());
+    assert!(DEFAULT_DASH_NAMES.contains(&"solid"));
+    assert!(!DEFAULT_CATEGORICAL_COLORS.is_empty());
 }
