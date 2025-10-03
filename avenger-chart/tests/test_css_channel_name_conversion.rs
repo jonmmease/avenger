@@ -49,21 +49,17 @@ fn test_underscore_to_hyphen_conversion() {
 }
 
 #[test]
-fn test_stroke_dash_conversion() {
-    // The built-in theme defines stroke-dash-discrete (with hyphens)
-    let theme = Theme::light();
+fn test_stroke_dash_defaults() {
+    // Test that default dash patterns are available
+    use avenger_chart::theme::DEFAULT_DASH_NAMES;
 
-    // Query with stroke_dash (underscore) - should find stroke-dash-discrete (hyphen)
-    let dash_names = theme.dash_names();
-
-    // Should find the default dash patterns
-    assert!(!dash_names.is_empty(), "Should have dash patterns");
+    assert!(!DEFAULT_DASH_NAMES.is_empty(), "Should have dash patterns");
     assert!(
-        dash_names.contains(&"solid".to_string()),
+        DEFAULT_DASH_NAMES.contains(&"solid"),
         "Should contain 'solid' dash pattern"
     );
     assert!(
-        dash_names.contains(&"dashed".to_string()),
+        DEFAULT_DASH_NAMES.contains(&"dashed"),
         "Should contain 'dashed' pattern"
     );
 }

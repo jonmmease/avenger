@@ -254,6 +254,11 @@ pub use value::{CssRgba, LengthUnit, ThemeValue};
 // Re-export Theme as the main theme type
 pub use theme::Theme;
 
+// Re-export default constants
+pub use theme::{
+    DEFAULT_CATEGORICAL_COLORS, DEFAULT_DASH_NAMES, DEFAULT_FONT_FAMILY, DEFAULT_SHAPE_NAMES,
+};
+
 // Helper function for font selection (used by theme_impl.rs)
 /// Select the first available font from a list of font families
 /// Checks against the fonts available in the system using avenger-text
