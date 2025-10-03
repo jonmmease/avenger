@@ -17,7 +17,7 @@ const PIXEL_OFFSET: f32 = 0.5;
 
 const DEFAULT_TICK_LENGTH: f32 = 5.0;
 const DEFAULT_TITLE_FONT_SIZE: f32 = 12.0;
-const DEFAULT_TICK_FONT_SIZE: f32 = 10.0;
+const DEFAULT_TICK_FONT_SIZE: f32 = 12.0;
 
 pub fn make_numeric_axis_marks(
     scale: &ConfiguredScale,
@@ -355,10 +355,9 @@ fn make_tick_labels(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: ColorOrGradient::Color(config.label_color.unwrap_or([0.353, 0.353, 0.353, 1.0]))
-            .into(), // Default: #5A5A5A
+        color: ColorOrGradient::Color(config.label_color.unwrap_or([0.0, 0.0, 0.0, 1.0])).into(), // Default: black
         font_size: tick_font_size.into(),
-        font_weight: FontWeight::Number(config.label_font_weight.unwrap_or(300.0)).into(), // Default: light weight for tick labels
+        font_weight: FontWeight::Number(config.label_font_weight.unwrap_or(400.0)).into(), // Default: normal weight for tick labels
         font: config
             .label_font_family
             .clone()
@@ -436,8 +435,7 @@ fn make_title(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: ColorOrGradient::Color(config.title_color.unwrap_or([0.173, 0.173, 0.173, 1.0]))
-            .into(), // Default: #2C2C2C
+        color: ColorOrGradient::Color(config.title_color.unwrap_or([0.0, 0.0, 0.0, 1.0])).into(), // Default: black
         font_size: config
             .title_font_size
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE)

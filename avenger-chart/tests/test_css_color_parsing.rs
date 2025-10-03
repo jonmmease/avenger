@@ -34,7 +34,7 @@ fn test_color_parsing_behavior() {
     let fill1 = theme.query(&ctx1, "fill");
     println!("bare 'red': {:?}", fill1);
     assert!(
-        matches!(fill1, ThemeValue::Color(_)),
+        matches!(fill1, Some(ThemeValue::Color(_))),
         "Bare color keyword should parse as Color"
     );
 
@@ -43,7 +43,7 @@ fn test_color_parsing_behavior() {
     let fill2 = theme.query(&ctx2, "fill");
     println!("quoted \"red\": {:?}", fill2);
     assert!(
-        matches!(fill2, ThemeValue::String(s) if s == "red"),
+        matches!(fill2, Some(ThemeValue::String(s)) if s == "red"),
         "Quoted string should remain String"
     );
 
@@ -52,7 +52,7 @@ fn test_color_parsing_behavior() {
     let fill3 = theme.query(&ctx3, "fill");
     println!("hex #ff0000: {:?}", fill3);
     assert!(
-        matches!(fill3, ThemeValue::Color(_)),
+        matches!(fill3, Some(ThemeValue::Color(_))),
         "Hex color should parse as Color"
     );
 
@@ -61,7 +61,7 @@ fn test_color_parsing_behavior() {
     let fill4 = theme.query(&ctx4, "fill");
     println!("rgb(255,0,0): {:?}", fill4);
     assert!(
-        matches!(fill4, ThemeValue::Color(_)),
+        matches!(fill4, Some(ThemeValue::Color(_))),
         "RGB function should parse as Color"
     );
 
@@ -70,7 +70,7 @@ fn test_color_parsing_behavior() {
     let fill5 = theme.query(&ctx5, "fill");
     println!("bare 'foobar': {:?}", fill5);
     assert!(
-        matches!(fill5, ThemeValue::String(s) if s == "foobar"),
+        matches!(fill5, Some(ThemeValue::String(s)) if s == "foobar"),
         "Non-color identifier should remain String"
     );
 
@@ -79,7 +79,7 @@ fn test_color_parsing_behavior() {
     let font6 = theme.query(&ctx6, "font-family");
     println!("bare 'Arial': {:?}", font6);
     assert!(
-        matches!(font6, ThemeValue::String(s) if s == "Arial"),
+        matches!(font6, Some(ThemeValue::String(s)) if s == "Arial"),
         "Font name should remain String"
     );
 
@@ -88,7 +88,7 @@ fn test_color_parsing_behavior() {
     let font7 = theme.query(&ctx7, "font-family");
     println!("quoted \"Arial\": {:?}", font7);
     assert!(
-        matches!(font7, ThemeValue::String(s) if s == "Arial"),
+        matches!(font7, Some(ThemeValue::String(s)) if s == "Arial"),
         "Quoted font name should remain String"
     );
 }
@@ -119,7 +119,7 @@ fn test_css_spec_behavior() {
     let font = theme.query(&ctx, "font-family");
     println!("font-family: red => {:?}", font);
     assert!(
-        matches!(font, ThemeValue::Color(_)),
+        matches!(font, Some(ThemeValue::Color(_))),
         "Color keyword always parses as Color, even for font-family"
     );
 
@@ -127,7 +127,7 @@ fn test_css_spec_behavior() {
     let color = theme.query(&ctx, "color");
     println!("color: \"red\" => {:?}", color);
     assert!(
-        matches!(color, ThemeValue::String(s) if s == "red"),
+        matches!(color, Some(ThemeValue::String(s)) if s == "red"),
         "Quoted string always stays String, even for color property"
     );
 }
@@ -159,14 +159,14 @@ fn test_practical_implications() {
     let ctx = ThemeContext::new("mark");
 
     let fill = theme.query(&ctx, "fill");
-    assert!(matches!(fill, ThemeValue::Color(_)));
+    assert!(matches!(fill, Some(ThemeValue::Color(_))));
 
     let stroke = theme.query(&ctx, "stroke");
-    assert!(matches!(stroke, ThemeValue::String(_)));
+    assert!(matches!(stroke, Some(ThemeValue::String(_))));
 
     let shape = theme.query(&ctx, "shape");
-    assert!(matches!(shape, ThemeValue::String(s) if s == "circle"));
+    assert!(matches!(shape, Some(ThemeValue::String(s)) if s == "circle"));
 
     let shape2 = theme.query(&ctx, "shape2");
-    assert!(matches!(shape2, ThemeValue::String(s) if s == "circle"));
+    assert!(matches!(shape2, Some(ThemeValue::String(s)) if s == "circle"));
 }

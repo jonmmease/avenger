@@ -1,14 +1,14 @@
 //! CSS stylesheet parser using cssparser's high-level APIs
 
-use crate::theme::theme::CompiledRule;
-use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
 use crate::theme::css_value::parse_rgb_function;
+use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
+use crate::theme::theme::CompiledRule;
 use crate::theme::value::parse_color_string;
 use crate::theme::{CssRgba, LengthUnit, ThemeValue};
 use cssparser::{
-    color::{parse_hash_color, OPAQUE},
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
+    color::{OPAQUE, parse_hash_color},
 };
 use indexmap::IndexMap;
 use selectors::parser::{ParseRelative, Parser as SelectorParser, SelectorList};

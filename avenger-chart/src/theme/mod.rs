@@ -11,10 +11,7 @@
 //! ```rust,no_run
 //! use avenger_chart::theme::Theme;
 //!
-//! // Use the default theme (light)
-//! let theme = Theme::default();
-//!
-//! // Or use a specific built-in theme
+//! // Use a specific built-in theme
 //! let theme = Theme::light();
 //! let theme = Theme::dark();
 //! ```
@@ -234,13 +231,6 @@
 //! sibling relationships. The theme system uses a lazy context creation model rather than
 //! a materialized tree structure.
 //!
-//! **Workaround**: Use explicit classes instead:
-//! ```rust
-//! // Instead of CSS: axis:first-child { color: red; }
-//! // Use: axis.first { color: red; }
-//! let ctx = ThemeContext::new("axis").with_class("first");
-//! ```
-//!
 //! ### No Interactive Pseudo-Classes
 //!
 //! Interactive pseudo-classes (`:hover`, `:active`, `:focus`) are not supported as the
@@ -251,11 +241,11 @@ mod context;
 mod value;
 
 // CSS-based theme implementation modules
+pub(crate) mod css_value;
 pub(crate) mod element;
 pub(crate) mod parser;
 pub(crate) mod selector_impl;
 mod theme;
-pub(crate) mod css_value;
 
 // Re-export core types
 pub use context::ThemeContext;

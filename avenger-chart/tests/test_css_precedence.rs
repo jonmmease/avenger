@@ -4,8 +4,8 @@ use avenger_chart::theme::Theme;
 use avenger_chart::theme::{CssRgba, ThemeContext, ThemeValue};
 
 // Helper function to check if a color matches expected RGB values
-fn is_color(value: &ThemeValue, r: u8, g: u8, b: u8) -> bool {
-    matches!(value, ThemeValue::Color(CssRgba { red, green, blue, .. }) if *red == r && *green == g && *blue == b)
+fn is_color(value: &Option<ThemeValue>, r: u8, g: u8, b: u8) -> bool {
+    matches!(value, Some(ThemeValue::Color(CssRgba { red, green, blue, .. })) if *red == r && *green == g && *blue == b)
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn test_inheritance_with_specificity() {
 
     // Font-size should still be 12px (inherited)
     let font_size = theme.query(&special_mark, "font-size");
-    if let ThemeValue::Length(size, _) = font_size {
+    if let Some(ThemeValue::Length(size, _)) = font_size {
         assert_eq!(size, 12.0);
     } else {
         panic!("Expected length value");

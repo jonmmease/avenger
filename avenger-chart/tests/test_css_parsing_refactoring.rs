@@ -12,7 +12,7 @@ fn test_always_parse_as_list() {
     let fill = theme.query(&ctx, "fill");
 
     println!("Single value fill: {:?}", fill);
-    assert!(matches!(fill, ThemeValue::Color(_)));
+    assert!(matches!(fill, Some(ThemeValue::Color(_))));
 
     // Test that multiple values create a list
     let css = r#".test { fill-discrete: red, blue, green; }"#;
@@ -21,7 +21,7 @@ fn test_always_parse_as_list() {
     let fill = theme.query(&ctx, "fill-discrete");
 
     println!("List fill-discrete: {:?}", fill);
-    assert!(matches!(fill, ThemeValue::List(_)));
+    assert!(matches!(fill, Some(ThemeValue::List(_))));
 }
 
 #[test]
@@ -40,15 +40,17 @@ fn test_color_parsing() {
     // Bare identifier that is a color becomes Color
     let color1 = theme.query(&ctx, "color1");
     println!("color1 (red): {:?}", color1);
-    assert!(matches!(color1, ThemeValue::Color(c) if c.red == 255 && c.green == 0 && c.blue == 0));
+    assert!(
+        matches!(color1, Some(ThemeValue::Color(c)) if c.red == 255 && c.green == 0 && c.blue == 0)
+    );
 
     // Quoted strings stay as strings (no longer parse as colors)
     let color2 = theme.query(&ctx, "color2");
     println!("color2 (\"red\"): {:?}", color2);
-    assert!(matches!(color2, ThemeValue::String(s) if s == "red"));
+    assert!(matches!(color2, Some(ThemeValue::String(s)) if s == "red"));
 
     // Non-color identifier stays as string
     let color3 = theme.query(&ctx, "color3");
     println!("color3 (foobar): {:?}", color3);
-    assert!(matches!(color3, ThemeValue::String(s) if s == "foobar"));
+    assert!(matches!(color3, Some(ThemeValue::String(s)) if s == "foobar"));
 }

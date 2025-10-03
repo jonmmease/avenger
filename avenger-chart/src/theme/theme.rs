@@ -1,7 +1,7 @@
 //! Full CSS-compliant theme system using cssparser and selectors
 
 use crate::theme::parser;
-use crate::theme::{CssRgba, LengthUnit, ThemeValue, ThemeContext, select_available_font};
+use crate::theme::{ThemeContext, ThemeValue, select_available_font};
 use indexmap::IndexMap;
 use selectors::matching::SelectorCaches;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -322,27 +322,14 @@ impl Theme {
         let mut base_font_size = 12.0; // Default base font size
 
         for rule in rules {
-            // Check if this rule targets :root (which is parsed as universal selector *)
-            // We detect :root by checking if selector is just "*" with no other components
-            let components: Vec<_> = rule.selector.iter_raw_match_order().collect();
-            let is_root = components.len() == 1
-                && matches!(components[0], selectors::parser::Component::ExplicitUniversalType);
-
             // Extract base font size from :root { font-size: ... }
-            if is_root {
-                if let Some(font_size_value) = rule.declarations.get("font-size") {
-                    if let Some(size) = font_size_value.as_font_size(12.0) {
-                        base_font_size = size;
-                    }
-                }
+            if let Some(size) = Self::extract_base_font_size(&rule, base_font_size) {
+                base_font_size = size;
             }
 
-            // Check for variable declarations
-            for (key, value) in &rule.declarations {
-                if key.starts_with("--") {
-                    variables.insert(key.clone(), value.clone());
-                }
-            }
+            // Extract CSS variables
+            Self::extract_variables(&rule, &mut variables);
+
             compiled_rules.push(rule);
         }
 
@@ -369,6 +356,35 @@ impl Theme {
         inherited_properties
     }
 
+    /// Check if a selector targets :root
+    fn is_root_selector(rule: &CompiledRule) -> bool {
+        let components: Vec<_> = rule.selector.iter_raw_match_order().collect();
+        components.len() == 1
+            && matches!(
+                components[0],
+                selectors::parser::Component::ExplicitUniversalType
+            )
+    }
+
+    /// Extract base font size from a rule if it's a :root rule with font-size
+    fn extract_base_font_size(rule: &CompiledRule, current_base: f32) -> Option<f32> {
+        if Self::is_root_selector(rule) {
+            if let Some(font_size_value) = rule.declarations.get("font-size") {
+                return font_size_value.as_font_size(current_base);
+            }
+        }
+        None
+    }
+
+    /// Extract CSS variables from a rule
+    fn extract_variables(rule: &CompiledRule, variables: &mut IndexMap<String, ThemeValue>) {
+        for (key, value) in &rule.declarations {
+            if key.starts_with("--") {
+                variables.insert(key.clone(), value.clone());
+            }
+        }
+    }
+
     /// Append additional CSS rules to the theme
     pub fn append_css(&mut self, css: &str) -> Result<(), String> {
         // Parse the new CSS
@@ -382,24 +398,13 @@ impl Theme {
             rule.source_order = current_max_order + i + 1;
 
             // Check if this rule targets :root and updates base font size
-            let components: Vec<_> = rule.selector.iter_raw_match_order().collect();
-            let is_root = components.len() == 1
-                && matches!(components[0], selectors::parser::Component::ExplicitUniversalType);
-
-            if is_root {
-                if let Some(font_size_value) = rule.declarations.get("font-size") {
-                    if let Some(size) = font_size_value.as_font_size(self.base_font_size) {
-                        self.base_font_size = size;
-                    }
-                }
+            // Extract base font size from :root { font-size: ... }
+            if let Some(size) = Self::extract_base_font_size(&rule, self.base_font_size) {
+                self.base_font_size = size;
             }
 
             // Extract any new variables
-            for (key, value) in &rule.declarations {
-                if key.starts_with("--") {
-                    self.variables.insert(key.clone(), value.clone());
-                }
-            }
+            Self::extract_variables(&rule, &mut self.variables);
 
             self.rules.push(rule);
         }
@@ -416,7 +421,10 @@ impl Theme {
     }
 
     /// Query a CSS property for an element
-    pub fn query(&self, context: &ThemeContext, property: &str) -> ThemeValue {
+    ///
+    /// Returns `Some(ThemeValue)` if a CSS rule matches, `None` if no rule is found.
+    /// The caller is responsible for providing appropriate defaults.
+    pub fn query(&self, context: &ThemeContext, property: &str) -> Option<ThemeValue> {
         use crate::theme::element::CssElement;
 
         // Convert ThemeContext to CssElement for selector matching
@@ -457,10 +465,10 @@ impl Theme {
                 // Resolve variables if needed
                 if let ThemeValue::Variable(var_name) = value {
                     if let Some(resolved) = self.variables.get(var_name) {
-                        return resolved.clone();
+                        return Some(resolved.clone());
                     }
                 }
-                return value.clone();
+                return Some(value.clone());
             }
         }
 
@@ -471,95 +479,10 @@ impl Theme {
                 // Recursively query the parent for this property
                 return self.query(parent, property);
             }
-            // No parent, return default inherited value
-            return self.get_inherited_default(property);
         }
 
-        // Return initial value based on context
-        self.get_initial_value(context, property)
-    }
-
-    /// Get default inherited value for a property
-    fn get_inherited_default(&self, property: &str) -> ThemeValue {
-        match property {
-            "color" => ThemeValue::Color(CssRgba {
-                red: 0,
-                green: 0,
-                blue: 0,
-                alpha: 255,
-            }),
-            "font-family" => ThemeValue::String("sans-serif".to_string()),
-            "font-size" => ThemeValue::Length(self.base_font_size as f64, LengthUnit::Px),
-            "font-weight" => ThemeValue::Number(400.0),
-            _ => ThemeValue::Initial,
-        }
-    }
-
-    /// Get initial value for a property based on context
-    fn get_initial_value(
-        &self,
-        context: &crate::theme::ThemeContext,
-        property: &str,
-    ) -> ThemeValue {
-        // Context-aware defaults
-        if context.element_type == "tick" {
-            match property {
-                "size" => return ThemeValue::Number(5.0),
-                "stroke" => {
-                    return ThemeValue::Color(CssRgba {
-                        red: 0,
-                        green: 0,
-                        blue: 0,
-                        alpha: 255,
-                    });
-                }
-                "stroke-width" => return ThemeValue::Number(1.0),
-                _ => {}
-            }
-        }
-
-        // Grid-specific defaults
-        if context.element_type == "grid" {
-            match property {
-                "stroke" => {
-                    return ThemeValue::Color(CssRgba {
-                        red: 224, // #e0e0e0
-                        green: 224,
-                        blue: 224,
-                        alpha: 255,
-                    });
-                }
-                "stroke-width" => return ThemeValue::Number(0.5),
-                "opacity" => return ThemeValue::Number(0.5),
-                _ => {}
-            }
-        }
-
-        // Background-specific defaults (legend/axis backgrounds default to transparent)
-        if context.element_type == "background" {
-            match property {
-                "fill" => return ThemeValue::None,
-                "stroke" => return ThemeValue::None,
-                _ => {}
-            }
-        }
-
-        // General defaults
-        match property {
-            "fill" => ThemeValue::Color(CssRgba {
-                red: 0,
-                green: 0,
-                blue: 0,
-                alpha: 255,
-            }),
-            "stroke" => ThemeValue::None,
-            "stroke-width" => ThemeValue::Number(1.0),
-            "opacity" => ThemeValue::Number(1.0),
-            "size" => ThemeValue::Number(60.0),
-            "padding" => ThemeValue::Number(8.0),
-            "spacing" => ThemeValue::Number(10.0),
-            _ => ThemeValue::Initial,
-        }
+        // No CSS rule found
+        None
     }
 }
 
@@ -624,14 +547,14 @@ impl Theme {
 
         // Get the list of fonts from the theme value
         let fonts = match font_family_value {
-            ThemeValue::List(values) => {
+            Some(ThemeValue::List(values)) => {
                 // It's already a list, extract the font names
                 values
                     .into_iter()
                     .filter_map(|v| v.as_string().map(|s| s.to_string()))
                     .collect()
             }
-            ThemeValue::String(s) => {
+            Some(ThemeValue::String(s)) => {
                 // Single font
                 vec![s]
             }
@@ -643,58 +566,53 @@ impl Theme {
     }
 
     /// Get font size for a context
-    pub fn font_size(&self, context: &ThemeContext) -> f32 {
+    pub fn font_size(&self, context: &ThemeContext) -> Option<f32> {
         self.query(context, "font-size")
-            .as_font_size(self.base_font_size())
-            .unwrap_or(12.0)
+            .and_then(|v| v.as_font_size(self.base_font_size()))
     }
 
     /// Get font weight for a context
-    pub fn font_weight(&self, context: &ThemeContext) -> f32 {
+    pub fn font_weight(&self, context: &ThemeContext) -> Option<f32> {
         self.query(context, "font-weight")
-            .as_number()
-            .unwrap_or(400.0) as f32
+            .and_then(|v| v.as_number())
+            .map(|n| n as f32)
     }
 
     /// Get color for a context as normalized RGBA array
-    pub fn color(&self, context: &ThemeContext) -> [f32; 4] {
+    pub fn color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
         self.query(context, "color")
-            .as_color_array()
-            .unwrap_or([0.0, 0.0, 0.0, 1.0]) // Black
+            .and_then(|v| v.as_color_array())
     }
 
     /// Get fill color for a context as normalized RGBA array
-    pub fn fill_color(&self, context: &ThemeContext) -> [f32; 4] {
-        self.query(context, "fill")
-            .as_color_array()
-            .unwrap_or([70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0]) // Steelblue
+    pub fn fill_color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
+        self.query(context, "fill").and_then(|v| v.as_color_array())
     }
 
     /// Get stroke color for a context as normalized RGBA array
-    pub fn stroke_color(&self, context: &ThemeContext) -> [f32; 4] {
+    pub fn stroke_color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
         self.query(context, "stroke")
-            .as_color_array()
-            .unwrap_or([0.0, 0.0, 0.0, 1.0]) // Black
+            .and_then(|v| v.as_color_array())
     }
 
     /// Get stroke width for a context
-    pub fn stroke_width(&self, context: &ThemeContext) -> f32 {
+    pub fn stroke_width(&self, context: &ThemeContext) -> Option<f32> {
         self.query(context, "stroke-width")
-            .as_font_size(self.base_font_size())
-            .unwrap_or(1.0)
+            .and_then(|v| v.as_font_size(self.base_font_size()))
     }
 
     /// Get opacity for a context
-    pub fn opacity(&self, context: &ThemeContext) -> f32 {
+    pub fn opacity(&self, context: &ThemeContext) -> Option<f32> {
         self.query(context, "opacity")
-            .as_number()
-            .unwrap_or(1.0) as f32
+            .and_then(|v| v.as_number())
+            .map(|n| n as f32)
     }
 
     /// Get canvas background color as normalized RGBA array
     pub fn canvas_background(&self) -> Option<[f32; 4]> {
         let ctx = ThemeContext::new("canvas");
-        self.query(&ctx, "background-color").as_color_array()
+        self.query(&ctx, "background-color")
+            .and_then(|v| v.as_color_array())
     }
 
     // Guide (coordinate system) theme methods
@@ -708,7 +626,8 @@ impl Theme {
         if let Some(t) = subtype {
             guide_ctx = guide_ctx.with_subtype(t);
         }
-        self.query(&guide_ctx, "background-color").as_color_array()
+        self.query(&guide_ctx, "background-color")
+            .and_then(|v| v.as_color_array())
     }
 
     /// Get base font family
@@ -728,7 +647,7 @@ impl Theme {
             legend_ctx = legend_ctx.with_subtype(t);
         }
         let ctx = legend_ctx.child("background");
-        self.query(&ctx, "fill").as_color_array()
+        self.query(&ctx, "fill").and_then(|v| v.as_color_array())
     }
 
     /// Get legend background stroke as normalized RGBA array
@@ -741,44 +660,42 @@ impl Theme {
             legend_ctx = legend_ctx.with_subtype(t);
         }
         let ctx = legend_ctx.child("background");
-        self.query(&ctx, "stroke").as_color_array()
+        self.query(&ctx, "stroke").and_then(|v| v.as_color_array())
     }
 
     /// Get legend background padding
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_background_padding(&self, subtype: Option<&str>) -> f32 {
+    pub fn legend_background_padding(&self, subtype: Option<&str>) -> Option<f32> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
         }
         let ctx = legend_ctx.child("background");
         self.query(&ctx, "padding")
-            .as_font_size(self.base_font_size())
-            .unwrap_or(5.0)
+            .and_then(|v| v.as_font_size(self.base_font_size()))
     }
 
     /// Get legend background corner radius
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_background_corner_radius(&self, subtype: Option<&str>) -> f32 {
+    pub fn legend_background_corner_radius(&self, subtype: Option<&str>) -> Option<f32> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
         }
         let ctx = legend_ctx.child("background");
         self.query(&ctx, "corner-radius")
-            .as_font_size(self.base_font_size())
-            .unwrap_or(5.0)
+            .and_then(|v| v.as_font_size(self.base_font_size()))
     }
 
     /// Get legend title color
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_title_color(&self, subtype: Option<&str>) -> [f32; 4] {
+    pub fn legend_title_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -790,7 +707,7 @@ impl Theme {
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_label_color(&self, subtype: Option<&str>) -> [f32; 4] {
+    pub fn legend_label_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -802,7 +719,7 @@ impl Theme {
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_tick_color(&self, subtype: Option<&str>) -> [f32; 4] {
+    pub fn legend_tick_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -850,7 +767,7 @@ impl Theme {
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_title_font_size(&self, subtype: Option<&str>) -> f32 {
+    pub fn legend_title_font_size(&self, subtype: Option<&str>) -> Option<f32> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -862,7 +779,7 @@ impl Theme {
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_label_font_size(&self, subtype: Option<&str>) -> f32 {
+    pub fn legend_label_font_size(&self, subtype: Option<&str>) -> Option<f32> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -874,7 +791,7 @@ impl Theme {
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_tick_font_size(&self, subtype: Option<&str>) -> f32 {
+    pub fn legend_tick_font_size(&self, subtype: Option<&str>) -> Option<f32> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -886,7 +803,7 @@ impl Theme {
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_title_font_weight(&self, subtype: Option<&str>) -> f32 {
+    pub fn legend_title_font_weight(&self, subtype: Option<&str>) -> Option<f32> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -898,7 +815,7 @@ impl Theme {
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_label_font_weight(&self, subtype: Option<&str>) -> f32 {
+    pub fn legend_label_font_weight(&self, subtype: Option<&str>) -> Option<f32> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -910,7 +827,7 @@ impl Theme {
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_tick_font_weight(&self, subtype: Option<&str>) -> f32 {
+    pub fn legend_tick_font_weight(&self, subtype: Option<&str>) -> Option<f32> {
         let mut legend_ctx = ThemeContext::new("legend");
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -921,12 +838,12 @@ impl Theme {
     // Title-specific methods
 
     /// Get title color as normalized RGBA array
-    pub fn title_color(&self) -> [f32; 4] {
+    pub fn title_color(&self) -> Option<[f32; 4]> {
         self.color(&ThemeContext::new("chart-title"))
     }
 
     /// Get subtitle color as normalized RGBA array
-    pub fn subtitle_color(&self) -> [f32; 4] {
+    pub fn subtitle_color(&self) -> Option<[f32; 4]> {
         self.color(&ThemeContext::new("chart-subtitle"))
     }
 
@@ -941,22 +858,22 @@ impl Theme {
     }
 
     /// Get title font size
-    pub fn title_font_size(&self) -> f32 {
+    pub fn title_font_size(&self) -> Option<f32> {
         self.font_size(&ThemeContext::new("chart-title"))
     }
 
     /// Get subtitle font size
-    pub fn subtitle_font_size(&self) -> f32 {
+    pub fn subtitle_font_size(&self) -> Option<f32> {
         self.font_size(&ThemeContext::new("chart-subtitle"))
     }
 
     /// Get title font weight
-    pub fn title_font_weight(&self) -> f32 {
+    pub fn title_font_weight(&self) -> Option<f32> {
         self.font_weight(&ThemeContext::new("chart-title"))
     }
 
     /// Get subtitle font weight
-    pub fn subtitle_font_weight(&self) -> f32 {
+    pub fn subtitle_font_weight(&self) -> Option<f32> {
         self.font_weight(&ThemeContext::new("chart-subtitle"))
     }
 
@@ -967,7 +884,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_domain_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> [f32; 4] {
+    pub fn axis_domain_color(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<[f32; 4]> {
         // Build context: guide[type="cartesian"] axis[type="x"] domain
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
@@ -978,9 +899,7 @@ impl Theme {
             axis_ctx = axis_ctx.with_subtype(at);
         }
         let ctx = axis_ctx.child("domain");
-        self.query(&ctx, "stroke")
-            .as_color_array()
-            .unwrap_or([0.0, 0.0, 0.0, 1.0]) // Black
+        self.query(&ctx, "stroke").and_then(|v| v.as_color_array())
     }
 
     /// Get axis tick color as normalized RGBA array
@@ -988,7 +907,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_tick_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> [f32; 4] {
+    pub fn axis_tick_color(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<[f32; 4]> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -998,9 +921,7 @@ impl Theme {
             axis_ctx = axis_ctx.with_subtype(at);
         }
         let ctx = axis_ctx.child("tick");
-        self.query(&ctx, "stroke")
-            .as_color_array()
-            .unwrap_or([0.0, 0.0, 0.0, 1.0]) // Black
+        self.query(&ctx, "stroke").and_then(|v| v.as_color_array())
     }
 
     /// Get axis grid color as normalized RGBA array
@@ -1008,7 +929,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_grid_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> [f32; 4] {
+    pub fn axis_grid_color(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<[f32; 4]> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1026,7 +951,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_grid_opacity(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+    pub fn axis_grid_opacity(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<f32> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1037,8 +966,8 @@ impl Theme {
         }
         let ctx = axis_ctx.child("grid");
         self.query(&ctx, "opacity")
-            .as_number()
-            .unwrap_or(0.5) as f32
+            .and_then(|v| v.as_number())
+            .map(|n| n as f32)
     }
 
     /// Get axis grid width
@@ -1046,7 +975,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_grid_width(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+    pub fn axis_grid_width(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<f32> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1064,7 +997,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_label_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> [f32; 4] {
+    pub fn axis_label_color(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<[f32; 4]> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1081,7 +1018,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_title_color(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> [f32; 4] {
+    pub fn axis_title_color(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<[f32; 4]> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1098,7 +1039,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_tick_length(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+    pub fn axis_tick_length(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<f32> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1109,8 +1054,7 @@ impl Theme {
         }
         let ctx = axis_ctx.child("tick");
         self.query(&ctx, "size")
-            .as_font_size(self.base_font_size())
-            .unwrap_or(5.0)
+            .and_then(|v| v.as_font_size(self.base_font_size()))
     }
 
     /// Get axis label font size
@@ -1118,7 +1062,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_label_font_size(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+    pub fn axis_label_font_size(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<f32> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1135,7 +1083,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_label_font_weight(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+    pub fn axis_label_font_weight(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<f32> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1152,7 +1104,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_title_font_size(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+    pub fn axis_title_font_size(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<f32> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1169,7 +1125,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_title_font_weight(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> f32 {
+    pub fn axis_title_font_weight(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> Option<f32> {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1186,7 +1146,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_label_font_family(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> String {
+    pub fn axis_label_font_family(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> String {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1203,7 +1167,11 @@ impl Theme {
     /// # Arguments
     /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
     /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_title_font_family(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> String {
+    pub fn axis_title_font_family(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+    ) -> String {
         let mut guide_ctx = ThemeContext::new("guide");
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -1225,13 +1193,13 @@ impl Theme {
 
         // Parse the result into a list of colors
         match colors_value {
-            ThemeValue::String(s) => {
+            Some(ThemeValue::String(s)) => {
                 let colors = Self::parse_css_list(&s);
                 if !colors.is_empty() {
                     return colors;
                 }
             }
-            ThemeValue::List(values) => {
+            Some(ThemeValue::List(values)) => {
                 let mut colors = Vec::new();
                 for val in values {
                     match val {
@@ -1274,13 +1242,13 @@ impl Theme {
 
         // Parse the result into a list of shapes
         match shapes_value {
-            ThemeValue::String(s) => {
+            Some(ThemeValue::String(s)) => {
                 let shapes = Self::parse_css_list(&s);
                 if !shapes.is_empty() {
                     return shapes;
                 }
             }
-            ThemeValue::List(values) => {
+            Some(ThemeValue::List(values)) => {
                 let mut shapes = Vec::new();
                 for val in values {
                     if let ThemeValue::String(s) = val {
@@ -1315,13 +1283,13 @@ impl Theme {
 
         // Parse the result into a list of dash patterns
         match dashes_value {
-            ThemeValue::String(s) => {
+            Some(ThemeValue::String(s)) => {
                 let dashes = Self::parse_css_list(&s);
                 if !dashes.is_empty() {
                     return dashes;
                 }
             }
-            ThemeValue::List(values) => {
+            Some(ThemeValue::List(values)) => {
                 let mut dashes = Vec::new();
                 for val in values {
                     if let ThemeValue::String(s) = val {
@@ -1407,7 +1375,7 @@ impl Theme {
 
             // Parse the range value into appropriate ScaleRange
             match range_value {
-                ThemeValue::String(s) => {
+                Some(ThemeValue::String(s)) => {
                     // Parse comma-separated list
                     let values = Self::parse_css_list(&s);
                     if !values.is_empty() {
@@ -1419,7 +1387,7 @@ impl Theme {
                         );
                     }
                 }
-                ThemeValue::List(values) => {
+                Some(ThemeValue::List(values)) => {
                     // Handle pre-parsed list of values
                     let mut parsed_values = Vec::new();
                     for val in values {
@@ -1447,7 +1415,7 @@ impl Theme {
                         );
                     }
                 }
-                ThemeValue::Variable(var_name) => {
+                Some(ThemeValue::Variable(var_name)) => {
                     // Try to resolve variable manually
                     if let Some(resolved) = self.variables.get(&var_name) {
                         match resolved {
@@ -1497,10 +1465,14 @@ impl Theme {
         let theme_value = self.query(&context, css_property);
 
         match theme_value {
-            ThemeValue::String(s) => Some(datafusion_common::ScalarValue::Utf8(Some(s))),
-            ThemeValue::Number(n) => Some(datafusion_common::ScalarValue::Float32(Some(n as f32))),
-            ThemeValue::Length(n, _) => Some(datafusion_common::ScalarValue::Float32(Some(n as f32))),
-            ThemeValue::Color(rgba) => {
+            Some(ThemeValue::String(s)) => Some(datafusion_common::ScalarValue::Utf8(Some(s))),
+            Some(ThemeValue::Number(n)) => {
+                Some(datafusion_common::ScalarValue::Float32(Some(n as f32)))
+            }
+            Some(ThemeValue::Length(n, _)) => {
+                Some(datafusion_common::ScalarValue::Float32(Some(n as f32)))
+            }
+            Some(ThemeValue::Color(rgba)) => {
                 let hex = format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
                 Some(datafusion_common::ScalarValue::Utf8(Some(hex)))
             }
@@ -1553,9 +1525,7 @@ impl Theme {
             RangeKind::Continuous => {
                 // First, try to parse as numbers - if successful, it's a numeric range
                 // Only attempt color parsing if numeric parsing fails
-                let first_is_number = values.first()
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .is_some();
+                let first_is_number = values.first().and_then(|v| v.parse::<f64>().ok()).is_some();
 
                 if first_is_number {
                     // Numeric continuous range - expect 2 values (min, max)
@@ -1579,18 +1549,11 @@ impl Theme {
                         .filter_map(|v| {
                             // Try to parse as color using avenger-scales color parser
                             // This handles hex colors, rgb(), hsl(), and named colors
-                            crate::utils::parse_color_string(v).and_then(|cog| {
-                                match cog {
-                                    avenger_common::types::ColorOrGradient::Color(rgba) => {
-                                        Some(Srgba::new(
-                                            rgba[0],
-                                            rgba[1],
-                                            rgba[2],
-                                            rgba[3],
-                                        ))
-                                    }
-                                    _ => None,
+                            crate::utils::parse_color_string(v).and_then(|cog| match cog {
+                                avenger_common::types::ColorOrGradient::Color(rgba) => {
+                                    Some(Srgba::new(rgba[0], rgba[1], rgba[2], rgba[3]))
                                 }
+                                _ => None,
                             })
                         })
                         .collect();
@@ -1627,7 +1590,11 @@ impl Theme {
                 let scalars: Vec<SerializableScalar> = colors
                     .iter()
                     .take(domain_cardinality.unwrap_or(colors.len()))
-                    .map(|c| SerializableScalar::new(datafusion_common::ScalarValue::Utf8(Some(c.clone()))))
+                    .map(|c| {
+                        SerializableScalar::new(datafusion_common::ScalarValue::Utf8(Some(
+                            c.clone(),
+                        )))
+                    })
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -1650,7 +1617,11 @@ impl Theme {
                 let scalars: Vec<SerializableScalar> = sizes
                     .iter()
                     .take(domain_cardinality.unwrap_or(sizes.len()))
-                    .map(|s| SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(*s as f32))))
+                    .map(|s| {
+                        SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(
+                            *s as f32,
+                        )))
+                    })
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -1663,7 +1634,11 @@ impl Theme {
                 let scalars: Vec<SerializableScalar> = opacities
                     .iter()
                     .take(domain_cardinality.unwrap_or(opacities.len()))
-                    .map(|o| SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(*o as f32))))
+                    .map(|o| {
+                        SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(
+                            *o as f32,
+                        )))
+                    })
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -1676,7 +1651,11 @@ impl Theme {
                 let scalars: Vec<SerializableScalar> = widths
                     .iter()
                     .take(domain_cardinality.unwrap_or(widths.len()))
-                    .map(|w| SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(*w as f32))))
+                    .map(|w| {
+                        SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(
+                            *w as f32,
+                        )))
+                    })
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -1689,7 +1668,11 @@ impl Theme {
                 let scalars: Vec<SerializableScalar> = shapes
                     .iter()
                     .take(domain_cardinality.unwrap_or(shapes.len()))
-                    .map(|s| SerializableScalar::new(datafusion_common::ScalarValue::Utf8(Some(s.to_string()))))
+                    .map(|s| {
+                        SerializableScalar::new(datafusion_common::ScalarValue::Utf8(Some(
+                            s.to_string(),
+                        )))
+                    })
                     .collect();
                 ScaleRange::Discrete(scalars)
             }
@@ -1698,9 +1681,9 @@ impl Theme {
             _ => match range_kind {
                 RangeKind::Discrete => {
                     use crate::serialization::SerializableScalar;
-                    ScaleRange::Discrete(vec![SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(
-                        1.0,
-                    )))])
+                    ScaleRange::Discrete(vec![SerializableScalar::new(
+                        datafusion_common::ScalarValue::Float32(Some(1.0)),
+                    )])
                 }
                 RangeKind::Continuous => ScaleRange::new_interval(lit(0.0), lit(1.0)),
             },
@@ -1768,7 +1751,7 @@ mod tests {
 
         let value = deserialized.query(&context, "fill");
         // Should get the fill value for mark[type="symbol"] from dark theme
-        assert!(matches!(value, ThemeValue::Color(_)));
+        assert!(matches!(value, Some(ThemeValue::Color(_))));
 
         // Also test that base_font_size is preserved
         assert_eq!(deserialized.base_font_size(), 12.0);
@@ -1812,11 +1795,11 @@ mod tests {
 
         let fill = theme.query(&context, "fill");
         // The second rule should override, so fill should be blue
-        assert!(matches!(fill, ThemeValue::Color(c) if c.blue == 255));
+        assert!(matches!(fill, Some(ThemeValue::Color(c)) if c.blue == 255));
 
         let stroke = theme.query(&context, "stroke");
         // Stroke was only defined in the second rule
-        assert!(matches!(stroke, ThemeValue::Color(c) if c.green == 128));
+        assert!(matches!(stroke, Some(ThemeValue::Color(c)) if c.green == 128));
     }
 
     #[test]
@@ -1867,7 +1850,7 @@ mod tests {
         };
 
         let fill = deserialized.query(&context, "fill");
-        assert!(matches!(fill, ThemeValue::Color(c) if c.blue == 255));
+        assert!(matches!(fill, Some(ThemeValue::Color(c)) if c.blue == 255));
     }
 
     #[test]
@@ -1891,7 +1874,7 @@ mod tests {
         // Check that rem values are calculated correctly
         let context = ThemeContext::new("mark");
         let font_size = theme.font_size(&context);
-        assert_eq!(font_size, 32.0); // 2rem * 16px = 32px
+        assert_eq!(font_size, Some(32.0)); // 2rem * 16px = 32px
     }
 
     #[test]
@@ -1910,10 +1893,18 @@ mod tests {
     #[test]
     fn test_builtin_themes_base_font_size() {
         let light = Theme::light();
-        assert_eq!(light.base_font_size(), 12.0, "Light theme should have 12px base");
+        assert_eq!(
+            light.base_font_size(),
+            12.0,
+            "Light theme should have 12px base"
+        );
 
         let dark = Theme::dark();
-        assert_eq!(dark.base_font_size(), 12.0, "Dark theme should have 12px base");
+        assert_eq!(
+            dark.base_font_size(),
+            12.0,
+            "Dark theme should have 12px base"
+        );
     }
 
     #[test]
@@ -1943,11 +1934,11 @@ mod tests {
         // Verify rem calculations use the new base
         let context = ThemeContext::new("test-element");
         let font_size = theme.font_size(&context);
-        assert_eq!(font_size, 36.0); // 2rem * 18px = 36px
+        assert_eq!(font_size, Some(36.0)); // 2rem * 18px = 36px
 
         // Also verify existing elements that use rem units are recalculated with new base
         let title_size = theme.title_font_size();
-        assert_eq!(title_size, 27.0); // 1.5rem * 18px = 27px (was 18px with 12px base)
+        assert_eq!(title_size, Some(27.0)); // 1.5rem * 18px = 27px (was 18px with 12px base)
 
         // Verify serialization preserves the updated base font size
         let json = serde_json::to_string(&theme).unwrap();

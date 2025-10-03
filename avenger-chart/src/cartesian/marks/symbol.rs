@@ -1,8 +1,8 @@
 use crate::cartesian::Cartesian;
-use crate::theme::Theme;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
 use crate::marks::{CompiledMark, DataContext, Mark, MarkState, RadiusExpression};
+use crate::theme::Theme;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::{Expr, lit};

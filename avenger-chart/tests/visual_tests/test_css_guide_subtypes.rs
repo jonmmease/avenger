@@ -93,11 +93,8 @@ async fn test_css_guide_subtypes() {
         Field::new("y", DataType::Float64, false),
     ]));
 
-    let batch = RecordBatch::try_new(
-        schema,
-        vec![Arc::new(x_values), Arc::new(y_values)],
-    )
-    .expect("Failed to create RecordBatch");
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)])
+        .expect("Failed to create RecordBatch");
 
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).expect("Failed to read batch");
