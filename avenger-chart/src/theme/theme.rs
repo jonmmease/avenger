@@ -6,6 +6,55 @@ use indexmap::IndexMap;
 use selectors::matching::SelectorCaches;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Default font family fallback used when no CSS theme is specified
+#[allow(dead_code)]
+pub const DEFAULT_FONT_FAMILY: &str = "sans-serif";
+
+/// Default Okabe-Ito colorblind-safe palette
+///
+/// This palette is scientifically designed to be distinguishable by people with
+/// the most common forms of color blindness. The colors are optimized for both
+/// categorical data visualization and accessibility.
+pub const DEFAULT_CATEGORICAL_COLORS: &[&str] = &[
+    "#0072B2", // Blue
+    "#E69F00", // Orange
+    "#009E73", // Bluish Green
+    "#F0E442", // Yellow
+    "#D55E00", // Vermillion
+    "#56B4E9", // Sky Blue
+    "#CC79A7", // Reddish Purple
+    "#999999", // Grey
+];
+
+/// Default shape names for discrete shape scales
+///
+/// These shapes are commonly supported across visualization libraries and provide
+/// good visual differentiation for categorical data.
+pub const DEFAULT_SHAPE_NAMES: &[&str] = &[
+    "circle",
+    "cross",
+    "diamond",
+    "square",
+    "star",
+    "triangle-up",
+    "wye",
+    "cushion",
+];
+
+/// Default dash pattern names for discrete stroke-dash scales
+///
+/// These patterns provide varying levels of visual distinctness for line-based marks.
+pub const DEFAULT_DASH_NAMES: &[&str] = &[
+    "solid",
+    "dashed",
+    "dotted",
+    "long-dash",
+    "dash-dot",
+    "long-short",
+    "even-short",
+    "double-dash",
+];
+
 /// CSS-based theme with full selector support
 #[derive(Debug, Clone)]
 pub struct Theme {
@@ -541,28 +590,58 @@ impl Theme {
         self.base_font_size
     }
 
+    // Internal helper methods for building contexts
+
+    /// Build a legend context with optional subtype
+    fn legend_context(&self, subtype: Option<&str>) -> ThemeContext {
+        let mut legend_ctx = ThemeContext::new("legend");
+        if let Some(t) = subtype {
+            legend_ctx = legend_ctx.with_subtype(t);
+        }
+        legend_ctx
+    }
+
+    /// Build an axis context with optional coordinate and axis types
+    fn axis_context(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> ThemeContext {
+        let mut guide_ctx = ThemeContext::new("guide");
+        if let Some(ct) = coord_type {
+            guide_ctx = guide_ctx.with_subtype(ct);
+        }
+        let mut axis_ctx = guide_ctx.child("axis");
+        if let Some(at) = axis_type {
+            axis_ctx = axis_ctx.with_subtype(at);
+        }
+        axis_ctx
+    }
+
     /// Get font family for a context
-    pub fn font_family(&self, context: &ThemeContext) -> String {
-        let font_family_value = self.query(context, "font-family");
+    ///
+    /// Returns the first available font from the font-family list, or None if not set in CSS.
+    pub fn font_family(&self, context: &ThemeContext) -> Option<String> {
+        let font_family_value = self.query(context, "font-family")?;
 
         // Get the list of fonts from the theme value
         let fonts = match font_family_value {
-            Some(ThemeValue::List(values)) => {
+            ThemeValue::List(values) => {
                 // It's already a list, extract the font names
                 values
                     .into_iter()
                     .filter_map(|v| v.as_string().map(|s| s.to_string()))
                     .collect()
             }
-            Some(ThemeValue::String(s)) => {
+            ThemeValue::String(s) => {
                 // Single font
                 vec![s]
             }
-            _ => vec!["sans-serif".to_string()],
+            _ => return None,
         };
 
+        if fonts.is_empty() {
+            return None;
+        }
+
         // Return the first available font from the list
-        select_available_font(fonts)
+        Some(select_available_font(fonts))
     }
 
     /// Get font size for a context
@@ -631,7 +710,7 @@ impl Theme {
     }
 
     /// Get base font family
-    pub fn base_font_family(&self) -> String {
+    pub fn base_font_family(&self) -> Option<String> {
         self.font_family(&ThemeContext::new("base"))
     }
 
@@ -642,11 +721,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_background_fill(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        let ctx = legend_ctx.child("background");
+        let ctx = self.legend_context(subtype).child("background");
         self.query(&ctx, "fill").and_then(|v| v.as_color_array())
     }
 
@@ -655,11 +730,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_background_stroke(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        let ctx = legend_ctx.child("background");
+        let ctx = self.legend_context(subtype).child("background");
         self.query(&ctx, "stroke").and_then(|v| v.as_color_array())
     }
 
@@ -668,11 +739,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_background_padding(&self, subtype: Option<&str>) -> Option<f32> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        let ctx = legend_ctx.child("background");
+        let ctx = self.legend_context(subtype).child("background");
         self.query(&ctx, "padding")
             .and_then(|v| v.as_font_size(self.base_font_size()))
     }
@@ -682,11 +749,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_background_corner_radius(&self, subtype: Option<&str>) -> Option<f32> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        let ctx = legend_ctx.child("background");
+        let ctx = self.legend_context(subtype).child("background");
         self.query(&ctx, "corner-radius")
             .and_then(|v| v.as_font_size(self.base_font_size()))
     }
@@ -696,11 +759,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_title_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.color(&legend_ctx.child("title"))
+        self.color(&self.legend_context(subtype).child("title"))
     }
 
     /// Get legend label color as normalized RGBA array
@@ -708,11 +767,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_label_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.color(&legend_ctx.child("label"))
+        self.color(&self.legend_context(subtype).child("label"))
     }
 
     /// Get legend tick color as normalized RGBA array
@@ -720,47 +775,31 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_tick_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.color(&legend_ctx.child("tick"))
+        self.color(&self.legend_context(subtype).child("tick"))
     }
 
     /// Get legend title font family
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_title_font_family(&self, subtype: Option<&str>) -> String {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.font_family(&legend_ctx.child("title"))
+    pub fn legend_title_font_family(&self, subtype: Option<&str>) -> Option<String> {
+        self.font_family(&self.legend_context(subtype).child("title"))
     }
 
     /// Get legend label font family
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_label_font_family(&self, subtype: Option<&str>) -> String {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.font_family(&legend_ctx.child("label"))
+    pub fn legend_label_font_family(&self, subtype: Option<&str>) -> Option<String> {
+        self.font_family(&self.legend_context(subtype).child("label"))
     }
 
     /// Get legend tick font family
     ///
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_tick_font_family(&self, subtype: Option<&str>) -> String {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.font_family(&legend_ctx.child("tick"))
+    pub fn legend_tick_font_family(&self, subtype: Option<&str>) -> Option<String> {
+        self.font_family(&self.legend_context(subtype).child("tick"))
     }
 
     /// Get legend title font size
@@ -768,11 +807,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_title_font_size(&self, subtype: Option<&str>) -> Option<f32> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.font_size(&legend_ctx.child("title"))
+        self.font_size(&self.legend_context(subtype).child("title"))
     }
 
     /// Get legend label font size
@@ -780,11 +815,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_label_font_size(&self, subtype: Option<&str>) -> Option<f32> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.font_size(&legend_ctx.child("label"))
+        self.font_size(&self.legend_context(subtype).child("label"))
     }
 
     /// Get legend tick font size
@@ -792,11 +823,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_tick_font_size(&self, subtype: Option<&str>) -> Option<f32> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.font_size(&legend_ctx.child("tick"))
+        self.font_size(&self.legend_context(subtype).child("tick"))
     }
 
     /// Get legend title font weight
@@ -804,11 +831,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_title_font_weight(&self, subtype: Option<&str>) -> Option<f32> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.font_weight(&legend_ctx.child("title"))
+        self.font_weight(&self.legend_context(subtype).child("title"))
     }
 
     /// Get legend label font weight
@@ -816,11 +839,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_label_font_weight(&self, subtype: Option<&str>) -> Option<f32> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.font_weight(&legend_ctx.child("label"))
+        self.font_weight(&self.legend_context(subtype).child("label"))
     }
 
     /// Get legend tick font weight
@@ -828,11 +847,7 @@ impl Theme {
     /// # Arguments
     /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
     pub fn legend_tick_font_weight(&self, subtype: Option<&str>) -> Option<f32> {
-        let mut legend_ctx = ThemeContext::new("legend");
-        if let Some(t) = subtype {
-            legend_ctx = legend_ctx.with_subtype(t);
-        }
-        self.font_weight(&legend_ctx.child("tick"))
+        self.font_weight(&self.legend_context(subtype).child("tick"))
     }
 
     // Title-specific methods
@@ -848,12 +863,12 @@ impl Theme {
     }
 
     /// Get title font family
-    pub fn title_font_family(&self) -> String {
+    pub fn title_font_family(&self) -> Option<String> {
         self.font_family(&ThemeContext::new("chart-title"))
     }
 
     /// Get subtitle font family
-    pub fn subtitle_font_family(&self) -> String {
+    pub fn subtitle_font_family(&self) -> Option<String> {
         self.font_family(&ThemeContext::new("chart-subtitle"))
     }
 
@@ -889,16 +904,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<[f32; 4]> {
-        // Build context: guide[type="cartesian"] axis[type="x"] domain
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        let ctx = axis_ctx.child("domain");
+        let ctx = self.axis_context(coord_type, axis_type).child("domain");
         self.query(&ctx, "stroke").and_then(|v| v.as_color_array())
     }
 
@@ -912,15 +918,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<[f32; 4]> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        let ctx = axis_ctx.child("tick");
+        let ctx = self.axis_context(coord_type, axis_type).child("tick");
         self.query(&ctx, "stroke").and_then(|v| v.as_color_array())
     }
 
@@ -934,15 +932,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<[f32; 4]> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        let ctx = axis_ctx.child("grid");
+        let ctx = self.axis_context(coord_type, axis_type).child("grid");
         self.stroke_color(&ctx)
     }
 
@@ -956,15 +946,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<f32> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        let ctx = axis_ctx.child("grid");
+        let ctx = self.axis_context(coord_type, axis_type).child("grid");
         self.query(&ctx, "opacity")
             .and_then(|v| v.as_number())
             .map(|n| n as f32)
@@ -980,15 +962,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<f32> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        let ctx = axis_ctx.child("grid");
+        let ctx = self.axis_context(coord_type, axis_type).child("grid");
         self.stroke_width(&ctx)
     }
 
@@ -1002,15 +976,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<[f32; 4]> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        self.color(&axis_ctx.child("label"))
+        self.color(&self.axis_context(coord_type, axis_type).child("label"))
     }
 
     /// Get axis title color as normalized RGBA array
@@ -1023,15 +989,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<[f32; 4]> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        self.color(&axis_ctx.child("title"))
+        self.color(&self.axis_context(coord_type, axis_type).child("title"))
     }
 
     /// Get axis tick length
@@ -1044,15 +1002,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<f32> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        let ctx = axis_ctx.child("tick");
+        let ctx = self.axis_context(coord_type, axis_type).child("tick");
         self.query(&ctx, "size")
             .and_then(|v| v.as_font_size(self.base_font_size()))
     }
@@ -1067,15 +1017,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<f32> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        self.font_size(&axis_ctx.child("label"))
+        self.font_size(&self.axis_context(coord_type, axis_type).child("label"))
     }
 
     /// Get axis label font weight
@@ -1088,15 +1030,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<f32> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        self.font_weight(&axis_ctx.child("label"))
+        self.font_weight(&self.axis_context(coord_type, axis_type).child("label"))
     }
 
     /// Get axis title font size
@@ -1109,15 +1043,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<f32> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        self.font_size(&axis_ctx.child("title"))
+        self.font_size(&self.axis_context(coord_type, axis_type).child("title"))
     }
 
     /// Get axis title font weight
@@ -1130,15 +1056,7 @@ impl Theme {
         coord_type: Option<&str>,
         axis_type: Option<&str>,
     ) -> Option<f32> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        self.font_weight(&axis_ctx.child("title"))
+        self.font_weight(&self.axis_context(coord_type, axis_type).child("title"))
     }
 
     /// Get axis label font family
@@ -1150,16 +1068,8 @@ impl Theme {
         &self,
         coord_type: Option<&str>,
         axis_type: Option<&str>,
-    ) -> String {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        self.font_family(&axis_ctx.child("label"))
+    ) -> Option<String> {
+        self.font_family(&self.axis_context(coord_type, axis_type).child("label"))
     }
 
     /// Get axis title font family
@@ -1171,21 +1081,16 @@ impl Theme {
         &self,
         coord_type: Option<&str>,
         axis_type: Option<&str>,
-    ) -> String {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(ct) = coord_type {
-            guide_ctx = guide_ctx.with_subtype(ct);
-        }
-        let mut axis_ctx = guide_ctx.child("axis");
-        if let Some(at) = axis_type {
-            axis_ctx = axis_ctx.with_subtype(at);
-        }
-        self.font_family(&axis_ctx.child("title"))
+    ) -> Option<String> {
+        self.font_family(&self.axis_context(coord_type, axis_type).child("title"))
     }
 
     // Access to color palettes, shapes, and dashes
 
-    /// Get categorical color palette
+    /// Get categorical color palette for discrete color scales
+    ///
+    /// Queries the theme for `color-discrete` values, falling back to the Okabe-Ito
+    /// colorblind-safe palette if not specified in CSS. Returns colors as hex strings.
     pub fn categorical_colors(&self) -> Vec<String> {
         // Query categorical colors from CSS
         let context = ThemeContext::new("mark");
@@ -1222,19 +1127,16 @@ impl Theme {
         }
 
         // Fallback to Okabe-Ito colorblind-safe palette
-        vec![
-            "#0072B2".to_string(), // Blue
-            "#E69F00".to_string(), // Orange
-            "#009E73".to_string(), // Bluish Green
-            "#F0E442".to_string(), // Yellow
-            "#D55E00".to_string(), // Vermillion
-            "#56B4E9".to_string(), // Sky Blue
-            "#CC79A7".to_string(), // Reddish Purple
-            "#999999".to_string(), // Grey
-        ]
+        DEFAULT_CATEGORICAL_COLORS
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     }
 
-    /// Get shape names for shape channel
+    /// Get shape names for discrete shape scales
+    ///
+    /// Queries the theme for `shape-discrete` values, falling back to a default set
+    /// of common shapes (circle, cross, diamond, square, star, etc.) if not specified in CSS.
     pub fn shape_names(&self) -> Vec<String> {
         // Query shape names from CSS
         let context = ThemeContext::new("mark");
@@ -1263,19 +1165,13 @@ impl Theme {
         }
 
         // Fallback to default shapes
-        vec![
-            "circle".to_string(),
-            "cross".to_string(),
-            "diamond".to_string(),
-            "square".to_string(),
-            "star".to_string(),
-            "triangle-up".to_string(),
-            "wye".to_string(),
-            "cushion".to_string(),
-        ]
+        DEFAULT_SHAPE_NAMES.iter().map(|s| s.to_string()).collect()
     }
 
-    /// Get dash pattern names
+    /// Get dash pattern names for discrete stroke-dash scales
+    ///
+    /// Queries the theme for `stroke-dash-discrete` values, falling back to a default set
+    /// of dash patterns (solid, dashed, dotted, etc.) if not specified in CSS.
     pub fn dash_names(&self) -> Vec<String> {
         // Query dash patterns from CSS
         let context = ThemeContext::new("mark");
@@ -1304,19 +1200,13 @@ impl Theme {
         }
 
         // Fallback to default dash patterns
-        vec![
-            "solid".to_string(),
-            "dashed".to_string(),
-            "dotted".to_string(),
-            "long-dash".to_string(),
-            "dash-dot".to_string(),
-            "long-short".to_string(),
-            "even-short".to_string(),
-            "double-dash".to_string(),
-        ]
+        DEFAULT_DASH_NAMES.iter().map(|s| s.to_string()).collect()
     }
 
     /// Get default shape range for ordinal scales
+    ///
+    /// Returns a `ScaleRange` containing shape names from the theme, limited to
+    /// `domain_cardinality` shapes if specified.
     pub fn get_shape_range(&self, domain_cardinality: Option<usize>) -> crate::scales::ScaleRange {
         // Use the new get_range_for_channel with a default mark type
         self.get_range_for_channel(
@@ -1328,6 +1218,8 @@ impl Theme {
     }
 
     /// Get default dash pattern range for ordinal scales
+    ///
+    /// Returns a `ScaleRange` containing all available dash patterns from the theme.
     pub fn get_dash_range(&self, _domain_cardinality: Option<usize>) -> crate::scales::ScaleRange {
         use crate::scales::ScaleRange;
         use datafusion_common::ScalarValue;

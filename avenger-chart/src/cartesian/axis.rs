@@ -196,18 +196,16 @@ impl CartesianAxis {
             label_font_size: theme.axis_label_font_size(coord_type, axis_type),
             label_font_weight: theme.axis_label_font_weight(coord_type, axis_type),
             title_font_weight: theme.axis_title_font_weight(coord_type, axis_type),
-            label_font_family: Some(
-                self.label_font_family
-                    .clone()
-                    .flatten()
-                    .unwrap_or_else(|| theme.axis_label_font_family(coord_type, axis_type)),
-            ),
-            title_font_family: Some(
-                self.title_font_family
-                    .clone()
-                    .flatten()
-                    .unwrap_or_else(|| theme.axis_title_font_family(coord_type, axis_type)),
-            ),
+            label_font_family: self
+                .label_font_family
+                .clone()
+                .flatten()
+                .or_else(|| theme.axis_label_font_family(coord_type, axis_type)),
+            title_font_family: self
+                .title_font_family
+                .clone()
+                .flatten()
+                .or_else(|| theme.axis_title_font_family(coord_type, axis_type)),
         };
 
         // Generate axis marks based on scale characteristics
