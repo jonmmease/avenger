@@ -64,215 +64,83 @@ pub struct Theme {
     pub(crate) base_font_size: f32,
     /// List of CSS sources in order they were added
     pub(crate) css_sources: Vec<String>,
+    /// Default color-scheme for light-dark() resolution when no param is provided
+    pub(crate) default_color_scheme: String,
 }
 
 impl Theme {
-    /// Light theme preset with default colors and styling
-    pub fn light() -> Self {
+    /// Create the unified default theme with light-dark() functions
+    ///
+    /// This is the base theme that adapts to light or dark mode based on
+    /// the "color-scheme" parameter.
+    fn default_theme() -> Self {
         let css = r#"
             /* Base configuration */
             :root {
                 font-family: "Atkinson Hyperlegible Next";
                 font-size: 12px;
 
-                /* Color palettes */
-                --categorical-colors: #0072B2, #E69F00, #009E73, #F0E442, #D55E00, #56B4E9, #CC79A7, #999999;
+                /* Adaptive color palette - uses comma-separated list, each item can use light-dark() */
+                --categorical-colors:
+                    light-dark(#0072B2, #56B4E9),
+                    light-dark(#E69F00, #E69F00),
+                    light-dark(#009E73, #009E73),
+                    light-dark(#F0E442, #F0E442),
+                    light-dark(#D55E00, #D55E00),
+                    light-dark(#56B4E9, #0072B2),
+                    light-dark(#CC79A7, #CC79A7),
+                    light-dark(#999999, #999999);
                 --viridis-colors: #440154, #31688E, #35B779, #FDE725;
             }
 
-            /* Chart title styling */
-            chart-title {
-                color: #1a1a1a;
-                font-weight: 500;
-                font-size: 1.5rem; /* 18px @ 12px base */
-            }
-
-            chart-subtitle {
-                color: #4a4a4a;
-                font-weight: 200;
-                font-size: 1.167rem; /* 14px @ 12px base */
-            }
-
-            /* Axis styling - container level */
-            axis {
-                /* Container properties if needed */
-            }
-
-            /* Axis child elements */
-            axis domain {
-                stroke: #000;
-                stroke-width: 1.0;
-            }
-
-            axis tick {
-                stroke: #000;
-                size: 5.0;
-            }
-
-            axis title {
-                color: #2a2a2a;
-                font-weight: 400;
-                font-size: 1.0rem; /* 12px @ 12px base */
-            }
-
-            axis label {
-                color: #5a5a5a;
-                font-weight: 300;
-                font-size: 0.833rem; /* 10px @ 12px base */
-                padding: 3;
-            }
-
-            axis grid {
-                stroke: #e0e0e0;
-                opacity: 0.5;
-                stroke-width: 0.5;
-            }
-
-            /* Legend styling - container level */
-            legend {
-                spacing: 10;
-                symbol-size: 100;
-                label-padding: 5;
-            }
-
-            /* Legend child elements */
-            legend title {
-                color: #2C2C2C;
-                font-weight: 400;
-                font-size: 1.0rem; /* 12px @ 12px base */
-            }
-
-            legend label {
-                color: #3C3C3C;
-                font-weight: 300;
-                font-size: 0.917rem; /* 11px @ 12px base */
-            }
-
-            legend tick {
-                color: #5a5a5a;
-                font-weight: 300;
-                font-size: 0.833rem; /* 10px @ 12px base */
-            }
-
-            legend background {
-                padding: 8;
-            }
-
-            /* Mark defaults */
-            mark[type="symbol"] {
-                fill: #4682b4;
-                stroke: #000000;
-                stroke-width: 1.0;
-                size: 64;
-                shape: circle;
-                opacity: 1.0;
-            }
-
-            mark[type="rect"] {
-                fill: #4682b4;
-                stroke: #000000;
-                stroke-width: 1.0;
-                corner-radius: 0;
-                opacity: 1.0;
-            }
-
-            mark[type="line"] {
-                stroke: #4682b4;
-                stroke-width: 2.0;
-                stroke-dash: solid;
-                stroke-cap: round;
-                stroke-join: round;
-                opacity: 1.0;
-            }
-
-            mark[type="text"] {
-                fill: #000000;
-                font-size: 1.0rem; /* 12px @ 12px base */
-            }
-
-            /* Range configurations */
-            mark {
-                fill-discrete: var(--categorical-colors);
-                fill-continuous: var(--viridis-colors);
-                stroke-discrete: var(--categorical-colors);
-                stroke-continuous: var(--viridis-colors);
-                shape-discrete: circle, cross, diamond, square, star, triangle-up, wye, cushion;
-                size-discrete: 30, 80, 140, 200, 260;
-                size-continuous: 30, 200;
-                stroke-dash-discrete: solid, dashed, dotted, long-dash, dash-dot, long-short, even-short, double-dash;
-                stroke-width-discrete: 0.5, 1.0, 2.0, 3.0, 5.0;
-            }
-        "#;
-
-        Self::from_css(css).expect("Failed to parse built-in light theme CSS")
-    }
-
-    /// Dark theme preset with dark mode colors
-    pub fn dark() -> Self {
-        let css = r#"
-            /* Base configuration */
-            :root {
-                font-family: "Atkinson Hyperlegible Next";
-                font-size: 12px;
-
-                /* Okabe-Ito colorblind-safe palette optimized for dark backgrounds */
-                --categorical-colors: #56B4E9, #E69F00, #009E73, #F0E442, #0072B2, #D55E00, #CC79A7, #999999;
-                --viridis-colors: #440154, #31688E, #35B779, #FDE725;
-            }
-
-            /* Backgrounds */
+            /* Backgrounds - only in dark mode */
             canvas {
-                background-color: #121212;
+                background-color: light-dark(transparent, #121212);
             }
 
             plot {
-                background-color: #1E1E1E;
+                background-color: light-dark(transparent, #1E1E1E);
             }
 
             /* Chart title styling */
             chart-title {
-                color: #FFFFFF;
+                color: light-dark(#1a1a1a, #FFFFFF);
                 font-weight: 500;
                 font-size: 1.5rem; /* 18px @ 12px base */
             }
 
             chart-subtitle {
-                color: #FFFFFF;
+                color: light-dark(#4a4a4a, #FFFFFF);
                 font-weight: 200;
                 font-size: 1.167rem; /* 14px @ 12px base */
             }
 
-            /* Axis styling - container level */
-            axis {
-                /* Container properties if needed */
-            }
-
             /* Axis child elements */
             axis domain {
-                stroke: #FFFFFF;
+                stroke: light-dark(#000, #FFFFFF);
                 stroke-width: 1.0;
             }
 
             axis tick {
-                stroke: #FFFFFF;
+                stroke: light-dark(#000, #FFFFFF);
                 size: 5.0;
             }
 
             axis title {
-                color: #FFFFFF;
+                color: light-dark(#2a2a2a, #FFFFFF);
                 font-weight: 400;
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
             axis label {
-                color: #AAAAAA;
+                color: light-dark(#5a5a5a, #AAAAAA);
                 font-weight: 300;
                 font-size: 0.833rem; /* 10px @ 12px base */
                 padding: 3;
             }
 
             axis grid {
-                stroke: #30363D;
+                stroke: light-dark(#e0e0e0, #30363D);
                 opacity: 0.5;
                 stroke-width: 0.5;
             }
@@ -286,19 +154,19 @@ impl Theme {
 
             /* Legend child elements */
             legend title {
-                color: #FFFFFF;
+                color: light-dark(#2C2C2C, #FFFFFF);
                 font-weight: 400;
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
             legend label {
-                color: #E1E6EA;
+                color: light-dark(#3C3C3C, #E1E6EA);
                 font-weight: 300;
                 font-size: 0.917rem; /* 11px @ 12px base */
             }
 
             legend tick {
-                color: #AAAAAA;
+                color: light-dark(#5a5a5a, #AAAAAA);
                 font-weight: 300;
                 font-size: 0.833rem; /* 10px @ 12px base */
             }
@@ -307,26 +175,26 @@ impl Theme {
                 padding: 8;
             }
 
-            /* Mark defaults - note that dark theme uses 0 stroke width by default */
+            /* Mark defaults - dark theme uses 0 stroke width by default */
             mark[type="symbol"] {
-                fill: #56B4E9;
-                stroke: #30363D;
-                stroke-width: 0.0;
+                fill: light-dark(#4682b4, #56B4E9);
+                stroke: light-dark(#000000, #30363D);
+                stroke-width: light-dark(1.0, 0.0);
                 size: 64;
                 shape: circle;
                 opacity: 1.0;
             }
 
             mark[type="rect"] {
-                fill: #56B4E9;
-                stroke: #30363D;
-                stroke-width: 0.0;
+                fill: light-dark(#4682b4, #56B4E9);
+                stroke: light-dark(#000000, #30363D);
+                stroke-width: light-dark(1.0, 0.0);
                 corner-radius: 0;
                 opacity: 1.0;
             }
 
             mark[type="line"] {
-                stroke: #56B4E9;
+                stroke: light-dark(#4682b4, #56B4E9);
                 stroke-width: 2.0;
                 stroke-dash: solid;
                 stroke-cap: round;
@@ -335,7 +203,7 @@ impl Theme {
             }
 
             mark[type="text"] {
-                fill: #C9D1D9;
+                fill: light-dark(#000000, #C9D1D9);
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
@@ -353,7 +221,32 @@ impl Theme {
             }
         "#;
 
-        Self::from_css(css).expect("Failed to parse built-in dark theme CSS")
+        let mut theme = Self::from_css(css).expect("Failed to parse unified default theme CSS");
+        // Default to light mode (will be overridden by light()/dark() methods)
+        theme.default_color_scheme = "light".to_string();
+        theme
+    }
+
+    /// Light theme preset with default colors and styling
+    ///
+    /// Returns the default adaptive theme with color-scheme set to "light".
+    /// The theme uses light-dark() functions internally, so it can be switched
+    /// to dark mode at render time by setting the "color-scheme" parameter to "dark".
+    pub fn light() -> Self {
+        let mut theme = Self::default_theme();
+        theme.default_color_scheme = "light".to_string();
+        theme
+    }
+
+    /// Dark theme preset with dark mode colors
+    ///
+    /// Returns the default adaptive theme with color-scheme set to "dark".
+    /// The theme uses light-dark() functions internally, so it can be switched
+    /// to light mode at render time by setting the "color-scheme" parameter to "light".
+    pub fn dark() -> Self {
+        let mut theme = Self::default_theme();
+        theme.default_color_scheme = "dark".to_string();
+        theme
     }
 
     /// Create a theme from CSS string
@@ -383,6 +276,7 @@ impl Theme {
             inherited_properties: Self::default_inherited_properties(),
             base_font_size,
             css_sources: vec![css.to_string()],
+            default_color_scheme: "light".to_string(), // Default to light mode
         })
     }
 
@@ -515,14 +409,14 @@ impl Theme {
             }
 
             ThemeValue::LightDark(light, dark) => {
-                // Check color-scheme param (default to "light")
+                // Check color-scheme param, fall back to theme's default
                 let scheme = params
                     .get("color-scheme")
                     .and_then(|v| match v {
                         datafusion_common::ScalarValue::Utf8(Some(s)) => Some(s.as_str()),
                         _ => None,
                     })
-                    .unwrap_or("light");
+                    .unwrap_or(&self.default_color_scheme);
 
                 // Choose branch based on color-scheme
                 let chosen = if scheme == "dark" { *dark } else { *light };
@@ -2311,5 +2205,76 @@ mod tests {
         let value = theme.query(&ctx, "fill");
         // The resolution will hit the depth limit, but shouldn't crash
         assert!(value.is_some());
+    }
+
+    #[test]
+    fn test_unified_theme_light_and_dark_modes() {
+        // Test that the unified theme works in both light and dark modes
+        // This demonstrates the key feature: compile once, render in different modes
+
+        // Create theme with light-dark() functions
+        let theme = Theme::light(); // Uses default unified theme
+        let ctx = ThemeContext::new("mark").with_subtype("symbol");
+
+        // Test light mode (default for Theme::light())
+        let fill_light = theme.query(&ctx, "fill");
+        match fill_light {
+            Some(ThemeValue::Color(c)) => {
+                // Should be light mode color #4682b4
+                assert_eq!(c.red, 70);
+                assert_eq!(c.green, 130);
+                assert_eq!(c.blue, 180);
+            }
+            _ => panic!("Expected light mode fill color"),
+        }
+
+        // Test dark mode by providing color-scheme param
+        let mut params = IndexMap::new();
+        params.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
+        );
+
+        let fill_dark = theme.query_with_params(&ctx, "fill", &params);
+        match fill_dark {
+            Some(ThemeValue::Color(c)) => {
+                // Should be dark mode color #56B4E9
+                assert_eq!(c.red, 86);
+                assert_eq!(c.green, 180);
+                assert_eq!(c.blue, 233);
+            }
+            _ => panic!("Expected dark mode fill color"),
+        }
+
+        // Test that Theme::dark() defaults to dark mode without params
+        let dark_theme = Theme::dark();
+        let fill_dark_default = dark_theme.query(&ctx, "fill");
+        match fill_dark_default {
+            Some(ThemeValue::Color(c)) => {
+                // Should be dark mode color #56B4E9
+                assert_eq!(c.red, 86);
+                assert_eq!(c.green, 180);
+                assert_eq!(c.blue, 233);
+            }
+            _ => panic!("Expected dark mode fill color by default"),
+        }
+
+        // Test that Theme::dark() can be switched to light mode with param
+        let mut light_params = IndexMap::new();
+        light_params.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("light".to_string())),
+        );
+
+        let fill_light_override = dark_theme.query_with_params(&ctx, "fill", &light_params);
+        match fill_light_override {
+            Some(ThemeValue::Color(c)) => {
+                // Should be light mode color #4682b4
+                assert_eq!(c.red, 70);
+                assert_eq!(c.green, 130);
+                assert_eq!(c.blue, 180);
+            }
+            _ => panic!("Expected light mode fill color with override"),
+        }
     }
 }
