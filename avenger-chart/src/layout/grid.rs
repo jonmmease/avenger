@@ -301,7 +301,9 @@ impl GridBuilder {
                     .font_size
                     .or_else(|| theme.title_font_size())
                     .unwrap_or(16.0);
-                let title_font_family = theme.title_font_family().unwrap_or_else(|| "sans-serif".to_string());
+                let title_font_family = theme
+                    .title_font_family()
+                    .unwrap_or_else(|| "sans-serif".to_string());
                 let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
 
                 // Measure text for layout (using Normal weight/style as approximation)
@@ -330,7 +332,9 @@ impl GridBuilder {
                     .font_size
                     .or_else(|| theme.subtitle_font_size())
                     .unwrap_or(14.0);
-                let subtitle_font_family = theme.subtitle_font_family().unwrap_or_else(|| "sans-serif".to_string());
+                let subtitle_font_family = theme
+                    .subtitle_font_family()
+                    .unwrap_or_else(|| "sans-serif".to_string());
                 let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
 
                 // Measure text for layout (using Normal weight/style as approximation)

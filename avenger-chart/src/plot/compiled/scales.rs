@@ -721,7 +721,8 @@ impl CompiledPlot {
 
         // Final fallback: query theme with generic "mark" type, then use hardcoded defaults
         if scale.get_range().is_none() {
-            let range_kind = scale.get_scale_impl()
+            let range_kind = scale
+                .get_scale_impl()
                 .map(|impl_arc| impl_arc.range_kind())
                 .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
 

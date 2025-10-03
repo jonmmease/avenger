@@ -1015,7 +1015,7 @@ impl Theme {
     ) -> Option<String> {
         self.font_family(&self.axis_context(coord_type, axis_type).child("title"))
     }
-    
+
     /// Get range for a specific channel based on mark type and range kind
     ///
     /// Returns `None` if the channel range is not specified in the CSS theme.
@@ -1081,20 +1081,34 @@ impl Theme {
                     let context_with_best = base_context
                         .clone()
                         .with_attribute("cardinality", best.to_string());
-                    if let Some(range) = self.try_get_range(&context_with_best, &property, channel, range_kind, domain_cardinality) {
+                    if let Some(range) = self.try_get_range(
+                        &context_with_best,
+                        &property,
+                        channel,
+                        range_kind,
+                        domain_cardinality,
+                    ) {
                         return Some(range);
                     }
                 }
 
                 // Fall back to base palette (no cardinality attribute)
-                if let Some(range) = self.try_get_range(base_context, &property, channel, range_kind, domain_cardinality) {
+                if let Some(range) = self.try_get_range(
+                    base_context,
+                    &property,
+                    channel,
+                    range_kind,
+                    domain_cardinality,
+                ) {
                     return Some(range);
                 }
             }
         } else {
             // For continuous ranges or when cardinality is unknown, just try without cardinality
             for context in &base_contexts {
-                if let Some(range) = self.try_get_range(context, &property, channel, range_kind, domain_cardinality) {
+                if let Some(range) =
+                    self.try_get_range(context, &property, channel, range_kind, domain_cardinality)
+                {
                     return Some(range);
                 }
             }
@@ -1176,8 +1190,19 @@ impl Theme {
                 Some(datafusion_common::ScalarValue::Float32(Some(n as f32)))
             }
             Some(ThemeValue::Color(rgba)) => {
-                let hex = format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
-                Some(datafusion_common::ScalarValue::Utf8(Some(hex)))
+                // Use rgba() format to preserve alpha channel
+                let color_str = if rgba.alpha == 255 {
+                    // Use hex format for fully opaque colors
+                    format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue)
+                } else {
+                    // Use rgba() format for transparent colors to ensure alpha is preserved
+                    let alpha = rgba.alpha as f32 / 255.0;
+                    format!(
+                        "rgba({}, {}, {}, {})",
+                        rgba.red, rgba.green, rgba.blue, alpha
+                    )
+                };
+                Some(datafusion_common::ScalarValue::Utf8(Some(color_str)))
             }
             _ => None,
         }
@@ -1264,7 +1289,6 @@ impl Theme {
     }
 }
 
-
 impl Serialize for Theme {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1294,7 +1318,6 @@ pub(crate) struct CompiledRule {
     pub(crate) source_order: usize,
     pub(crate) declarations: IndexMap<String, ThemeValue>,
 }
-
 
 // ============================================================================
 // Tests
@@ -1590,7 +1613,11 @@ mod tests {
         let range_4 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(4));
         assert!(range_4.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_4 {
-            assert_eq!(values.len(), 3, "Should fall back to 3-color palette (largest < 4)");
+            assert_eq!(
+                values.len(),
+                3,
+                "Should fall back to 3-color palette (largest < 4)"
+            );
         } else {
             panic!("Expected discrete range");
         }
@@ -1600,7 +1627,11 @@ mod tests {
         let range_10 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(10));
         assert!(range_10.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_10 {
-            assert_eq!(values.len(), 5, "Should use largest available (5-color palette)");
+            assert_eq!(
+                values.len(),
+                5,
+                "Should use largest available (5-color palette)"
+            );
         } else {
             panic!("Expected discrete range");
         }
