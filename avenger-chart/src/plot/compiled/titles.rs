@@ -46,7 +46,8 @@ impl CompiledPlot {
             font: title
                 .font_family
                 .clone()
-                .unwrap_or_else(|| theme.title_font_family())
+                .or_else(|| theme.title_font_family())
+                .unwrap_or_else(|| "sans-serif".to_string())
                 .into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(
@@ -98,7 +99,8 @@ impl CompiledPlot {
             font: subtitle
                 .font_family
                 .clone()
-                .unwrap_or_else(|| theme.subtitle_font_family())
+                .or_else(|| theme.subtitle_font_family())
+                .unwrap_or_else(|| "sans-serif".to_string())
                 .into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(

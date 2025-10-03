@@ -77,7 +77,7 @@ fn test_theme_trait_methods() {
 
     // Test helper methods from Theme trait
     let text_context = ThemeContext::new("text");
-    assert_eq!(theme.font_family(&text_context), "Helvetica Neue");
+    assert_eq!(theme.font_family(&text_context), Some("Helvetica Neue".to_string()));
     assert_eq!(theme.font_size(&text_context), Some(12.0));
 
     let axis_context = ThemeContext::new("axis");

@@ -360,7 +360,7 @@ impl PolarAxis {
                     font: ScalarOrArray::new_scalar(
                         theme
                             .axis_label_font_family(coord_type, axis_type)
-                            .to_string(),
+                            .unwrap_or_else(|| "sans-serif".to_string()),
                     ),
                     font_weight: ScalarOrArray::new_scalar(
                         avenger_text::types::FontWeight::Number(
@@ -592,7 +592,7 @@ impl PolarAxis {
                     font: ScalarOrArray::new_scalar(
                         theme
                             .axis_label_font_family(coord_type, axis_type)
-                            .to_string(),
+                            .unwrap_or_else(|| "sans-serif".to_string()),
                     ),
                     font_weight: ScalarOrArray::new_scalar(
                         avenger_text::types::FontWeight::Number(

@@ -140,24 +140,27 @@ impl CompiledPlot {
             if let Some(color) = theme.legend_label_color(legend_type) {
                 legend.label_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
             }
-            legend.title_font_family =
-                crate::maybe::Maybe::Set(theme.legend_title_font_family(legend_type));
+            if let Some(font_family) = theme.legend_title_font_family(legend_type) {
+                legend.title_font_family = crate::maybe::Maybe::Set(font_family);
+            }
             if let Some(size) = theme.legend_title_font_size(legend_type) {
                 legend.title_font_size = crate::maybe::Maybe::Set(size);
             }
             if let Some(weight) = theme.legend_title_font_weight(legend_type) {
                 legend.title_font_weight = crate::maybe::Maybe::Set(weight);
             }
-            legend.label_font_family =
-                crate::maybe::Maybe::Set(theme.legend_label_font_family(legend_type));
+            if let Some(font_family) = theme.legend_label_font_family(legend_type) {
+                legend.label_font_family = crate::maybe::Maybe::Set(font_family);
+            }
             if let Some(size) = theme.legend_label_font_size(legend_type) {
                 legend.label_font_size = crate::maybe::Maybe::Set(size);
             }
             if let Some(weight) = theme.legend_label_font_weight(legend_type) {
                 legend.label_font_weight = crate::maybe::Maybe::Set(weight);
             }
-            legend.tick_font_family =
-                crate::maybe::Maybe::Set(theme.legend_tick_font_family(legend_type));
+            if let Some(font_family) = theme.legend_tick_font_family(legend_type) {
+                legend.tick_font_family = crate::maybe::Maybe::Set(font_family);
+            }
             if let Some(size) = theme.legend_tick_font_size(legend_type) {
                 legend.tick_font_size = crate::maybe::Maybe::Set(size);
             }
@@ -259,8 +262,9 @@ impl CompiledPlot {
                 }
             }
             if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
-                legend.title_font_family =
-                    crate::maybe::Maybe::Set(theme.legend_title_font_family(legend_type));
+                if let Some(font_family) = theme.legend_title_font_family(legend_type) {
+                    legend.title_font_family = crate::maybe::Maybe::Set(font_family);
+                }
             }
             if matches!(legend.title_font_size, crate::maybe::Maybe::Unset) {
                 if let Some(size) = theme.legend_title_font_size(legend_type) {
@@ -273,8 +277,9 @@ impl CompiledPlot {
                 }
             }
             if matches!(legend.label_font_family, crate::maybe::Maybe::Unset) {
-                legend.label_font_family =
-                    crate::maybe::Maybe::Set(theme.legend_label_font_family(legend_type));
+                if let Some(font_family) = theme.legend_label_font_family(legend_type) {
+                    legend.label_font_family = crate::maybe::Maybe::Set(font_family);
+                }
             }
             if matches!(legend.label_font_size, crate::maybe::Maybe::Unset) {
                 if let Some(size) = theme.legend_label_font_size(legend_type) {
@@ -287,8 +292,9 @@ impl CompiledPlot {
                 }
             }
             if matches!(legend.tick_font_family, crate::maybe::Maybe::Unset) {
-                legend.tick_font_family =
-                    crate::maybe::Maybe::Set(theme.legend_tick_font_family(legend_type));
+                if let Some(font_family) = theme.legend_tick_font_family(legend_type) {
+                    legend.tick_font_family = crate::maybe::Maybe::Set(font_family);
+                }
             }
             if matches!(legend.tick_font_size, crate::maybe::Maybe::Unset) {
                 if let Some(size) = theme.legend_tick_font_size(legend_type) {
