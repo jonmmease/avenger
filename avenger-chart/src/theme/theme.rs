@@ -1043,49 +1043,111 @@ impl Theme {
         );
 
         // Try mark-specific first, then general mark
-        let contexts = vec![
+        let base_contexts = vec![
             ThemeContext::new("mark").with_subtype(mark_type),
             ThemeContext::new("mark"),
         ];
 
-        for context in &contexts {
-            let range_value = self.query(context, &property);
+        // For discrete ranges, try cardinality-specific values with fallback logic
+        if let (RangeKind::Discrete, Some(cardinality)) = (range_kind, domain_cardinality) {
+            for base_context in &base_contexts {
+                // First get the base range (without cardinality) for comparison
+                let base_range_value = self.query(base_context, &property);
 
-            // Parse the range value into appropriate ScaleRange
-            match range_value {
-                Some(ThemeValue::List(values)) => {
-                    // Handle pre-parsed list of values
-                    let mut parsed_values = Vec::new();
-                    for val in values {
-                        match val {
-                            ThemeValue::String(s) => {
-                                parsed_values.push(s.clone());
-                            }
-                            ThemeValue::Color(rgba) => {
-                                let hex =
-                                    format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
-                                parsed_values.push(hex);
-                            }
-                            ThemeValue::Number(n) => {
-                                parsed_values.push(n.to_string());
-                            }
-                            _ => {}
+                // Try cardinalities from 1 up to requested, keeping track of best match
+                // We want the LARGEST cardinality <= requested that has a specific rule
+                let mut best_card: Option<usize> = None;
+                // Check up to a reasonable maximum (e.g., 2x the requested cardinality)
+                let max_check = cardinality * 2;
+                for card in 1..=max_check {
+                    let context_with_card = base_context
+                        .clone()
+                        .with_attribute("cardinality", card.to_string());
+                    let card_range_value = self.query(&context_with_card, &property);
+
+                    // Only consider this if it's different from base (meaning cardinality attribute matched)
+                    if card_range_value.is_some() && card_range_value != base_range_value {
+                        // Prefer cardinalities <= requested, but accept larger if nothing better exists
+                        if card <= cardinality {
+                            best_card = Some(card);
+                        } else if best_card.is_none() {
+                            best_card = Some(card);
                         }
                     }
-                    if !parsed_values.is_empty() {
-                        return Some(self.create_scale_range(
-                            &parsed_values,
-                            channel,
-                            range_kind,
-                            domain_cardinality,
-                        ));
+                }
+
+                // Use the best cardinality match if we found one
+                if let Some(best) = best_card {
+                    let context_with_best = base_context
+                        .clone()
+                        .with_attribute("cardinality", best.to_string());
+                    if let Some(range) = self.try_get_range(&context_with_best, &property, channel, range_kind, domain_cardinality) {
+                        return Some(range);
                     }
                 }
-                _ => {}
+
+                // Fall back to base palette (no cardinality attribute)
+                if let Some(range) = self.try_get_range(base_context, &property, channel, range_kind, domain_cardinality) {
+                    return Some(range);
+                }
+            }
+        } else {
+            // For continuous ranges or when cardinality is unknown, just try without cardinality
+            for context in &base_contexts {
+                if let Some(range) = self.try_get_range(context, &property, channel, range_kind, domain_cardinality) {
+                    return Some(range);
+                }
             }
         }
 
-        // No CSS theme value found for this channel
+        None
+    }
+
+    /// Helper to try getting a range from a specific context
+    fn try_get_range(
+        &self,
+        context: &ThemeContext,
+        property: &str,
+        channel: &str,
+        range_kind: avenger_scales::scales::RangeKind,
+        domain_cardinality: Option<usize>,
+    ) -> Option<crate::scales::ScaleRange> {
+        let range_value = self.query(context, property);
+
+        // Parse the range value into appropriate ScaleRange
+        match range_value {
+            Some(ThemeValue::List(values)) => {
+                // Handle pre-parsed list of values
+                let mut parsed_values = Vec::new();
+                for val in values {
+                    match val {
+                        ThemeValue::String(s) => {
+                            parsed_values.push(s.clone());
+                        }
+                        ThemeValue::Color(rgba) => {
+                            let hex =
+                                format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
+                            parsed_values.push(hex);
+                        }
+                        ThemeValue::Number(n) => {
+                            parsed_values.push(n.to_string());
+                        }
+                        _ => {}
+                    }
+                }
+                if !parsed_values.is_empty() {
+                    return Some(self.create_scale_range(
+                        &parsed_values,
+                        channel,
+                        range_kind,
+                        domain_cardinality,
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        // No value found
         None
     }
 
@@ -1263,6 +1325,7 @@ mod tests {
             subtype: Some("domain".to_string()),
             classes: vec![],
             id: None,
+            attributes: std::collections::HashMap::new(),
             parent: None,
         };
 
@@ -1289,6 +1352,7 @@ mod tests {
             subtype: Some("symbol".to_string()),
             classes: vec![],
             id: None,
+            attributes: std::collections::HashMap::new(),
             parent: None,
         };
 
@@ -1373,6 +1437,7 @@ mod tests {
             subtype: None,
             classes: vec![],
             id: None,
+            attributes: std::collections::HashMap::new(),
             parent: None,
         };
 
@@ -1429,6 +1494,7 @@ mod tests {
             subtype: None,
             classes: vec![],
             id: None,
+            attributes: std::collections::HashMap::new(),
             parent: None,
         };
 
@@ -1471,6 +1537,82 @@ mod tests {
 
         let theme = Theme::from_css(css).unwrap();
         assert_eq!(theme.base_font_size(), 12.0);
+    }
+
+    #[test]
+    fn test_cardinality_based_ranges() {
+        use crate::scales::ScaleRange;
+        use avenger_scales::scales::RangeKind;
+
+        let css = r#"
+            /* Specific palettes for different cardinalities */
+            mark[type="symbol"][cardinality="2"] {
+                fill-discrete: #1f77b4, #ff7f0e;
+            }
+
+            mark[type="symbol"][cardinality="3"] {
+                fill-discrete: #1f77b4, #ff7f0e, #2ca02c;
+            }
+
+            mark[type="symbol"][cardinality="5"] {
+                fill-discrete: #E69F00, #56B4E9, #009E73, #F0E442, #0072B2;
+            }
+
+            /* Fallback for any cardinality */
+            mark[type="symbol"] {
+                fill-discrete: red, blue, green, yellow, purple, orange;
+            }
+        "#;
+
+        let theme = Theme::from_css(css).unwrap();
+
+        // Test 1: Exact match for cardinality 3
+        let range_3 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(3));
+        assert!(range_3.is_some());
+        if let Some(ScaleRange::Discrete(values)) = range_3 {
+            assert_eq!(values.len(), 3, "Should get 3-color palette");
+        } else {
+            panic!("Expected discrete range");
+        }
+
+        // Test 2: Exact match for cardinality 5
+        let range_5 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(5));
+        assert!(range_5.is_some());
+        if let Some(ScaleRange::Discrete(values)) = range_5 {
+            assert_eq!(values.len(), 5, "Should get 5-color palette");
+        } else {
+            panic!("Expected discrete range");
+        }
+
+        // Test 3: Fallback to largest available cardinality (3) when requesting 4
+        // Since we have cardinality-specific rules for 2, 3, and 5, requesting 4 should
+        // fall back to 3 (the largest cardinality < 4)
+        let range_4 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(4));
+        assert!(range_4.is_some());
+        if let Some(ScaleRange::Discrete(values)) = range_4 {
+            assert_eq!(values.len(), 3, "Should fall back to 3-color palette (largest < 4)");
+        } else {
+            panic!("Expected discrete range");
+        }
+
+        // Test 4: Use largest available cardinality (5) when requesting 10
+        // Since we have no exact match and the largest defined is 5, use that
+        let range_10 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(10));
+        assert!(range_10.is_some());
+        if let Some(ScaleRange::Discrete(values)) = range_10 {
+            assert_eq!(values.len(), 5, "Should use largest available (5-color palette)");
+        } else {
+            panic!("Expected discrete range");
+        }
+
+        // Test 5: When cardinality is unknown, should get base palette
+        let range_none = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, None);
+        assert!(range_none.is_some());
+        if let Some(ScaleRange::Discrete(values)) = range_none {
+            assert_eq!(values.len(), 6, "Should get base 6-color palette");
+        } else {
+            panic!("Expected discrete range");
+        }
     }
 
     #[test]

@@ -407,7 +407,11 @@ impl CompiledMark for CompiledCartesianSymbol {
             "stroke_width" => Some(domain.make_interval_or_linspaced_range(0.5, 5.0)),
             "fill" | "stroke" | "color" => {
                 let range_kind = scale_impl.range_kind();
-                theme.get_range_for_channel("symbol", channel, range_kind, None)
+                let cardinality = match domain {
+                    crate::scales::ResolvedDomain::Discrete(count) => Some(*count),
+                    crate::scales::ResolvedDomain::Interval => None,
+                };
+                theme.get_range_for_channel("symbol", channel, range_kind, cardinality)
             }
             _ => None,
         }
