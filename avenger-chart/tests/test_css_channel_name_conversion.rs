@@ -33,18 +33,18 @@ fn test_underscore_to_hyphen_conversion() {
     // Verify we got color range (not empty/default)
     // Color ranges return ScaleRange::Color variant
     match glow_color_range {
-        avenger_chart::scales::ScaleRange::Color(_) => {
+        Some(avenger_chart::scales::ScaleRange::Color(_)) => {
             // Success - got a color range
         }
-        _ => panic!("Expected color range for glow_color, got something else"),
+        _ => panic!("Expected color range for glow_color, got {:?}", glow_color_range),
     }
 
     // Verify we got discrete numeric range
     match pulse_speed_range {
-        avenger_chart::scales::ScaleRange::Discrete(values) => {
+        Some(avenger_chart::scales::ScaleRange::Discrete(values)) => {
             assert_eq!(values.len(), 3, "Expected 3 discrete values");
         }
-        _ => panic!("Expected discrete range for pulse_speed"),
+        _ => panic!("Expected discrete range for pulse_speed, got {:?}", pulse_speed_range),
     }
 }
 
@@ -92,16 +92,16 @@ fn test_stroke_width_conversion() {
 
     // Verify we got the values from CSS
     match discrete_range {
-        avenger_chart::scales::ScaleRange::Discrete(values) => {
+        Some(avenger_chart::scales::ScaleRange::Discrete(values)) => {
             assert_eq!(values.len(), 4);
         }
-        _ => panic!("Expected discrete range"),
+        _ => panic!("Expected discrete range, got {:?}", discrete_range),
     }
 
     match continuous_range {
-        avenger_chart::scales::ScaleRange::Numeric(_, _) => {
+        Some(avenger_chart::scales::ScaleRange::Numeric(_, _)) => {
             // Success - got numeric range
         }
-        _ => panic!("Expected continuous numeric range"),
+        _ => panic!("Expected continuous numeric range, got {:?}", continuous_range),
     }
 }
