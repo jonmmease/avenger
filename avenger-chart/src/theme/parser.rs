@@ -1,6 +1,6 @@
 //! CSS stylesheet parser using cssparser's high-level APIs
 
-use crate::theme::css_value::parse_rgb_function;
+use crate::theme::css_value::{parse_hsl_function, parse_rgb_function};
 use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
 use crate::theme::theme::CompiledRule;
 use crate::theme::value::parse_color_string;
@@ -324,6 +324,13 @@ fn parse_single_value<'i, 't>(
             match name_str.as_str() {
                 "rgb" | "rgba" => {
                     if let Some(color) = parse_rgb_function(&args) {
+                        Ok(ThemeValue::Color(color))
+                    } else {
+                        Ok(ThemeValue::Function(name_str, args))
+                    }
+                }
+                "hsl" | "hsla" => {
+                    if let Some(color) = parse_hsl_function(&args) {
                         Ok(ThemeValue::Color(color))
                     } else {
                         Ok(ThemeValue::Function(name_str, args))

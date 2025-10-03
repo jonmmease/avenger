@@ -96,13 +96,7 @@ async fn test_cardinality_3_categories() {
         )
         .theme(theme);
 
-    assert_visual_match(
-        plot,
-        "css_cardinality",
-        "cardinality_3_categories",
-        0.9999,
-    )
-    .await;
+    assert_visual_match(plot, "css_cardinality", "cardinality_3_categories", 0.9999).await;
 }
 
 #[tokio::test]
@@ -193,13 +187,7 @@ async fn test_cardinality_5_categories() {
         )
         .theme(theme);
 
-    assert_visual_match(
-        plot,
-        "css_cardinality",
-        "cardinality_5_categories",
-        0.9999,
-    )
-    .await;
+    assert_visual_match(plot, "css_cardinality", "cardinality_5_categories", 0.9999).await;
 }
 
 #[tokio::test]

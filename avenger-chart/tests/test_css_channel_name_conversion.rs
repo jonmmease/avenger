@@ -36,7 +36,10 @@ fn test_underscore_to_hyphen_conversion() {
         Some(avenger_chart::scales::ScaleRange::Color(_)) => {
             // Success - got a color range
         }
-        _ => panic!("Expected color range for glow_color, got {:?}", glow_color_range),
+        _ => panic!(
+            "Expected color range for glow_color, got {:?}",
+            glow_color_range
+        ),
     }
 
     // Verify we got discrete numeric range
@@ -44,7 +47,10 @@ fn test_underscore_to_hyphen_conversion() {
         Some(avenger_chart::scales::ScaleRange::Discrete(values)) => {
             assert_eq!(values.len(), 3, "Expected 3 discrete values");
         }
-        _ => panic!("Expected discrete range for pulse_speed, got {:?}", pulse_speed_range),
+        _ => panic!(
+            "Expected discrete range for pulse_speed, got {:?}",
+            pulse_speed_range
+        ),
     }
 }
 
@@ -102,6 +108,9 @@ fn test_stroke_width_conversion() {
         Some(avenger_chart::scales::ScaleRange::Numeric(_, _)) => {
             // Success - got numeric range
         }
-        _ => panic!("Expected continuous numeric range, got {:?}", continuous_range),
+        _ => panic!(
+            "Expected continuous numeric range, got {:?}",
+            continuous_range
+        ),
     }
 }

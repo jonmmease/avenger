@@ -1,6 +1,7 @@
 pub mod axis;
 pub mod cartesian;
 pub mod channel;
+pub mod color;
 pub mod coords;
 pub mod error;
 pub mod guide;

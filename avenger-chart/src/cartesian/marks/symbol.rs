@@ -390,28 +390,30 @@ impl CompiledMark for CompiledCartesianSymbol {
             crate::scales::ResolvedDomain::Interval => None,
         };
 
-        if let Some(theme_range) = theme.get_range_for_channel("symbol", channel, range_kind, cardinality) {
+        if let Some(theme_range) =
+            theme.get_range_for_channel("symbol", channel, range_kind, cardinality)
+        {
             return Some(theme_range);
         }
 
         // Provide mark-specific computed defaults for channels with domain-aware logic
         match channel {
             "size" => match domain {
-                    crate::scales::ResolvedDomain::Discrete(count) => {
-                        let min = 40.0;
-                        let max = 400.0;
-                        if *count == 1 {
-                            Some(ScaleRange::new_discrete(vec![ScalarValue::Float32(Some(
-                                max,
-                            ))]))
-                        } else {
-                            Some(ScaleRange::new_linspace_discrete(min, max, *count))
-                        }
+                crate::scales::ResolvedDomain::Discrete(count) => {
+                    let min = 40.0;
+                    let max = 400.0;
+                    if *count == 1 {
+                        Some(ScaleRange::new_discrete(vec![ScalarValue::Float32(Some(
+                            max,
+                        ))]))
+                    } else {
+                        Some(ScaleRange::new_linspace_discrete(min, max, *count))
                     }
-                    crate::scales::ResolvedDomain::Interval => {
-                        Some(ScaleRange::new_interval(lit(0.0), lit(400.0)))
-                    }
-                },
+                }
+                crate::scales::ResolvedDomain::Interval => {
+                    Some(ScaleRange::new_interval(lit(0.0), lit(400.0)))
+                }
+            },
             "angle" => Some(domain.make_interval_or_linspaced_range(0.0, 360.0)),
             "opacity" => Some(domain.make_interval_or_linspaced_range(0.0, 1.0)),
             "stroke_width" => Some(domain.make_interval_or_linspaced_range(0.5, 5.0)),
