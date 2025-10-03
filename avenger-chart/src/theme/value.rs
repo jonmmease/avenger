@@ -35,6 +35,10 @@ pub enum ThemeValue {
     /// CSS variable reference
     Variable(String),
 
+    /// light-dark() function - theme-aware color selection
+    /// First value for light mode, second for dark mode
+    LightDark(Box<ThemeValue>, Box<ThemeValue>),
+
     /// Initial value
     Initial,
 

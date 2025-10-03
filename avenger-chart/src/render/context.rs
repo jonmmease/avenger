@@ -37,4 +37,35 @@ impl RenderContext {
             params,
         }
     }
+
+    /// Query theme property with automatic parameter resolution
+    ///
+    /// This is a convenience method that combines theme querying with parameter resolution.
+    /// It resolves:
+    /// - CSS variables (var()) using params or theme defaults
+    /// - light-dark() functions using the "color-scheme" param
+    ///
+    /// # Arguments
+    /// * `context` - The element context for CSS selector matching
+    /// * `property` - The CSS property name
+    ///
+    /// # Returns
+    /// Resolved ThemeValue if a matching rule is found, None otherwise
+    ///
+    /// # Example
+    /// ```ignore
+    /// use crate::theme::ThemeContext;
+    ///
+    /// let mark_ctx = ThemeContext::new("mark").with_subtype("rect");
+    /// if let Some(fill) = render_ctx.query_theme(&mark_ctx, "fill") {
+    ///     // Use resolved fill color
+    /// }
+    /// ```
+    pub fn query_theme(
+        &self,
+        context: &crate::theme::ThemeContext,
+        property: &str,
+    ) -> Option<crate::theme::ThemeValue> {
+        self.theme.query_with_params(context, property, &self.params)
+    }
 }

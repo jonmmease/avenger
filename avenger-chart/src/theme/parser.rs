@@ -326,8 +326,16 @@ fn parse_single_value<'i, 't>(
     match token {
         Token::Function(name) => {
             let name_str = name.to_string();
-            let args = parse_function_args(parser, unsupported_units)
-                .map_err(|_| parser.new_custom_error(()))?;
+
+            // Special case: color-mix has complex syntax (keywords + values)
+            // so it needs the old token-based parser
+            let args = if name_str == "color-mix" {
+                parse_color_mix_args(parser, unsupported_units)
+                    .map_err(|_| parser.new_custom_error(()))?
+            } else {
+                parse_function_args(parser, unsupported_units)
+                    .map_err(|_| parser.new_custom_error(()))?
+            };
 
             match name_str.as_str() {
                 "rgb" | "rgba" => {
@@ -387,6 +395,17 @@ fn parse_single_value<'i, 't>(
                         Err(parser.new_custom_error(()))
                     }
                 }
+                "light-dark" => {
+                    // light-dark(light-value, dark-value) function
+                    if args.len() == 2 {
+                        Ok(ThemeValue::LightDark(
+                            Box::new(args[0].clone()),
+                            Box::new(args[1].clone()),
+                        ))
+                    } else {
+                        Err(parser.new_custom_error(()))
+                    }
+                }
                 _ => Ok(ThemeValue::Function(name_str, args)),
             }
         }
@@ -421,10 +440,10 @@ fn parse_single_value<'i, 't>(
     }
 }
 
-/// Parse function arguments
-/// Parses all space/comma-separated tokens as a flat list
-/// This allows functions like color-mix(in srgb, red 75%, blue 25%) to work
-fn parse_function_args<'i, 't>(
+/// Parse function arguments for color-mix (special token-based syntax)
+/// color-mix has syntax like: color-mix(in srgb, red 75%, blue 25%)
+/// which includes keywords and space-separated tokens
+fn parse_color_mix_args<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
@@ -461,6 +480,26 @@ fn parse_function_args<'i, 't>(
                 }
             }
         }
+
+        Ok(values)
+    })
+}
+
+/// Parse function arguments
+/// Parses comma-separated values, supporting nested function calls
+/// Each argument is recursively parsed as a complete value
+fn parse_function_args<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
+    parser.parse_nested_block(|p| {
+        // Parse comma-separated list of values
+        // Each value is parsed recursively, enabling nested functions like:
+        // light-dark(var(--color), #000)
+        let values: Vec<ThemeValue> = p
+            .parse_comma_separated(|parser| {
+                parse_single_value(parser, unsupported_units)
+            })?;
 
         Ok(values)
     })

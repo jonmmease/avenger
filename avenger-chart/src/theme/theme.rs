@@ -429,6 +429,195 @@ impl Theme {
         }
     }
 
+    /// Convert a DataFusion ScalarValue to a ThemeValue
+    ///
+    /// This enables params to be used as CSS variable values.
+    fn scalar_to_theme_value(scalar: &datafusion_common::ScalarValue) -> Option<ThemeValue> {
+        use datafusion_common::ScalarValue;
+
+        match scalar {
+            ScalarValue::Utf8(Some(s)) => {
+                // Try parsing as color first
+                if let Some(color) = crate::theme::value::parse_color_string(s) {
+                    Some(ThemeValue::Color(color))
+                } else if let Ok(n) = s.parse::<f64>() {
+                    // Try parsing as number
+                    Some(ThemeValue::Number(n))
+                } else {
+                    // Keep as string
+                    Some(ThemeValue::String(s.clone()))
+                }
+            }
+            ScalarValue::Float32(Some(f)) => Some(ThemeValue::Number(*f as f64)),
+            ScalarValue::Float64(Some(f)) => Some(ThemeValue::Number(*f)),
+            ScalarValue::Int32(Some(i)) => Some(ThemeValue::Number(*i as f64)),
+            ScalarValue::Int64(Some(i)) => Some(ThemeValue::Number(*i as f64)),
+            ScalarValue::Boolean(Some(b)) => Some(ThemeValue::Boolean(*b)),
+            _ => None,
+        }
+    }
+
+    /// Recursively resolve a theme value with parameters
+    ///
+    /// This handles:
+    /// - Variable references: checks params first (without `--` prefix), then theme.variables
+    /// - light-dark() functions: uses "color-scheme" param to choose branch (default "light")
+    /// - Nested structures: recursively resolves until fully expanded
+    ///
+    /// # Arguments
+    /// * `value` - The ThemeValue to resolve
+    /// * `params` - Parameter values from the plot/rendering context
+    /// * `depth` - Current recursion depth (prevents infinite loops)
+    ///
+    /// # Returns
+    /// Resolved ThemeValue (may still be unresolved if params/variables not found)
+    fn resolve_theme_value(
+        &self,
+        value: ThemeValue,
+        params: &IndexMap<String, datafusion_common::ScalarValue>,
+        depth: usize,
+    ) -> ThemeValue {
+        // Prevent infinite recursion
+        const MAX_DEPTH: usize = 10;
+        if depth >= MAX_DEPTH {
+            return value;
+        }
+
+        match value {
+            ThemeValue::Variable(var_name) => {
+                // Variable resolution priority:
+                // 1. Check params (without -- prefix)
+                // 2. Fall back to theme.variables
+
+                // Strip -- prefix if present for param lookup
+                let param_name = if var_name.starts_with("--") {
+                    &var_name[2..]
+                } else {
+                    &var_name
+                };
+
+                // Try params first
+                if let Some(param_value) = params.get(param_name) {
+                    if let Some(theme_val) = Self::scalar_to_theme_value(param_value) {
+                        // Recursively resolve in case param contains another reference
+                        return self.resolve_theme_value(theme_val, params, depth + 1);
+                    }
+                }
+
+                // Fall back to theme variables
+                if let Some(var_value) = self.variables.get(&var_name) {
+                    // Recursively resolve in case variable contains another reference
+                    return self.resolve_theme_value(var_value.clone(), params, depth + 1);
+                }
+
+                // Unresolved - return as-is
+                ThemeValue::Variable(var_name)
+            }
+
+            ThemeValue::LightDark(light, dark) => {
+                // Check color-scheme param (default to "light")
+                let scheme = params
+                    .get("color-scheme")
+                    .and_then(|v| match v {
+                        datafusion_common::ScalarValue::Utf8(Some(s)) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or("light");
+
+                // Choose branch based on color-scheme
+                let chosen = if scheme == "dark" { *dark } else { *light };
+
+                // Recursively resolve the chosen branch
+                self.resolve_theme_value(chosen, params, depth + 1)
+            }
+
+            // For List values, recursively resolve each element
+            ThemeValue::List(values) => ThemeValue::List(
+                values
+                    .into_iter()
+                    .map(|v| self.resolve_theme_value(v, params, depth + 1))
+                    .collect(),
+            ),
+
+            // All other values pass through unchanged
+            _ => value,
+        }
+    }
+
+    /// Query a CSS property with parameter resolution
+    ///
+    /// This is the param-aware version of `query()`. It resolves:
+    /// - CSS variables (var()) using params or theme defaults
+    /// - light-dark() functions using the "color-scheme" param
+    ///
+    /// # Arguments
+    /// * `context` - The element context for CSS selector matching
+    /// * `property` - The CSS property name
+    /// * `params` - Parameter values that can override variables and control light-dark()
+    ///
+    /// # Returns
+    /// Resolved ThemeValue if a matching rule is found, None otherwise
+    pub fn query_with_params(
+        &self,
+        context: &ThemeContext,
+        property: &str,
+        params: &IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> Option<ThemeValue> {
+        use crate::theme::element::CssElement;
+
+        // Convert ThemeContext to CssElement for selector matching
+        let element = CssElement::from(context);
+
+        // Create matching context
+        let mut selector_caches = SelectorCaches::default();
+        let mut matching_context = selectors::context::MatchingContext::new(
+            selectors::context::MatchingMode::Normal,
+            None,
+            &mut selector_caches,
+            selectors::context::QuirksMode::NoQuirks,
+            selectors::context::NeedsSelectorFlags::No,
+            selectors::context::MatchingForInvalidation::No,
+        );
+
+        // Find matching rules
+        let mut matches = Vec::new();
+        for rule in &self.rules {
+            let is_match = selectors::matching::matches_selector(
+                &rule.selector,
+                0,
+                None,
+                &element,
+                &mut matching_context,
+            );
+            if is_match {
+                matches.push(rule);
+            }
+        }
+
+        // Sort by specificity and source order (higher specificity should win, then later rules)
+        matches.sort_by_key(|r| (r.specificity, r.source_order));
+
+        // Find the property value - iterate from highest specificity
+        for rule in matches.iter().rev() {
+            if let Some(value) = rule.declarations.get(property) {
+                // Resolve the value with params
+                return Some(self.resolve_theme_value(value.clone(), params, 0));
+            }
+        }
+
+        // Check if property is inherited and try to get it from parent
+        if self.inherited_properties.contains(property) {
+            // Try to get the value from the parent element
+            if let Some(parent) = &context.parent {
+                // Recursively query the parent for this property
+                return self.query_with_params(parent, property, params);
+            }
+        }
+
+        // No CSS rule found
+        None
+    }
+
     /// Append additional CSS rules to the theme
     pub fn append_css(&mut self, css: &str) -> Result<(), String> {
         // Parse the new CSS
@@ -468,65 +657,12 @@ impl Theme {
     ///
     /// Returns `Some(ThemeValue)` if a CSS rule matches, `None` if no rule is found.
     /// The caller is responsible for providing appropriate defaults.
+    ///
+    /// This method uses default resolution (no param overrides, light mode for light-dark()).
+    /// For param-aware resolution, use `query_with_params()`.
     pub fn query(&self, context: &ThemeContext, property: &str) -> Option<ThemeValue> {
-        use crate::theme::element::CssElement;
-
-        // Convert ThemeContext to CssElement for selector matching
-        let element = CssElement::from(context);
-
-        // Create matching context
-        let mut selector_caches = SelectorCaches::default();
-        let mut matching_context = selectors::context::MatchingContext::new(
-            selectors::context::MatchingMode::Normal,
-            None,
-            &mut selector_caches,
-            selectors::context::QuirksMode::NoQuirks,
-            selectors::context::NeedsSelectorFlags::No,
-            selectors::context::MatchingForInvalidation::No,
-        );
-
-        // Find matching rules
-        let mut matches = Vec::new();
-        for rule in &self.rules {
-            let is_match = selectors::matching::matches_selector(
-                &rule.selector,
-                0,
-                None,
-                &element,
-                &mut matching_context,
-            );
-            if is_match {
-                matches.push(rule);
-            }
-        }
-
-        // Sort by specificity and source order (higher specificity should win, then later rules)
-        matches.sort_by_key(|r| (r.specificity, r.source_order));
-
-        // Find the property value - iterate from highest specificity
-        for rule in matches.iter().rev() {
-            if let Some(value) = rule.declarations.get(property) {
-                // Resolve variables if needed
-                if let ThemeValue::Variable(var_name) = value {
-                    if let Some(resolved) = self.variables.get(var_name) {
-                        return Some(resolved.clone());
-                    }
-                }
-                return Some(value.clone());
-            }
-        }
-
-        // Check if property is inherited and try to get it from parent
-        if self.inherited_properties.contains(property) {
-            // Try to get the value from the parent element
-            if let Some(parent) = &context.parent {
-                // Recursively query the parent for this property
-                return self.query(parent, property);
-            }
-        }
-
-        // No CSS rule found
-        None
+        // Delegate to query_with_params with empty params for backward compatibility
+        self.query_with_params(context, property, &IndexMap::new())
     }
 
     /// Get the base font size in pixels (used for rem unit conversion)
@@ -1760,5 +1896,420 @@ mod tests {
         let json = serde_json::to_string(&theme).unwrap();
         let deserialized: Theme = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.base_font_size(), 18.0);
+    }
+
+    // ============================================================
+    // Tests for light-dark() and parameter resolution
+    // ============================================================
+
+    #[test]
+    fn test_parse_light_dark_basic() {
+        // Test basic light-dark() parsing
+        let css = r#"
+            mark {
+                fill: light-dark(#ffffff, #000000);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = ThemeContext::new("mark");
+
+        // Query without params - should default to light mode
+        let value = theme.query(&ctx, "fill");
+        println!("Basic light-dark value: {:?}", value);
+        match value {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 255);
+                assert_eq!(c.green, 255);
+                assert_eq!(c.blue, 255);
+            }
+            _ => panic!("Expected color value from light-dark(), got: {:?}", value),
+        }
+    }
+
+    #[test]
+    fn test_light_dark_with_one_var() {
+        // Test light-dark() with one var() argument
+        let css = r#"
+            :root {
+                --light-bg: #ffffff;
+            }
+            mark {
+                fill: light-dark(var(--light-bg), #000000);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        println!("One var theme variables: {:?}", theme.variables);
+
+        let ctx = ThemeContext::new("mark");
+        let raw_value = theme.query(&ctx, "fill");
+        println!("One var fill value: {:?}", raw_value);
+
+        // Should resolve to white in light mode
+        match raw_value {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 255);
+            }
+            _ => panic!("Expected resolved color, got: {:?}", raw_value),
+        }
+    }
+
+    #[test]
+    fn test_light_dark_with_color_scheme_param() {
+        let css = r#"
+            mark {
+                fill: light-dark(#e8f4f8, #1a2332);
+                stroke: light-dark(#333333, #cccccc);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = ThemeContext::new("mark");
+
+        // Test with light mode
+        let mut params_light = IndexMap::new();
+        params_light.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("light".to_string())),
+        );
+
+        let fill_light = theme.query_with_params(&ctx, "fill", &params_light);
+        match fill_light {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 232); // #e8f4f8
+                assert_eq!(c.green, 244);
+                assert_eq!(c.blue, 248);
+            }
+            _ => panic!("Expected light color"),
+        }
+
+        // Test with dark mode
+        let mut params_dark = IndexMap::new();
+        params_dark.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
+        );
+
+        let fill_dark = theme.query_with_params(&ctx, "fill", &params_dark);
+        match fill_dark {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 26); // #1a2332
+                assert_eq!(c.green, 35);
+                assert_eq!(c.blue, 50);
+            }
+            _ => panic!("Expected dark color"),
+        }
+
+        let stroke_dark = theme.query_with_params(&ctx, "stroke", &params_dark);
+        match stroke_dark {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 204); // #cccccc
+                assert_eq!(c.green, 204);
+                assert_eq!(c.blue, 204);
+            }
+            _ => panic!("Expected dark stroke color"),
+        }
+    }
+
+    #[test]
+    fn test_css_variable_override_with_params() {
+        let css = r#"
+            :root {
+                --accent: #4682b4;
+            }
+            mark {
+                fill: var(--accent);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = ThemeContext::new("mark");
+
+        // Without params - should use theme variable
+        let value_default = theme.query(&ctx, "fill");
+        match value_default {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 70); // #4682b4
+                assert_eq!(c.green, 130);
+                assert_eq!(c.blue, 180);
+            }
+            _ => panic!("Expected default accent color"),
+        }
+
+        // With param override
+        let mut params = IndexMap::new();
+        params.insert(
+            "accent".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("#ff6b6b".to_string())),
+        );
+
+        let value_override = theme.query_with_params(&ctx, "fill", &params);
+        match value_override {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 255); // #ff6b6b
+                assert_eq!(c.green, 107);
+                assert_eq!(c.blue, 107);
+            }
+            _ => panic!("Expected overridden accent color"),
+        }
+    }
+
+    #[test]
+    fn test_nested_light_dark_with_variables() {
+        // Test light-dark() containing var() references
+        let css = r#"
+            :root {
+                --light-bg: #ffffff;
+                --dark-bg: #000000;
+            }
+            mark {
+                fill: light-dark(var(--light-bg), var(--dark-bg));
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        println!("Theme variables: {:?}", theme.variables);
+
+        let ctx = ThemeContext::new("mark");
+
+        // First check what raw value is stored (before param resolution)
+        let raw_value = theme.query(&ctx, "fill");
+        println!("Raw fill value: {:?}", raw_value);
+
+        // Test light mode
+        let mut params_light = IndexMap::new();
+        params_light.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("light".to_string())),
+        );
+
+        let value_light = theme.query_with_params(&ctx, "fill", &params_light);
+        println!("Light value: {:?}", value_light);
+        match value_light {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 255);
+                assert_eq!(c.green, 255);
+                assert_eq!(c.blue, 255);
+            }
+            _ => panic!("Expected white from nested light-dark() + var(), got: {:?}", value_light),
+        }
+
+        // Test dark mode
+        let mut params_dark = IndexMap::new();
+        params_dark.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
+        );
+
+        let value_dark = theme.query_with_params(&ctx, "fill", &params_dark);
+        match value_dark {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 0);
+                assert_eq!(c.green, 0);
+                assert_eq!(c.blue, 0);
+            }
+            _ => panic!("Expected black from nested light-dark() + var()"),
+        }
+    }
+
+    #[test]
+    fn test_nested_variables_and_light_dark_with_param_overrides() {
+        // Complex test: light-dark() with vars, and params override both vars and color-scheme
+        let css = r#"
+            :root {
+                --primary: #3498db;
+                --secondary: #e74c3c;
+            }
+            mark {
+                fill: light-dark(var(--primary), var(--secondary));
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = ThemeContext::new("mark");
+
+        // Override both color-scheme AND variables
+        let mut params = IndexMap::new();
+        params.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
+        );
+        params.insert(
+            "primary".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("#ff0000".to_string())),
+        );
+        params.insert(
+            "secondary".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("#00ff00".to_string())),
+        );
+
+        let value = theme.query_with_params(&ctx, "fill", &params);
+        match value {
+            Some(ThemeValue::Color(c)) => {
+                // Should resolve to dark mode (secondary), which is overridden to green
+                assert_eq!(c.red, 0);
+                assert_eq!(c.green, 255);
+                assert_eq!(c.blue, 0);
+            }
+            _ => panic!("Expected param-overridden color"),
+        }
+    }
+
+    #[test]
+    fn test_light_dark_in_list() {
+        // Test light-dark() within a list (for discrete ranges)
+        let css = r#"
+            mark {
+                fill-discrete:
+                    light-dark(#e8f4f8, #1a2332),
+                    light-dark(#f0e442, #d55e00),
+                    light-dark(#009e73, #56b4e9);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = ThemeContext::new("mark");
+
+        // Test with dark mode
+        let mut params = IndexMap::new();
+        params.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
+        );
+
+        let value = theme.query_with_params(&ctx, "fill-discrete", &params);
+        match value {
+            Some(ThemeValue::List(colors)) => {
+                assert_eq!(colors.len(), 3);
+
+                // Check first color is resolved to dark variant
+                match &colors[0] {
+                    ThemeValue::Color(c) => {
+                        assert_eq!(c.red, 26); // #1a2332
+                    }
+                    _ => panic!("Expected first color to be resolved"),
+                }
+            }
+            _ => panic!("Expected list of colors"),
+        }
+    }
+
+    #[test]
+    fn test_scalar_to_theme_value_conversion() {
+        // Test that various ScalarValue types convert correctly
+        use datafusion_common::ScalarValue;
+
+        // Test color string
+        let color_scalar = ScalarValue::Utf8(Some("#ff0000".to_string()));
+        let color_val = Theme::scalar_to_theme_value(&color_scalar);
+        match color_val {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 255);
+                assert_eq!(c.green, 0);
+                assert_eq!(c.blue, 0);
+            }
+            _ => panic!("Expected color from string"),
+        }
+
+        // Test number string
+        let num_str_scalar = ScalarValue::Utf8(Some("42.5".to_string()));
+        let num_str_val = Theme::scalar_to_theme_value(&num_str_scalar);
+        match num_str_val {
+            Some(ThemeValue::Number(n)) => assert_eq!(n, 42.5),
+            _ => panic!("Expected number from string"),
+        }
+
+        // Test plain string
+        let str_scalar = ScalarValue::Utf8(Some("hello".to_string()));
+        let str_val = Theme::scalar_to_theme_value(&str_scalar);
+        match str_val {
+            Some(ThemeValue::String(s)) => assert_eq!(s, "hello"),
+            _ => panic!("Expected string"),
+        }
+
+        // Test numeric types
+        let float32_scalar = ScalarValue::Float32(Some(3.14));
+        match Theme::scalar_to_theme_value(&float32_scalar) {
+            Some(ThemeValue::Number(n)) => assert!((n - 3.14).abs() < 0.001),
+            _ => panic!("Expected number from Float32"),
+        }
+
+        let int32_scalar = ScalarValue::Int32(Some(42));
+        match Theme::scalar_to_theme_value(&int32_scalar) {
+            Some(ThemeValue::Number(n)) => assert_eq!(n, 42.0),
+            _ => panic!("Expected number from Int32"),
+        }
+
+        // Test boolean
+        let bool_scalar = ScalarValue::Boolean(Some(true));
+        match Theme::scalar_to_theme_value(&bool_scalar) {
+            Some(ThemeValue::Boolean(b)) => assert!(b),
+            _ => panic!("Expected boolean"),
+        }
+    }
+
+    #[test]
+    fn test_param_without_double_dash_prefix() {
+        // Verify that params work without -- prefix (user-friendly)
+        let css = r#"
+            :root {
+                --my-var: #ff0000;
+            }
+            mark {
+                fill: var(--my-var);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = ThemeContext::new("mark");
+
+        // Param named "my-var" (without --) should override "--my-var"
+        let mut params = IndexMap::new();
+        params.insert(
+            "my-var".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("#00ff00".to_string())),
+        );
+
+        let value = theme.query_with_params(&ctx, "fill", &params);
+        match value {
+            Some(ThemeValue::Color(c)) => {
+                assert_eq!(c.red, 0);
+                assert_eq!(c.green, 255);
+                assert_eq!(c.blue, 0);
+            }
+            _ => panic!("Expected overridden color"),
+        }
+    }
+
+    #[test]
+    fn test_max_recursion_depth() {
+        // Test that deeply nested resolution doesn't cause stack overflow
+        let css = r#"
+            :root {
+                --a: var(--b);
+                --b: var(--c);
+                --c: var(--d);
+                --d: var(--e);
+                --e: var(--f);
+                --f: var(--g);
+                --g: var(--h);
+                --h: var(--i);
+                --i: var(--j);
+                --j: var(--k);
+                --k: #ff0000;
+            }
+            mark {
+                fill: var(--a);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = ThemeContext::new("mark");
+
+        // This should not panic, but may not fully resolve due to depth limit
+        let value = theme.query(&ctx, "fill");
+        // The resolution will hit the depth limit, but shouldn't crash
+        assert!(value.is_some());
     }
 }

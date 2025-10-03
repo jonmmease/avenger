@@ -95,14 +95,12 @@ impl CompiledPlot {
         &self,
         channel: &str,
         ctx: &SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        _params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Scale, AvengerChartError> {
         use crate::channel::resolution::resolve_all_channel_refs;
-        use crate::render::RenderContext;
         use crate::scales::{Scale, spec::Auto};
         use datafusion::logical_expr::lit;
         use std::collections::HashMap;
-        use std::sync::Arc;
 
         // Try to infer the data type and use mark-based scale preferences
         let mut scale_spec = None;
