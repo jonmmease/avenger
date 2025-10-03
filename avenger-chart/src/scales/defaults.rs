@@ -133,33 +133,8 @@ pub fn default_generic_range_continuous() -> ScaleRange {
     ScaleRange::new_interval(lit(0.0), lit(1.0))
 }
 
-/// Create a default scale for a channel using theme and scale traits
-pub fn create_default_scale_for_channel(
-    channel: &str,
-    scale_spec: Box<dyn ScaleSpec>,
-    context: &RenderContext,
-) -> Result<Scale<Auto>, AvengerChartError> {
-    let range_kind = scale_spec.range_kind();
-
-    let mut scale = Scale::<Auto>::from_spec(scale_spec);
-
-    // Use generic "mark" type for global scales
-    // Individual marks will override with their specific type in default_channel_range
-    let mark_type = "mark";
-
-    // Try to get range from CSS theme, fall back to channel-specific defaults
-    let range = context
-        .theme
-        .get_range_for_channel(mark_type, channel, range_kind, None)
-        .unwrap_or_else(|| default_range_for_channel(channel, range_kind));
-
-    scale = scale.range(range);
-
-    Ok(scale)
-}
-
 /// Returns default range for a channel based on channel name and range kind
-fn default_range_for_channel(channel: &str, range_kind: RangeKind) -> ScaleRange {
+pub fn default_range_for_channel(channel: &str, range_kind: RangeKind) -> ScaleRange {
     match (channel, range_kind) {
         // Color channels
         ("fill" | "stroke" | "color", RangeKind::Discrete) => default_color_range_discrete(None),
@@ -179,6 +154,9 @@ fn default_range_for_channel(channel: &str, range_kind: RangeKind) -> ScaleRange
 
         // Shape channel (always discrete)
         ("shape", _) => default_shape_range_discrete(None),
+
+        // Angle channel (always continuous, in degrees)
+        ("angle", _) => ScaleRange::new_interval(lit(0.0), lit(360.0)),
 
         // Generic fallback
         _ => match range_kind {

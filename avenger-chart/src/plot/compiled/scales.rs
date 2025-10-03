@@ -99,7 +99,7 @@ impl CompiledPlot {
     ) -> Result<Scale, AvengerChartError> {
         use crate::channel::resolution::resolve_all_channel_refs;
         use crate::render::RenderContext;
-        use crate::scales::create_default_scale_for_channel;
+        use crate::scales::{Scale, spec::Auto};
         use datafusion::logical_expr::lit;
         use std::collections::HashMap;
         use std::sync::Arc;
@@ -164,16 +164,12 @@ impl CompiledPlot {
             ))
         })?;
 
-        // Create render context with theme for scale defaults
-        // Use placeholder dimensions since we're not rendering yet
-        let theme = self.get_theme();
-        let context = RenderContext::new(theme, 0.0, 0.0, Arc::new(ctx.clone()), params.clone());
-
-        // Create scale with theme-based defaults
-        let mut scale = create_default_scale_for_channel(channel, scale_spec, &context)?;
+        // Create scale from spec
+        // Ranges are set later after domain inference when we have full context
+        // (cardinality, mark-specific requirements, theme with mark type, etc.)
+        let mut scale = Scale::<Auto>::from_spec(scale_spec);
 
         // Apply coordinate system and mark-specific scale options
-        // These override theme defaults
         if let (Some(dt), Some(mark)) = (&data_type, found_mark) {
             let mut default_options = HashMap::new();
 
@@ -659,52 +655,16 @@ impl CompiledPlot {
             )
             .await?;
 
-        // Step 5: Apply mark-specific range if not a position channel AND no range is set
-        // Position channels already have their ranges set
+        // Step 5: Set ranges for non-position channels using mark-specific defaults
         let is_position = self
             .coord_transform
             .required_channels()
             .contains(&name.as_ref());
 
-        // Check if scale already has a user-specified range
-        // The default range is [0, 1], so check if it's been customized from that
-        let has_user_range = match scale.get_range() {
-            Some(crate::scales::ScaleRange::Color(_)) => true, // Custom color range
-            Some(crate::scales::ScaleRange::Discrete(_)) => true, // Custom discrete values
-            Some(crate::scales::ScaleRange::Numeric(start, end)) => {
-                // Check if it's not the default [0, 1] range
-                use datafusion::logical_expr::Expr;
-                use datafusion_common::ScalarValue;
-                let is_default = if let (Ok(start_expr), Ok(end_expr)) = (
-                    start.to_expr(&context.session_context),
-                    end.to_expr(&context.session_context),
-                ) {
-                    match (&start_expr, &end_expr) {
-                        (Expr::Literal(v1, _), Expr::Literal(v2, _)) => match (v1, v2) {
-                            (ScalarValue::Float64(Some(v1)), ScalarValue::Float64(Some(v2))) => {
-                                (v1 - 0.0).abs() < 0.001 && (v2 - 1.0).abs() < 0.001
-                            }
-                            (ScalarValue::Float32(Some(v1)), ScalarValue::Float32(Some(v2))) => {
-                                (*v1 as f64 - 0.0).abs() < 0.001 && (*v2 as f64 - 1.0).abs() < 0.001
-                            }
-                            _ => false,
-                        },
-                        _ => false,
-                    }
-                } else {
-                    false
-                };
-                !is_default
-            }
-            None => false, // No range set, use default
-        };
-
-        if !is_position && !has_user_range {
-            // Find the first mark that uses this channel
+        if !is_position && scale.get_range().is_none() {
+            // Query marks for range defaults with full domain context
             for mark in &self.marks {
                 if mark.data_context().channels().contains_key(name) {
-                    // Get data type from the channel expression
-                    // First resolve channel references
                     let channels = mark.data_context().channels();
                     let resolved_channels = crate::channel::resolution::resolve_all_channel_refs(
                         channels,
@@ -757,6 +717,20 @@ impl CompiledPlot {
                     }
                 }
             }
+        }
+
+        // Final fallback: query theme with generic "mark" type, then use hardcoded defaults
+        if scale.get_range().is_none() {
+            let range_kind = scale.get_scale_impl()
+                .map(|impl_arc| impl_arc.range_kind())
+                .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
+
+            let theme = self.get_theme();
+            let range = theme
+                .get_range_for_channel("mark", name, range_kind, None)
+                .unwrap_or_else(|| crate::scales::default_range_for_channel(name, range_kind));
+
+            scale = scale.range(range);
         }
 
         // Create the configured scale and wrap with the original spec
