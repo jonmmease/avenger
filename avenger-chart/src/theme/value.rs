@@ -17,6 +17,9 @@ pub enum ThemeValue {
     /// Length with unit
     Length(f64, LengthUnit),
 
+    /// Angle with unit (for hue values in HSL, rotations, etc.)
+    Angle(f64, AngleUnit),
+
     /// Percentage value
     Percentage(f64),
 
@@ -73,6 +76,31 @@ pub enum LengthUnit {
     Rem,
 }
 
+/// Angle units for CSS angle values
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum AngleUnit {
+    /// Degrees (360deg = full circle)
+    Deg,
+    /// Radians (2π rad ≈ 6.28318 rad = full circle)
+    Rad,
+    /// Gradians (400grad = full circle)
+    Grad,
+    /// Turns (1turn = full circle)
+    Turn,
+}
+
+impl AngleUnit {
+    /// Convert angle value to degrees
+    pub fn to_degrees(&self, value: f64) -> f64 {
+        match self {
+            AngleUnit::Deg => value,
+            AngleUnit::Rad => value.to_degrees(),
+            AngleUnit::Grad => value * 360.0 / 400.0,
+            AngleUnit::Turn => value * 360.0,
+        }
+    }
+}
+
 impl ThemeValue {
     /// Try to get as string
     pub fn as_string(&self) -> Option<&str> {
@@ -103,6 +131,17 @@ impl ThemeValue {
     pub fn as_number(&self) -> Option<f64> {
         match self {
             ThemeValue::Number(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    /// Get angle value in degrees
+    /// - Angle values are converted to degrees
+    /// - Plain numbers are interpreted as degrees
+    pub fn as_angle_degrees(&self) -> Option<f64> {
+        match self {
+            ThemeValue::Number(n) => Some(*n), // Interpret as degrees
+            ThemeValue::Angle(value, unit) => Some(unit.to_degrees(*value)),
             _ => None,
         }
     }
@@ -151,4 +190,60 @@ pub(crate) fn parse_color_string(color_str: &str) -> Option<CssRgba> {
         blue: (b * 255.0) as u8,
         alpha: (a * 255.0) as u8,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_angle_unit_to_degrees() {
+        // Test degrees (identity)
+        assert_eq!(AngleUnit::Deg.to_degrees(180.0), 180.0);
+        assert_eq!(AngleUnit::Deg.to_degrees(360.0), 360.0);
+
+        // Test radians
+        use std::f64::consts::PI;
+        assert!((AngleUnit::Rad.to_degrees(PI) - 180.0).abs() < 0.01);
+        assert!((AngleUnit::Rad.to_degrees(2.0 * PI) - 360.0).abs() < 0.01);
+        assert!((AngleUnit::Rad.to_degrees(PI / 2.0) - 90.0).abs() < 0.01);
+
+        // Test gradians
+        assert_eq!(AngleUnit::Grad.to_degrees(200.0), 180.0);
+        assert_eq!(AngleUnit::Grad.to_degrees(400.0), 360.0);
+        assert_eq!(AngleUnit::Grad.to_degrees(100.0), 90.0);
+
+        // Test turns
+        assert_eq!(AngleUnit::Turn.to_degrees(0.5), 180.0);
+        assert_eq!(AngleUnit::Turn.to_degrees(1.0), 360.0);
+        assert_eq!(AngleUnit::Turn.to_degrees(0.25), 90.0);
+    }
+
+    #[test]
+    fn test_theme_value_as_angle_degrees() {
+        // Test plain number (interpreted as degrees)
+        let value = ThemeValue::Number(120.0);
+        assert_eq!(value.as_angle_degrees(), Some(120.0));
+
+        // Test angle with degrees
+        let value = ThemeValue::Angle(120.0, AngleUnit::Deg);
+        assert_eq!(value.as_angle_degrees(), Some(120.0));
+
+        // Test angle with turns
+        let value = ThemeValue::Angle(0.5, AngleUnit::Turn);
+        assert_eq!(value.as_angle_degrees(), Some(180.0));
+
+        // Test angle with radians
+        use std::f64::consts::PI;
+        let value = ThemeValue::Angle(PI, AngleUnit::Rad);
+        assert!((value.as_angle_degrees().unwrap() - 180.0).abs() < 0.01);
+
+        // Test angle with gradians
+        let value = ThemeValue::Angle(200.0, AngleUnit::Grad);
+        assert_eq!(value.as_angle_degrees(), Some(180.0));
+
+        // Test non-angle value
+        let value = ThemeValue::String("not an angle".to_string());
+        assert_eq!(value.as_angle_degrees(), None);
+    }
 }
