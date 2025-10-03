@@ -1,9 +1,6 @@
 //! Default scale creation using theme and trait-based type detection
 
-use crate::error::AvengerChartError;
-use crate::render::RenderContext;
-use crate::scales::spec::ScaleSpec;
-use crate::scales::{Auto, Scale, ScaleRange};
+use crate::scales::ScaleRange;
 use crate::serialization::SerializableScalar;
 use avenger_scales::scales::RangeKind;
 use datafusion::prelude::lit;
