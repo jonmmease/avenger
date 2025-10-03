@@ -34,7 +34,7 @@ pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
                     source_order += 1;
                     Some(rule)
                 }
-                Err((_, _)) => None, // Ignore invalid rules
+                Err(_) => None, // Ignore invalid rules
             }
         })
         .collect();
@@ -158,9 +158,14 @@ impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
             unsupported_units: self.unsupported_units,
         };
 
-        let _ = RuleBodyParser::new(input, &mut declaration_parser)
-            .filter_map(|result| result.ok())
-            .collect::<Vec<_>>();
+        // Collect all declaration parsing results, propagating errors
+        let results: Result<Vec<_>, _> = RuleBodyParser::new(input, &mut declaration_parser)
+            .collect();
+
+        // If there were parse errors, convert to ParseError and return
+        if let Err((err, _context)) = results {
+            return Err(err);
+        }
 
         Ok(CompiledRule {
             selector,
@@ -328,9 +333,12 @@ fn parse_single_value<'i, 't>(
             let name_str = name.to_string();
 
             // Special case: color-mix has complex syntax (keywords + values)
-            // so it needs the old token-based parser
+            // Special case: lab/lch/oklab/oklch use space-separated values, not commas
             let args = if name_str == "color-mix" {
                 parse_color_mix_args(parser, unsupported_units)
+                    .map_err(|_| parser.new_custom_error(()))?
+            } else if matches!(name_str.as_str(), "lab" | "lch" | "oklab" | "oklch") {
+                parse_space_separated_args(parser, unsupported_units)
                     .map_err(|_| parser.new_custom_error(()))?
             } else {
                 parse_function_args(parser, unsupported_units)
@@ -500,6 +508,50 @@ fn parse_function_args<'i, 't>(
             .parse_comma_separated(|parser| {
                 parse_single_value(parser, unsupported_units)
             })?;
+
+        Ok(values)
+    })
+}
+
+/// Parse space-separated function arguments (for lab/lch/oklab/oklch)
+/// These color functions use space-separated values, not commas
+/// Example: oklab(0.6 0.1 -0.1) or lab(60 20 -30 / 0.5)
+fn parse_space_separated_args<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
+    parser.parse_nested_block(|p| {
+        let mut values = Vec::new();
+
+        // Parse space-separated values until we hit a slash or end
+        loop {
+            // Try to parse a value
+            match parse_single_value(p, unsupported_units) {
+                Ok(value) => values.push(value),
+                Err(_) => break,
+            }
+
+            // Check if next token is a slash (for alpha)
+            let state = p.state();
+            match p.next() {
+                Ok(Token::Delim('/')) => {
+                    // Parse alpha value after slash
+                    if let Ok(alpha) = parse_single_value(p, unsupported_units) {
+                        values.push(alpha);
+                    }
+                    break;
+                }
+                _ => {
+                    // Not a slash, restore state and continue
+                    p.reset(&state);
+                }
+            }
+
+            // Check if we're at the end
+            if p.is_exhausted() {
+                break;
+            }
+        }
 
         Ok(values)
     })
