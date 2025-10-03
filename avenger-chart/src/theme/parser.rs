@@ -2,6 +2,9 @@
 
 use crate::theme::color_mix::parse_color_mix_function;
 use crate::theme::css_value::{parse_hsl_function, parse_rgb_function};
+use crate::theme::lab_color::{
+    parse_lab_function, parse_lch_function, parse_oklab_function, parse_oklch_function,
+};
 use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
 use crate::theme::theme::CompiledRule;
 use crate::theme::value::parse_color_string;
@@ -343,6 +346,34 @@ fn parse_single_value<'i, 't>(
                 }
                 "color-mix" => {
                     if let Some(color) = parse_color_mix_function(&args) {
+                        Ok(ThemeValue::Color(color))
+                    } else {
+                        Ok(ThemeValue::Function(name_str, args))
+                    }
+                }
+                "oklab" => {
+                    if let Some(color) = parse_oklab_function(&args) {
+                        Ok(ThemeValue::Color(color))
+                    } else {
+                        Ok(ThemeValue::Function(name_str, args))
+                    }
+                }
+                "oklch" => {
+                    if let Some(color) = parse_oklch_function(&args) {
+                        Ok(ThemeValue::Color(color))
+                    } else {
+                        Ok(ThemeValue::Function(name_str, args))
+                    }
+                }
+                "lab" => {
+                    if let Some(color) = parse_lab_function(&args) {
+                        Ok(ThemeValue::Color(color))
+                    } else {
+                        Ok(ThemeValue::Function(name_str, args))
+                    }
+                }
+                "lch" => {
+                    if let Some(color) = parse_lch_function(&args) {
                         Ok(ThemeValue::Color(color))
                     } else {
                         Ok(ThemeValue::Function(name_str, args))
