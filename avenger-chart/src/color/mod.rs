@@ -1,8 +1,19 @@
-//! Color space conversions and utilities
+//! Color space support for CSS color functions
 //!
-//! This module provides color space conversion functions for use in the theme system.
-//! Functions are ported from Mozilla's Stylo engine with adaptations for Avenger's needs.
+//! This module provides color space conversions and color mixing functionality
+//! needed for advanced CSS color functions like `color-mix()`, `oklch()`, etc.
+//!
+//! ## Architecture
+//!
+//! - `types.rs`: Core color types (AbsoluteColor, ColorSpace)
+//! - `convert.rs`: Color space conversion functions
+//! - `mix.rs`: Color mixing/interpolation
 
 pub mod convert;
+pub mod mix;
+pub mod types;
 
-pub use convert::{hsl_to_rgb, normalize_hue, rgb_to_hsl};
+// Re-export public API
+pub use convert::{normalize_hue, orthogonal_to_polar, polar_to_orthogonal};
+pub use mix::{HueInterpolationMethod, mix_colors};
+pub use types::{AbsoluteColor, ColorSpace};

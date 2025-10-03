@@ -243,6 +243,7 @@ mod context;
 mod value;
 
 // CSS-based theme implementation modules
+pub(crate) mod color_mix;
 pub(crate) mod css_value;
 pub(crate) mod element;
 pub(crate) mod parser;

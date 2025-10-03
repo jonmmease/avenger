@@ -1563,6 +1563,66 @@ mod tests {
     }
 
     #[test]
+    fn test_color_mix_parsing_error() {
+        // First test: Does Theme::from_css succeed with color-mix?
+        let css = r#"
+            mark {
+                fill-discrete: color-mix(in srgb, red, blue);
+            }
+        "#;
+
+        match Theme::from_css(css) {
+            Ok(theme) => {
+                println!("Theme created successfully");
+                let ctx = ThemeContext::new("mark");
+                let value = theme.query(&ctx, "fill-discrete");
+                println!("fill-discrete value: {:?}", value);
+            }
+            Err(e) => {
+                println!("Failed to parse CSS: {}", e);
+                panic!("CSS parsing failed: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_color_mix_in_fill_discrete() {
+        let css = r#"
+            mark {
+                fill-discrete:
+                    color-mix(in srgb, red, blue),
+                    color-mix(in srgb, red 75%, blue 25%);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).unwrap();
+        let ctx = ThemeContext::new("mark");
+        let value = theme.query(&ctx, "fill-discrete");
+
+        println!("fill-discrete value: {:?}", value);
+
+        match value {
+            Some(ThemeValue::List(items)) => {
+                println!("Got a list with {} items", items.len());
+                for (i, item) in items.iter().enumerate() {
+                    println!("  Item {}: {:?}", i, item);
+                }
+                assert_eq!(items.len(), 2, "Should have 2 color-mix results");
+
+                // Both should be Color values
+                for item in &items {
+                    assert!(
+                        matches!(item, ThemeValue::Color(_)),
+                        "Each item should be a Color, got {:?}",
+                        item
+                    );
+                }
+            }
+            other => panic!("Expected List, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn test_cardinality_based_ranges() {
         use crate::scales::ScaleRange;
         use avenger_scales::scales::RangeKind;
