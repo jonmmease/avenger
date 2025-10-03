@@ -105,7 +105,8 @@ async fn test_css_axis_and_legend_subtype_selectors() {
         }
     "#;
 
-    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
+    // Start with light theme and append custom CSS
+    let theme = Theme::from_css(css).expect("Failed to create theme from CSS");
 
     // Create data with multiple series for both symbols and lines
     let symbol_data = vec![
@@ -147,11 +148,7 @@ async fn test_css_axis_and_legend_subtype_selectors() {
 
     let symbol_batch = RecordBatch::try_new(
         symbol_schema,
-        vec![
-            Arc::new(symbol_x),
-            Arc::new(symbol_y),
-            Arc::new(symbol_cat),
-        ],
+        vec![Arc::new(symbol_x), Arc::new(symbol_y), Arc::new(symbol_cat)],
     )
     .expect("Failed to create symbol RecordBatch");
 
@@ -163,7 +160,8 @@ async fn test_css_axis_and_legend_subtype_selectors() {
     // Create line mark data
     let line_x = Float64Array::from(line_data.iter().map(|(x, _, _, _)| *x).collect::<Vec<_>>());
     let line_y = Float64Array::from(line_data.iter().map(|(_, y, _, _)| *y).collect::<Vec<_>>());
-    let line_series = StringArray::from(line_data.iter().map(|(_, _, s, _)| *s).collect::<Vec<_>>());
+    let line_series =
+        StringArray::from(line_data.iter().map(|(_, _, s, _)| *s).collect::<Vec<_>>());
     let line_index = Int32Array::from(line_data.iter().map(|(_, _, _, i)| *i).collect::<Vec<_>>());
 
     let line_schema = Arc::new(Schema::new(vec![
@@ -195,7 +193,9 @@ async fn test_css_axis_and_legend_subtype_selectors() {
         .mark(
             Symbol::new()
                 .data(symbol_df)
-                .x_with(col("x"), |c| c.axis(|a| a.title("X Axis (Blue)").grid(true)))
+                .x_with(col("x"), |c| {
+                    c.axis(|a| a.title("X Axis (Blue)").grid(true))
+                })
                 .y_with(col("y"), |c| c.axis(|a| a.title("Y Axis (Red)").grid(true)))
                 .fill(col("category")),
         )

@@ -297,7 +297,10 @@ impl GridBuilder {
         // 2. Add title row if present
         if self.has_title {
             if let Some(t) = title {
-                let font_size = t.font_size.unwrap_or(theme.title_font_size());
+                let font_size = t
+                    .font_size
+                    .or_else(|| theme.title_font_size())
+                    .unwrap_or(16.0);
                 let title_font_family = theme.title_font_family();
                 let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
 
@@ -323,7 +326,10 @@ impl GridBuilder {
         // 3. Add subtitle row if present
         if self.has_subtitle {
             if let Some(s) = subtitle {
-                let font_size = s.font_size.unwrap_or(theme.subtitle_font_size());
+                let font_size = s
+                    .font_size
+                    .or_else(|| theme.subtitle_font_size())
+                    .unwrap_or(14.0);
                 let subtitle_font_family = theme.subtitle_font_family();
                 let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
 

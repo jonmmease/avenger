@@ -111,7 +111,7 @@ async fn test_css_theme_basic() {
         }
     "#;
 
-    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
+    let theme = Theme::from_css(css).expect("Failed to create theme from CSS");
 
     // Create a simple scatter plot with the CSS theme
     let data = vec![
@@ -192,7 +192,7 @@ async fn test_css_theme_scale_ranges() {
         }
     "#;
 
-    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
+    let theme = Theme::from_css(css).expect("Failed to create theme from CSS");
 
     // Create a scatter plot that will use the Okabe-Ito colors
     let data = vec![
@@ -336,7 +336,7 @@ async fn test_css_theme_dark_mode() {
         }
     "#;
 
-    let theme = Theme::from_css(css).expect("Failed to parse CSS dark theme");
+    let theme = Theme::from_css(css).expect("Failed to create theme from CSS");
 
     // Create a line chart with the dark theme
     let x_data: Vec<f64> = (0..20).map(|i| i as f64 * 0.5).collect();
@@ -437,7 +437,8 @@ async fn test_css_theme_discrete_continuous_properties() {
         }
     "#;
 
-    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
+    // Start with light theme and append custom CSS
+    let theme = Theme::from_css(css).expect("Failed to create theme from CSS");
 
     // Create a scatter plot with both categorical and continuous data
     let data = vec![

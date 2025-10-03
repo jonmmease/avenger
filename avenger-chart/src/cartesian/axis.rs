@@ -1,7 +1,7 @@
 use crate::axis::Axis;
-use crate::theme::Theme;
 use crate::error::AvengerChartError;
 use crate::maybe::Maybe;
+use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
@@ -177,22 +177,25 @@ impl CartesianAxis {
             dimensions: [plot_width, plot_height],
             grid: self.grid.clone().unwrap_or(false),
             format_number: self.format_number.clone().flatten(),
-            title_font_size: Some(theme.axis_title_font_size(coord_type, axis_type)),
+            title_font_size: theme.axis_title_font_size(coord_type, axis_type),
             // Pass colors (potentially overridden for dark backgrounds)
-            domain_color: Some(domain_color),
-            tick_color: Some(tick_color),
-            grid_color: Some({
-                let mut color = theme.axis_grid_color(coord_type, axis_type);
-                color[3] = theme.axis_grid_opacity(coord_type, axis_type); // Apply opacity to alpha channel
-                color
-            }),
-            grid_width: Some(theme.axis_grid_width(coord_type, axis_type)),
-            label_color: Some(label_color),
-            title_color: Some(title_color),
-            tick_length: Some(theme.axis_tick_length(coord_type, axis_type)),
-            label_font_size: Some(theme.axis_label_font_size(coord_type, axis_type)),
-            label_font_weight: Some(theme.axis_label_font_weight(coord_type, axis_type)),
-            title_font_weight: Some(theme.axis_title_font_weight(coord_type, axis_type)),
+            domain_color,
+            tick_color,
+            grid_color: theme
+                .axis_grid_color(coord_type, axis_type)
+                .map(|mut color| {
+                    if let Some(opacity) = theme.axis_grid_opacity(coord_type, axis_type) {
+                        color[3] = opacity; // Apply opacity to alpha channel
+                    }
+                    color
+                }),
+            grid_width: theme.axis_grid_width(coord_type, axis_type),
+            label_color,
+            title_color,
+            tick_length: theme.axis_tick_length(coord_type, axis_type),
+            label_font_size: theme.axis_label_font_size(coord_type, axis_type),
+            label_font_weight: theme.axis_label_font_weight(coord_type, axis_type),
+            title_font_weight: theme.axis_title_font_weight(coord_type, axis_type),
             label_font_family: Some(
                 self.label_font_family
                     .clone()

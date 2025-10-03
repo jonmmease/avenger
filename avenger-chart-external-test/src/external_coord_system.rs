@@ -269,9 +269,7 @@ impl CoordinateGuideBuilder for IsometricGuide {
 
     fn build(self) -> Box<dyn avenger_chart::guide::CompiledGuide> {
         // For this example, we'll just return a dummy compiled guide
-        Box::new(CompiledIsometricGuide {
-            axes: self.axes,
-        })
+        Box::new(CompiledIsometricGuide { axes: self.axes })
     }
 }
 
@@ -283,9 +281,7 @@ impl CoordinateSystem for Isometric {
     }
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(IsometricTransform {
-            angle: self.angle,
-        })
+        Box::new(IsometricTransform { angle: self.angle })
     }
 }
 

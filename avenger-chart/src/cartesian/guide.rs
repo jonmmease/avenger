@@ -12,18 +12,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Options for Cartesian coordinate system (beyond axes)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CartesianOptions {
     /// Background color for the plot area
     pub plot_background_color: Option<[f32; 4]>,
-}
-
-impl Default for CartesianOptions {
-    fn default() -> Self {
-        Self {
-            plot_background_color: None,
-        }
-    }
 }
 
 /// Guide for Cartesian coordinate system
@@ -270,7 +262,7 @@ impl CompiledGuide for CartesianGuide {
 
         // Create default axes for all channels with scales at render time
         let mut default_axes = HashMap::new();
-        for (channel_name, _scale) in scales {
+        for channel_name in scales.keys() {
             if channel_name == "x" || channel_name == "y" {
                 // Set default position based on channel
                 let position = match channel_name.as_str() {
@@ -282,7 +274,7 @@ impl CompiledGuide for CartesianGuide {
                 // Determine if grid should be enabled based on scale type
                 let grid = scales
                     .get(channel_name)
-                    .map_or(false, |s| s.ticks(None).is_ok());
+                    .is_some_and(|s| s.ticks(None).is_ok());
 
                 let mut axis = CartesianAxis::new()
                     .position(position)

@@ -148,11 +148,15 @@ impl PolarAxis {
         match self.axis_type.clone().unwrap_or(PolarAxisType::Radial) {
             PolarAxisType::Radial => {
                 // Render radial axis (circles from center)
-                self.render_radial_axis(scale, center_x, center_y, radius, theme, coord_type, axis_type)
+                self.render_radial_axis(
+                    scale, center_x, center_y, radius, theme, coord_type, axis_type,
+                )
             }
             PolarAxisType::Angular => {
                 // Render angular axis (lines from center)
-                self.render_angular_axis(scale, center_x, center_y, radius, scales, theme, coord_type, axis_type)
+                self.render_angular_axis(
+                    scale, center_x, center_y, radius, scales, theme, coord_type, axis_type,
+                )
             }
         }
     }
@@ -246,9 +250,12 @@ impl PolarAxis {
                     pad_angle: ScalarOrArray::new_scalar(0.0),
                     corner_radius: ScalarOrArray::new_scalar(0.0),
                     fill: ScalarOrArray::new_scalar(ColorOrGradient::Color({
-                        let mut color =
-                            theme.axis_grid_color(coord_type, axis_type);
-                        color[3] = theme.axis_grid_opacity(coord_type, axis_type);
+                        let mut color = theme
+                            .axis_grid_color(coord_type, axis_type)
+                            .unwrap_or([0.8, 0.8, 0.8, 1.0]);
+                        if let Some(opacity) = theme.axis_grid_opacity(coord_type, axis_type) {
+                            color[3] = opacity;
+                        }
                         color
                     })),
                     stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
@@ -350,14 +357,28 @@ impl PolarAxis {
                     x: ScalarOrArray::new_array(x_vals),
                     y: ScalarOrArray::new_array(y_vals),
                     text: ScalarOrArray::new_array(text_vals),
-                    font: ScalarOrArray::new_scalar(theme.axis_label_font_family(coord_type, axis_type).to_string()),
-                    font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(theme.axis_label_font_weight(coord_type, axis_type)),
+                    font: ScalarOrArray::new_scalar(
+                        theme
+                            .axis_label_font_family(coord_type, axis_type)
+                            .to_string(),
                     ),
-                    font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size(coord_type, axis_type)),
+                    font_weight: ScalarOrArray::new_scalar(
+                        avenger_text::types::FontWeight::Number(
+                            theme
+                                .axis_label_font_weight(coord_type, axis_type)
+                                .unwrap_or(400.0),
+                        ),
+                    ),
+                    font_size: ScalarOrArray::new_scalar(
+                        theme
+                            .axis_label_font_size(coord_type, axis_type)
+                            .unwrap_or(12.0),
+                    ),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        theme.axis_label_color(coord_type, axis_type),
+                        theme
+                            .axis_label_color(coord_type, axis_type)
+                            .unwrap_or([0.0, 0.0, 0.0, 1.0]),
                     )),
                     align: ScalarOrArray::new_scalar(TextAlign::Center),
                     baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
@@ -467,11 +488,17 @@ impl PolarAxis {
                 x2: ScalarOrArray::new_array(x2_values),
                 y2: ScalarOrArray::new_array(y2_values),
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color({
-                    let mut color = theme.axis_grid_color(coord_type, axis_type);
-                    color[3] = theme.axis_grid_opacity(coord_type, axis_type);
+                    let mut color = theme
+                        .axis_grid_color(coord_type, axis_type)
+                        .unwrap_or([0.8, 0.8, 0.8, 1.0]);
+                    if let Some(opacity) = theme.axis_grid_opacity(coord_type, axis_type) {
+                        color[3] = opacity;
+                    }
                     color
                 })),
-                stroke_width: ScalarOrArray::new_scalar(theme.axis_grid_width(coord_type, axis_type)),
+                stroke_width: ScalarOrArray::new_scalar(
+                    theme.axis_grid_width(coord_type, axis_type).unwrap_or(1.0),
+                ),
                 stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Butt),
                 stroke_dash: None,
                 indices: None,
@@ -562,14 +589,28 @@ impl PolarAxis {
                     text: ScalarOrArray::new_array(text_vals),
                     align: ScalarOrArray::new_array(label_aligns),
                     baseline: ScalarOrArray::new_array(label_baselines),
-                    font: ScalarOrArray::new_scalar(theme.axis_label_font_family(coord_type, axis_type).to_string()),
-                    font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(theme.axis_label_font_weight(coord_type, axis_type)),
+                    font: ScalarOrArray::new_scalar(
+                        theme
+                            .axis_label_font_family(coord_type, axis_type)
+                            .to_string(),
                     ),
-                    font_size: ScalarOrArray::new_scalar(theme.axis_label_font_size(coord_type, axis_type)),
+                    font_weight: ScalarOrArray::new_scalar(
+                        avenger_text::types::FontWeight::Number(
+                            theme
+                                .axis_label_font_weight(coord_type, axis_type)
+                                .unwrap_or(400.0),
+                        ),
+                    ),
+                    font_size: ScalarOrArray::new_scalar(
+                        theme
+                            .axis_label_font_size(coord_type, axis_type)
+                            .unwrap_or(12.0),
+                    ),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                     color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        theme.axis_label_color(coord_type, axis_type),
+                        theme
+                            .axis_label_color(coord_type, axis_type)
+                            .unwrap_or([0.0, 0.0, 0.0, 1.0]),
                     )),
                     angle: ScalarOrArray::new_scalar(0.0),
                     limit: ScalarOrArray::new_scalar(200.0),

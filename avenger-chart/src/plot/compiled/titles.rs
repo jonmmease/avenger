@@ -34,15 +34,25 @@ impl CompiledPlot {
             text: title.text.clone().into(),
             x: x.into(),
             y: y.into(),
-            color: avenger_common::types::ColorOrGradient::Color(theme.title_color()).into(),
-            font_size: title.font_size.unwrap_or(theme.title_font_size()).into(),
+            color: avenger_common::types::ColorOrGradient::Color(
+                theme.title_color().unwrap_or([0.0, 0.0, 0.0, 1.0]),
+            )
+            .into(),
+            font_size: title
+                .font_size
+                .or_else(|| theme.title_font_size())
+                .unwrap_or(16.0)
+                .into(),
             font: title
                 .font_family
                 .clone()
                 .unwrap_or_else(|| theme.title_font_family())
                 .into(),
             font_style: FontStyle::Normal.into(),
-            font_weight: avenger_text::types::FontWeight::Number(theme.title_font_weight()).into(),
+            font_weight: avenger_text::types::FontWeight::Number(
+                theme.title_font_weight().unwrap_or(400.0),
+            )
+            .into(),
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Middle.into(),
             ..Default::default()
@@ -76,10 +86,14 @@ impl CompiledPlot {
             text: subtitle.text.clone().into(),
             x: x.into(),
             y: y.into(),
-            color: avenger_common::types::ColorOrGradient::Color(theme.subtitle_color()).into(),
+            color: avenger_common::types::ColorOrGradient::Color(
+                theme.subtitle_color().unwrap_or([0.0, 0.0, 0.0, 1.0]),
+            )
+            .into(),
             font_size: subtitle
                 .font_size
-                .unwrap_or(theme.subtitle_font_size())
+                .or_else(|| theme.subtitle_font_size())
+                .unwrap_or(14.0)
                 .into(),
             font: subtitle
                 .font_family
@@ -87,8 +101,10 @@ impl CompiledPlot {
                 .unwrap_or_else(|| theme.subtitle_font_family())
                 .into(),
             font_style: FontStyle::Normal.into(),
-            font_weight: avenger_text::types::FontWeight::Number(theme.subtitle_font_weight())
-                .into(),
+            font_weight: avenger_text::types::FontWeight::Number(
+                theme.subtitle_font_weight().unwrap_or(400.0),
+            )
+            .into(),
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Middle.into(),
             ..Default::default()

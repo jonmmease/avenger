@@ -87,7 +87,9 @@ impl CompiledPlot {
                     .iter()
                     .find(|m| m.data_context().channels().contains_key(channel))
                 {
-                    if let Some(renderer) = mark.preferred_legend_renderer(channel, scale.configured()) {
+                    if let Some(renderer) =
+                        mark.preferred_legend_renderer(channel, scale.configured())
+                    {
                         Some(match renderer.name() {
                             "CompiledSymbolLegend" => "symbol",
                             "CompiledLineLegend" => "line",
@@ -109,9 +111,17 @@ impl CompiledPlot {
             let theme = self.get_theme();
             let mut legend = Legend::new()
                 .title(self.infer_legend_title(channel, session_context))
-                .position(self.default_legend_position(channel))
-                .background_padding(theme.legend_background_padding(legend_type))
-                .background_corner_radius(theme.legend_background_corner_radius(legend_type));
+                .position(self.default_legend_position(channel));
+
+            // Apply background padding if set
+            if let Some(padding) = theme.legend_background_padding(legend_type) {
+                legend = legend.background_padding(padding);
+            }
+
+            // Apply background corner radius if set
+            if let Some(radius) = theme.legend_background_corner_radius(legend_type) {
+                legend = legend.background_corner_radius(radius);
+            }
 
             // Apply optional theme defaults
             if let Some(fill) = theme.legend_background_fill(legend_type) {
@@ -123,19 +133,40 @@ impl CompiledPlot {
                 legend = legend.background_stroke(color_array_to_hex(stroke));
             }
 
-            // Set text colors and typography from theme
-            legend.title_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_title_color(legend_type)));
-            legend.label_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_label_color(legend_type)));
-            legend.title_font_family = crate::maybe::Maybe::Set(theme.legend_title_font_family(legend_type));
-            legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size(legend_type));
-            legend.title_font_weight = crate::maybe::Maybe::Set(theme.legend_title_font_weight(legend_type));
-            legend.label_font_family = crate::maybe::Maybe::Set(theme.legend_label_font_family(legend_type));
-            legend.label_font_size = crate::maybe::Maybe::Set(theme.legend_label_font_size(legend_type));
-            legend.label_font_weight = crate::maybe::Maybe::Set(theme.legend_label_font_weight(legend_type));
-            legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family(legend_type));
-            legend.tick_font_size = crate::maybe::Maybe::Set(theme.legend_tick_font_size(legend_type));
-            legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight(legend_type));
-            legend.tick_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_tick_color(legend_type)));
+            // Set text colors and typography from theme (using defaults if theme doesn't specify)
+            if let Some(color) = theme.legend_title_color(legend_type) {
+                legend.title_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+            }
+            if let Some(color) = theme.legend_label_color(legend_type) {
+                legend.label_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+            }
+            legend.title_font_family =
+                crate::maybe::Maybe::Set(theme.legend_title_font_family(legend_type));
+            if let Some(size) = theme.legend_title_font_size(legend_type) {
+                legend.title_font_size = crate::maybe::Maybe::Set(size);
+            }
+            if let Some(weight) = theme.legend_title_font_weight(legend_type) {
+                legend.title_font_weight = crate::maybe::Maybe::Set(weight);
+            }
+            legend.label_font_family =
+                crate::maybe::Maybe::Set(theme.legend_label_font_family(legend_type));
+            if let Some(size) = theme.legend_label_font_size(legend_type) {
+                legend.label_font_size = crate::maybe::Maybe::Set(size);
+            }
+            if let Some(weight) = theme.legend_label_font_weight(legend_type) {
+                legend.label_font_weight = crate::maybe::Maybe::Set(weight);
+            }
+            legend.tick_font_family =
+                crate::maybe::Maybe::Set(theme.legend_tick_font_family(legend_type));
+            if let Some(size) = theme.legend_tick_font_size(legend_type) {
+                legend.tick_font_size = crate::maybe::Maybe::Set(size);
+            }
+            if let Some(weight) = theme.legend_tick_font_weight(legend_type) {
+                legend.tick_font_weight = crate::maybe::Maybe::Set(weight);
+            }
+            if let Some(color) = theme.legend_tick_color(legend_type) {
+                legend.tick_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+            }
 
             default_legends.insert(channel.clone(), legend);
         }
@@ -218,44 +249,61 @@ impl CompiledPlot {
             // Theme only fills in Unset values
             // Apply theme fonts if not explicitly set
             if matches!(legend.title_color, crate::maybe::Maybe::Unset) {
-                legend.title_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_title_color(legend_type)));
+                if let Some(color) = theme.legend_title_color(legend_type) {
+                    legend.title_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+                }
             }
             if matches!(legend.label_color, crate::maybe::Maybe::Unset) {
-                legend.label_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_label_color(legend_type)));
+                if let Some(color) = theme.legend_label_color(legend_type) {
+                    legend.label_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+                }
             }
             if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
                 legend.title_font_family =
                     crate::maybe::Maybe::Set(theme.legend_title_font_family(legend_type));
             }
             if matches!(legend.title_font_size, crate::maybe::Maybe::Unset) {
-                legend.title_font_size = crate::maybe::Maybe::Set(theme.legend_title_font_size(legend_type));
+                if let Some(size) = theme.legend_title_font_size(legend_type) {
+                    legend.title_font_size = crate::maybe::Maybe::Set(size);
+                }
             }
             if matches!(legend.title_font_weight, crate::maybe::Maybe::Unset) {
-                legend.title_font_weight =
-                    crate::maybe::Maybe::Set(theme.legend_title_font_weight(legend_type));
+                if let Some(weight) = theme.legend_title_font_weight(legend_type) {
+                    legend.title_font_weight = crate::maybe::Maybe::Set(weight);
+                }
             }
             if matches!(legend.label_font_family, crate::maybe::Maybe::Unset) {
                 legend.label_font_family =
                     crate::maybe::Maybe::Set(theme.legend_label_font_family(legend_type));
             }
             if matches!(legend.label_font_size, crate::maybe::Maybe::Unset) {
-                legend.label_font_size = crate::maybe::Maybe::Set(theme.legend_label_font_size(legend_type));
+                if let Some(size) = theme.legend_label_font_size(legend_type) {
+                    legend.label_font_size = crate::maybe::Maybe::Set(size);
+                }
             }
             if matches!(legend.label_font_weight, crate::maybe::Maybe::Unset) {
-                legend.label_font_weight =
-                    crate::maybe::Maybe::Set(theme.legend_label_font_weight(legend_type));
+                if let Some(weight) = theme.legend_label_font_weight(legend_type) {
+                    legend.label_font_weight = crate::maybe::Maybe::Set(weight);
+                }
             }
             if matches!(legend.tick_font_family, crate::maybe::Maybe::Unset) {
-                legend.tick_font_family = crate::maybe::Maybe::Set(theme.legend_tick_font_family(legend_type));
+                legend.tick_font_family =
+                    crate::maybe::Maybe::Set(theme.legend_tick_font_family(legend_type));
             }
             if matches!(legend.tick_font_size, crate::maybe::Maybe::Unset) {
-                legend.tick_font_size = crate::maybe::Maybe::Set(theme.legend_tick_font_size(legend_type));
+                if let Some(size) = theme.legend_tick_font_size(legend_type) {
+                    legend.tick_font_size = crate::maybe::Maybe::Set(size);
+                }
             }
             if matches!(legend.tick_font_weight, crate::maybe::Maybe::Unset) {
-                legend.tick_font_weight = crate::maybe::Maybe::Set(theme.legend_tick_font_weight(legend_type));
+                if let Some(weight) = theme.legend_tick_font_weight(legend_type) {
+                    legend.tick_font_weight = crate::maybe::Maybe::Set(weight);
+                }
             }
             if matches!(legend.tick_color, crate::maybe::Maybe::Unset) {
-                legend.tick_color = crate::maybe::Maybe::Set(color_array_to_hex(theme.legend_tick_color(legend_type)));
+                if let Some(color) = theme.legend_tick_color(legend_type) {
+                    legend.tick_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+                }
             }
             // Note: Don't apply theme background settings - they're only for default legends
             // This matches PlotRenderer behavior
