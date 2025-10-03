@@ -1,5 +1,6 @@
 //! CSS stylesheet parser using cssparser's high-level APIs
 
+use crate::theme::color_mix::parse_color_mix_function;
 use crate::theme::css_value::{parse_hsl_function, parse_rgb_function};
 use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
 use crate::theme::theme::CompiledRule;
@@ -340,6 +341,13 @@ fn parse_single_value<'i, 't>(
                         Ok(ThemeValue::Function(name_str, args))
                     }
                 }
+                "color-mix" => {
+                    if let Some(color) = parse_color_mix_function(&args) {
+                        Ok(ThemeValue::Color(color))
+                    } else {
+                        Ok(ThemeValue::Function(name_str, args))
+                    }
+                }
                 "var" => {
                     // CSS variable
                     if let Some(ThemeValue::String(var_name)) = args.first() {
@@ -383,21 +391,47 @@ fn parse_single_value<'i, 't>(
 }
 
 /// Parse function arguments
+/// Parses all space/comma-separated tokens as a flat list
+/// This allows functions like color-mix(in srgb, red 75%, blue 25%) to work
 fn parse_function_args<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
     parser.parse_nested_block(|p| {
-        p.parse_comma_separated(|parser| {
-            parser.skip_whitespace();
-            let token = parser.next()?;
-            // Reuse token_to_theme_value for consistency but keep numbers simple in functions
-            match token {
-                Token::Number { value, .. } => Ok(ThemeValue::Number(*value as f64)),
-                _ => token_to_theme_value(&token, unsupported_units)
-                    .map_err(|_| parser.new_custom_error(())),
+        let mut values = Vec::new();
+
+        loop {
+            p.skip_whitespace();
+
+            // Try to get next token
+            match p.next() {
+                Ok(token) => {
+                    match token {
+                        Token::Comma => {
+                            // Comma is a separator, skip it
+                            continue;
+                        }
+                        Token::Number { value, .. } => {
+                            values.push(ThemeValue::Number(*value as f64));
+                        }
+                        _ => {
+                            if let Ok(theme_value) = token_to_theme_value(&token, unsupported_units)
+                            {
+                                values.push(theme_value);
+                            } else {
+                                return Err(p.new_custom_error(()));
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    // End of function
+                    break;
+                }
             }
-        })
+        }
+
+        Ok(values)
     })
 }
 
