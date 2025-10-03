@@ -6,6 +6,7 @@ pub mod test_bar;
 pub mod test_bar_defaults;
 pub mod test_bar_scale_color;
 pub mod test_conditional_encoding;
+pub mod test_css_cardinality_ranges;
 pub mod test_css_guide_subtypes;
 pub mod test_css_subtype_selectors;
 pub mod test_css_theme;

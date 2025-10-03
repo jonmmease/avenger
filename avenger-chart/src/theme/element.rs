@@ -5,6 +5,7 @@ use crate::theme::ThemeContext;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::matching::ElementSelectorFlags;
 use selectors::{Element, OpaqueElement};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Element for CSS selector matching (created from ThemeContext)
@@ -17,6 +18,9 @@ pub struct CssElement {
 
     pub id: Option<ChartString>,
     pub classes: Vec<ChartString>,
+
+    /// Custom attributes for CSS attribute selectors like [attr=value]
+    pub attributes: HashMap<String, String>,
 
     /// Parent context stored as ThemeContext rather than CssElement for efficiency.
     ///
@@ -43,6 +47,7 @@ impl From<&ThemeContext> for CssElement {
                 .map(|s| ChartString::from(s.as_str())),
             id: context.id.as_ref().map(|s| ChartString::from(s.as_str())),
             classes,
+            attributes: context.attributes.clone(),
             parent: context.parent.clone(),
         }
     }
@@ -113,13 +118,21 @@ impl Element for CssElement {
     ) -> bool {
         match local_name.0.as_str() {
             "type" => {
+                // Special handling for type attribute (maps to subtype field)
                 if let Some(ref type_attr) = self.type_attr {
                     operation.eval_str(&type_attr.0)
                 } else {
                     false
                 }
             }
-            _ => false,
+            attr_name => {
+                // General attribute matching for custom attributes
+                if let Some(attr_value) = self.attributes.get(attr_name) {
+                    operation.eval_str(attr_value)
+                } else {
+                    false
+                }
+            }
         }
     }
 

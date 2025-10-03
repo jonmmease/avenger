@@ -1,5 +1,6 @@
 //! Theme context for hierarchical element styling
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Context for theme queries, providing information about the element being styled
@@ -20,6 +21,10 @@ pub struct ThemeContext {
     /// Optional unique identifier
     pub id: Option<String>,
 
+    /// Custom attributes for CSS attribute selectors
+    /// Values are stored as strings and matched against CSS selectors like [attr=value]
+    pub attributes: HashMap<String, String>,
+
     /// Parent context for hierarchical CSS selectors
     pub parent: Option<Arc<ThemeContext>>,
 }
@@ -32,6 +37,7 @@ impl ThemeContext {
             subtype: None,
             classes: Vec::new(),
             id: None,
+            attributes: HashMap::new(),
             parent: None,
         }
     }
@@ -43,6 +49,7 @@ impl ThemeContext {
             subtype: None,
             classes: Vec::new(),
             id: None,
+            attributes: HashMap::new(),
             parent: Some(Arc::new(self.clone())),
         }
     }
@@ -68,6 +75,25 @@ impl ThemeContext {
     /// Set the ID
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
         self.id = Some(id.into());
+        self
+    }
+
+    /// Add a custom attribute to the context
+    ///
+    /// Attributes can be used in CSS selectors like `[attr=value]` or `[attr="value"]`.
+    /// Values can be numbers or strings - they will be stored and matched as strings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use avenger_chart::theme::ThemeContext;
+    ///
+    /// let ctx = ThemeContext::new("mark")
+    ///     .with_subtype("symbol")
+    ///     .with_attribute("cardinality", "5");
+    /// ```
+    pub fn with_attribute(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.attributes.insert(key.into(), value.into());
         self
     }
 }
