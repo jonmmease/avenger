@@ -68,4 +68,18 @@ impl RenderContext {
     ) -> Option<crate::theme::ThemeValue> {
         self.theme.query_with_params(context, property, &self.params)
     }
+
+    /// Get font size with parameter support
+    ///
+    /// This resolves font sizes using params, including the "base-font-size" parameter
+    /// which allows runtime control of base font size for rem calculations.
+    ///
+    /// # Arguments
+    /// * `context` - The element context for CSS selector matching
+    ///
+    /// # Returns
+    /// Resolved font size in pixels, or None if not found
+    pub fn font_size(&self, context: &crate::theme::ThemeContext) -> Option<f32> {
+        self.theme.font_size_with_params(context, &self.params)
+    }
 }

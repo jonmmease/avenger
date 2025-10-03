@@ -78,7 +78,8 @@ impl Theme {
             /* Base configuration */
             :root {
                 font-family: "Atkinson Hyperlegible Next";
-                font-size: 12px;
+                font-size: 12px;  /* Fixed for layout calculations */
+                --base-font-size: 12px;  /* Can be overridden via parameter for text sizing */
 
                 /* Adaptive color palette - uses comma-separated list, each item can use light-dark() */
                 --categorical-colors:
@@ -620,6 +621,31 @@ impl Theme {
     pub fn font_size(&self, context: &ThemeContext) -> Option<f32> {
         self.query(context, "font-size")
             .and_then(|v| v.as_font_size(self.base_font_size()))
+    }
+
+    /// Get font size for a context with parameter support
+    ///
+    /// This allows overriding the base font size via the "base-font-size" parameter.
+    /// If the parameter is provided, it will be used instead of the theme's base font size.
+    pub fn font_size_with_params(
+        &self,
+        context: &ThemeContext,
+        params: &IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> Option<f32> {
+        // Check if base-font-size is overridden in params
+        let base_font_size = params
+            .get("base-font-size")
+            .and_then(|v| match v {
+                datafusion_common::ScalarValue::Float32(Some(f)) => Some(*f),
+                datafusion_common::ScalarValue::Float64(Some(f)) => Some(*f as f32),
+                datafusion_common::ScalarValue::Int32(Some(i)) => Some(*i as f32),
+                datafusion_common::ScalarValue::Int64(Some(i)) => Some(*i as f32),
+                _ => None,
+            })
+            .unwrap_or_else(|| self.base_font_size());
+
+        self.query_with_params(context, "font-size", params)
+            .and_then(|v| v.as_font_size(base_font_size))
     }
 
     /// Get font weight for a context
@@ -2376,5 +2402,40 @@ mod tests {
             }
             other => panic!("Expected List of colors, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_font_size_with_base_font_size_param() {
+        // Test that base-font-size parameter affects rem-based font size calculations
+        let theme = Theme::light();
+        let ctx = ThemeContext::new("chart-title");
+
+        // Default: title uses 1.5rem which is 18px (1.5 * 12px)
+        let default_size = theme.font_size(&ctx);
+        assert_eq!(default_size, Some(18.0), "Title should be 18px by default");
+
+        // With base-font-size param = 16px: 1.5rem = 24px (1.5 * 16px)
+        let mut params = IndexMap::new();
+        params.insert(
+            "base-font-size".to_string(),
+            datafusion_common::ScalarValue::Float32(Some(16.0)),
+        );
+
+        let custom_size = theme.font_size_with_params(&ctx, &params);
+        assert_eq!(
+            custom_size,
+            Some(24.0),
+            "Title should be 24px with 16px base"
+        );
+
+        // With base-font-size param = 8px: 1.5rem = 12px (1.5 * 8px)
+        let mut small_params = IndexMap::new();
+        small_params.insert(
+            "base-font-size".to_string(),
+            datafusion_common::ScalarValue::Float32(Some(8.0)),
+        );
+
+        let small_size = theme.font_size_with_params(&ctx, &small_params);
+        assert_eq!(small_size, Some(12.0), "Title should be 12px with 8px base");
     }
 }
