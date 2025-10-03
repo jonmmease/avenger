@@ -246,6 +246,7 @@ mod value;
 pub(crate) mod color_mix;
 pub(crate) mod css_value;
 pub(crate) mod element;
+pub(crate) mod lab_color;
 pub(crate) mod parser;
 pub(crate) mod selector_impl;
 mod theme;
