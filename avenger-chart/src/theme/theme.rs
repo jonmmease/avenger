@@ -1319,14 +1319,24 @@ impl Theme {
     }
 }
 
+/// Helper struct for Theme serialization
+#[derive(Serialize, Deserialize)]
+struct ThemeSerializationHelper {
+    css: String,
+    default_color_scheme: String,
+}
+
 impl Serialize for Theme {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        // Serialize as combined CSS string
-        let css = self.to_css();
-        css.serialize(serializer)
+        // Serialize both CSS and default_color_scheme
+        let helper = ThemeSerializationHelper {
+            css: self.to_css(),
+            default_color_scheme: self.default_color_scheme.clone(),
+        };
+        helper.serialize(serializer)
     }
 }
 
@@ -1335,8 +1345,10 @@ impl<'de> Deserialize<'de> for Theme {
     where
         D: Deserializer<'de>,
     {
-        let css = String::deserialize(deserializer)?;
-        Theme::from_css(&css).map_err(serde::de::Error::custom)
+        let helper = ThemeSerializationHelper::deserialize(deserializer)?;
+        let mut theme = Theme::from_css(&helper.css).map_err(serde::de::Error::custom)?;
+        theme.default_color_scheme = helper.default_color_scheme;
+        Ok(theme)
     }
 }
 
@@ -2275,6 +2287,59 @@ mod tests {
                 assert_eq!(c.blue, 180);
             }
             _ => panic!("Expected light mode fill color with override"),
+        }
+    }
+
+    #[test]
+    fn test_dark_theme_default_color_scheme_field() {
+        // Verify that Theme::dark() has correct default_color_scheme
+        let dark_theme = Theme::dark();
+        assert_eq!(dark_theme.default_color_scheme, "dark");
+
+        let light_theme = Theme::light();
+        assert_eq!(light_theme.default_color_scheme, "light");
+
+        // Verify dark theme produces dark colors without any params
+        let ctx = ThemeContext::new("mark").with_subtype("symbol");
+        let fill = dark_theme.query(&ctx, "fill");
+
+        match fill {
+            Some(ThemeValue::Color(c)) => {
+                // Should be dark mode color #56B4E9
+                println!("Dark theme fill color: {:?}", c);
+                assert_eq!(c.red, 86, "Expected red=86, got {}", c.red);
+                assert_eq!(c.green, 180, "Expected green=180, got {}", c.green);
+                assert_eq!(c.blue, 233, "Expected blue=233, got {}", c.blue);
+            }
+            other => panic!("Expected dark mode fill color, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_dark_theme_serialization_preserves_color_scheme() {
+        // Verify that default_color_scheme is preserved during serialization
+        let dark_theme = Theme::dark();
+
+        // Serialize and deserialize
+        let serialized = bincode::serialize(&dark_theme).expect("Failed to serialize dark theme");
+        let deserialized: Theme = bincode::deserialize(&serialized)
+            .expect("Failed to deserialize dark theme");
+
+        // Verify default_color_scheme is preserved
+        assert_eq!(deserialized.default_color_scheme, "dark");
+
+        // Verify the deserialized theme still produces dark colors
+        let ctx = ThemeContext::new("mark").with_subtype("symbol");
+        let fill = deserialized.query(&ctx, "fill");
+
+        match fill {
+            Some(ThemeValue::Color(c)) => {
+                // Should be dark mode color #56B4E9
+                assert_eq!(c.red, 86);
+                assert_eq!(c.green, 180);
+                assert_eq!(c.blue, 233);
+            }
+            _ => panic!("Expected dark mode fill color after deserialization"),
         }
     }
 }
