@@ -201,8 +201,10 @@ impl Theme {
 
             /* Range configurations */
             mark {
-                color-discrete: var(--categorical-colors);
-                color-continuous: var(--viridis-colors);
+                fill-discrete: var(--categorical-colors);
+                fill-continuous: var(--viridis-colors);
+                stroke-discrete: var(--categorical-colors);
+                stroke-continuous: var(--viridis-colors);
                 shape-discrete: circle, cross, diamond, square, star, triangle-up, wye, cushion;
                 size-discrete: 30, 80, 140, 200, 260;
                 size-continuous: 30, 200;
@@ -348,8 +350,10 @@ impl Theme {
 
             /* Range configurations */
             mark {
-                color-discrete: var(--categorical-colors);
-                color-continuous: var(--viridis-colors);
+                fill-discrete: var(--categorical-colors);
+                fill-continuous: var(--viridis-colors);
+                stroke-discrete: var(--categorical-colors);
+                stroke-continuous: var(--viridis-colors);
                 shape-discrete: circle, cross, diamond, square, star, triangle-up, wye, cushion;
                 size-discrete: 30, 80, 140, 200, 260;
                 size-continuous: 30, 200;
@@ -1084,68 +1088,23 @@ impl Theme {
     ) -> Option<String> {
         self.font_family(&self.axis_context(coord_type, axis_type).child("title"))
     }
-
-    // Access to color palettes, shapes, and dashes
-
-    /// Get categorical color palette for discrete color scales
-    ///
-    /// Queries the theme for `color-discrete` values, falling back to the Okabe-Ito
-    /// colorblind-safe palette if not specified in CSS. Returns colors as hex strings.
-    pub fn categorical_colors(&self) -> Vec<String> {
-        // Query categorical colors from CSS
-        let context = ThemeContext::new("mark");
-        let colors_value = self.query(&context, "color-discrete");
-
-        // Parse the result into a list of colors
-        match colors_value {
-            Some(ThemeValue::String(s)) => {
-                let colors = Self::parse_css_list(&s);
-                if !colors.is_empty() {
-                    return colors;
-                }
-            }
-            Some(ThemeValue::List(values)) => {
-                let mut colors = Vec::new();
-                for val in values {
-                    match val {
-                        ThemeValue::String(s) => {
-                            colors.push(s);
-                        }
-                        ThemeValue::Color(rgba) => {
-                            let hex =
-                                format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue);
-                            colors.push(hex);
-                        }
-                        _ => {}
-                    }
-                }
-                if !colors.is_empty() {
-                    return colors;
-                }
-            }
-            _ => {}
-        }
-
-        // Fallback to Okabe-Ito colorblind-safe palette
-        DEFAULT_CATEGORICAL_COLORS
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
-    }
-
+    
     /// Get range for a specific channel based on mark type and range kind
+    ///
+    /// Returns `None` if the channel range is not specified in the CSS theme.
+    /// Callers should provide their own fallback defaults.
     pub fn get_range_for_channel(
         &self,
         mark_type: &str,
         channel: &str,
         range_kind: avenger_scales::scales::RangeKind,
         domain_cardinality: Option<usize>,
-    ) -> crate::scales::ScaleRange {
+    ) -> Option<crate::scales::ScaleRange> {
         use avenger_scales::scales::RangeKind;
 
         // Build property name based on channel and range kind
         // Convert underscores to hyphens for CSS-friendly property names
-        // e.g., "glow_color" -> "glow-color-continuous"
+        // e.g., "stroke_width" -> "stroke-width-discrete"
         let css_channel = channel.replace('_', "-");
         let property = format!(
             "{}-{}",
@@ -1162,8 +1121,8 @@ impl Theme {
             ThemeContext::new("mark"),
         ];
 
-        for context in contexts {
-            let range_value = self.query(&context, &property);
+        for context in &contexts {
+            let range_value = self.query(context, &property);
 
             // Parse the range value into appropriate ScaleRange
             match range_value {
@@ -1171,12 +1130,12 @@ impl Theme {
                     // Parse comma-separated list
                     let values = Self::parse_css_list(&s);
                     if !values.is_empty() {
-                        return self.create_scale_range(
+                        return Some(self.create_scale_range(
                             &values,
                             channel,
                             range_kind,
                             domain_cardinality,
-                        );
+                        ));
                     }
                 }
                 Some(ThemeValue::List(values)) => {
@@ -1199,12 +1158,12 @@ impl Theme {
                         }
                     }
                     if !parsed_values.is_empty() {
-                        return self.create_scale_range(
+                        return Some(self.create_scale_range(
                             &parsed_values,
                             channel,
                             range_kind,
                             domain_cardinality,
-                        );
+                        ));
                     }
                 }
                 Some(ThemeValue::Variable(var_name)) => {
@@ -1214,12 +1173,12 @@ impl Theme {
                             ThemeValue::String(s) => {
                                 let values = Self::parse_css_list(&s);
                                 if !values.is_empty() {
-                                    return self.create_scale_range(
+                                    return Some(self.create_scale_range(
                                         &values,
                                         channel,
                                         range_kind,
                                         domain_cardinality,
-                                    );
+                                    ));
                                 }
                             }
                             _ => {}
@@ -1230,8 +1189,8 @@ impl Theme {
             }
         }
 
-        // Fall back to defaults based on channel and range kind
-        self.default_range_for_channel(channel, range_kind, domain_cardinality)
+        // No CSS theme value found for this channel
+        None
     }
 
     /// Get mark default value for a channel
@@ -1359,126 +1318,6 @@ impl Theme {
                     }
                 }
             }
-        }
-    }
-
-    /// Default ranges for channels when not specified in CSS
-    fn default_range_for_channel(
-        &self,
-        channel: &str,
-        range_kind: avenger_scales::scales::RangeKind,
-        domain_cardinality: Option<usize>,
-    ) -> crate::scales::ScaleRange {
-        use crate::scales::ScaleRange;
-        use avenger_scales::scales::RangeKind;
-        use datafusion::prelude::lit;
-
-        match (channel, range_kind) {
-            // Color channels
-            ("fill" | "stroke" | "color", RangeKind::Discrete) => {
-                // Use categorical_colors which queries from CSS or falls back to Okabe-Ito
-                let colors = self.categorical_colors();
-                use crate::serialization::SerializableScalar;
-                let scalars: Vec<SerializableScalar> = colors
-                    .iter()
-                    .take(domain_cardinality.unwrap_or(colors.len()))
-                    .map(|c| {
-                        SerializableScalar::new(datafusion_common::ScalarValue::Utf8(Some(
-                            c.clone(),
-                        )))
-                    })
-                    .collect();
-                ScaleRange::Discrete(scalars)
-            }
-            ("fill" | "stroke" | "color", RangeKind::Continuous) => {
-                // Viridis-like gradient
-                use palette::Srgba;
-                let colors = vec![
-                    Srgba::new(0.267, 0.004, 0.329, 1.0), // Dark purple
-                    Srgba::new(0.193, 0.408, 0.556, 1.0), // Blue
-                    Srgba::new(0.208, 0.718, 0.473, 1.0), // Green
-                    Srgba::new(0.993, 0.906, 0.144, 1.0), // Yellow
-                ];
-                ScaleRange::new_color(colors)
-            }
-
-            // Size channels
-            ("size", RangeKind::Discrete) => {
-                let sizes = vec![20.0, 40.0, 60.0, 80.0, 100.0];
-                use crate::serialization::SerializableScalar;
-                let scalars: Vec<SerializableScalar> = sizes
-                    .iter()
-                    .take(domain_cardinality.unwrap_or(sizes.len()))
-                    .map(|s| {
-                        SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(
-                            *s as f32,
-                        )))
-                    })
-                    .collect();
-                ScaleRange::Discrete(scalars)
-            }
-            ("size", RangeKind::Continuous) => ScaleRange::new_interval(lit(10.0), lit(200.0)),
-
-            // Opacity channels
-            ("opacity", RangeKind::Discrete) => {
-                let opacities = vec![0.3, 0.5, 0.7, 0.9, 1.0];
-                use crate::serialization::SerializableScalar;
-                let scalars: Vec<SerializableScalar> = opacities
-                    .iter()
-                    .take(domain_cardinality.unwrap_or(opacities.len()))
-                    .map(|o| {
-                        SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(
-                            *o as f32,
-                        )))
-                    })
-                    .collect();
-                ScaleRange::Discrete(scalars)
-            }
-            ("opacity", RangeKind::Continuous) => ScaleRange::new_interval(lit(0.2), lit(1.0)),
-
-            // Stroke width channels
-            ("stroke_width", RangeKind::Discrete) => {
-                let widths = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-                use crate::serialization::SerializableScalar;
-                let scalars: Vec<SerializableScalar> = widths
-                    .iter()
-                    .take(domain_cardinality.unwrap_or(widths.len()))
-                    .map(|w| {
-                        SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(
-                            *w as f32,
-                        )))
-                    })
-                    .collect();
-                ScaleRange::Discrete(scalars)
-            }
-            ("stroke_width", RangeKind::Continuous) => ScaleRange::new_interval(lit(0.5), lit(5.0)),
-
-            // Shape channel (always discrete)
-            ("shape", _) => {
-                let shapes = vec!["circle", "square", "triangle", "diamond", "cross"];
-                use crate::serialization::SerializableScalar;
-                let scalars: Vec<SerializableScalar> = shapes
-                    .iter()
-                    .take(domain_cardinality.unwrap_or(shapes.len()))
-                    .map(|s| {
-                        SerializableScalar::new(datafusion_common::ScalarValue::Utf8(Some(
-                            s.to_string(),
-                        )))
-                    })
-                    .collect();
-                ScaleRange::Discrete(scalars)
-            }
-
-            // Default
-            _ => match range_kind {
-                RangeKind::Discrete => {
-                    use crate::serialization::SerializableScalar;
-                    ScaleRange::Discrete(vec![SerializableScalar::new(
-                        datafusion_common::ScalarValue::Float32(Some(1.0)),
-                    )])
-                }
-                RangeKind::Continuous => ScaleRange::new_interval(lit(0.0), lit(1.0)),
-            },
         }
     }
 }

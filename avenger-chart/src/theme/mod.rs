@@ -196,16 +196,18 @@
 //! - Discrete scale ranges: `{channel}-discrete` (list of values)
 //! - Continuous scale ranges: `{channel}-continuous` (min/max values)
 //!
-//! Supported channels:
-//! - **Color**: `fill`, `stroke`, `color`, or any custom color channel
-//! - **Size**: `size`, `width`, `height`, etc.
-//! - **Opacity**: `opacity`, `fill-opacity`, `stroke-opacity`
-//! - **Stroke**: `stroke-width`, `stroke-dash`
-//! - **Shape**: `shape` (discrete only)
-//! - **Custom**: Any channel name (e.g., `glow-color`, `pulse-speed`)
+//! Supported channels (following CSS/SVG naming conventions):
+//! - **Fill color**: `fill-discrete`, `fill-continuous` (for shape fill colors)
+//! - **Stroke color**: `stroke-discrete`, `stroke-continuous` (for shape outlines)
+//! - **Size**: `size-discrete`, `size-continuous`
+//! - **Opacity**: `opacity-discrete`, `opacity-continuous`
+//! - **Stroke width**: `stroke-width-discrete`, `stroke-width-continuous`
+//! - **Stroke dash**: `stroke-dash-discrete` (discrete only)
+//! - **Shape**: `shape-discrete` (discrete only)
+//! - **Custom**: Any channel name (e.g., `glow-color-continuous`, `pulse-speed-discrete`)
 //!
-//! Channel names with underscores in Rust (e.g., `stroke_dash`) automatically
-//! convert to hyphens in CSS (e.g., `stroke-dash-discrete`).
+//! Channel names with underscores in Rust (e.g., `stroke_width`) automatically
+//! convert to hyphens in CSS (e.g., `stroke-width-discrete`).
 //!
 //! ## Type Detection
 //!

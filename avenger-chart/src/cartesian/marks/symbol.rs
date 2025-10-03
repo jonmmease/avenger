@@ -407,7 +407,7 @@ impl CompiledMark for CompiledCartesianSymbol {
             "stroke_width" => Some(domain.make_interval_or_linspaced_range(0.5, 5.0)),
             "fill" | "stroke" | "color" => {
                 let range_kind = scale_impl.range_kind();
-                Some(theme.get_range_for_channel("symbol", channel, range_kind, None))
+                theme.get_range_for_channel("symbol", channel, range_kind, None)
             }
             _ => None,
         }
