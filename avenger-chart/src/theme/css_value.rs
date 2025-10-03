@@ -43,12 +43,7 @@ pub fn parse_rgb_function(args: &[ThemeValue]) -> Option<CssRgba> {
 
 /// Extract a number or angle value from a ThemeValue, converting to degrees if needed
 fn extract_number_or_angle(value: &ThemeValue) -> Option<f32> {
-    match value {
-        ThemeValue::Number(n) => Some(*n as f32),
-        // Angles are currently not explicitly parsed as a separate type,
-        // so we expect numbers in degrees
-        _ => None,
-    }
+    value.as_angle_degrees().map(|deg| deg as f32)
 }
 
 /// Extract a percentage value from a ThemeValue
@@ -229,5 +224,92 @@ mod tests {
             ThemeValue::Percentage(50.0),
         ];
         assert!(parse_hsl_function(&args).is_none());
+    }
+
+    #[test]
+    fn test_parse_hsl_with_deg_angle() {
+        use crate::theme::AngleUnit;
+        let args = vec![
+            ThemeValue::Angle(120.0, AngleUnit::Deg),
+            ThemeValue::Percentage(100.0),
+            ThemeValue::Percentage(50.0),
+        ];
+        let color = parse_hsl_function(&args).unwrap();
+        assert_eq!(color.red, 0);
+        assert_eq!(color.green, 255);
+        assert_eq!(color.blue, 0);
+    }
+
+    #[test]
+    fn test_parse_hsl_with_turn_angle() {
+        use crate::theme::AngleUnit;
+        // 0.5 turn = 180 degrees = cyan
+        let args = vec![
+            ThemeValue::Angle(0.5, AngleUnit::Turn),
+            ThemeValue::Percentage(100.0),
+            ThemeValue::Percentage(50.0),
+        ];
+        let color = parse_hsl_function(&args).unwrap();
+        assert_eq!(color.red, 0);
+        assert_eq!(color.green, 255);
+        assert_eq!(color.blue, 255);
+    }
+
+    #[test]
+    fn test_parse_hsl_with_rad_angle() {
+        use crate::theme::AngleUnit;
+        use std::f64::consts::PI;
+        // 2π/3 radians ≈ 120 degrees = green
+        let args = vec![
+            ThemeValue::Angle(2.0 * PI / 3.0, AngleUnit::Rad),
+            ThemeValue::Percentage(100.0),
+            ThemeValue::Percentage(50.0),
+        ];
+        let color = parse_hsl_function(&args).unwrap();
+        assert_eq!(color.red, 0);
+        assert_eq!(color.green, 255);
+        assert_eq!(color.blue, 0);
+    }
+
+    #[test]
+    fn test_parse_hsl_with_grad_angle() {
+        use crate::theme::AngleUnit;
+        // 400grad = 360 degrees = 0 degrees = red (normalized)
+        let args = vec![
+            ThemeValue::Angle(400.0, AngleUnit::Grad),
+            ThemeValue::Percentage(100.0),
+            ThemeValue::Percentage(50.0),
+        ];
+        let color = parse_hsl_function(&args).unwrap();
+        assert_eq!(color.red, 255);
+        assert_eq!(color.green, 0);
+        assert_eq!(color.blue, 0);
+    }
+
+    #[test]
+    fn test_hsl_angle_units_via_css() {
+        use crate::theme::Theme;
+
+        // Test that angle units work through the full CSS parsing pipeline
+        let css = r#"
+            mark {
+                fill: hsl(120deg, 100%, 50%);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+
+        // Query the fill color for a mark
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(color.is_some(), "Should have parsed fill color");
+        let [r, g, b, a] = color.unwrap();
+
+        // Should be green: hsl(120deg, 100%, 50%) = rgb(0, 255, 0)
+        assert!((r - 0.0).abs() < 0.01, "Red should be ~0");
+        assert!((g - 1.0).abs() < 0.01, "Green should be ~1");
+        assert!((b - 0.0).abs() < 0.01, "Blue should be ~0");
+        assert!((a - 1.0).abs() < 0.01, "Alpha should be ~1");
     }
 }

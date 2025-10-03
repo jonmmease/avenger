@@ -4,7 +4,7 @@ use crate::theme::css_value::{parse_hsl_function, parse_rgb_function};
 use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
 use crate::theme::theme::CompiledRule;
 use crate::theme::value::parse_color_string;
-use crate::theme::{CssRgba, LengthUnit, ThemeValue};
+use crate::theme::{AngleUnit, CssRgba, LengthUnit, ThemeValue};
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
@@ -273,6 +273,10 @@ fn token_to_theme_value<'i>(
             match unit.as_ref() {
                 "px" => Ok(ThemeValue::Length(num_value, LengthUnit::Px)),
                 "rem" => Ok(ThemeValue::Length(num_value, LengthUnit::Rem)),
+                "deg" => Ok(ThemeValue::Angle(num_value, AngleUnit::Deg)),
+                "rad" => Ok(ThemeValue::Angle(num_value, AngleUnit::Rad)),
+                "grad" => Ok(ThemeValue::Angle(num_value, AngleUnit::Grad)),
+                "turn" => Ok(ThemeValue::Angle(num_value, AngleUnit::Turn)),
                 unit_str => {
                     // Track unsupported unit
                     unsupported_units.borrow_mut().push(unit_str.to_string());

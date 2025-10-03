@@ -251,7 +251,7 @@ mod theme;
 
 // Re-export core types
 pub use context::ThemeContext;
-pub use value::{CssRgba, LengthUnit, ThemeValue};
+pub use value::{AngleUnit, CssRgba, LengthUnit, ThemeValue};
 
 // Re-export Theme as the main theme type
 pub use theme::Theme;
