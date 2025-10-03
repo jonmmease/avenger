@@ -13,7 +13,7 @@ pub mod spec;
 
 // Re-export the main types
 pub use codec::AvengerChartExtensionCodec;
-pub use defaults::create_default_scale_for_channel;
+pub use defaults::default_range_for_channel;
 pub use domain::{DomainExpr, ResolvedDomain, ScaleDefaultDomain, ScaleDomain};
 pub use extensions::{ConfiguredScaleDataFusionExt, ConfiguredScaleLegendExt, DomainValues};
 pub use range::ScaleRange;

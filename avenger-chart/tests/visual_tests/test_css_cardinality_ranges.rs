@@ -11,16 +11,32 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_cardinality_3_categories() {
-    // Define a CSS theme with cardinality-specific palettes
+    // Define a CSS theme with distinct palettes for each cardinality
+    // This allows us to visually verify which palette was actually selected
     let css = r#"
-        /* Specific palette for 3 categories - blue spectrum */
-        mark[type="symbol"][cardinality="3"] {
-            fill-discrete: #1f77b4, #ff7f0e, #2ca02c;
+        /* Palette for 2 categories - red/blue */
+        mark[type="symbol"][cardinality="2"] {
+            fill-discrete: #e74c3c, #3498db;
         }
 
-        /* Base palette for other cardinalities */
+        /* Palette for 3 categories - warm colors (THIS SHOULD BE USED) */
+        mark[type="symbol"][cardinality="3"] {
+            fill-discrete: #f39c12, #e67e22, #d35400;
+        }
+
+        /* Palette for 4 categories - cool colors */
+        mark[type="symbol"][cardinality="4"] {
+            fill-discrete: #1abc9c, #16a085, #2ecc71, #27ae60;
+        }
+
+        /* Palette for 5 categories - purple spectrum */
+        mark[type="symbol"][cardinality="5"] {
+            fill-discrete: #9b59b6, #8e44ad, #e91e63, #c0392b, #e74c3c;
+        }
+
+        /* Base palette for other cardinalities - grayscale */
         mark[type="symbol"] {
-            fill-discrete: red, blue, green, yellow, purple, orange;
+            fill-discrete: #2c3e50, #34495e, #7f8c8d, #95a5a6, #bdc3c7, #ecf0f1;
             size: 150px;
         }
 
@@ -91,16 +107,31 @@ async fn test_cardinality_3_categories() {
 
 #[tokio::test]
 async fn test_cardinality_5_categories() {
-    // Define a CSS theme with cardinality-specific palettes
+    // Define a CSS theme with distinct palettes for each cardinality
     let css = r#"
-        /* Specific palette for 5 categories - Okabe-Ito colors */
-        mark[type="symbol"][cardinality="5"] {
-            fill-discrete: #E69F00, #56B4E9, #009E73, #F0E442, #0072B2;
+        /* Palette for 2 categories - red/blue */
+        mark[type="symbol"][cardinality="2"] {
+            fill-discrete: #e74c3c, #3498db;
         }
 
-        /* Base palette for other cardinalities */
+        /* Palette for 3 categories - warm colors */
+        mark[type="symbol"][cardinality="3"] {
+            fill-discrete: #f39c12, #e67e22, #d35400;
+        }
+
+        /* Palette for 4 categories - cool colors */
+        mark[type="symbol"][cardinality="4"] {
+            fill-discrete: #1abc9c, #16a085, #2ecc71, #27ae60;
+        }
+
+        /* Palette for 5 categories - vibrant spectrum (THIS SHOULD BE USED) */
+        mark[type="symbol"][cardinality="5"] {
+            fill-discrete: #E91E63, #9C27B0, #673AB7, #3F51B5, #2196F3;
+        }
+
+        /* Base palette for other cardinalities - grayscale */
         mark[type="symbol"] {
-            fill-discrete: red, blue, green, yellow, purple, orange;
+            fill-discrete: #2c3e50, #34495e, #7f8c8d, #95a5a6, #bdc3c7, #ecf0f1;
             size: 150px;
         }
 
@@ -175,25 +206,26 @@ async fn test_cardinality_5_categories() {
 async fn test_cardinality_fallback() {
     // Define a CSS theme with cardinality-specific palettes
     // This tests the fallback logic: requesting 4 categories should use the 3-category palette
+    // since no 4-category palette exists and 3 is the largest available < 4
     let css = r#"
-        /* Specific palette for 2 categories */
+        /* Palette for 2 categories - bright red/cyan */
         mark[type="symbol"][cardinality="2"] {
-            fill-discrete: #1f77b4, #ff7f0e;
+            fill-discrete: #FF0000, #00FFFF;
         }
 
-        /* Specific palette for 3 categories */
+        /* Palette for 3 categories - green spectrum (THIS SHOULD BE USED for 4 categories) */
         mark[type="symbol"][cardinality="3"] {
-            fill-discrete: #1f77b4, #ff7f0e, #2ca02c;
+            fill-discrete: #00FF00, #32CD32, #228B22;
         }
 
-        /* Specific palette for 5 categories */
+        /* Palette for 5 categories - rainbow */
         mark[type="symbol"][cardinality="5"] {
-            fill-discrete: #E69F00, #56B4E9, #009E73, #F0E442, #0072B2;
+            fill-discrete: #FF0000, #FF7F00, #FFFF00, #00FF00, #0000FF;
         }
 
-        /* Base palette for other cardinalities */
+        /* Base palette for other cardinalities - brown tones */
         mark[type="symbol"] {
-            fill-discrete: red, blue, green, yellow, purple, orange;
+            fill-discrete: #8B4513, #A0522D, #D2691E, #CD853F, #DEB887, #F5DEB3;
             size: 150px;
         }
 
@@ -262,11 +294,32 @@ async fn test_cardinality_multiple_channels() {
     // Test cardinality-based ranges with multiple channels (fill and stroke)
     let css = r#"
         /* Different palettes for fill and stroke based on cardinality */
+
+        /* 2 categories - bright primary colors for fill, dark grays for stroke */
+        mark[type="symbol"][cardinality="2"] {
+            fill-discrete: #FF0000, #0000FF;
+            stroke-discrete: #000000, #333333;
+        }
+
+        /* 3 categories - warm spectrum for fill, grayscale for stroke (THIS SHOULD BE USED) */
         mark[type="symbol"][cardinality="3"] {
             fill-discrete: #E69F00, #56B4E9, #009E73;
             stroke-discrete: #000000, #666666, #999999;
         }
 
+        /* 4 categories - cool colors for fill, blue tones for stroke */
+        mark[type="symbol"][cardinality="4"] {
+            fill-discrete: #1abc9c, #16a085, #2ecc71, #27ae60;
+            stroke-discrete: #34495e, #2c3e50, #5d6d7e, #85929e;
+        }
+
+        /* 5 categories - pastels for fill, browns for stroke */
+        mark[type="symbol"][cardinality="5"] {
+            fill-discrete: #ffb3ba, #ffdfba, #ffffba, #baffc9, #bae1ff;
+            stroke-discrete: #8b4513, #a0522d, #d2691e, #cd853f, #deb887;
+        }
+
+        /* Base palette for other cardinalities - rainbow for fill, metallics for stroke */
         mark[type="symbol"] {
             fill-discrete: red, blue, green, yellow, purple, orange;
             stroke-discrete: black, gray, silver;
