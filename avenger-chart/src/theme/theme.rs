@@ -2342,4 +2342,39 @@ mod tests {
             _ => panic!("Expected dark mode fill color after deserialization"),
         }
     }
+
+    #[test]
+    fn test_lab_lch_colors_in_fill_discrete() {
+        // Test that lab/lch/oklab/oklch colors parse correctly in fill-discrete lists
+        let css_theme = r#"
+            mark {
+                fill-discrete:
+                    oklab(0.6 0.1 -0.1),
+                    oklch(0.6 0.14 315),
+                    lab(60 20 -30),
+                    lch(60 36 303);
+            }
+        "#;
+
+        let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
+        let ctx = ThemeContext::new("mark").with_subtype("rect");
+
+        let fill_discrete = theme.query(&ctx, "fill-discrete");
+
+        // Should get a list of 4 colors
+        match fill_discrete {
+            Some(ThemeValue::List(colors)) => {
+                assert_eq!(colors.len(), 4, "Expected 4 colors in fill-discrete list");
+                // Check that they're all colors (not light-dark or other types)
+                for color in colors.iter() {
+                    assert!(
+                        matches!(color, ThemeValue::Color(_)),
+                        "Expected all values to be Color, got {:?}",
+                        color
+                    );
+                }
+            }
+            other => panic!("Expected List of colors, got {:?}", other),
+        }
+    }
 }
