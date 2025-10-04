@@ -298,6 +298,77 @@ pub fn choose_contrast_color(base_color: &AbsoluteColor) -> AbsoluteColor {
     }
 }
 
+/// Choose best contrasting color from a list of candidates
+///
+/// This implements the extended `contrast-color()` syntax from CSS Color Module Level 6:
+/// ```css
+/// contrast-color(<color>, <color-list>)
+/// ```
+///
+/// # Algorithm
+///
+/// 1. Calculate contrast ratio of base color with each candidate
+/// 2. Filter candidates that meet minimum contrast threshold (default 4.5:1 for WCAG AA)
+/// 3. Return the candidate with the **highest** contrast ratio
+/// 4. If no candidate meets threshold, fall back to black or white (whichever is better)
+///
+/// # Arguments
+///
+/// * `base_color` - The background color to contrast against
+/// * `candidates` - List of candidate colors to choose from
+/// * `min_ratio` - Minimum acceptable contrast ratio (default 4.5:1 for WCAG AA)
+///
+/// # Returns
+///
+/// The candidate color with the best contrast ratio, or black/white if none meet threshold
+///
+/// # Examples
+///
+/// ```ignore
+/// use avenger_chart::color::contrast::choose_best_contrast;
+/// use avenger_chart::color::AbsoluteColor;
+///
+/// let bg = AbsoluteColor::from_srgb(0.5, 0.5, 0.5, 1.0);
+/// let candidates = vec![
+///     AbsoluteColor::from_srgb(0.13, 0.13, 0.13, 1.0), // #222
+///     AbsoluteColor::from_srgb(0.93, 0.93, 0.93, 1.0), // #eee
+/// ];
+///
+/// // Choose best contrast with AA threshold (4.5:1)
+/// let best = choose_best_contrast(&bg, &candidates, 4.5);
+/// // Returns #eee (higher contrast than #222)
+/// ```
+pub fn choose_best_contrast(
+    base_color: &AbsoluteColor,
+    candidates: &[AbsoluteColor],
+    min_ratio: f32,
+) -> AbsoluteColor {
+    if candidates.is_empty() {
+        // No candidates provided, fall back to black or white
+        return choose_contrast_color(base_color);
+    }
+
+    let mut best_candidate: Option<AbsoluteColor> = None;
+    let mut best_ratio = 0.0;
+
+    // Find the candidate with the highest contrast ratio that meets the threshold
+    for candidate in candidates {
+        let ratio = contrast_ratio(base_color, candidate);
+        if ratio >= min_ratio && ratio > best_ratio {
+            best_ratio = ratio;
+            best_candidate = Some(*candidate);
+        }
+    }
+
+    // If we found a candidate meeting the threshold, return it
+    if let Some(candidate) = best_candidate {
+        return candidate;
+    }
+
+    // Otherwise fall back to black or white
+    choose_contrast_color(base_color)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -506,5 +577,132 @@ mod tests {
             "Should meet AAA standard for normal text, got {}",
             ratio
         );
+    }
+
+    // Tests for choose_best_contrast (extended syntax with candidate lists)
+
+    #[test]
+    fn test_choose_best_contrast_basic() {
+        // Darker background to ensure candidates meet threshold
+        let bg = AbsoluteColor::from_srgb(0.2, 0.2, 0.2, 1.0);
+
+        // Candidates: medium grey and light grey
+        let candidates = vec![
+            AbsoluteColor::from_srgb(0.5, 0.5, 0.5, 1.0), // mid gray
+            AbsoluteColor::from_srgb(0.93, 0.93, 0.93, 1.0), // #eee
+        ];
+
+        // Should choose #eee (higher contrast)
+        let best = choose_best_contrast(&bg, &candidates, 3.0);
+        assert!(approx_eq(best.components[0], 0.93, 0.01));
+    }
+
+    #[test]
+    fn test_choose_best_contrast_with_brand_colors() {
+        // Light blue background
+        let bg = AbsoluteColor::from_srgb(0.68, 0.85, 0.90, 1.0); // lightblue
+
+        // Brand color palette
+        let candidates = vec![
+            AbsoluteColor::from_srgb(0.0, 0.0, 0.5, 1.0), // navy
+            AbsoluteColor::from_srgb(0.5, 0.0, 0.0, 1.0), // maroon
+            AbsoluteColor::from_srgb(0.5, 0.0, 0.5, 1.0), // purple
+            AbsoluteColor::from_srgb(0.0, 0.5, 0.5, 1.0), // teal
+        ];
+
+        // Should choose navy (darkest, best contrast)
+        let best = choose_best_contrast(&bg, &candidates, 3.0);
+        assert!(approx_eq(best.components[2], 0.5, 0.01)); // Blue component
+        assert!(approx_eq(best.components[0], 0.0, 0.01)); // Red component
+    }
+
+    #[test]
+    fn test_choose_best_contrast_none_meet_threshold() {
+        // Medium gray background
+        let bg = AbsoluteColor::from_srgb(0.5, 0.5, 0.5, 1.0);
+
+        // All candidates have poor contrast
+        let candidates = vec![
+            AbsoluteColor::from_srgb(0.45, 0.45, 0.45, 1.0),
+            AbsoluteColor::from_srgb(0.55, 0.55, 0.55, 1.0),
+        ];
+
+        // Should fall back to black or white
+        let best = choose_best_contrast(&bg, &candidates, 4.5);
+        // Should be either pure black or pure white
+        let is_black_or_white = (approx_eq(best.components[0], 0.0, 0.01)
+            && approx_eq(best.components[1], 0.0, 0.01)
+            && approx_eq(best.components[2], 0.0, 0.01))
+            || (approx_eq(best.components[0], 1.0, 0.01)
+                && approx_eq(best.components[1], 1.0, 0.01)
+                && approx_eq(best.components[2], 1.0, 0.01));
+        assert!(is_black_or_white);
+    }
+
+    #[test]
+    fn test_choose_best_contrast_empty_candidates() {
+        // Should fall back to choose_contrast_color behavior
+        let bg = AbsoluteColor::from_srgb(0.1, 0.1, 0.1, 1.0);
+        let candidates = vec![];
+
+        let best = choose_best_contrast(&bg, &candidates, 4.5);
+        // Dark background should get white
+        assert_eq!(best.components[0], 1.0);
+        assert_eq!(best.components[1], 1.0);
+        assert_eq!(best.components[2], 1.0);
+    }
+
+    #[test]
+    fn test_choose_best_contrast_all_candidates_meet_threshold() {
+        // Black background
+        let bg = AbsoluteColor::from_srgb(0.0, 0.0, 0.0, 1.0);
+
+        // All light colors with good contrast
+        let candidates = vec![
+            AbsoluteColor::from_srgb(0.9, 0.9, 0.9, 1.0), // light gray
+            AbsoluteColor::from_srgb(1.0, 1.0, 0.8, 1.0), // cream
+            AbsoluteColor::from_srgb(1.0, 1.0, 1.0, 1.0), // white
+        ];
+
+        // Should choose white (highest contrast)
+        let best = choose_best_contrast(&bg, &candidates, 4.5);
+        assert_eq!(best.components[0], 1.0);
+        assert_eq!(best.components[1], 1.0);
+        assert_eq!(best.components[2], 1.0);
+    }
+
+    #[test]
+    fn test_choose_best_contrast_with_low_threshold() {
+        // Light background
+        let bg = AbsoluteColor::from_srgb(0.9, 0.9, 0.9, 1.0);
+
+        // Candidates with varying contrast
+        let candidates = vec![
+            AbsoluteColor::from_srgb(0.6, 0.6, 0.6, 1.0), // Medium gray
+            AbsoluteColor::from_srgb(0.3, 0.3, 0.3, 1.0), // Dark gray
+        ];
+
+        // With low threshold (2.0:1), should pick the one with better contrast
+        let best = choose_best_contrast(&bg, &candidates, 2.0);
+        // Should choose the darker one (0.3) as it has better contrast
+        assert!(approx_eq(best.components[0], 0.3, 0.01));
+    }
+
+    #[test]
+    fn test_choose_best_contrast_prefers_highest_ratio() {
+        // White background
+        let bg = AbsoluteColor::from_srgb(1.0, 1.0, 1.0, 1.0);
+
+        let candidates = vec![
+            AbsoluteColor::from_srgb(0.2, 0.2, 0.2, 1.0), // Contrast ~10:1
+            AbsoluteColor::from_srgb(0.0, 0.0, 0.0, 1.0), // Contrast 21:1 (max)
+            AbsoluteColor::from_srgb(0.1, 0.1, 0.1, 1.0), // Contrast ~15:1
+        ];
+
+        // Should choose pure black (21:1)
+        let best = choose_best_contrast(&bg, &candidates, 4.5);
+        assert_eq!(best.components[0], 0.0);
+        assert_eq!(best.components[1], 0.0);
+        assert_eq!(best.components[2], 0.0);
     }
 }

@@ -93,7 +93,9 @@ impl CompiledPlot {
             x: x.into(),
             y: y.into(),
             color: avenger_common::types::ColorOrGradient::Color(
-                theme.text_color(&subtitle_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                theme
+                    .text_color(&subtitle_ctx)
+                    .unwrap_or([0.0, 0.0, 0.0, 1.0]),
             )
             .into(),
             font_size: subtitle

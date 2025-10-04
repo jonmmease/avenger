@@ -312,6 +312,27 @@ impl ThemeValue {
                 Some(derived.to_css_rgba())
             }
 
+            // Handle light-dark() function - resolve based on color-scheme param
+            ThemeValue::LightDark(light, dark) => {
+                use datafusion_common::ScalarValue;
+
+                // Check color-scheme param to decide which value to use
+                let use_dark = params
+                    .get("color-scheme")
+                    .and_then(|v| match v {
+                        ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => {
+                            Some(s.as_str() == "dark")
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(false); // Default to light mode if no param
+
+                let selected = if use_dark { dark } else { light };
+
+                // Recursively resolve the selected value
+                selected.as_color_with_params(params, base_font_size)
+            }
+
             // Handle function calls that return colors (e.g., contrast-color, color-mix)
             ThemeValue::Function(name, args) => match name.as_str() {
                 "contrast-color" => {

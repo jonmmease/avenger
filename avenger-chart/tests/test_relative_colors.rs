@@ -122,7 +122,10 @@ fn test_relative_color_with_variable_origin() {
 
     // Provide runtime parameter for --base-color (blue)
     let mut params = IndexMap::new();
-    params.insert("--base-color".to_string(), ScalarValue::Utf8(Some("blue".to_string())));
+    params.insert(
+        "--base-color".to_string(),
+        ScalarValue::Utf8(Some("blue".to_string())),
+    );
 
     let ctx = ThemeContext::new("mark").with_params(params);
 
@@ -179,8 +182,14 @@ fn test_relative_color_with_variable_origin_and_calc() {
 
     // Provide both runtime parameters
     let mut params = IndexMap::new();
-    params.insert("--base-color".to_string(), ScalarValue::Utf8(Some("red".to_string())));
-    params.insert("--lightness-factor".to_string(), ScalarValue::Float64(Some(1.2)));
+    params.insert(
+        "--base-color".to_string(),
+        ScalarValue::Utf8(Some("red".to_string())),
+    );
+    params.insert(
+        "--lightness-factor".to_string(),
+        ScalarValue::Float64(Some(1.2)),
+    );
 
     let ctx = ThemeContext::new("mark").with_params(params);
 

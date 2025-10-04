@@ -770,8 +770,12 @@ impl CompiledPlot {
         };
 
         // Add background rect if theme specifies one
-        let canvas_ctx = crate::theme::ThemeContext::new("canvas").with_params(merged_params.clone());
-        if let Some(color) = theme.query(&canvas_ctx, "background-color").and_then(|v| v.as_color_array()) {
+        let canvas_ctx =
+            crate::theme::ThemeContext::new("canvas").with_params(merged_params.clone());
+        if let Some(color) = theme
+            .query(&canvas_ctx, "background-color")
+            .and_then(|v| v.as_color_array())
+        {
             use avenger_common::types::ColorOrGradient;
             use avenger_scenegraph::marks::rect::SceneRectMark;
 

@@ -242,7 +242,8 @@ impl CompiledGuide for PolarGuide {
             let guide_ctx = crate::theme::ThemeContext::new("guide")
                 .with_subtype("polar")
                 .with_params(params.clone());
-            theme.query(&guide_ctx, "background-color")
+            theme
+                .query(&guide_ctx, "background-color")
                 .and_then(|v| v.as_color_array())
         });
 

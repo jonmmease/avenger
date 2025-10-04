@@ -120,9 +120,9 @@
 //! font-size: clamp(12px, calc(var(--scale) * 1rem), 20px);
 //! ```
 
-use serde::{Deserialize, Serialize};
 use super::value::{AngleUnit, LengthUnit};
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 
 /// Calculation node - tree structure for calc expressions
 ///
@@ -220,10 +220,7 @@ pub enum CalcNode {
     Atan(Box<CalcNode>),
 
     /// atan2() function: two-argument arctangent
-    Atan2 {
-        y: Box<CalcNode>,
-        x: Box<CalcNode>,
-    },
+    Atan2 { y: Box<CalcNode>, x: Box<CalcNode> },
 
     /// pow() function: exponentiation
     Pow {
@@ -443,8 +440,12 @@ impl CalcLeaf {
             CalcLeaf::Length(n, unit) => CalcLeaf::Length(-n, *unit),
             CalcLeaf::Percentage(n) => CalcLeaf::Percentage(-n),
             CalcLeaf::Angle(n, unit) => CalcLeaf::Angle(-n, *unit),
-            CalcLeaf::Variable(_) => unreachable!("Variables should be substituted before negation"),
-            CalcLeaf::ChannelKeyword(_) => unreachable!("Channel keywords should be substituted before negation"),
+            CalcLeaf::Variable(_) => {
+                unreachable!("Variables should be substituted before negation")
+            }
+            CalcLeaf::ChannelKeyword(_) => {
+                unreachable!("Channel keywords should be substituted before negation")
+            }
         }
     }
 
@@ -456,7 +457,9 @@ impl CalcLeaf {
             CalcLeaf::Percentage(n) => CalcLeaf::Percentage(n.abs()),
             CalcLeaf::Angle(n, unit) => CalcLeaf::Angle(n.abs(), *unit),
             CalcLeaf::Variable(_) => unreachable!("Variables should be substituted before abs"),
-            CalcLeaf::ChannelKeyword(_) => unreachable!("Channel keywords should be substituted before abs"),
+            CalcLeaf::ChannelKeyword(_) => {
+                unreachable!("Channel keywords should be substituted before abs")
+            }
         }
     }
 
@@ -469,7 +472,9 @@ impl CalcLeaf {
             CalcLeaf::Percentage(n) => *n,
             CalcLeaf::Angle(n, _) => *n,
             CalcLeaf::Variable(_) => unreachable!("Variables should be substituted before sign"),
-            CalcLeaf::ChannelKeyword(_) => unreachable!("Channel keywords should be substituted before sign"),
+            CalcLeaf::ChannelKeyword(_) => {
+                unreachable!("Channel keywords should be substituted before sign")
+            }
         };
 
         CalcLeaf::Number(if value > 0.0 {
@@ -494,13 +499,19 @@ impl CalcLeaf {
             }
             // Length + Percentage is allowed in CSS for certain properties
             // This is handled at the property level, but we allow it here
-            (CalcLeaf::Length(_, _), CalcLeaf::Percentage(_)) |
-            (CalcLeaf::Percentage(_), CalcLeaf::Length(_, _)) => {
+            (CalcLeaf::Length(_, _), CalcLeaf::Percentage(_))
+            | (CalcLeaf::Percentage(_), CalcLeaf::Length(_, _)) => {
                 // Return as-is, cannot simplify without context
                 // In reality, we should return a LengthPercentage type
-                Err(format!("Cannot add {:?} and {:?} without context", self, other))
+                Err(format!(
+                    "Cannot add {:?} and {:?} without context",
+                    self, other
+                ))
             }
-            _ => Err(format!("Incompatible units for addition: {:?} + {:?}", self, other)),
+            _ => Err(format!(
+                "Incompatible units for addition: {:?} + {:?}",
+                self, other
+            )),
         }
     }
 
@@ -508,13 +519,18 @@ impl CalcLeaf {
     pub fn multiply(&self, other: &CalcLeaf) -> Result<CalcLeaf, String> {
         match (self, other) {
             (CalcLeaf::Number(a), CalcLeaf::Number(b)) => Ok(CalcLeaf::Number(a * b)),
-            (CalcLeaf::Number(n), CalcLeaf::Length(l, unit)) |
-            (CalcLeaf::Length(l, unit), CalcLeaf::Number(n)) => Ok(CalcLeaf::Length(n * l, *unit)),
-            (CalcLeaf::Number(n), CalcLeaf::Percentage(p)) |
-            (CalcLeaf::Percentage(p), CalcLeaf::Number(n)) => Ok(CalcLeaf::Percentage(n * p)),
-            (CalcLeaf::Number(n), CalcLeaf::Angle(a, unit)) |
-            (CalcLeaf::Angle(a, unit), CalcLeaf::Number(n)) => Ok(CalcLeaf::Angle(n * a, *unit)),
-            _ => Err(format!("Cannot multiply two dimensioned values: {:?} * {:?}", self, other)),
+            (CalcLeaf::Number(n), CalcLeaf::Length(l, unit))
+            | (CalcLeaf::Length(l, unit), CalcLeaf::Number(n)) => {
+                Ok(CalcLeaf::Length(n * l, *unit))
+            }
+            (CalcLeaf::Number(n), CalcLeaf::Percentage(p))
+            | (CalcLeaf::Percentage(p), CalcLeaf::Number(n)) => Ok(CalcLeaf::Percentage(n * p)),
+            (CalcLeaf::Number(n), CalcLeaf::Angle(a, unit))
+            | (CalcLeaf::Angle(a, unit), CalcLeaf::Number(n)) => Ok(CalcLeaf::Angle(n * a, *unit)),
+            _ => Err(format!(
+                "Cannot multiply two dimensioned values: {:?} * {:?}",
+                self, other
+            )),
         }
     }
 
@@ -545,7 +561,7 @@ impl CalcLeaf {
             CalcLeaf::Length(n, LengthUnit::Px) => Some(*n as f32),
             CalcLeaf::Length(n, LengthUnit::Rem) => Some((*n as f32) * base_font_size),
             CalcLeaf::Number(n) => Some(*n as f32), // Interpret bare numbers as px
-            CalcLeaf::Percentage(_) => None, // Need context
+            CalcLeaf::Percentage(_) => None,        // Need context
             CalcLeaf::Angle(_, _) => None,
             CalcLeaf::Variable(_) => None,
             CalcLeaf::ChannelKeyword(_) => None,
@@ -722,16 +738,26 @@ impl CalcNode {
         match self {
             CalcNode::Leaf(_) => {}
             CalcNode::Negate(node) => node.visit_depth_first(f),
-            CalcNode::Sum(nodes) | CalcNode::Product(nodes) |
-            CalcNode::Min(nodes) | CalcNode::Max(nodes) | CalcNode::Hypot(nodes) => {
+            CalcNode::Sum(nodes)
+            | CalcNode::Product(nodes)
+            | CalcNode::Min(nodes)
+            | CalcNode::Max(nodes)
+            | CalcNode::Hypot(nodes) => {
                 for node in nodes.iter_mut() {
                     node.visit_depth_first(f);
                 }
             }
-            CalcNode::Invert(node) | CalcNode::Abs(node) | CalcNode::Sign(node) |
-            CalcNode::Sin(node) | CalcNode::Cos(node) | CalcNode::Tan(node) |
-            CalcNode::Asin(node) | CalcNode::Acos(node) | CalcNode::Atan(node) |
-            CalcNode::Sqrt(node) | CalcNode::Exp(node) => {
+            CalcNode::Invert(node)
+            | CalcNode::Abs(node)
+            | CalcNode::Sign(node)
+            | CalcNode::Sin(node)
+            | CalcNode::Cos(node)
+            | CalcNode::Tan(node)
+            | CalcNode::Asin(node)
+            | CalcNode::Acos(node)
+            | CalcNode::Atan(node)
+            | CalcNode::Sqrt(node)
+            | CalcNode::Exp(node) => {
                 node.visit_depth_first(f);
             }
             CalcNode::Clamp { min, center, max } => {
@@ -796,8 +822,11 @@ impl CalcNode {
             }
             CalcNode::Clamp { min, center, max } => {
                 // Try to evaluate if all are constants
-                if let (CalcNode::Leaf(min_leaf), CalcNode::Leaf(center_leaf), CalcNode::Leaf(max_leaf)) =
-                    (&**min, &**center, &**max)
+                if let (
+                    CalcNode::Leaf(min_leaf),
+                    CalcNode::Leaf(center_leaf),
+                    CalcNode::Leaf(max_leaf),
+                ) = (&**min, &**center, &**max)
                 {
                     if let Ok(result) = center_leaf.clamp(min_leaf, max_leaf) {
                         *self = CalcNode::Leaf(result);
@@ -893,16 +922,16 @@ impl CalcNode {
             CalcNode::Leaf(leaf) => {
                 // Variables and channel keywords should have been substituted
                 match leaf {
-                    CalcLeaf::Variable(name) => {
-                        Err(format!("Unsubstituted variable: {}", name))
-                    }
-                    CalcLeaf::ChannelKeyword(keyword) => {
-                        Err(format!("Channel keyword {:?} requires color context (relative color syntax)", keyword))
-                    }
+                    CalcLeaf::Variable(name) => Err(format!("Unsubstituted variable: {}", name)),
+                    CalcLeaf::ChannelKeyword(keyword) => Err(format!(
+                        "Channel keyword {:?} requires color context (relative color syntax)",
+                        keyword
+                    )),
                     // Convert rem to px for consistency
-                    CalcLeaf::Length(n, LengthUnit::Rem) => {
-                        Ok(CalcLeaf::Length((*n as f32 * base_font_size) as f64, LengthUnit::Px))
-                    }
+                    CalcLeaf::Length(n, LengthUnit::Rem) => Ok(CalcLeaf::Length(
+                        (*n as f32 * base_font_size) as f64,
+                        LengthUnit::Px,
+                    )),
                     _ => Ok(leaf.clone()),
                 }
             }
@@ -961,10 +990,18 @@ impl CalcNode {
                 let value = node.resolve_internal(base_font_size)?;
                 Ok(value.sign())
             }
-            CalcNode::Round { strategy, value, step } => {
-                let value_num = value.resolve_internal(base_font_size)?.as_number()
+            CalcNode::Round {
+                strategy,
+                value,
+                step,
+            } => {
+                let value_num = value
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Round value must be a number")?;
-                let step_num = step.resolve_internal(base_font_size)?.as_number()
+                let step_num = step
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Round step must be a number")?;
 
                 let result = match strategy {
@@ -976,88 +1013,129 @@ impl CalcNode {
                 Ok(CalcLeaf::Number(result))
             }
             CalcNode::Mod { dividend, divisor } => {
-                let a = dividend.resolve_internal(base_font_size)?.as_number()
+                let a = dividend
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Mod dividend must be a number")?;
-                let b = divisor.resolve_internal(base_font_size)?.as_number()
+                let b = divisor
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Mod divisor must be a number")?;
                 Ok(CalcLeaf::Number(a % b))
             }
             CalcNode::Rem { dividend, divisor } => {
-                let a = dividend.resolve_internal(base_font_size)?.as_number()
+                let a = dividend
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Rem dividend must be a number")?;
-                let b = divisor.resolve_internal(base_font_size)?.as_number()
+                let b = divisor
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Rem divisor must be a number")?;
                 Ok(CalcLeaf::Number(a.rem_euclid(b)))
             }
             CalcNode::Hypot(nodes) => {
                 let mut sum_squares = 0.0;
                 for node in nodes {
-                    let value = node.resolve_internal(base_font_size)?.as_number()
+                    let value = node
+                        .resolve_internal(base_font_size)?
+                        .as_number()
                         .ok_or("Hypot values must be numbers")?;
                     sum_squares += value * value;
                 }
                 Ok(CalcLeaf::Number(sum_squares.sqrt()))
             }
             CalcNode::Sin(node) => {
-                let angle = node.resolve_internal(base_font_size)?.as_angle_degrees()
+                let angle = node
+                    .resolve_internal(base_font_size)?
+                    .as_angle_degrees()
                     .ok_or("Sin input must be an angle or number")?;
                 Ok(CalcLeaf::Number(angle.to_radians().sin()))
             }
             CalcNode::Cos(node) => {
-                let angle = node.resolve_internal(base_font_size)?.as_angle_degrees()
+                let angle = node
+                    .resolve_internal(base_font_size)?
+                    .as_angle_degrees()
                     .ok_or("Cos input must be an angle or number")?;
                 Ok(CalcLeaf::Number(angle.to_radians().cos()))
             }
             CalcNode::Tan(node) => {
-                let angle = node.resolve_internal(base_font_size)?.as_angle_degrees()
+                let angle = node
+                    .resolve_internal(base_font_size)?
+                    .as_angle_degrees()
                     .ok_or("Tan input must be an angle or number")?;
                 Ok(CalcLeaf::Number(angle.to_radians().tan()))
             }
             CalcNode::Asin(node) => {
-                let value = node.resolve_internal(base_font_size)?.as_number()
+                let value = node
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Asin input must be a number")?;
                 Ok(CalcLeaf::Angle(value.asin().to_degrees(), AngleUnit::Deg))
             }
             CalcNode::Acos(node) => {
-                let value = node.resolve_internal(base_font_size)?.as_number()
+                let value = node
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Acos input must be a number")?;
                 Ok(CalcLeaf::Angle(value.acos().to_degrees(), AngleUnit::Deg))
             }
             CalcNode::Atan(node) => {
-                let value = node.resolve_internal(base_font_size)?.as_number()
+                let value = node
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Atan input must be a number")?;
                 Ok(CalcLeaf::Angle(value.atan().to_degrees(), AngleUnit::Deg))
             }
             CalcNode::Atan2 { y, x } => {
-                let y_val = y.resolve_internal(base_font_size)?.as_number()
+                let y_val = y
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Atan2 y must be a number")?;
-                let x_val = x.resolve_internal(base_font_size)?.as_number()
+                let x_val = x
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Atan2 x must be a number")?;
-                Ok(CalcLeaf::Angle(y_val.atan2(x_val).to_degrees(), AngleUnit::Deg))
+                Ok(CalcLeaf::Angle(
+                    y_val.atan2(x_val).to_degrees(),
+                    AngleUnit::Deg,
+                ))
             }
             CalcNode::Pow { base, exponent } => {
-                let base_val = base.resolve_internal(base_font_size)?.as_number()
+                let base_val = base
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Pow base must be a number")?;
-                let exp_val = exponent.resolve_internal(base_font_size)?.as_number()
+                let exp_val = exponent
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Pow exponent must be a number")?;
                 Ok(CalcLeaf::Number(base_val.powf(exp_val)))
             }
             CalcNode::Sqrt(node) => {
-                let value = node.resolve_internal(base_font_size)?.as_number()
+                let value = node
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Sqrt input must be a number")?;
                 Ok(CalcLeaf::Number(value.sqrt()))
             }
             CalcNode::Exp(node) => {
-                let value = node.resolve_internal(base_font_size)?.as_number()
+                let value = node
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Exp input must be a number")?;
                 Ok(CalcLeaf::Number(value.exp()))
             }
             CalcNode::Log { value, base } => {
-                let value_num = value.resolve_internal(base_font_size)?.as_number()
+                let value_num = value
+                    .resolve_internal(base_font_size)?
+                    .as_number()
                     .ok_or("Log value must be a number")?;
 
                 if let Some(base_node) = base {
-                    let base_num = base_node.resolve_internal(base_font_size)?.as_number()
+                    let base_num = base_node
+                        .resolve_internal(base_font_size)?
+                        .as_number()
                         .ok_or("Log base must be a number")?;
                     Ok(CalcLeaf::Number(value_num.log(base_num)))
                 } else {
@@ -1079,23 +1157,42 @@ impl CalcNode {
                 if let Some(value) = params.get(name) {
                     Ok(CalcNode::Leaf(CalcLeaf::Number(*value)))
                 } else {
-                    Err(format!("CSS variable '{}' not found in runtime parameters", name))
+                    Err(format!(
+                        "CSS variable '{}' not found in runtime parameters",
+                        name
+                    ))
                 }
             }
             CalcNode::Leaf(leaf) => Ok(CalcNode::Leaf(leaf.clone())),
-            CalcNode::Negate(node) => Ok(CalcNode::Negate(Box::new(node.substitute_variables(params)?))),
+            CalcNode::Negate(node) => Ok(CalcNode::Negate(Box::new(
+                node.substitute_variables(params)?,
+            ))),
             CalcNode::Sum(nodes) => Ok(CalcNode::Sum(
-                nodes.iter().map(|n| n.substitute_variables(params)).collect::<Result<Vec<_>, _>>()?
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_variables(params))
+                    .collect::<Result<Vec<_>, _>>()?,
             )),
             CalcNode::Product(nodes) => Ok(CalcNode::Product(
-                nodes.iter().map(|n| n.substitute_variables(params)).collect::<Result<Vec<_>, _>>()?
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_variables(params))
+                    .collect::<Result<Vec<_>, _>>()?,
             )),
-            CalcNode::Invert(node) => Ok(CalcNode::Invert(Box::new(node.substitute_variables(params)?))),
+            CalcNode::Invert(node) => Ok(CalcNode::Invert(Box::new(
+                node.substitute_variables(params)?,
+            ))),
             CalcNode::Min(nodes) => Ok(CalcNode::Min(
-                nodes.iter().map(|n| n.substitute_variables(params)).collect::<Result<Vec<_>, _>>()?
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_variables(params))
+                    .collect::<Result<Vec<_>, _>>()?,
             )),
             CalcNode::Max(nodes) => Ok(CalcNode::Max(
-                nodes.iter().map(|n| n.substitute_variables(params)).collect::<Result<Vec<_>, _>>()?
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_variables(params))
+                    .collect::<Result<Vec<_>, _>>()?,
             )),
             CalcNode::Clamp { min, center, max } => Ok(CalcNode::Clamp {
                 min: Box::new(min.substitute_variables(params)?),
@@ -1103,8 +1200,14 @@ impl CalcNode {
                 max: Box::new(max.substitute_variables(params)?),
             }),
             CalcNode::Abs(node) => Ok(CalcNode::Abs(Box::new(node.substitute_variables(params)?))),
-            CalcNode::Sign(node) => Ok(CalcNode::Sign(Box::new(node.substitute_variables(params)?))),
-            CalcNode::Round { strategy, value, step } => Ok(CalcNode::Round {
+            CalcNode::Sign(node) => {
+                Ok(CalcNode::Sign(Box::new(node.substitute_variables(params)?)))
+            }
+            CalcNode::Round {
+                strategy,
+                value,
+                step,
+            } => Ok(CalcNode::Round {
                 strategy: *strategy,
                 value: Box::new(value.substitute_variables(params)?),
                 step: Box::new(step.substitute_variables(params)?),
@@ -1118,14 +1221,23 @@ impl CalcNode {
                 divisor: Box::new(divisor.substitute_variables(params)?),
             }),
             CalcNode::Hypot(nodes) => Ok(CalcNode::Hypot(
-                nodes.iter().map(|n| n.substitute_variables(params)).collect::<Result<Vec<_>, _>>()?
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_variables(params))
+                    .collect::<Result<Vec<_>, _>>()?,
             )),
             CalcNode::Sin(node) => Ok(CalcNode::Sin(Box::new(node.substitute_variables(params)?))),
             CalcNode::Cos(node) => Ok(CalcNode::Cos(Box::new(node.substitute_variables(params)?))),
             CalcNode::Tan(node) => Ok(CalcNode::Tan(Box::new(node.substitute_variables(params)?))),
-            CalcNode::Asin(node) => Ok(CalcNode::Asin(Box::new(node.substitute_variables(params)?))),
-            CalcNode::Acos(node) => Ok(CalcNode::Acos(Box::new(node.substitute_variables(params)?))),
-            CalcNode::Atan(node) => Ok(CalcNode::Atan(Box::new(node.substitute_variables(params)?))),
+            CalcNode::Asin(node) => {
+                Ok(CalcNode::Asin(Box::new(node.substitute_variables(params)?)))
+            }
+            CalcNode::Acos(node) => {
+                Ok(CalcNode::Acos(Box::new(node.substitute_variables(params)?)))
+            }
+            CalcNode::Atan(node) => {
+                Ok(CalcNode::Atan(Box::new(node.substitute_variables(params)?)))
+            }
             CalcNode::Atan2 { y, x } => Ok(CalcNode::Atan2 {
                 y: Box::new(y.substitute_variables(params)?),
                 x: Box::new(x.substitute_variables(params)?),
@@ -1134,11 +1246,17 @@ impl CalcNode {
                 base: Box::new(base.substitute_variables(params)?),
                 exponent: Box::new(exponent.substitute_variables(params)?),
             }),
-            CalcNode::Sqrt(node) => Ok(CalcNode::Sqrt(Box::new(node.substitute_variables(params)?))),
+            CalcNode::Sqrt(node) => {
+                Ok(CalcNode::Sqrt(Box::new(node.substitute_variables(params)?)))
+            }
             CalcNode::Exp(node) => Ok(CalcNode::Exp(Box::new(node.substitute_variables(params)?))),
             CalcNode::Log { value, base } => Ok(CalcNode::Log {
                 value: Box::new(value.substitute_variables(params)?),
-                base: base.as_ref().map(|b| b.substitute_variables(params)).transpose()?.map(Box::new),
+                base: base
+                    .as_ref()
+                    .map(|b| b.substitute_variables(params))
+                    .transpose()?
+                    .map(Box::new),
             }),
         }
     }
@@ -1160,8 +1278,12 @@ impl CalcNode {
     ) -> Result<CalcNode, String> {
         match self {
             CalcNode::Leaf(CalcLeaf::ChannelKeyword(keyword)) => {
-                let origin = origin_color
-                    .ok_or_else(|| format!("Channel keyword {:?} requires origin color context", keyword))?;
+                let origin = origin_color.ok_or_else(|| {
+                    format!(
+                        "Channel keyword {:?} requires origin color context",
+                        keyword
+                    )
+                })?;
 
                 let value = origin.get_component_by_channel_keyword(*keyword)?;
 
@@ -1176,171 +1298,133 @@ impl CalcNode {
             CalcNode::Leaf(leaf) => Ok(CalcNode::Leaf(leaf.clone())),
 
             // Recursively process tree
-            CalcNode::Negate(node) => {
-                Ok(CalcNode::Negate(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Negate(node) => Ok(CalcNode::Negate(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Sum(nodes) => {
-                Ok(CalcNode::Sum(
-                    nodes.iter()
-                        .map(|n| n.substitute_channel_keywords(origin_color))
-                        .collect::<Result<Vec<_>, _>>()?
-                ))
-            }
+            CalcNode::Sum(nodes) => Ok(CalcNode::Sum(
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
 
-            CalcNode::Product(nodes) => {
-                Ok(CalcNode::Product(
-                    nodes.iter()
-                        .map(|n| n.substitute_channel_keywords(origin_color))
-                        .collect::<Result<Vec<_>, _>>()?
-                ))
-            }
+            CalcNode::Product(nodes) => Ok(CalcNode::Product(
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
 
-            CalcNode::Invert(node) => {
-                Ok(CalcNode::Invert(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Invert(node) => Ok(CalcNode::Invert(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Min(nodes) => {
-                Ok(CalcNode::Min(
-                    nodes.iter()
-                        .map(|n| n.substitute_channel_keywords(origin_color))
-                        .collect::<Result<Vec<_>, _>>()?
-                ))
-            }
+            CalcNode::Min(nodes) => Ok(CalcNode::Min(
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
 
-            CalcNode::Max(nodes) => {
-                Ok(CalcNode::Max(
-                    nodes.iter()
-                        .map(|n| n.substitute_channel_keywords(origin_color))
-                        .collect::<Result<Vec<_>, _>>()?
-                ))
-            }
+            CalcNode::Max(nodes) => Ok(CalcNode::Max(
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
 
-            CalcNode::Clamp { min, center, max } => {
-                Ok(CalcNode::Clamp {
-                    min: Box::new(min.substitute_channel_keywords(origin_color)?),
-                    center: Box::new(center.substitute_channel_keywords(origin_color)?),
-                    max: Box::new(max.substitute_channel_keywords(origin_color)?),
-                })
-            }
+            CalcNode::Clamp { min, center, max } => Ok(CalcNode::Clamp {
+                min: Box::new(min.substitute_channel_keywords(origin_color)?),
+                center: Box::new(center.substitute_channel_keywords(origin_color)?),
+                max: Box::new(max.substitute_channel_keywords(origin_color)?),
+            }),
 
-            CalcNode::Abs(node) => {
-                Ok(CalcNode::Abs(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Abs(node) => Ok(CalcNode::Abs(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Sign(node) => {
-                Ok(CalcNode::Sign(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Sign(node) => Ok(CalcNode::Sign(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Round { strategy, value, step } => {
-                Ok(CalcNode::Round {
-                    strategy: *strategy,
-                    value: Box::new(value.substitute_channel_keywords(origin_color)?),
-                    step: Box::new(step.substitute_channel_keywords(origin_color)?),
-                })
-            }
+            CalcNode::Round {
+                strategy,
+                value,
+                step,
+            } => Ok(CalcNode::Round {
+                strategy: *strategy,
+                value: Box::new(value.substitute_channel_keywords(origin_color)?),
+                step: Box::new(step.substitute_channel_keywords(origin_color)?),
+            }),
 
-            CalcNode::Mod { dividend, divisor } => {
-                Ok(CalcNode::Mod {
-                    dividend: Box::new(dividend.substitute_channel_keywords(origin_color)?),
-                    divisor: Box::new(divisor.substitute_channel_keywords(origin_color)?),
-                })
-            }
+            CalcNode::Mod { dividend, divisor } => Ok(CalcNode::Mod {
+                dividend: Box::new(dividend.substitute_channel_keywords(origin_color)?),
+                divisor: Box::new(divisor.substitute_channel_keywords(origin_color)?),
+            }),
 
-            CalcNode::Rem { dividend, divisor } => {
-                Ok(CalcNode::Rem {
-                    dividend: Box::new(dividend.substitute_channel_keywords(origin_color)?),
-                    divisor: Box::new(divisor.substitute_channel_keywords(origin_color)?),
-                })
-            }
+            CalcNode::Rem { dividend, divisor } => Ok(CalcNode::Rem {
+                dividend: Box::new(dividend.substitute_channel_keywords(origin_color)?),
+                divisor: Box::new(divisor.substitute_channel_keywords(origin_color)?),
+            }),
 
-            CalcNode::Hypot(nodes) => {
-                Ok(CalcNode::Hypot(
-                    nodes.iter()
-                        .map(|n| n.substitute_channel_keywords(origin_color))
-                        .collect::<Result<Vec<_>, _>>()?
-                ))
-            }
+            CalcNode::Hypot(nodes) => Ok(CalcNode::Hypot(
+                nodes
+                    .iter()
+                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
 
-            CalcNode::Sin(node) => {
-                Ok(CalcNode::Sin(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Sin(node) => Ok(CalcNode::Sin(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Cos(node) => {
-                Ok(CalcNode::Cos(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Cos(node) => Ok(CalcNode::Cos(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Tan(node) => {
-                Ok(CalcNode::Tan(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Tan(node) => Ok(CalcNode::Tan(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Asin(node) => {
-                Ok(CalcNode::Asin(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Asin(node) => Ok(CalcNode::Asin(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Acos(node) => {
-                Ok(CalcNode::Acos(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Acos(node) => Ok(CalcNode::Acos(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Atan(node) => {
-                Ok(CalcNode::Atan(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Atan(node) => Ok(CalcNode::Atan(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Atan2 { y, x } => {
-                Ok(CalcNode::Atan2 {
-                    y: Box::new(y.substitute_channel_keywords(origin_color)?),
-                    x: Box::new(x.substitute_channel_keywords(origin_color)?),
-                })
-            }
+            CalcNode::Atan2 { y, x } => Ok(CalcNode::Atan2 {
+                y: Box::new(y.substitute_channel_keywords(origin_color)?),
+                x: Box::new(x.substitute_channel_keywords(origin_color)?),
+            }),
 
-            CalcNode::Pow { base, exponent } => {
-                Ok(CalcNode::Pow {
-                    base: Box::new(base.substitute_channel_keywords(origin_color)?),
-                    exponent: Box::new(exponent.substitute_channel_keywords(origin_color)?),
-                })
-            }
+            CalcNode::Pow { base, exponent } => Ok(CalcNode::Pow {
+                base: Box::new(base.substitute_channel_keywords(origin_color)?),
+                exponent: Box::new(exponent.substitute_channel_keywords(origin_color)?),
+            }),
 
-            CalcNode::Sqrt(node) => {
-                Ok(CalcNode::Sqrt(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Sqrt(node) => Ok(CalcNode::Sqrt(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Exp(node) => {
-                Ok(CalcNode::Exp(Box::new(
-                    node.substitute_channel_keywords(origin_color)?
-                )))
-            }
+            CalcNode::Exp(node) => Ok(CalcNode::Exp(Box::new(
+                node.substitute_channel_keywords(origin_color)?,
+            ))),
 
-            CalcNode::Log { value, base } => {
-                Ok(CalcNode::Log {
-                    value: Box::new(value.substitute_channel_keywords(origin_color)?),
-                    base: base.as_ref()
-                        .map(|b| b.substitute_channel_keywords(origin_color))
-                        .transpose()?
-                        .map(Box::new),
-                })
-            }
+            CalcNode::Log { value, base } => Ok(CalcNode::Log {
+                value: Box::new(value.substitute_channel_keywords(origin_color)?),
+                base: base
+                    .as_ref()
+                    .map(|b| b.substitute_channel_keywords(origin_color))
+                    .transpose()?
+                    .map(Box::new),
+            }),
         }
     }
 }
@@ -1519,7 +1603,10 @@ fn combine_units_for_sum(a: CalcUnits, b: CalcUnits) -> Result<CalcUnits, String
         (LengthPercentage, Length) | (Length, LengthPercentage) => Ok(LengthPercentage),
         (LengthPercentage, Percentage) | (Percentage, LengthPercentage) => Ok(LengthPercentage),
         (LengthPercentage, LengthPercentage) => Ok(LengthPercentage),
-        _ => Err(format!("Incompatible units for addition: {:?} + {:?}", a, b)),
+        _ => Err(format!(
+            "Incompatible units for addition: {:?} + {:?}",
+            a, b
+        )),
     }
 }
 
@@ -1529,7 +1616,10 @@ fn combine_units_for_product(a: CalcUnits, b: CalcUnits) -> Result<CalcUnits, St
     match (a, b) {
         (Unknown, other) | (other, Unknown) => Ok(other),
         (None, other) | (other, None) => Ok(other),
-        _ => Err(format!("Cannot multiply two dimensioned values: {:?} * {:?}", a, b)),
+        _ => Err(format!(
+            "Cannot multiply two dimensioned values: {:?} * {:?}",
+            a, b
+        )),
     }
 }
 
@@ -1553,10 +1643,19 @@ mod tests {
     #[test]
     fn test_calc_leaf_units() {
         assert_eq!(CalcLeaf::Number(5.0).units(), CalcUnits::None);
-        assert_eq!(CalcLeaf::Length(10.0, LengthUnit::Px).units(), CalcUnits::Length);
+        assert_eq!(
+            CalcLeaf::Length(10.0, LengthUnit::Px).units(),
+            CalcUnits::Length
+        );
         assert_eq!(CalcLeaf::Percentage(50.0).units(), CalcUnits::Percentage);
-        assert_eq!(CalcLeaf::Angle(180.0, AngleUnit::Deg).units(), CalcUnits::Angle);
-        assert_eq!(CalcLeaf::Variable("size".to_string()).units(), CalcUnits::Unknown);
+        assert_eq!(
+            CalcLeaf::Angle(180.0, AngleUnit::Deg).units(),
+            CalcUnits::Angle
+        );
+        assert_eq!(
+            CalcLeaf::Variable("size".to_string()).units(),
+            CalcUnits::Unknown
+        );
     }
 
     #[test]
@@ -1566,7 +1665,10 @@ mod tests {
             CalcLeaf::Length(10.0, LengthUnit::Px).negate(),
             CalcLeaf::Length(-10.0, LengthUnit::Px)
         );
-        assert_eq!(CalcLeaf::Percentage(50.0).negate(), CalcLeaf::Percentage(-50.0));
+        assert_eq!(
+            CalcLeaf::Percentage(50.0).negate(),
+            CalcLeaf::Percentage(-50.0)
+        );
     }
 
     #[test]
@@ -1583,7 +1685,10 @@ mod tests {
         assert_eq!(CalcLeaf::Number(5.0).sign(), CalcLeaf::Number(1.0));
         assert_eq!(CalcLeaf::Number(-5.0).sign(), CalcLeaf::Number(-1.0));
         assert_eq!(CalcLeaf::Number(0.0).sign(), CalcLeaf::Number(0.0));
-        assert_eq!(CalcLeaf::Length(-10.0, LengthUnit::Px).sign(), CalcLeaf::Number(-1.0));
+        assert_eq!(
+            CalcLeaf::Length(-10.0, LengthUnit::Px).sign(),
+            CalcLeaf::Number(-1.0)
+        );
     }
 
     #[test]
@@ -1594,62 +1699,86 @@ mod tests {
             CalcLeaf::Number(8.0)
         );
         assert_eq!(
-            CalcLeaf::Length(10.0, LengthUnit::Px).add(&CalcLeaf::Length(5.0, LengthUnit::Px)).unwrap(),
+            CalcLeaf::Length(10.0, LengthUnit::Px)
+                .add(&CalcLeaf::Length(5.0, LengthUnit::Px))
+                .unwrap(),
             CalcLeaf::Length(15.0, LengthUnit::Px)
         );
 
         // Incompatible units
-        assert!(CalcLeaf::Number(5.0).add(&CalcLeaf::Length(10.0, LengthUnit::Px)).is_err());
+        assert!(
+            CalcLeaf::Number(5.0)
+                .add(&CalcLeaf::Length(10.0, LengthUnit::Px))
+                .is_err()
+        );
     }
 
     #[test]
     fn test_calc_leaf_multiply() {
         // Number * Number
         assert_eq!(
-            CalcLeaf::Number(5.0).multiply(&CalcLeaf::Number(3.0)).unwrap(),
+            CalcLeaf::Number(5.0)
+                .multiply(&CalcLeaf::Number(3.0))
+                .unwrap(),
             CalcLeaf::Number(15.0)
         );
 
         // Number * Length
         assert_eq!(
-            CalcLeaf::Number(2.0).multiply(&CalcLeaf::Length(10.0, LengthUnit::Px)).unwrap(),
+            CalcLeaf::Number(2.0)
+                .multiply(&CalcLeaf::Length(10.0, LengthUnit::Px))
+                .unwrap(),
             CalcLeaf::Length(20.0, LengthUnit::Px)
         );
 
         // Length * Number
         assert_eq!(
-            CalcLeaf::Length(10.0, LengthUnit::Px).multiply(&CalcLeaf::Number(2.0)).unwrap(),
+            CalcLeaf::Length(10.0, LengthUnit::Px)
+                .multiply(&CalcLeaf::Number(2.0))
+                .unwrap(),
             CalcLeaf::Length(20.0, LengthUnit::Px)
         );
 
         // Cannot multiply two dimensioned values
-        assert!(CalcLeaf::Length(10.0, LengthUnit::Px)
-            .multiply(&CalcLeaf::Length(5.0, LengthUnit::Px))
-            .is_err());
+        assert!(
+            CalcLeaf::Length(10.0, LengthUnit::Px)
+                .multiply(&CalcLeaf::Length(5.0, LengthUnit::Px))
+                .is_err()
+        );
     }
 
     #[test]
     fn test_calc_leaf_divide() {
         // Number / Number
         assert_eq!(
-            CalcLeaf::Number(10.0).divide(&CalcLeaf::Number(2.0)).unwrap(),
+            CalcLeaf::Number(10.0)
+                .divide(&CalcLeaf::Number(2.0))
+                .unwrap(),
             CalcLeaf::Number(5.0)
         );
 
         // Length / Number
         assert_eq!(
-            CalcLeaf::Length(10.0, LengthUnit::Px).divide(&CalcLeaf::Number(2.0)).unwrap(),
+            CalcLeaf::Length(10.0, LengthUnit::Px)
+                .divide(&CalcLeaf::Number(2.0))
+                .unwrap(),
             CalcLeaf::Length(5.0, LengthUnit::Px)
         );
 
         // Same units (returns number)
         assert_eq!(
-            CalcLeaf::Length(10.0, LengthUnit::Px).divide(&CalcLeaf::Length(2.0, LengthUnit::Px)).unwrap(),
+            CalcLeaf::Length(10.0, LengthUnit::Px)
+                .divide(&CalcLeaf::Length(2.0, LengthUnit::Px))
+                .unwrap(),
             CalcLeaf::Number(5.0)
         );
 
         // Division by zero
-        assert!(CalcLeaf::Number(10.0).divide(&CalcLeaf::Number(0.0)).is_err());
+        assert!(
+            CalcLeaf::Number(10.0)
+                .divide(&CalcLeaf::Number(0.0))
+                .is_err()
+        );
     }
 
     #[test]
@@ -1657,7 +1786,10 @@ mod tests {
         assert_eq!(ChannelKeyword::from_ident("l"), Some(ChannelKeyword::L));
         assert_eq!(ChannelKeyword::from_ident("L"), Some(ChannelKeyword::L));
         assert_eq!(ChannelKeyword::from_ident("r"), Some(ChannelKeyword::R));
-        assert_eq!(ChannelKeyword::from_ident("alpha"), Some(ChannelKeyword::Alpha));
+        assert_eq!(
+            ChannelKeyword::from_ident("alpha"),
+            Some(ChannelKeyword::Alpha)
+        );
         assert_eq!(ChannelKeyword::from_ident("invalid"), None);
     }
 

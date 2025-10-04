@@ -89,7 +89,7 @@ impl Theme {
                 --canvas-bg-color: light-dark(transparent, #121212);
 
                 /* Define text color - very dark gray for light mode, white for dark mode */
-                --text-color: light-dark(#1a1a1a, white);
+                --text-color: light-dark(black, white);
 
                 /* === Derived Grays via color-mix === */
                 /* Grid: Very subtle, 88% background */
@@ -435,6 +435,14 @@ impl Theme {
                     .collect(),
             ),
 
+            // For Function values, recursively resolve arguments
+            ThemeValue::Function(name, args) => ThemeValue::Function(
+                name,
+                args.into_iter()
+                    .map(|v| self.resolve_theme_value(v, params, depth + 1))
+                    .collect(),
+            ),
+
             // All other values pass through unchanged
             _ => value,
         }
@@ -653,8 +661,21 @@ impl Theme {
     /// Supports relative color syntax with runtime parameters
     pub fn text_color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
         let base_font_size = self.get_base_font_size(&context.params);
+
+        // Ensure color-scheme param is set (use theme default if not provided)
+        let mut params = context.params.clone();
+        if !params.contains_key("color-scheme") {
+            params.insert(
+                "color-scheme".to_string(),
+                datafusion_common::ScalarValue::Utf8(Some(self.default_color_scheme.clone())),
+            );
+        }
+
         self.query(context, "color").and_then(|v| {
-            v.as_color_with_params(&context.params, base_font_size)
+            // Resolve CSS variables from theme before runtime resolution
+            let resolved = self.resolve_theme_value(v, &params, 0);
+            resolved
+                .as_color_with_params(&params, base_font_size)
                 .map(|css_rgba| css_rgba.to_array())
         })
     }
@@ -663,8 +684,21 @@ impl Theme {
     /// Supports relative color syntax with runtime parameters
     pub fn fill_color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
         let base_font_size = self.get_base_font_size(&context.params);
+
+        // Ensure color-scheme param is set (use theme default if not provided)
+        let mut params = context.params.clone();
+        if !params.contains_key("color-scheme") {
+            params.insert(
+                "color-scheme".to_string(),
+                datafusion_common::ScalarValue::Utf8(Some(self.default_color_scheme.clone())),
+            );
+        }
+
         self.query(context, "fill").and_then(|v| {
-            v.as_color_with_params(&context.params, base_font_size)
+            // Resolve CSS variables from theme before runtime resolution
+            let resolved = self.resolve_theme_value(v, &params, 0);
+            resolved
+                .as_color_with_params(&params, base_font_size)
                 .map(|css_rgba| css_rgba.to_array())
         })
     }
@@ -673,8 +707,21 @@ impl Theme {
     /// Supports relative color syntax with runtime parameters
     pub fn stroke_color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
         let base_font_size = self.get_base_font_size(&context.params);
+
+        // Ensure color-scheme param is set (use theme default if not provided)
+        let mut params = context.params.clone();
+        if !params.contains_key("color-scheme") {
+            params.insert(
+                "color-scheme".to_string(),
+                datafusion_common::ScalarValue::Utf8(Some(self.default_color_scheme.clone())),
+            );
+        }
+
         self.query(context, "stroke").and_then(|v| {
-            v.as_color_with_params(&context.params, base_font_size)
+            // Resolve CSS variables from theme before runtime resolution
+            let resolved = self.resolve_theme_value(v, &params, 0);
+            resolved
+                .as_color_with_params(&params, base_font_size)
                 .map(|css_rgba| css_rgba.to_array())
         })
     }
@@ -1982,6 +2029,92 @@ mod tests {
                 assert_eq!(c.blue, 178);
             }
             _ => panic!("Expected light mode fill color with override"),
+        }
+    }
+
+    #[test]
+    fn test_color_mix_text_secondary_variable() {
+        // Test that --text-secondary resolves correctly via color-mix() in both modes
+        // Expected: 65% text + 35% background
+        // Light mode: 65% black + 35% white = #5c5c5c (92, 92, 92)
+        // Dark mode: 65% white + 35% #1E1E1E = #b8b8b8 (184, 184, 184)
+
+        let theme = Theme::light();
+
+        // Test light mode - axis label uses --text-secondary
+        let ctx_light = ThemeContext::new("axis").child("label");
+
+        // Debug: Check what the raw query returns
+        let raw_value = theme.query(&ctx_light, "color");
+        println!("Raw query result: {:?}", raw_value);
+
+        let color_light = theme.text_color(&ctx_light);
+
+        match color_light {
+            Some([r, g, b, a]) => {
+                println!(
+                    "Light mode --text-secondary: rgb({}, {}, {})",
+                    (r * 255.0) as u8,
+                    (g * 255.0) as u8,
+                    (b * 255.0) as u8
+                );
+                // Expected: 65% of 0 (black) + 35% of 255 (white) = 89.25 ≈ 89
+                assert!(
+                    (r * 255.0 - 89.0).abs() < 2.0,
+                    "Light mode red should be ~89, got {}",
+                    r * 255.0
+                );
+                assert!(
+                    (g * 255.0 - 89.0).abs() < 2.0,
+                    "Light mode green should be ~89, got {}",
+                    g * 255.0
+                );
+                assert!(
+                    (b * 255.0 - 89.0).abs() < 2.0,
+                    "Light mode blue should be ~89, got {}",
+                    b * 255.0
+                );
+                assert_eq!(a, 1.0, "Alpha should be 1.0");
+            }
+            None => panic!("Expected light mode text-secondary color"),
+        }
+
+        // Test dark mode
+        let mut params = IndexMap::new();
+        params.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
+        );
+        let ctx_dark = ThemeContext::new("axis").child("label").with_params(params);
+        let color_dark = theme.text_color(&ctx_dark);
+
+        match color_dark {
+            Some([r, g, b, a]) => {
+                println!(
+                    "Dark mode --text-secondary: rgb({}, {}, {})",
+                    (r * 255.0) as u8,
+                    (g * 255.0) as u8,
+                    (b * 255.0) as u8
+                );
+                // Expected: 65% of 255 (white) + 35% of 30 (from #1E1E1E) = 165.75 + 10.5 = 176.25 ≈ 176
+                assert!(
+                    (r * 255.0 - 176.0).abs() < 3.0,
+                    "Dark mode red should be ~176, got {}",
+                    r * 255.0
+                );
+                assert!(
+                    (g * 255.0 - 176.0).abs() < 3.0,
+                    "Dark mode green should be ~176, got {}",
+                    g * 255.0
+                );
+                assert!(
+                    (b * 255.0 - 176.0).abs() < 3.0,
+                    "Dark mode blue should be ~176, got {}",
+                    b * 255.0
+                );
+                assert_eq!(a, 1.0, "Alpha should be 1.0");
+            }
+            None => panic!("Expected dark mode text-secondary color"),
         }
     }
 

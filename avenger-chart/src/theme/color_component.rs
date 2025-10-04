@@ -61,8 +61,9 @@ impl ColorComponent {
             }
 
             ColorComponent::ChannelKeyword(keyword) => {
-                let origin = origin_color
-                    .ok_or_else(|| format!("Channel keyword {:?} requires origin color", keyword))?;
+                let origin = origin_color.ok_or_else(|| {
+                    format!("Channel keyword {:?} requires origin color", keyword)
+                })?;
                 let value = origin.get_component_by_channel_keyword(*keyword)?;
                 Ok(value as f64)
             }
@@ -73,13 +74,16 @@ impl ColorComponent {
                 // 1. Substitute CSS variables (var(--x))
                 // 2. Substitute channel keywords (l, c, h, etc.)
                 // 3. Resolve to final value
-                let resolved = node.resolve_with_params_and_origin(params, base_font_size, origin_color)?;
+                let resolved =
+                    node.resolve_with_params_and_origin(params, base_font_size, origin_color)?;
 
                 // Extract numeric value - handle both Number and Angle (angles are in degrees)
                 resolved
                     .as_number()
                     .or_else(|| resolved.as_angle_degrees())
-                    .ok_or_else(|| "Color component calc must resolve to number or angle".to_string())
+                    .ok_or_else(|| {
+                        "Color component calc must resolve to number or angle".to_string()
+                    })
             }
         }
     }
@@ -110,7 +114,9 @@ impl ColorComponent {
             // Handle CSS variables - wrap in a Calc node
             ThemeValue::Variable(name) => {
                 use super::calc::{CalcLeaf, CalcNode};
-                Ok(ColorComponent::Calc(CalcNode::Leaf(CalcLeaf::Variable(name.clone()))))
+                Ok(ColorComponent::Calc(CalcNode::Leaf(CalcLeaf::Variable(
+                    name.clone(),
+                ))))
             }
 
             _ => Err(format!("Cannot convert {:?} to ColorComponent", value)),

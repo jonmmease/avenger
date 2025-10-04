@@ -40,15 +40,25 @@ use crate::theme::{CssRgba, ThemeValue};
 ///
 /// # Syntax
 ///
-/// `contrast-color(<color>)`
+/// Basic form (choose between black and white):
+/// ```css
+/// contrast-color(<color>)
+/// ```
+///
+/// Extended form (choose from candidate list):
+/// ```css
+/// contrast-color(<color>, <color-list>)
+/// ```
 ///
 /// # Arguments
 ///
-/// * `args` - Parsed function arguments from CSS parser (should contain exactly one color)
+/// * `args` - Parsed function arguments from CSS parser
+///   - Single argument: base color (returns black or white)
+///   - Multiple arguments: base color + candidate colors to choose from
 ///
 /// # Returns
 ///
-/// The contrasting color (black or white) as CssRgba, or None if parsing fails
+/// The contrasting color as CssRgba, or None if parsing fails
 ///
 /// # Examples
 ///
@@ -56,25 +66,49 @@ use crate::theme::{CssRgba, ThemeValue};
 /// use avenger_chart::theme::contrast_color::parse_contrast_color_function;
 /// use avenger_chart::theme::ThemeValue;
 ///
-/// // CSS: contrast-color(blue)
+/// // Basic form: contrast-color(blue)
 /// let args = vec![ThemeValue::String("blue".to_string())];
 /// let result = parse_contrast_color_function(&args);
 /// // result => Some(CssRgba { white })
+///
+/// // Extended form: contrast-color(gray, #222, #eee)
+/// let args = vec![
+///     ThemeValue::String("gray".to_string()),
+///     ThemeValue::String("#222".to_string()),
+///     ThemeValue::String("#eee".to_string()),
+/// ];
+/// let result = parse_contrast_color_function(&args);
+/// // result => Some(CssRgba { #eee - better contrast })
 /// ```
 pub fn parse_contrast_color_function(args: &[ThemeValue]) -> Option<CssRgba> {
-    // Expect exactly one argument
-    if args.len() != 1 {
+    // Need at least one argument (the base color)
+    if args.is_empty() {
         return None;
     }
 
     // Parse the base color
     let base_color = parse_color_value(&args[0])?;
 
-    // Choose contrasting color (black or white)
-    let contrast_color = choose_contrast_color(&base_color);
+    if args.len() == 1 {
+        // Basic form: contrast-color(base) - choose black or white
+        let contrast_color = choose_contrast_color(&base_color);
+        Some(contrast_color.to_css_rgba())
+    } else {
+        // Extended form: contrast-color(base, candidate1, candidate2, ...)
+        let candidates: Vec<AbsoluteColor> =
+            args[1..].iter().filter_map(parse_color_value).collect();
 
-    // Convert to CssRgba
-    Some(contrast_color.to_css_rgba())
+        // If no valid candidates were parsed, fall back to black/white
+        if candidates.is_empty() {
+            let contrast_color = choose_contrast_color(&base_color);
+            return Some(contrast_color.to_css_rgba());
+        }
+
+        // Use WCAG AA threshold (4.5:1) as default
+        use crate::color::contrast::choose_best_contrast;
+        let contrast_color = choose_best_contrast(&base_color, &candidates, 4.5);
+        Some(contrast_color.to_css_rgba())
+    }
 }
 
 /// Resolve contrast-color() function with runtime parameter support
@@ -84,6 +118,19 @@ pub fn parse_contrast_color_function(args: &[ThemeValue]) -> Option<CssRgba> {
 ///
 /// Unlike `parse_contrast_color_function()`, this function can handle CSS variables
 /// by recursively resolving arguments using `as_color_with_params()`.
+///
+/// # Syntax
+///
+/// Basic form (choose between black and white):
+/// ```css
+/// contrast-color(var(--bg))
+/// ```
+///
+/// Extended form (choose from candidate list):
+/// ```css
+/// contrast-color(var(--bg), #222, #eee)
+/// contrast-color(var(--bg), var(--text1), var(--text2))
+/// ```
 ///
 /// # Arguments
 ///
@@ -98,34 +145,61 @@ pub fn parse_contrast_color_function(args: &[ThemeValue]) -> Option<CssRgba> {
 /// # Examples
 ///
 /// ```ignore
-/// // CSS: contrast-color(var(--bg-color))
+/// // Basic: contrast-color(var(--bg-color))
 /// let args = vec![ThemeValue::Variable("--bg-color".to_string())];
 /// let mut params = IndexMap::new();
 /// params.insert("--bg-color".to_string(), ScalarValue::Utf8(Some("#000".to_string())));
 /// let result = resolve_contrast_color_with_params(&args, &params, 16.0);
 /// // result => Some(CssRgba { white })
+///
+/// // Extended: contrast-color(var(--bg), #222, #eee)
+/// let args = vec![
+///     ThemeValue::Variable("--bg".to_string()),
+///     ThemeValue::String("#222".to_string()),
+///     ThemeValue::String("#eee".to_string()),
+/// ];
+/// let result = resolve_contrast_color_with_params(&args, &params, 16.0);
+/// // result => Some(CssRgba { best candidate })
 /// ```
 pub fn resolve_contrast_color_with_params(
     args: &[ThemeValue],
     params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
     base_font_size: f32,
 ) -> Option<CssRgba> {
-    // Expect exactly one argument
-    if args.len() != 1 {
+    // Need at least one argument
+    if args.is_empty() {
         return None;
     }
 
-    // Recursively resolve the argument (handles variables!)
+    // Recursively resolve the base color argument (handles variables!)
     let base_color_rgba = args[0].as_color_with_params(params, base_font_size)?;
-
-    // Convert to AbsoluteColor
     let base_color = AbsoluteColor::from_css_rgba(&base_color_rgba);
 
-    // Choose contrasting color
-    let contrast_color = choose_contrast_color(&base_color);
+    if args.len() == 1 {
+        // Basic form: choose black or white
+        let contrast_color = choose_contrast_color(&base_color);
+        Some(contrast_color.to_css_rgba())
+    } else {
+        // Extended form: resolve all candidate colors (handles variables!)
+        let candidates: Vec<AbsoluteColor> = args[1..]
+            .iter()
+            .filter_map(|arg| {
+                arg.as_color_with_params(params, base_font_size)
+                    .map(|rgba| AbsoluteColor::from_css_rgba(&rgba))
+            })
+            .collect();
 
-    // Convert to CssRgba
-    Some(contrast_color.to_css_rgba())
+        // If no valid candidates were parsed, fall back to black/white
+        if candidates.is_empty() {
+            let contrast_color = choose_contrast_color(&base_color);
+            return Some(contrast_color.to_css_rgba());
+        }
+
+        // Use WCAG AA threshold (4.5:1) as default
+        use crate::color::contrast::choose_best_contrast;
+        let contrast_color = choose_best_contrast(&base_color, &candidates, 4.5);
+        Some(contrast_color.to_css_rgba())
+    }
 }
 
 /// Parse a ThemeValue into an AbsoluteColor
@@ -213,18 +287,11 @@ mod tests {
 
     #[test]
     fn test_parse_contrast_color_invalid_args() {
-        // Too many arguments
-        let args = vec![
-            ThemeValue::String("red".to_string()),
-            ThemeValue::String("blue".to_string()),
-        ];
-        assert!(parse_contrast_color_function(&args).is_none());
-
         // No arguments
         let args: Vec<ThemeValue> = vec![];
         assert!(parse_contrast_color_function(&args).is_none());
 
-        // Invalid argument type
+        // Invalid base color
         let args = vec![ThemeValue::Number(5.0)];
         assert!(parse_contrast_color_function(&args).is_none());
     }
@@ -334,5 +401,123 @@ mod tests {
         );
         let result_light = resolve_contrast_color_with_params(&args, &params_light, 16.0).unwrap();
         assert_eq!(result_light.red, 0); // Black for light bg
+    }
+
+    // Tests for extended syntax with candidate lists
+
+    #[test]
+    fn test_parse_contrast_color_with_candidates() {
+        // contrast-color with dark background and light candidates
+        let args = vec![
+            ThemeValue::String("#333333".to_string()), // Dark gray background
+            ThemeValue::String("#aaaaaa".to_string()), // Light gray
+            ThemeValue::String("#eeeeee".to_string()), // Lighter gray
+        ];
+
+        let result = parse_contrast_color_function(&args).unwrap();
+
+        // #eee should be chosen (better contrast)
+        assert_eq!(result.red, 0xee);
+        assert_eq!(result.green, 0xee);
+        assert_eq!(result.blue, 0xee);
+    }
+
+    #[test]
+    fn test_parse_contrast_color_with_brand_palette() {
+        // Light blue background with brand colors
+        let args = vec![
+            ThemeValue::String("lightblue".to_string()),
+            ThemeValue::String("navy".to_string()),
+            ThemeValue::String("maroon".to_string()),
+            ThemeValue::String("purple".to_string()),
+        ];
+
+        let result = parse_contrast_color_function(&args).unwrap();
+
+        // Navy should provide best contrast
+        // Navy is rgb(0, 0, 128)
+        assert_eq!(result.blue, 128);
+    }
+
+    #[test]
+    fn test_parse_contrast_color_empty_args() {
+        let args: Vec<ThemeValue> = vec![];
+        assert!(parse_contrast_color_function(&args).is_none());
+    }
+
+    #[test]
+    fn test_parse_contrast_color_invalid_candidates() {
+        // Base color valid, but candidates are invalid
+        let args = vec![
+            ThemeValue::String("blue".to_string()),
+            ThemeValue::Number(5.0),  // Invalid
+            ThemeValue::Number(10.0), // Invalid
+        ];
+
+        let result = parse_contrast_color_function(&args).unwrap();
+
+        // Should fall back to black/white since no valid candidates
+        // Blue is dark, should get white
+        assert_eq!(result.red, 255);
+        assert_eq!(result.green, 255);
+        assert_eq!(result.blue, 255);
+    }
+
+    #[test]
+    fn test_resolve_contrast_color_with_candidate_variables() {
+        use datafusion_common::ScalarValue;
+        use indexmap::IndexMap;
+
+        // contrast-color(var(--bg), var(--text1), var(--text2))
+        let args = vec![
+            ThemeValue::Variable("--bg".to_string()),
+            ThemeValue::Variable("--text1".to_string()),
+            ThemeValue::Variable("--text2".to_string()),
+        ];
+
+        let mut params = IndexMap::new();
+        params.insert(
+            "--bg".to_string(),
+            ScalarValue::Utf8(Some("#333333".to_string())), // Dark gray bg
+        );
+        params.insert(
+            "--text1".to_string(),
+            ScalarValue::Utf8(Some("#aaaaaa".to_string())), // Light gray
+        );
+        params.insert(
+            "--text2".to_string(),
+            ScalarValue::Utf8(Some("#eeeeee".to_string())), // Lighter gray
+        );
+
+        let result = resolve_contrast_color_with_params(&args, &params, 16.0).unwrap();
+
+        // #eee should be chosen (better contrast)
+        assert_eq!(result.red, 0xee);
+        assert_eq!(result.green, 0xee);
+        assert_eq!(result.blue, 0xee);
+    }
+
+    #[test]
+    fn test_resolve_contrast_color_mixed_static_and_variables() {
+        use datafusion_common::ScalarValue;
+        use indexmap::IndexMap;
+
+        // contrast-color(var(--bg), #aaa, #eee)
+        let args = vec![
+            ThemeValue::Variable("--bg".to_string()),
+            ThemeValue::String("#aaaaaa".to_string()),
+            ThemeValue::String("#eeeeee".to_string()),
+        ];
+
+        let mut params = IndexMap::new();
+        params.insert(
+            "--bg".to_string(),
+            ScalarValue::Utf8(Some("#333333".to_string())), // Dark gray
+        );
+
+        let result = resolve_contrast_color_with_params(&args, &params, 16.0).unwrap();
+
+        // #eee should be chosen
+        assert_eq!(result.red, 0xee);
     }
 }
