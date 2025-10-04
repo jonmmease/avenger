@@ -239,7 +239,8 @@
 //! theme system is designed for static chart styling, not runtime interactivity.
 
 // Core theme modules
-mod calc;
+pub mod calc;
+mod color_component;
 mod context;
 mod value;
 

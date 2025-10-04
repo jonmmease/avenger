@@ -129,6 +129,71 @@ impl AbsoluteColor {
             color_space: target,
         }
     }
+
+    /// Extract a component value by channel keyword
+    ///
+    /// Returns the component value in the color's current color space.
+    /// This is used for relative color syntax to extract component values
+    /// from an origin color.
+    ///
+    /// # Arguments
+    /// * `keyword` - The channel keyword (l, c, h, r, g, b, etc.)
+    ///
+    /// # Returns
+    /// The component value, or an error if the keyword is invalid for this color space
+    pub fn get_component_by_channel_keyword(
+        &self,
+        keyword: crate::theme::calc::ChannelKeyword,
+    ) -> Result<f32, String> {
+        use crate::theme::calc::ChannelKeyword;
+
+        // Alpha is universal
+        if matches!(keyword, ChannelKeyword::Alpha | ChannelKeyword::A) {
+            return Ok(self.alpha);
+        }
+
+        match (self.color_space, keyword) {
+            // Oklch: L (lightness), C (chroma), H (hue)
+            (ColorSpace::Oklch, ChannelKeyword::L) => Ok(self.components[0]),
+            (ColorSpace::Oklch, ChannelKeyword::C) => Ok(self.components[1]),
+            (ColorSpace::Oklch, ChannelKeyword::H) => Ok(self.components[2]),
+
+            // Oklab: L (lightness), A (green-red), B (blue-yellow)
+            (ColorSpace::Oklab, ChannelKeyword::L) => Ok(self.components[0]),
+            (ColorSpace::Oklab, ChannelKeyword::A) => Ok(self.components[1]),
+            (ColorSpace::Oklab, ChannelKeyword::LabB) => Ok(self.components[2]),
+
+            // Lch: L (lightness), C (chroma), H (hue)
+            (ColorSpace::Lch, ChannelKeyword::L) => Ok(self.components[0]),
+            (ColorSpace::Lch, ChannelKeyword::C) => Ok(self.components[1]),
+            (ColorSpace::Lch, ChannelKeyword::H) => Ok(self.components[2]),
+
+            // Lab: L (lightness), A (green-red), B (blue-yellow)
+            (ColorSpace::Lab, ChannelKeyword::L) => Ok(self.components[0]),
+            (ColorSpace::Lab, ChannelKeyword::A) => Ok(self.components[1]),
+            (ColorSpace::Lab, ChannelKeyword::LabB) => Ok(self.components[2]),
+
+            // HSL: H (hue), S (saturation), L (lightness)
+            (ColorSpace::Hsl, ChannelKeyword::H) => Ok(self.components[0]),
+            (ColorSpace::Hsl, ChannelKeyword::S) => Ok(self.components[1]),
+            (ColorSpace::Hsl, ChannelKeyword::L) => Ok(self.components[2]),
+
+            // HWB: H (hue), W (whiteness), B (blackness)
+            (ColorSpace::Hwb, ChannelKeyword::H) => Ok(self.components[0]),
+            (ColorSpace::Hwb, ChannelKeyword::W) => Ok(self.components[1]),
+            (ColorSpace::Hwb, ChannelKeyword::BlacknessB) => Ok(self.components[2]),
+
+            // sRGB: R, G, B (0-1 range)
+            (ColorSpace::Srgb, ChannelKeyword::R) => Ok(self.components[0]),
+            (ColorSpace::Srgb, ChannelKeyword::G) => Ok(self.components[1]),
+            (ColorSpace::Srgb, ChannelKeyword::B) => Ok(self.components[2]),
+
+            _ => Err(format!(
+                "Invalid channel keyword {:?} for color space {:?}",
+                keyword, self.color_space
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
