@@ -13,12 +13,14 @@ impl CompiledPlot {
     pub(super) fn create_title(
         &self,
         layout_bounds: Option<crate::layout::LayoutBounds>,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let Some(title) = &self.title else {
             return Ok(Vec::new());
         };
 
         let theme = self.get_theme();
+        let title_ctx = crate::theme::ThemeContext::new("chart-title").with_params(params.clone());
 
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
@@ -40,7 +42,7 @@ impl CompiledPlot {
             .into(),
             font_size: title
                 .font_size
-                .or_else(|| theme.title_font_size())
+                .or_else(|| theme.font_size(&title_ctx))
                 .unwrap_or(16.0)
                 .into(),
             font: title
@@ -66,12 +68,15 @@ impl CompiledPlot {
     pub(super) fn create_subtitle(
         &self,
         layout_bounds: Option<crate::layout::LayoutBounds>,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let Some(subtitle) = &self.subtitle else {
             return Ok(Vec::new());
         };
 
         let theme = self.get_theme();
+        let subtitle_ctx =
+            crate::theme::ThemeContext::new("chart-subtitle").with_params(params.clone());
 
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
@@ -93,7 +98,7 @@ impl CompiledPlot {
             .into(),
             font_size: subtitle
                 .font_size
-                .or_else(|| theme.subtitle_font_size())
+                .or_else(|| theme.font_size(&subtitle_ctx))
                 .unwrap_or(14.0)
                 .into(),
             font: subtitle

@@ -97,6 +97,8 @@ impl LegendRenderer for CompiledLineLegend {
         y: f32,
         _width: f32,
         _height: f32,
+        theme: &crate::theme::Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
@@ -212,15 +214,25 @@ impl LegendRenderer for CompiledLineLegend {
         if let Some(size) = config.title_font_size.as_option() {
             legend_config.title_font_size = Some(*size);
         }
+        // Override font sizes with params
+        let legend_ctx = theme
+            .legend_context(Some("line"))
+            .with_params(params.clone());
+        let title_ctx = legend_ctx.child("title");
+        let label_ctx = legend_ctx.child("label");
+
+        if let Some(size) = theme.font_size(&title_ctx) {
+            legend_config.title_font_size = Some(size);
+        }
+        if let Some(size) = theme.font_size(&label_ctx) {
+            legend_config.label_font_size = Some(size);
+        }
         if let Some(weight) = config.title_font_weight.as_option() {
             legend_config.title_font_weight =
                 Some(avenger_text::types::FontWeight::Number(*weight));
         }
         if let Some(family) = config.label_font_family.as_option() {
             legend_config.label_font_family = Some(family.clone());
-        }
-        if let Some(size) = config.label_font_size.as_option() {
-            legend_config.label_font_size = Some(*size);
         }
         if let Some(weight) = config.label_font_weight.as_option() {
             legend_config.label_font_weight =

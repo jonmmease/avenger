@@ -2,6 +2,7 @@
 
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendChannel};
+use crate::theme::Theme;
 use std::sync::Arc;
 use taffy::Size;
 
@@ -11,6 +12,8 @@ pub fn measure_legend_size_with_channels(
     legend: &Legend,
     renderer: Arc<dyn crate::legend::LegendRenderer>,
     available_space: Size<f32>,
+    theme: &Theme,
+    params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
 ) -> Result<(Size<f32>, bool), AvengerChartError> {
     // Skip invisible legends
     if matches!(legend.visible, crate::maybe::Maybe::Set(false)) {
@@ -24,7 +27,7 @@ pub fn measure_legend_size_with_channels(
     }
 
     // Ask the renderer to measure itself with all merged channels
-    let size = renderer.measure(legend_channels, legend, available_space)?;
+    let size = renderer.measure(legend_channels, legend, available_space, theme, params)?;
     let flexible = renderer.prefers_flexible_layout();
     Ok((size, flexible))
 }

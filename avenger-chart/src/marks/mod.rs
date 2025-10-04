@@ -115,7 +115,10 @@ pub trait CompiledMark {
         // Check theme defaults first
         let mark_type = self.mark_type();
 
-        if let Some(default) = context.theme.mark_default(mark_type, channel) {
+        if let Some(default) = context
+            .theme
+            .mark_default(mark_type, channel, &context.params)
+        {
             return Some(default);
         }
 

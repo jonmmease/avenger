@@ -589,11 +589,14 @@ impl CompiledPlot {
 
             if let Some(renderer) = renderer {
                 // Measure the legend with the same channels that will be used for rendering
+                let theme = self.get_theme();
                 let (size, flexible) = measure_legend_size_with_channels(
                     &channels,
                     legend,
                     renderer,
                     available_space,
+                    theme.as_ref(),
+                    params,
                 )?;
                 let position = legend
                     .position

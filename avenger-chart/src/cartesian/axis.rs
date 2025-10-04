@@ -121,6 +121,7 @@ impl CartesianAxis {
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
         theme: &Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<SceneMark, AvengerChartError> {
         use avenger_guides::axis::{
             band::make_band_axis_marks,
@@ -165,6 +166,13 @@ impl CartesianAxis {
         let coord_type = Some("cartesian");
         let axis_type = Some(channel);
 
+        // Create context for theme queries with params
+        let axis_ctx = theme
+            .axis_context(coord_type, axis_type)
+            .with_params(params.clone());
+        let label_ctx = axis_ctx.child("label");
+        let title_ctx = axis_ctx.child("title");
+
         // Get theme colors (already in normalized [f32; 4] format)
         let label_color = theme.axis_label_color(coord_type, axis_type);
         let title_color = theme.axis_title_color(coord_type, axis_type);
@@ -177,7 +185,7 @@ impl CartesianAxis {
             dimensions: [plot_width, plot_height],
             grid: self.grid.clone().unwrap_or(false),
             format_number: self.format_number.clone().flatten(),
-            title_font_size: theme.axis_title_font_size(coord_type, axis_type),
+            title_font_size: theme.font_size(&title_ctx),
             // Pass colors (potentially overridden for dark backgrounds)
             domain_color,
             tick_color,
@@ -189,11 +197,11 @@ impl CartesianAxis {
                     }
                     color
                 }),
-            grid_width: theme.axis_grid_width(coord_type, axis_type),
+            grid_width: theme.axis_grid_width(&axis_ctx),
             label_color,
             title_color,
-            tick_length: theme.axis_tick_length(coord_type, axis_type),
-            label_font_size: theme.axis_label_font_size(coord_type, axis_type),
+            tick_length: theme.axis_tick_length(&axis_ctx),
+            label_font_size: theme.font_size(&label_ctx),
             label_font_weight: theme.axis_label_font_weight(coord_type, axis_type),
             title_font_weight: theme.axis_title_font_weight(coord_type, axis_type),
             label_font_family: self

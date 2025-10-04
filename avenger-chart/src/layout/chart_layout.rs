@@ -94,6 +94,7 @@ impl ChartLayout {
         subtitle: Option<&PlotSubtitle>,
         theme: &Theme,
         legend_measurements: &LegendMeasurements,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Self, AvengerChartError> {
         let mut builder = GridBuilder::new();
 
@@ -127,6 +128,7 @@ impl ChartLayout {
             theme,
             layout_spec,
             &legend_sizes,
+            params,
         )?;
 
         // Extract flexible flags and positions for taffy tree building

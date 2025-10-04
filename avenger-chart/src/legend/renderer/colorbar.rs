@@ -50,6 +50,8 @@ impl LegendRenderer for CompiledColorbar {
         y: f32,
         width: f32,
         height: f32,
+        theme: &crate::theme::Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         use avenger_guides::legend::colorbar::make_colorbar_marks;
 
@@ -131,6 +133,19 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(size) = config.title_font_size.as_option() {
             legend_config.title_font_size = Some(*size);
         }
+        // Override font sizes with params
+        let legend_ctx = theme
+            .legend_context(Some("colorbar"))
+            .with_params(params.clone());
+        let title_ctx = legend_ctx.child("title");
+        let tick_ctx = legend_ctx.child("tick");
+
+        if let Some(size) = theme.font_size(&title_ctx) {
+            legend_config.title_font_size = Some(size);
+        }
+        if let Some(size) = theme.font_size(&tick_ctx) {
+            legend_config.label_font_size = Some(size);
+        }
         if let Some(weight) = config.title_font_weight.as_option() {
             legend_config.title_font_weight =
                 Some(avenger_text::types::FontWeight::Number(*weight));
@@ -138,9 +153,6 @@ impl LegendRenderer for CompiledColorbar {
         // Use tick typography for colorbar axis labels
         if let Some(family) = config.tick_font_family.as_option() {
             legend_config.label_font_family = Some(family.clone());
-        }
-        if let Some(size) = config.tick_font_size.as_option() {
-            legend_config.label_font_size = Some(*size);
         }
         if let Some(weight) = config.tick_font_weight.as_option() {
             legend_config.label_font_weight =
