@@ -55,13 +55,15 @@ pub const DEFAULT_DASH_NAMES: &[&str] = &[
     "double-dash",
 ];
 
+/// Default base font size when :root font-size is not specified
+const DEFAULT_BASE_FONT_SIZE: f32 = 12.0;
+
 /// CSS-based theme with full selector support
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub(crate) rules: Vec<CompiledRule>,
     pub(crate) variables: IndexMap<String, ThemeValue>,
     pub(crate) inherited_properties: std::collections::HashSet<&'static str>,
-    pub(crate) base_font_size: f32,
     /// List of CSS sources in order they were added
     pub(crate) css_sources: Vec<String>,
     /// Default color-scheme for light-dark() resolution when no param is provided
@@ -78,8 +80,8 @@ impl Theme {
             /* Base configuration */
             :root {
                 font-family: "Atkinson Hyperlegible Next";
-                font-size: 12px;  /* Fixed for layout calculations */
-                --base-font-size: 12px;  /* Can be overridden via parameter for text sizing */
+                --base-font-size: 12px;  /* Can be overridden via parameter */
+                font-size: var(--base-font-size);  /* Base font size for rem calculations */
 
                 /* Adaptive color palette - uses comma-separated list, each item can use light-dark() */
                 --categorical-colors:
@@ -254,17 +256,11 @@ impl Theme {
     pub fn from_css(css: &str) -> Result<Self, String> {
         let rules = parser::parse_stylesheet(css)?;
 
-        // Extract variables and base font size from rules
+        // Extract variables from rules
         let mut variables = IndexMap::new();
         let mut compiled_rules = Vec::new();
-        let mut base_font_size = 12.0; // Default base font size
 
         for rule in rules {
-            // Extract base font size from :root { font-size: ... }
-            if let Some(size) = Self::extract_base_font_size(&rule, base_font_size) {
-                base_font_size = size;
-            }
-
             // Extract CSS variables
             Self::extract_variables(&rule, &mut variables);
 
@@ -275,7 +271,6 @@ impl Theme {
             rules: compiled_rules,
             variables,
             inherited_properties: Self::default_inherited_properties(),
-            base_font_size,
             css_sources: vec![css.to_string()],
             default_color_scheme: "light".to_string(), // Default to light mode
         })
@@ -303,16 +298,6 @@ impl Theme {
                 components[0],
                 selectors::parser::Component::ExplicitUniversalType
             )
-    }
-
-    /// Extract base font size from a rule if it's a :root rule with font-size
-    fn extract_base_font_size(rule: &CompiledRule, current_base: f32) -> Option<f32> {
-        if Self::is_root_selector(rule) {
-            if let Some(font_size_value) = rule.declarations.get("font-size") {
-                return font_size_value.as_font_size(current_base);
-            }
-        }
-        None
     }
 
     /// Extract CSS variables from a rule
@@ -525,12 +510,6 @@ impl Theme {
         for (i, mut rule) in new_rules.into_iter().enumerate() {
             rule.source_order = current_max_order + i + 1;
 
-            // Check if this rule targets :root and updates base font size
-            // Extract base font size from :root { font-size: ... }
-            if let Some(size) = Self::extract_base_font_size(&rule, self.base_font_size) {
-                self.base_font_size = size;
-            }
-
             // Extract any new variables
             Self::extract_variables(&rule, &mut self.variables);
 
@@ -560,9 +539,44 @@ impl Theme {
         self.query_with_params(context, property, &IndexMap::new())
     }
 
+    /// Get the base font size with parameter support
+    ///
+    /// Resolves the base font size by:
+    /// 1. Looking for :root { font-size } in CSS rules (with variable resolution)
+    /// 2. Falling back to DEFAULT_BASE_FONT_SIZE (12px)
+    ///
+    /// Variables in :root { font-size } (like var(--base-font-size)) are resolved
+    /// using params, allowing any CSS variable to control the base font size.
+    /// This method handles circular dependencies by using a bootstrap default.
+    pub fn get_base_font_size_with_params(
+        &self,
+        params: &IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> f32 {
+        // Look for :root { font-size } in CSS rules
+        // Iterate in reverse to respect cascading order (last rule wins)
+        for rule in self.rules.iter().rev() {
+            if Self::is_root_selector(rule) {
+                if let Some(font_size_value) = rule.declarations.get("font-size") {
+                    // Resolve variables in the font-size value (params override CSS variables)
+                    let resolved = self.resolve_theme_value(font_size_value.clone(), params, 0);
+                    // Use DEFAULT_BASE_FONT_SIZE for bootstrap to avoid circular dependency
+                    if let Some(size) = resolved.as_font_size(DEFAULT_BASE_FONT_SIZE) {
+                        return size;
+                    }
+                }
+            }
+        }
+
+        // Fall back to default
+        DEFAULT_BASE_FONT_SIZE
+    }
+
     /// Get the base font size in pixels (used for rem unit conversion)
+    ///
+    /// This is a convenience method that uses empty params.
+    /// For param-aware resolution, use `get_base_font_size_with_params()`.
     pub fn base_font_size(&self) -> f32 {
-        self.base_font_size
+        self.get_base_font_size_with_params(&IndexMap::new())
     }
 
     /// Build a legend context with optional subtype
@@ -626,23 +640,13 @@ impl Theme {
     /// Get font size for a context with parameter support
     ///
     /// This allows overriding the base font size via the "base-font-size" parameter.
-    /// If the parameter is provided, it will be used instead of the theme's base font size.
+    /// If the parameter is provided, it will be used instead of the CSS-defined base font size.
     pub fn font_size_with_params(
         &self,
         context: &ThemeContext,
         params: &IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Option<f32> {
-        // Check if base-font-size is overridden in params
-        let base_font_size = params
-            .get("base-font-size")
-            .and_then(|v| match v {
-                datafusion_common::ScalarValue::Float32(Some(f)) => Some(*f),
-                datafusion_common::ScalarValue::Float64(Some(f)) => Some(*f as f32),
-                datafusion_common::ScalarValue::Int32(Some(i)) => Some(*i as f32),
-                datafusion_common::ScalarValue::Int64(Some(i)) => Some(*i as f32),
-                _ => None,
-            })
-            .unwrap_or_else(|| self.base_font_size());
+        let base_font_size = self.get_base_font_size_with_params(params);
 
         self.query_with_params(context, "font-size", params)
             .and_then(|v| v.as_font_size(base_font_size))
@@ -1408,7 +1412,7 @@ mod tests {
 
         // Check that CSS sources are preserved
         assert_eq!(theme.css_sources.len(), deserialized.css_sources.len());
-        assert_eq!(theme.base_font_size, deserialized.base_font_size);
+        assert_eq!(theme.base_font_size(), deserialized.base_font_size());
 
         // Verify the theme works correctly after deserialization
         let context = crate::theme::ThemeContext {
@@ -2437,5 +2441,67 @@ mod tests {
 
         let small_size = theme.font_size_with_params(&ctx, &small_params);
         assert_eq!(small_size, Some(12.0), "Title should be 12px with 8px base");
+    }
+
+    #[test]
+    fn test_root_font_size_with_variable() {
+        // Test that :root { font-size: var(--base-font-size) } works with param override
+        let css = r#"
+            :root {
+                --base-font-size: 14px;
+                font-size: var(--base-font-size);
+            }
+            mark {
+                font-size: 2rem;
+            }
+        "#;
+
+        let theme = Theme::from_css(css).unwrap();
+
+        // Default: 2rem * 14px = 28px
+        let ctx = ThemeContext::new("mark");
+        assert_eq!(theme.base_font_size(), 14.0);
+        assert_eq!(theme.font_size(&ctx), Some(28.0));
+
+        // Override with param: 2rem * 20px = 40px
+        let mut params = IndexMap::new();
+        params.insert(
+            "base-font-size".to_string(),
+            datafusion_common::ScalarValue::Float32(Some(20.0)),
+        );
+
+        assert_eq!(theme.get_base_font_size_with_params(&params), 20.0);
+        assert_eq!(theme.font_size_with_params(&ctx, &params), Some(40.0));
+    }
+
+    #[test]
+    fn test_arbitrary_variable_for_base_font_size() {
+        // Test that ANY variable name can be used for base font size
+        let css = r#"
+            :root {
+                --my-custom-size: 10px;
+                font-size: var(--my-custom-size);
+            }
+            mark {
+                font-size: 3rem;
+            }
+        "#;
+
+        let theme = Theme::from_css(css).unwrap();
+
+        // Default: 3rem * 10px = 30px
+        let ctx = ThemeContext::new("mark");
+        assert_eq!(theme.base_font_size(), 10.0);
+        assert_eq!(theme.font_size(&ctx), Some(30.0));
+
+        // Override --my-custom-size param: 3rem * 25px = 75px
+        let mut params = IndexMap::new();
+        params.insert(
+            "my-custom-size".to_string(),  // Note: no special "base-font-size" name
+            datafusion_common::ScalarValue::Float32(Some(25.0)),
+        );
+
+        assert_eq!(theme.get_base_font_size_with_params(&params), 25.0);
+        assert_eq!(theme.font_size_with_params(&ctx, &params), Some(75.0));
     }
 }
