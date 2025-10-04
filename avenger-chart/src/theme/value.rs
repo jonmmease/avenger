@@ -196,6 +196,25 @@ pub(crate) fn parse_color_string(color_str: &str) -> Option<CssRgba> {
     })
 }
 
+/// Parse a length string like "16px", "1.5rem", "10em" into a ThemeValue::Length
+pub(crate) fn parse_length_string(length_str: &str) -> Option<ThemeValue> {
+    let s = length_str.trim();
+
+    if s.ends_with("px") {
+        let num_str = &s[..s.len() - 2];
+        if let Ok(n) = num_str.parse::<f64>() {
+            return Some(ThemeValue::Length(n, LengthUnit::Px));
+        }
+    } else if s.ends_with("rem") {
+        let num_str = &s[..s.len() - 3];
+        if let Ok(n) = num_str.parse::<f64>() {
+            return Some(ThemeValue::Length(n, LengthUnit::Rem));
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
