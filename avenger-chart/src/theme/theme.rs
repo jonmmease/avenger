@@ -549,13 +549,6 @@ impl Theme {
         DEFAULT_BASE_FONT_SIZE
     }
 
-    /// Get the base font size in pixels (used for rem unit conversion)
-    ///
-    /// This is a convenience method that uses empty params.
-    /// For param-aware resolution, use `get_base_font_size()`.
-    pub fn base_font_size(&self) -> f32 {
-        self.get_base_font_size(&IndexMap::new())
-    }
 
     /// Build a legend context with optional subtype
     pub fn legend_context(&self, subtype: Option<&str>) -> ThemeContext {
@@ -638,7 +631,7 @@ impl Theme {
     }
 
     /// Get color for a context as normalized RGBA array
-    pub fn color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
+    pub fn text_color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
         self.query(context, "color")
             .and_then(|v| v.as_color_array())
     }
@@ -667,259 +660,10 @@ impl Theme {
             .map(|n| n as f32)
     }
 
-    /// Get canvas background color as normalized RGBA array
-    pub fn canvas_background(&self) -> Option<[f32; 4]> {
-        let ctx = ThemeContext::new("canvas");
-        self.query(&ctx, "background-color")
-            .and_then(|v| v.as_color_array())
-    }
 
     // Guide (coordinate system) theme methods
 
-    /// Get guide background color as normalized RGBA array
-    ///
-    /// The subtype parameter allows targeting specific coordinate systems,
-    /// e.g., "cartesian", "polar"
-    pub fn guide_background_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        let mut guide_ctx = ThemeContext::new("guide");
-        if let Some(t) = subtype {
-            guide_ctx = guide_ctx.with_subtype(t);
-        }
-        self.query(&guide_ctx, "background-color")
-            .and_then(|v| v.as_color_array())
-    }
 
-    /// Get legend background fill as normalized RGBA array
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_background_fill(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        let ctx = self.legend_context(subtype).child("background");
-        self.query(&ctx, "fill").and_then(|v| v.as_color_array())
-    }
-
-    /// Get legend background stroke as normalized RGBA array
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_background_stroke(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        let ctx = self.legend_context(subtype).child("background");
-        self.query(&ctx, "stroke").and_then(|v| v.as_color_array())
-    }
-
-    /// Get legend background padding
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_background_padding(&self, subtype: Option<&str>) -> Option<f32> {
-        let ctx = self.legend_context(subtype).child("background");
-        self.query(&ctx, "padding")
-            .and_then(|v| v.as_font_size(self.get_base_font_size(&ctx.params)))
-    }
-
-    /// Get legend background corner radius
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_background_corner_radius(&self, subtype: Option<&str>) -> Option<f32> {
-        let ctx = self.legend_context(subtype).child("background");
-        self.query(&ctx, "corner-radius")
-            .and_then(|v| v.as_font_size(self.get_base_font_size(&ctx.params)))
-    }
-
-    /// Get legend title color
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_title_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        self.color(&self.legend_context(subtype).child("title"))
-    }
-
-    /// Get legend label color as normalized RGBA array
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_label_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        self.color(&self.legend_context(subtype).child("label"))
-    }
-
-    /// Get legend tick color as normalized RGBA array
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_tick_color(&self, subtype: Option<&str>) -> Option<[f32; 4]> {
-        self.color(&self.legend_context(subtype).child("tick"))
-    }
-
-    /// Get legend title font family
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_title_font_family(&self, subtype: Option<&str>) -> Option<String> {
-        self.font_family(&self.legend_context(subtype).child("title"))
-    }
-
-    /// Get legend label font family
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_label_font_family(&self, subtype: Option<&str>) -> Option<String> {
-        self.font_family(&self.legend_context(subtype).child("label"))
-    }
-
-    /// Get legend tick font family
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_tick_font_family(&self, subtype: Option<&str>) -> Option<String> {
-        self.font_family(&self.legend_context(subtype).child("tick"))
-    }
-
-    /// Get legend title font size
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_title_font_size(&self, subtype: Option<&str>) -> Option<f32> {
-        self.font_size(&self.legend_context(subtype).child("title"))
-    }
-
-    /// Get legend label font size
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_label_font_size(&self, subtype: Option<&str>) -> Option<f32> {
-        self.font_size(&self.legend_context(subtype).child("label"))
-    }
-
-    /// Get legend tick font size
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_tick_font_size(&self, subtype: Option<&str>) -> Option<f32> {
-        self.font_size(&self.legend_context(subtype).child("tick"))
-    }
-
-    /// Get legend title font weight
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_title_font_weight(&self, subtype: Option<&str>) -> Option<f32> {
-        self.font_weight(&self.legend_context(subtype).child("title"))
-    }
-
-    /// Get legend label font weight
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_label_font_weight(&self, subtype: Option<&str>) -> Option<f32> {
-        self.font_weight(&self.legend_context(subtype).child("label"))
-    }
-
-    /// Get legend tick font weight
-    ///
-    /// # Arguments
-    /// * `subtype` - Optional legend subtype (e.g., "symbol", "line", "colorbar")
-    pub fn legend_tick_font_weight(&self, subtype: Option<&str>) -> Option<f32> {
-        self.font_weight(&self.legend_context(subtype).child("tick"))
-    }
-
-    /// Get title color as normalized RGBA array
-    pub fn title_color(&self) -> Option<[f32; 4]> {
-        self.color(&ThemeContext::new("chart-title"))
-    }
-
-    /// Get subtitle color as normalized RGBA array
-    pub fn subtitle_color(&self) -> Option<[f32; 4]> {
-        self.color(&ThemeContext::new("chart-subtitle"))
-    }
-
-    /// Get title font family
-    pub fn title_font_family(&self) -> Option<String> {
-        self.font_family(&ThemeContext::new("chart-title"))
-    }
-
-    /// Get subtitle font family
-    pub fn subtitle_font_family(&self) -> Option<String> {
-        self.font_family(&ThemeContext::new("chart-subtitle"))
-    }
-
-    /// Get title font size
-    pub fn title_font_size(&self) -> Option<f32> {
-        self.font_size(&ThemeContext::new("chart-title"))
-    }
-
-    /// Get subtitle font size
-    pub fn subtitle_font_size(&self) -> Option<f32> {
-        self.font_size(&ThemeContext::new("chart-subtitle"))
-    }
-
-    /// Get title font weight
-    pub fn title_font_weight(&self) -> Option<f32> {
-        self.font_weight(&ThemeContext::new("chart-title"))
-    }
-
-    /// Get subtitle font weight
-    pub fn subtitle_font_weight(&self) -> Option<f32> {
-        self.font_weight(&ThemeContext::new("chart-subtitle"))
-    }
-
-    /// Get axis domain color as normalized RGBA array
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_domain_color(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<[f32; 4]> {
-        let ctx = self.axis_context(coord_type, axis_type).child("domain");
-        self.query(&ctx, "stroke").and_then(|v| v.as_color_array())
-    }
-
-    /// Get axis tick color as normalized RGBA array
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_tick_color(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<[f32; 4]> {
-        let ctx = self.axis_context(coord_type, axis_type).child("tick");
-        self.query(&ctx, "stroke").and_then(|v| v.as_color_array())
-    }
-
-    /// Get axis grid color as normalized RGBA array
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_grid_color(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<[f32; 4]> {
-        let ctx = self.axis_context(coord_type, axis_type).child("grid");
-        self.stroke_color(&ctx)
-    }
-
-    /// Get axis grid opacity
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_grid_opacity(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<f32> {
-        let ctx = self.axis_context(coord_type, axis_type).child("grid");
-        self.query(&ctx, "opacity")
-            .and_then(|v| v.as_number())
-            .map(|n| n as f32)
-    }
 
     /// Get axis grid width
     ///
@@ -931,31 +675,6 @@ impl Theme {
         self.stroke_width(&ctx)
     }
 
-    /// Get axis label color as normalized RGBA array
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_label_color(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<[f32; 4]> {
-        self.color(&self.axis_context(coord_type, axis_type).child("label"))
-    }
-
-    /// Get axis title color as normalized RGBA array
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_title_color(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<[f32; 4]> {
-        self.color(&self.axis_context(coord_type, axis_type).child("title"))
-    }
 
     /// Get axis tick length
     ///
@@ -968,83 +687,6 @@ impl Theme {
             .and_then(|v| v.as_font_size(self.get_base_font_size(&ctx.params)))
     }
 
-    /// Get axis label font size
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_label_font_size(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<f32> {
-        self.font_size(&self.axis_context(coord_type, axis_type).child("label"))
-    }
-
-    /// Get axis label font weight
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_label_font_weight(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<f32> {
-        self.font_weight(&self.axis_context(coord_type, axis_type).child("label"))
-    }
-
-    /// Get axis title font size
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_title_font_size(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<f32> {
-        self.font_size(&self.axis_context(coord_type, axis_type).child("title"))
-    }
-
-    /// Get axis title font weight
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_title_font_weight(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<f32> {
-        self.font_weight(&self.axis_context(coord_type, axis_type).child("title"))
-    }
-
-    /// Get axis label font family
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_label_font_family(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<String> {
-        self.font_family(&self.axis_context(coord_type, axis_type).child("label"))
-    }
-
-    /// Get axis title font family
-    ///
-    /// # Arguments
-    /// * `coord_type` - Optional coordinate system type (e.g., "cartesian", "polar")
-    /// * `axis_type` - Optional axis subtype (e.g., "x", "y", "r", "theta")
-    pub fn axis_title_font_family(
-        &self,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
-    ) -> Option<String> {
-        self.font_family(&self.axis_context(coord_type, axis_type).child("title"))
-    }
 
     /// Get range for a specific channel based on mark type and range kind
     ///
@@ -1385,7 +1027,7 @@ mod tests {
 
         // Check that CSS sources are preserved
         assert_eq!(theme.css_sources.len(), deserialized.css_sources.len());
-        assert_eq!(theme.base_font_size(), deserialized.base_font_size());
+        assert_eq!(theme.get_base_font_size(&IndexMap::new()), deserialized.get_base_font_size(&IndexMap::new()));
 
         // Verify the theme works correctly after deserialization
         let context = crate::theme::ThemeContext {
@@ -1431,7 +1073,7 @@ mod tests {
         assert!(matches!(value, Some(ThemeValue::Color(_))));
 
         // Also test that base_font_size is preserved
-        assert_eq!(deserialized.base_font_size(), 12.0);
+        assert_eq!(deserialized.get_base_font_size(&IndexMap::new()), 12.0);
     }
 
     #[test]
@@ -1590,7 +1232,7 @@ mod tests {
         let theme = Theme::from_css(css).unwrap();
 
         // Check base font size was set from :root
-        assert_eq!(theme.base_font_size(), 16.0);
+        assert_eq!(theme.get_base_font_size(&IndexMap::new()), 16.0);
 
         // Check that rem values are calculated correctly
         let context = ThemeContext::new("mark");
@@ -1608,7 +1250,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).unwrap();
-        assert_eq!(theme.base_font_size(), 12.0);
+        assert_eq!(theme.get_base_font_size(&IndexMap::new()), 12.0);
     }
 
     #[test]
@@ -1759,14 +1401,14 @@ mod tests {
     fn test_builtin_themes_base_font_size() {
         let light = Theme::light();
         assert_eq!(
-            light.base_font_size(),
+            light.get_base_font_size(&IndexMap::new()),
             12.0,
             "Light theme should have 12px base"
         );
 
         let dark = Theme::dark();
         assert_eq!(
-            dark.base_font_size(),
+            dark.get_base_font_size(&IndexMap::new()),
             12.0,
             "Dark theme should have 12px base"
         );
@@ -1776,7 +1418,7 @@ mod tests {
     fn test_append_css_with_new_base_font_size() {
         // Start with the default light theme (12px base)
         let mut theme = Theme::light();
-        assert_eq!(theme.base_font_size(), 12.0);
+        assert_eq!(theme.get_base_font_size(&IndexMap::new()), 12.0);
 
         // Append CSS that changes the base font size to 18px
         theme
@@ -1794,7 +1436,7 @@ mod tests {
             .unwrap();
 
         // Base font size should now be 18px immediately (from the appended :root rule)
-        assert_eq!(theme.base_font_size(), 18.0);
+        assert_eq!(theme.get_base_font_size(&IndexMap::new()), 18.0);
 
         // Verify rem calculations use the new base
         let context = ThemeContext::new("test-element");
@@ -1802,13 +1444,14 @@ mod tests {
         assert_eq!(font_size, Some(36.0)); // 2rem * 18px = 36px
 
         // Also verify existing elements that use rem units are recalculated with new base
-        let title_size = theme.title_font_size();
+        let title_ctx = theme.title_context();
+        let title_size = theme.font_size(&title_ctx);
         assert_eq!(title_size, Some(27.0)); // 1.5rem * 18px = 27px (was 18px with 12px base)
 
         // Verify serialization preserves the updated base font size
         let json = serde_json::to_string(&theme).unwrap();
         let deserialized: Theme = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.base_font_size(), 18.0);
+        assert_eq!(deserialized.get_base_font_size(&IndexMap::new()), 18.0);
     }
 
     // ============================================================
@@ -2454,7 +2097,7 @@ mod tests {
 
         // Default: 2rem * 14px = 28px
         let ctx = ThemeContext::new("mark");
-        assert_eq!(theme.base_font_size(), 14.0);
+        assert_eq!(theme.get_base_font_size(&IndexMap::new()), 14.0);
         assert_eq!(theme.font_size(&ctx), Some(28.0));
 
         // Override with param: 2rem * 20px = 40px
@@ -2486,7 +2129,7 @@ mod tests {
 
         // Default: 3rem * 10px = 30px
         let ctx = ThemeContext::new("mark");
-        assert_eq!(theme.base_font_size(), 10.0);
+        assert_eq!(theme.get_base_font_size(&IndexMap::new()), 10.0);
         assert_eq!(theme.font_size(&ctx), Some(30.0));
 
         // Override --my-custom-size param: 3rem * 25px = 75px

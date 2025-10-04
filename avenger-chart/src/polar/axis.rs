@@ -255,10 +255,11 @@ impl PolarAxis {
                     pad_angle: ScalarOrArray::new_scalar(0.0),
                     corner_radius: ScalarOrArray::new_scalar(0.0),
                     fill: ScalarOrArray::new_scalar(ColorOrGradient::Color({
+                        let grid_ctx = axis_ctx.child("grid");
                         let mut color = theme
-                            .axis_grid_color(coord_type, axis_type)
+                            .stroke_color(&grid_ctx)
                             .unwrap_or([0.8, 0.8, 0.8, 1.0]);
-                        if let Some(opacity) = theme.axis_grid_opacity(coord_type, axis_type) {
+                        if let Some(opacity) = theme.opacity(&grid_ctx) {
                             color[3] = opacity;
                         }
                         color
@@ -362,29 +363,25 @@ impl PolarAxis {
                     x: ScalarOrArray::new_array(x_vals),
                     y: ScalarOrArray::new_array(y_vals),
                     text: ScalarOrArray::new_array(text_vals),
-                    font: ScalarOrArray::new_scalar(
-                        theme
-                            .axis_label_font_family(coord_type, axis_type)
-                            .unwrap_or_else(|| "sans-serif".to_string()),
-                    ),
+                    font: ScalarOrArray::new_scalar({
+                        let ctx = axis_ctx.child("label");
+                        theme.font_family(&ctx).unwrap_or_else(|| "sans-serif".to_string())
+                    }),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(
-                            theme
-                                .axis_label_font_weight(coord_type, axis_type)
-                                .unwrap_or(400.0),
-                        ),
+                        avenger_text::types::FontWeight::Number({
+                            let ctx = axis_ctx.child("label");
+                            theme.font_weight(&ctx).unwrap_or(400.0)
+                        }),
                     ),
-                    font_size: ScalarOrArray::new_scalar(
-                        theme
-                            .axis_label_font_size(coord_type, axis_type)
-                            .unwrap_or(12.0),
-                    ),
+                    font_size: ScalarOrArray::new_scalar({
+                        let ctx = axis_ctx.child("label");
+                        theme.font_size(&ctx).unwrap_or(12.0)
+                    }),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        theme
-                            .axis_label_color(coord_type, axis_type)
-                            .unwrap_or([0.0, 0.0, 0.0, 1.0]),
-                    )),
+                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color({
+                        let ctx = axis_ctx.child("label");
+                        theme.text_color(&ctx).unwrap_or([0.0, 0.0, 0.0, 1.0])
+                    })),
                     align: ScalarOrArray::new_scalar(TextAlign::Center),
                     baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
                     angle: ScalarOrArray::new_scalar(0.0),
@@ -494,10 +491,11 @@ impl PolarAxis {
                 x2: ScalarOrArray::new_array(x2_values),
                 y2: ScalarOrArray::new_array(y2_values),
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color({
+                    let grid_ctx = axis_ctx.child("grid");
                     let mut color = theme
-                        .axis_grid_color(coord_type, axis_type)
+                        .stroke_color(&grid_ctx)
                         .unwrap_or([0.8, 0.8, 0.8, 1.0]);
-                    if let Some(opacity) = theme.axis_grid_opacity(coord_type, axis_type) {
+                    if let Some(opacity) = theme.opacity(&grid_ctx) {
                         color[3] = opacity;
                     }
                     color
@@ -595,29 +593,25 @@ impl PolarAxis {
                     text: ScalarOrArray::new_array(text_vals),
                     align: ScalarOrArray::new_array(label_aligns),
                     baseline: ScalarOrArray::new_array(label_baselines),
-                    font: ScalarOrArray::new_scalar(
-                        theme
-                            .axis_label_font_family(coord_type, axis_type)
-                            .unwrap_or_else(|| "sans-serif".to_string()),
-                    ),
+                    font: ScalarOrArray::new_scalar({
+                        let ctx = axis_ctx.child("label");
+                        theme.font_family(&ctx).unwrap_or_else(|| "sans-serif".to_string())
+                    }),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(
-                            theme
-                                .axis_label_font_weight(coord_type, axis_type)
-                                .unwrap_or(400.0),
-                        ),
+                        avenger_text::types::FontWeight::Number({
+                            let ctx = axis_ctx.child("label");
+                            theme.font_weight(&ctx).unwrap_or(400.0)
+                        }),
                     ),
-                    font_size: ScalarOrArray::new_scalar(
-                        theme
-                            .axis_label_font_size(coord_type, axis_type)
-                            .unwrap_or(12.0),
-                    ),
+                    font_size: ScalarOrArray::new_scalar({
+                        let ctx = axis_ctx.child("label");
+                        theme.font_size(&ctx).unwrap_or(12.0)
+                    }),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                        theme
-                            .axis_label_color(coord_type, axis_type)
-                            .unwrap_or([0.0, 0.0, 0.0, 1.0]),
-                    )),
+                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color({
+                        let ctx = axis_ctx.child("label");
+                        theme.text_color(&ctx).unwrap_or([0.0, 0.0, 0.0, 1.0])
+                    })),
                     angle: ScalarOrArray::new_scalar(0.0),
                     limit: ScalarOrArray::new_scalar(200.0),
                     indices: None,

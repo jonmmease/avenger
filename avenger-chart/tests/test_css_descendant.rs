@@ -57,7 +57,7 @@ fn test_chart_title_subtitle() {
     let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
     let title_ctx = ThemeContext::new("chart-title");
-    let title_color = theme.color(&title_ctx).expect("Should have color");
+    let title_color = theme.text_color(&title_ctx).expect("Should have color");
     // Purple #800080 = rgb(128, 0, 128) = [128/255, 0, 128/255, 1]
     assert!(
         (title_color[0] - 128.0 / 255.0).abs() < 0.01,
@@ -67,7 +67,7 @@ fn test_chart_title_subtitle() {
     assert!((title_color[2] - 128.0 / 255.0).abs() < 0.01);
 
     let subtitle_ctx = ThemeContext::new("chart-subtitle");
-    let subtitle_color = theme.color(&subtitle_ctx).expect("Should have color");
+    let subtitle_color = theme.text_color(&subtitle_ctx).expect("Should have color");
     // Green #008000 = rgb(0, 128, 0) = [0, 128/255, 0, 1]
     assert!(subtitle_color[0].abs() < 0.01);
     assert!(

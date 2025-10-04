@@ -240,7 +240,11 @@ impl CompiledGuide for CartesianGuide {
         // First check explicit option, then fall back to theme
         let bg_color = self.options.plot_background_color.or_else(|| {
             // Theme already returns color in normalized [f32; 4] format
-            theme.guide_background_color(Some("cartesian"))
+            let guide_ctx = crate::theme::ThemeContext::new("guide")
+                .with_subtype("cartesian")
+                .with_params(params.clone());
+            theme.query(&guide_ctx, "background-color")
+                .and_then(|v| v.as_color_array())
         });
 
         if let Some(bg_color) = bg_color {

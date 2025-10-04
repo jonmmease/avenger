@@ -174,10 +174,10 @@ impl CartesianAxis {
         let title_ctx = axis_ctx.child("title");
 
         // Get theme colors (already in normalized [f32; 4] format)
-        let label_color = theme.axis_label_color(coord_type, axis_type);
-        let title_color = theme.axis_title_color(coord_type, axis_type);
-        let domain_color = theme.axis_domain_color(coord_type, axis_type);
-        let tick_color = theme.axis_tick_color(coord_type, axis_type);
+        let label_color = theme.text_color(&label_ctx);
+        let title_color = theme.text_color(&title_ctx);
+        let domain_color = theme.stroke_color(&axis_ctx.child("domain"));
+        let tick_color = theme.stroke_color(&axis_ctx.child("tick"));
 
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {
@@ -190,9 +190,9 @@ impl CartesianAxis {
             domain_color,
             tick_color,
             grid_color: theme
-                .axis_grid_color(coord_type, axis_type)
+                .stroke_color(&axis_ctx.child("grid"))
                 .map(|mut color| {
-                    if let Some(opacity) = theme.axis_grid_opacity(coord_type, axis_type) {
+                    if let Some(opacity) = theme.opacity(&axis_ctx.child("grid")) {
                         color[3] = opacity; // Apply opacity to alpha channel
                     }
                     color
@@ -202,18 +202,18 @@ impl CartesianAxis {
             title_color,
             tick_length: theme.axis_tick_length(&axis_ctx),
             label_font_size: theme.font_size(&label_ctx),
-            label_font_weight: theme.axis_label_font_weight(coord_type, axis_type),
-            title_font_weight: theme.axis_title_font_weight(coord_type, axis_type),
+            label_font_weight: theme.font_weight(&label_ctx),
+            title_font_weight: theme.font_weight(&title_ctx),
             label_font_family: self
                 .label_font_family
                 .clone()
                 .flatten()
-                .or_else(|| theme.axis_label_font_family(coord_type, axis_type)),
+                .or_else(|| theme.font_family(&label_ctx)),
             title_font_family: self
                 .title_font_family
                 .clone()
                 .flatten()
-                .or_else(|| theme.axis_title_font_family(coord_type, axis_type)),
+                .or_else(|| theme.font_family(&title_ctx)),
         };
 
         // Generate axis marks based on scale characteristics
