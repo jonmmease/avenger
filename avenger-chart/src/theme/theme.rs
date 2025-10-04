@@ -620,7 +620,7 @@ impl Theme {
         let base_font_size = self.get_base_font_size(&context.params);
 
         self.query(context, "font-size")
-            .and_then(|v| v.as_font_size(base_font_size))
+            .and_then(|v| v.as_font_size_with_params(&context.params, base_font_size))
     }
 
     /// Get font weight for a context

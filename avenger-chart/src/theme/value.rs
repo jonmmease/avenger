@@ -39,6 +39,11 @@ pub enum ThemeValue {
     /// First value for light mode, second for dark mode
     LightDark(Box<ThemeValue>, Box<ThemeValue>),
 
+    /// CSS calc() expression
+    /// Stores the AST for later evaluation with context (base font size, runtime params)
+    /// Example: calc(var(--base-size) * 2), calc(100% - 20px)
+    Calc(Box<super::calc::CalcNode>),
+
     /// Initial value
     Initial,
 
@@ -114,12 +119,13 @@ impl ThemeValue {
         }
     }
 
-    /// Extract font-size value with rem support
+    /// Extract font-size value with rem support and calc support
     ///
     /// Converts font-size values to pixels:
     /// - Number: Returns the raw number (interpreted as px)
     /// - Length(Px): Returns pixel value
     /// - Length(Rem): Converts rem to pixels using base_font_size (rem-based scaling)
+    /// - Calc: Resolves calc expression with runtime params
     ///
     /// Note: Percentage values are not supported (would require parent element context)
     pub fn as_font_size(&self, base_font_size: f32) -> Option<f32> {
@@ -127,6 +133,44 @@ impl ThemeValue {
             ThemeValue::Number(n) => Some(*n as f32),
             ThemeValue::Length(n, LengthUnit::Px) => Some(*n as f32),
             ThemeValue::Length(n, LengthUnit::Rem) => Some((*n as f32) * base_font_size),
+            ThemeValue::Calc(calc_node) => {
+                // Resolve calc without params (backward compatibility)
+                let resolved = calc_node.resolve(base_font_size).ok()?;
+                resolved.as_length_px(base_font_size)
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract font-size value with calc and runtime parameter support
+    ///
+    /// This is the extended version that supports CSS variables in calc expressions.
+    /// Converts font-size values to pixels:
+    /// - Number: Returns the raw number (interpreted as px)
+    /// - Length(Px): Returns pixel value
+    /// - Length(Rem): Converts rem to pixels using base_font_size
+    /// - Calc: Resolves calc expression with runtime params from ScalarValue map
+    ///
+    /// # Arguments
+    /// * `params` - Runtime parameter values (from ThemeContext)
+    /// * `base_font_size` - Base font size for rem conversion
+    pub fn as_font_size_with_params(
+        &self,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        base_font_size: f32,
+    ) -> Option<f32> {
+        match self {
+            ThemeValue::Number(n) => Some(*n as f32),
+            ThemeValue::Length(n, LengthUnit::Px) => Some(*n as f32),
+            ThemeValue::Length(n, LengthUnit::Rem) => Some((*n as f32) * base_font_size),
+            ThemeValue::Calc(calc_node) => {
+                // Convert ScalarValue params to f64
+                let f64_params = scalar_value_params_to_f64(params);
+
+                // Resolve calc with params
+                let resolved = calc_node.resolve_with_params(&f64_params, base_font_size).ok()?;
+                resolved.as_length_px(base_font_size)
+            }
             _ => None,
         }
     }
@@ -213,6 +257,32 @@ pub(crate) fn parse_length_string(length_str: &str) -> Option<ThemeValue> {
     }
 
     None
+}
+
+/// Convert ScalarValue parameters to f64 for calc resolution
+///
+/// This converts DataFusion ScalarValue types to f64 for use in calc expressions.
+/// Supports: Int64, UInt64, Float64, Int32, UInt32, Float32
+fn scalar_value_params_to_f64(
+    params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+) -> indexmap::IndexMap<String, f64> {
+    use datafusion::common::ScalarValue;
+
+    params
+        .iter()
+        .filter_map(|(key, value)| {
+            let f64_value = match value {
+                ScalarValue::Int64(Some(v)) => Some(*v as f64),
+                ScalarValue::UInt64(Some(v)) => Some(*v as f64),
+                ScalarValue::Float64(Some(v)) => Some(*v),
+                ScalarValue::Int32(Some(v)) => Some(*v as f64),
+                ScalarValue::UInt32(Some(v)) => Some(*v as f64),
+                ScalarValue::Float32(Some(v)) => Some(*v as f64),
+                _ => None,
+            };
+            f64_value.map(|v| (key.clone(), v))
+        })
+        .collect()
 }
 
 #[cfg(test)]

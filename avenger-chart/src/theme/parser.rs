@@ -1,5 +1,6 @@
 //! CSS stylesheet parser using cssparser's high-level APIs
 
+use crate::theme::calc::{CalcLeaf, CalcNode, ChannelKeyword, RoundingStrategy};
 use crate::theme::color_mix::parse_color_mix_function;
 use crate::theme::css_value::{parse_hsl_function, parse_rgb_function};
 use crate::theme::lab_color::{
@@ -332,6 +333,24 @@ fn parse_single_value<'i, 't>(
         Token::Function(name) => {
             let name_str = name.to_string();
 
+            // Handle calc and math functions first (they need special parsing, not args)
+            match name_str.as_str() {
+                "calc" => {
+                    return parse_calc_expression(parser, unsupported_units)
+                        .map(|node| ThemeValue::Calc(Box::new(node)));
+                }
+                "min" | "max" | "clamp" | "abs" | "sign" | "round" | "mod" | "rem" | "hypot" |
+                "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2" |
+                "pow" | "sqrt" | "exp" | "log" => {
+                    return parser.parse_nested_block(|p| {
+                        parse_calc_math_function_args(p, &name_str, unsupported_units)
+                    }).map(|node| ThemeValue::Calc(Box::new(node)));
+                }
+                _ => {
+                    // Continue to regular arg parsing
+                }
+            }
+
             // Special case: color-mix has complex syntax (keywords + values)
             // Special case: lab/lch/oklab/oklch use space-separated values, not commas
             let args = if name_str == "color-mix" {
@@ -553,6 +572,398 @@ fn parse_space_separated_args<'i, 't>(
 
         Ok(values)
     })
+}
+
+// ============================================================================
+// CSS calc() Expression Parsing
+// ============================================================================
+
+/// Parse a calc() expression
+///
+/// Entry point for parsing CSS calc() expressions. Follows CSS Values and Units
+/// Module Level 4 specification.
+///
+/// Grammar (simplified):
+/// ```text
+/// calc() = calc( <calc-sum> )
+/// <calc-sum> = <calc-product> [ [ '+' | '-' ] <calc-product> ]*
+/// <calc-product> = <calc-value> [ [ '*' | '/' ] <calc-value> ]*
+/// <calc-value> = <number> | <dimension> | <percentage> | <calc-constant> | ( <calc-sum> ) | <math-function>
+/// ```
+fn parse_calc_expression<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<CalcNode, ParseError<'i, ()>> {
+    parser.parse_nested_block(|p| parse_calc_sum(p, unsupported_units))
+}
+
+/// Parse sum/difference (lowest precedence)
+///
+/// CSS requires whitespace around + and - operators in calc()
+/// Examples: calc(10px + 5px), calc(100% - 20px)
+fn parse_calc_sum<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<CalcNode, ParseError<'i, ()>> {
+    let mut terms = vec![parse_calc_product(parser, unsupported_units)?];
+
+    loop {
+        parser.skip_whitespace();
+
+        let state = parser.state();
+        match parser.next() {
+            Ok(Token::Delim('+')) => {
+                // Require whitespace before the operator (already consumed by skip_whitespace)
+                // Check for whitespace after
+                let next_state = parser.state();
+                if let Ok(token) = parser.next_including_whitespace() {
+                    if !matches!(token, Token::WhiteSpace(_)) {
+                        parser.reset(&next_state);
+                    }
+                }
+
+                let term = parse_calc_product(parser, unsupported_units)?;
+                terms.push(term);
+            }
+            Ok(Token::Delim('-')) => {
+                // Require whitespace before the operator (already consumed by skip_whitespace)
+                // Check for whitespace after
+                let next_state = parser.state();
+                if let Ok(token) = parser.next_including_whitespace() {
+                    if !matches!(token, Token::WhiteSpace(_)) {
+                        parser.reset(&next_state);
+                    }
+                }
+
+                let term = parse_calc_product(parser, unsupported_units)?;
+                // Subtraction is represented as addition of negated term
+                terms.push(CalcNode::Negate(Box::new(term)));
+            }
+            _ => {
+                parser.reset(&state);
+                break;
+            }
+        }
+    }
+
+    if terms.len() == 1 {
+        Ok(terms.into_iter().next().unwrap())
+    } else {
+        Ok(CalcNode::Sum(terms))
+    }
+}
+
+/// Parse multiplication/division (higher precedence)
+///
+/// No whitespace is required around * and / operators
+/// Examples: calc(10px*2), calc(100%/2)
+fn parse_calc_product<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<CalcNode, ParseError<'i, ()>> {
+    let mut factors = vec![parse_calc_value(parser, unsupported_units)?];
+
+    loop {
+        parser.skip_whitespace();
+
+        let state = parser.state();
+        match parser.next() {
+            Ok(Token::Delim('*')) => {
+                parser.skip_whitespace();
+                let factor = parse_calc_value(parser, unsupported_units)?;
+                factors.push(factor);
+            }
+            Ok(Token::Delim('/')) => {
+                parser.skip_whitespace();
+                let divisor = parse_calc_value(parser, unsupported_units)?;
+                // Division is represented as multiplication by inverted factor
+                factors.push(CalcNode::Invert(Box::new(divisor)));
+            }
+            _ => {
+                parser.reset(&state);
+                break;
+            }
+        }
+    }
+
+    if factors.len() == 1 {
+        Ok(factors.into_iter().next().unwrap())
+    } else {
+        Ok(CalcNode::Product(factors))
+    }
+}
+
+/// Parse a single calc value (highest precedence)
+///
+/// Handles: numbers, dimensions, percentages, parentheses, constants, var(), channel keywords
+fn parse_calc_value<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<CalcNode, ParseError<'i, ()>> {
+    parser.skip_whitespace();
+
+    let state = parser.state();
+    match parser.next()? {
+        Token::Number { value, .. } => {
+            Ok(CalcNode::Leaf(CalcLeaf::Number(*value as f64)))
+        }
+        Token::Dimension { value, unit, .. } => {
+            let num_value = *value as f64;
+            match unit.as_ref() {
+                "px" => Ok(CalcNode::Leaf(CalcLeaf::Length(num_value, LengthUnit::Px))),
+                "rem" => Ok(CalcNode::Leaf(CalcLeaf::Length(num_value, LengthUnit::Rem))),
+                "deg" => Ok(CalcNode::Leaf(CalcLeaf::Angle(num_value, AngleUnit::Deg))),
+                "rad" => Ok(CalcNode::Leaf(CalcLeaf::Angle(num_value, AngleUnit::Rad))),
+                "grad" => Ok(CalcNode::Leaf(CalcLeaf::Angle(num_value, AngleUnit::Grad))),
+                "turn" => Ok(CalcNode::Leaf(CalcLeaf::Angle(num_value, AngleUnit::Turn))),
+                unit_str => {
+                    unsupported_units.borrow_mut().push(unit_str.to_string());
+                    Err(parser.new_custom_error(()))
+                }
+            }
+        }
+        Token::Percentage { unit_value, .. } => {
+            Ok(CalcNode::Leaf(CalcLeaf::Percentage((*unit_value * 100.0) as f64)))
+        }
+        Token::Ident(ident) => {
+            // Check for calc constants
+            match ident.as_ref() {
+                "pi" => Ok(CalcNode::Leaf(CalcLeaf::Number(std::f64::consts::PI))),
+                "e" => Ok(CalcNode::Leaf(CalcLeaf::Number(std::f64::consts::E))),
+                "infinity" => Ok(CalcNode::Leaf(CalcLeaf::Number(f64::INFINITY))),
+                "-infinity" => Ok(CalcNode::Leaf(CalcLeaf::Number(f64::NEG_INFINITY))),
+                "nan" => Ok(CalcNode::Leaf(CalcLeaf::Number(f64::NAN))),
+                // Check for channel keywords (for relative color syntax)
+                _ => {
+                    if let Some(keyword) = ChannelKeyword::from_ident(ident.as_ref()) {
+                        Ok(CalcNode::Leaf(CalcLeaf::ChannelKeyword(keyword)))
+                    } else {
+                        Err(parser.new_custom_error(()))
+                    }
+                }
+            }
+        }
+        Token::ParenthesisBlock => {
+            // Nested expression in parentheses
+            parser.parse_nested_block(|p| parse_calc_sum(p, unsupported_units))
+        }
+        Token::Function(name) => {
+            let name_str = name.to_string();
+            parser.reset(&state);
+
+            // Parse the function (it will consume the function token again)
+            match parser.next() {
+                Ok(Token::Function(_)) => {
+                    match name_str.as_str() {
+                        "var" => {
+                            // CSS variable reference
+                            parser.parse_nested_block(|p| {
+                                // Parse variable name (should be an ident with --)
+                                match p.next()? {
+                                    Token::Ident(var_name) => {
+                                        // Store with -- prefix if present, or add it
+                                        let full_name = if var_name.starts_with("--") {
+                                            var_name.to_string()
+                                        } else {
+                                            format!("--{}", var_name)
+                                        };
+                                        Ok(CalcNode::Leaf(CalcLeaf::Variable(full_name)))
+                                    }
+                                    _ => Err(p.new_custom_error(()))
+                                }
+                            })
+                        }
+                        // Math functions
+                        _ => {
+                            parser.parse_nested_block(|p| {
+                                parse_calc_math_function_args(p, &name_str, unsupported_units)
+                            })
+                        }
+                    }
+                }
+                _ => Err(parser.new_custom_error(()))
+            }
+        }
+        _ => Err(parser.new_custom_error(())),
+    }
+}
+
+/// Parse math function arguments (min, max, clamp, abs, sign, etc.)
+/// This is called from within an already-entered nested block
+fn parse_calc_math_function_args<'i, 't>(
+    p: &mut Parser<'i, 't>,
+    fn_name: &str,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<CalcNode, ParseError<'i, ()>> {
+    match fn_name {
+            "min" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.is_empty() {
+                    return Err(p.new_custom_error(()));
+                }
+                Ok(CalcNode::Min(args))
+            }
+            "max" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.is_empty() {
+                    return Err(p.new_custom_error(()));
+                }
+                Ok(CalcNode::Max(args))
+            }
+            "clamp" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.len() != 3 {
+                    return Err(p.new_custom_error(()));
+                }
+                let mut iter = args.into_iter();
+                Ok(CalcNode::Clamp {
+                    min: Box::new(iter.next().unwrap()),
+                    center: Box::new(iter.next().unwrap()),
+                    max: Box::new(iter.next().unwrap()),
+                })
+            }
+            "abs" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Abs(Box::new(arg)))
+            }
+            "sign" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Sign(Box::new(arg)))
+            }
+            "round" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.len() == 2 {
+                    // round(value, step) - defaults to nearest
+                    let mut iter = args.into_iter();
+                    Ok(CalcNode::Round {
+                        strategy: RoundingStrategy::Nearest,
+                        value: Box::new(iter.next().unwrap()),
+                        step: Box::new(iter.next().unwrap()),
+                    })
+                } else if args.len() == 3 {
+                    // round(strategy, value, step)
+                    let mut iter = args.into_iter();
+                    let strategy_node = iter.next().unwrap();
+
+                    // Extract strategy from node (should be an ident)
+                    let strategy = match strategy_node {
+                        CalcNode::Leaf(CalcLeaf::Number(_)) => RoundingStrategy::Nearest,
+                        _ => RoundingStrategy::Nearest, // Default if not recognized
+                    };
+
+                    Ok(CalcNode::Round {
+                        strategy,
+                        value: Box::new(iter.next().unwrap()),
+                        step: Box::new(iter.next().unwrap()),
+                    })
+                } else {
+                    Err(p.new_custom_error(()))
+                }
+            }
+            "mod" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.len() != 2 {
+                    return Err(p.new_custom_error(()));
+                }
+                let mut iter = args.into_iter();
+                Ok(CalcNode::Mod {
+                    dividend: Box::new(iter.next().unwrap()),
+                    divisor: Box::new(iter.next().unwrap()),
+                })
+            }
+            "rem" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.len() != 2 {
+                    return Err(p.new_custom_error(()));
+                }
+                let mut iter = args.into_iter();
+                Ok(CalcNode::Rem {
+                    dividend: Box::new(iter.next().unwrap()),
+                    divisor: Box::new(iter.next().unwrap()),
+                })
+            }
+            "hypot" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.is_empty() {
+                    return Err(p.new_custom_error(()));
+                }
+                Ok(CalcNode::Hypot(args))
+            }
+            "sin" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Sin(Box::new(arg)))
+            }
+            "cos" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Cos(Box::new(arg)))
+            }
+            "tan" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Tan(Box::new(arg)))
+            }
+            "asin" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Asin(Box::new(arg)))
+            }
+            "acos" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Acos(Box::new(arg)))
+            }
+            "atan" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Atan(Box::new(arg)))
+            }
+            "atan2" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.len() != 2 {
+                    return Err(p.new_custom_error(()));
+                }
+                let mut iter = args.into_iter();
+                Ok(CalcNode::Atan2 {
+                    y: Box::new(iter.next().unwrap()),
+                    x: Box::new(iter.next().unwrap()),
+                })
+            }
+            "pow" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.len() != 2 {
+                    return Err(p.new_custom_error(()));
+                }
+                let mut iter = args.into_iter();
+                Ok(CalcNode::Pow {
+                    base: Box::new(iter.next().unwrap()),
+                    exponent: Box::new(iter.next().unwrap()),
+                })
+            }
+            "sqrt" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Sqrt(Box::new(arg)))
+            }
+            "exp" => {
+                let arg = parse_calc_sum(p, unsupported_units)?;
+                Ok(CalcNode::Exp(Box::new(arg)))
+            }
+            "log" => {
+                let args = p.parse_comma_separated(|p| parse_calc_sum(p, unsupported_units))?;
+                if args.len() == 1 {
+                    // log(value) - natural log
+                    Ok(CalcNode::Log {
+                        value: Box::new(args.into_iter().next().unwrap()),
+                        base: None,
+                    })
+                } else if args.len() == 2 {
+                    // log(value, base)
+                    let mut iter = args.into_iter();
+                    Ok(CalcNode::Log {
+                        value: Box::new(iter.next().unwrap()),
+                        base: Some(Box::new(iter.next().unwrap())),
+                    })
+                } else {
+                    Err(p.new_custom_error(()))
+                }
+            }
+            _ => Err(p.new_custom_error(())),
+    }
 }
 
 // Value parsing functions use cssparser's built-in methods
