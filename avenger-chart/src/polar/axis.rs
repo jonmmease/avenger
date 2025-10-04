@@ -174,8 +174,8 @@ impl PolarAxis {
         theme: &Theme,
         axis_ctx: &crate::theme::ThemeContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let coord_type = Some("polar");
-        let axis_type = axis_ctx.subtype.as_deref();
+        let _coord_type = Some("polar");
+        let _axis_type = axis_ctx.subtype.as_deref();
         use avenger_common::types::ColorOrGradient;
         use avenger_common::value::ScalarOrArray;
         use avenger_scenegraph::marks::arc::SceneArcMark;
@@ -408,8 +408,8 @@ impl PolarAxis {
         theme: &Theme,
         axis_ctx: &crate::theme::ThemeContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let coord_type = Some("polar");
-        let axis_type = axis_ctx.subtype.as_deref();
+        let _coord_type = Some("polar");
+        let _axis_type = axis_ctx.subtype.as_deref();
         use avenger_common::types::ColorOrGradient;
         use avenger_common::types::StrokeCap;
         use avenger_common::value::ScalarOrArray;

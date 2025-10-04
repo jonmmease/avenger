@@ -64,7 +64,7 @@ fn test_calc_with_variables() {
 
     // Create context with runtime parameter
     let mut params = IndexMap::new();
-    params.insert("base-size".to_string(), ScalarValue::Float64(Some(8.0)));
+    params.insert("--base-size".to_string(), ScalarValue::Float64(Some(8.0)));
 
     let ctx = ThemeContext::new("mark").with_params(params);
 
@@ -165,8 +165,8 @@ fn test_calc_with_variables_and_operations() {
 
     // Create context with runtime parameters
     let mut params = IndexMap::new();
-    params.insert("base".to_string(), ScalarValue::Float64(Some(12.0)));
-    params.insert("offset".to_string(), ScalarValue::Float64(Some(4.0)));
+    params.insert("--base".to_string(), ScalarValue::Float64(Some(12.0)));
+    params.insert("--offset".to_string(), ScalarValue::Float64(Some(4.0)));
 
     let ctx = ThemeContext::new("mark").with_params(params);
 

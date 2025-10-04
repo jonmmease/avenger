@@ -631,20 +631,33 @@ impl Theme {
     }
 
     /// Get color for a context as normalized RGBA array
+    /// Supports relative color syntax with runtime parameters
     pub fn text_color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
-        self.query(context, "color")
-            .and_then(|v| v.as_color_array())
+        let base_font_size = self.get_base_font_size(&context.params);
+        self.query(context, "color").and_then(|v| {
+            v.as_color_with_params(&context.params, base_font_size)
+                .map(|css_rgba| css_rgba.to_array())
+        })
     }
 
     /// Get fill color for a context as normalized RGBA array
+    /// Supports relative color syntax with runtime parameters
     pub fn fill_color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
-        self.query(context, "fill").and_then(|v| v.as_color_array())
+        let base_font_size = self.get_base_font_size(&context.params);
+        self.query(context, "fill").and_then(|v| {
+            v.as_color_with_params(&context.params, base_font_size)
+                .map(|css_rgba| css_rgba.to_array())
+        })
     }
 
     /// Get stroke color for a context as normalized RGBA array
+    /// Supports relative color syntax with runtime parameters
     pub fn stroke_color(&self, context: &ThemeContext) -> Option<[f32; 4]> {
-        self.query(context, "stroke")
-            .and_then(|v| v.as_color_array())
+        let base_font_size = self.get_base_font_size(&context.params);
+        self.query(context, "stroke").and_then(|v| {
+            v.as_color_with_params(&context.params, base_font_size)
+                .map(|css_rgba| css_rgba.to_array())
+        })
     }
 
     /// Get stroke width for a context
