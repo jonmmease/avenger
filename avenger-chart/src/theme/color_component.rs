@@ -1,0 +1,184 @@
+//! Color component representation for relative color syntax
+//!
+//! This module provides the `ColorComponent` type which can represent a single
+//! color component as:
+//! - A literal value (0.5, 180.0, etc.)
+//! - A channel keyword (l, c, h, r, g, b, etc.)
+//! - A calc() expression (may contain channel keywords)
+//! - The "none" keyword
+//!
+//! This is used to implement CSS Color Level 5 relative color syntax:
+//! ```css
+//! oklch(from blue calc(l - 0.2) c h)
+//! ```
+
+use super::calc::{CalcNode, ChannelKeyword};
+use super::value::ThemeValue;
+use crate::color::types::AbsoluteColor;
+use indexmap::IndexMap;
+
+/// A single color component that may contain channel keywords or calc expressions
+///
+/// Used in relative color syntax to represent components that can reference
+/// the origin color's channels.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ColorComponent {
+    /// A literal numeric value (0.5, 180.0, etc.)
+    Literal(f64),
+
+    /// The "none" keyword (component is missing/undefined)
+    None,
+
+    /// A channel keyword reference (l, c, h, r, g, b, etc.)
+    ChannelKeyword(ChannelKeyword),
+
+    /// A calc() expression (may contain channel keywords)
+    Calc(CalcNode),
+}
+
+impl ColorComponent {
+    /// Resolve component to a concrete value with optional origin color
+    ///
+    /// # Arguments
+    /// * `origin_color` - The origin color for channel keyword resolution
+    /// * `params` - Runtime parameters for CSS variable substitution
+    /// * `base_font_size` - Base font size for rem conversion
+    ///
+    /// # Returns
+    /// The resolved numeric value, or an error if resolution fails
+    pub fn resolve(
+        &self,
+        origin_color: Option<&AbsoluteColor>,
+        params: &IndexMap<String, f64>,
+        base_font_size: f32,
+    ) -> Result<f64, String> {
+        match self {
+            ColorComponent::Literal(value) => Ok(*value),
+
+            ColorComponent::None => {
+                // "none" becomes 0.0 (could be enhanced to use origin value)
+                Ok(0.0)
+            }
+
+            ColorComponent::ChannelKeyword(keyword) => {
+                let origin = origin_color
+                    .ok_or_else(|| format!("Channel keyword {:?} requires origin color", keyword))?;
+                let value = origin.get_component_by_channel_keyword(*keyword)?;
+                Ok(value as f64)
+            }
+
+            ColorComponent::Calc(node) => {
+                // First, substitute channel keywords in the calc expression
+                let with_keywords = if origin_color.is_some() {
+                    node.substitute_channel_keywords(origin_color)?
+                } else {
+                    node.clone()
+                };
+
+                // Then resolve calc with runtime parameters
+                let resolved = with_keywords.resolve_with_params(params, base_font_size)?;
+
+                // Extract numeric value
+                resolved.as_number()
+                    .ok_or_else(|| "Color component calc must resolve to number".to_string())
+            }
+        }
+    }
+
+    /// Parse from ThemeValue
+    ///
+    /// Converts a ThemeValue into a ColorComponent. Handles numbers, percentages,
+    /// angles, and calc expressions.
+    pub fn from_theme_value(value: &ThemeValue) -> Result<Self, String> {
+        match value {
+            ThemeValue::Number(n) => Ok(ColorComponent::Literal(*n)),
+
+            ThemeValue::Percentage(p) => Ok(ColorComponent::Literal(p / 100.0)),
+
+            ThemeValue::Angle(val, unit) => {
+                let deg = unit.to_degrees(*val);
+                Ok(ColorComponent::Literal(deg))
+            }
+
+            ThemeValue::Length(val, unit) => {
+                // For now, just use the numeric value
+                // In a full implementation, we'd handle unit conversion
+                Ok(ColorComponent::Literal(*val))
+            }
+
+            ThemeValue::Calc(node) => Ok(ColorComponent::Calc(*node.clone())),
+
+            _ => Err(format!("Cannot convert {:?} to ColorComponent", value)),
+        }
+    }
+
+    /// Create a literal component
+    pub fn literal(value: f64) -> Self {
+        ColorComponent::Literal(value)
+    }
+
+    /// Create a channel keyword component
+    pub fn channel(keyword: ChannelKeyword) -> Self {
+        ColorComponent::ChannelKeyword(keyword)
+    }
+
+    /// Create a calc component
+    pub fn calc(node: CalcNode) -> Self {
+        ColorComponent::Calc(node)
+    }
+
+    /// Check if this is a literal value
+    pub fn is_literal(&self) -> bool {
+        matches!(self, ColorComponent::Literal(_))
+    }
+
+    /// Check if this is a channel keyword
+    pub fn is_channel_keyword(&self) -> bool {
+        matches!(self, ColorComponent::ChannelKeyword(_))
+    }
+
+    /// Check if this contains a calc expression
+    pub fn is_calc(&self) -> bool {
+        matches!(self, ColorComponent::Calc(_))
+    }
+
+    /// Check if this is "none"
+    pub fn is_none(&self) -> bool {
+        matches!(self, ColorComponent::None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::color::types::ColorSpace;
+
+    #[test]
+    fn test_literal_component() {
+        let comp = ColorComponent::Literal(0.5);
+        let result = comp.resolve(None, &IndexMap::new(), 16.0).unwrap();
+        assert_eq!(result, 0.5);
+    }
+
+    #[test]
+    fn test_channel_keyword_without_origin_fails() {
+        let comp = ColorComponent::ChannelKeyword(ChannelKeyword::L);
+        let result = comp.resolve(None, &IndexMap::new(), 16.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_channel_keyword_with_origin() {
+        let comp = ColorComponent::ChannelKeyword(ChannelKeyword::L);
+        let origin = AbsoluteColor::new(ColorSpace::Oklch, 0.6, 0.2, 180.0, 1.0);
+        let result = comp.resolve(Some(&origin), &IndexMap::new(), 16.0).unwrap();
+        assert!((result - 0.6).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_none_component() {
+        let comp = ColorComponent::None;
+        let result = comp.resolve(None, &IndexMap::new(), 16.0).unwrap();
+        assert_eq!(result, 0.0);
+    }
+}

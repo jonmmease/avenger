@@ -1094,6 +1094,212 @@ impl CalcNode {
             }),
         }
     }
+
+    /// Substitute channel keywords with values from origin color
+    ///
+    /// This is used during relative color syntax resolution to replace
+    /// channel keywords (l, c, h, r, g, b, etc.) with actual component values
+    /// from the origin color.
+    ///
+    /// # Arguments
+    /// * `origin_color` - Optional origin color for channel keyword resolution
+    ///
+    /// # Returns
+    /// A new CalcNode with channel keywords replaced by concrete values
+    pub fn substitute_channel_keywords(
+        &self,
+        origin_color: Option<&crate::color::types::AbsoluteColor>,
+    ) -> Result<CalcNode, String> {
+        match self {
+            CalcNode::Leaf(CalcLeaf::ChannelKeyword(keyword)) => {
+                let origin = origin_color
+                    .ok_or_else(|| format!("Channel keyword {:?} requires origin color context", keyword))?;
+
+                let value = origin.get_component_by_channel_keyword(*keyword)?;
+
+                // Convert to appropriate leaf based on keyword type
+                // Hue keywords become angles, others become numbers
+                let leaf = match keyword {
+                    ChannelKeyword::H => {
+                        CalcLeaf::Angle(value as f64, AngleUnit::Deg)
+                    }
+                    _ => CalcLeaf::Number(value as f64),
+                };
+
+                Ok(CalcNode::Leaf(leaf))
+            }
+
+            // Pass through other leaves unchanged
+            CalcNode::Leaf(leaf) => Ok(CalcNode::Leaf(leaf.clone())),
+
+            // Recursively process tree
+            CalcNode::Negate(node) => {
+                Ok(CalcNode::Negate(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Sum(nodes) => {
+                Ok(CalcNode::Sum(
+                    nodes.iter()
+                        .map(|n| n.substitute_channel_keywords(origin_color))
+                        .collect::<Result<Vec<_>, _>>()?
+                ))
+            }
+
+            CalcNode::Product(nodes) => {
+                Ok(CalcNode::Product(
+                    nodes.iter()
+                        .map(|n| n.substitute_channel_keywords(origin_color))
+                        .collect::<Result<Vec<_>, _>>()?
+                ))
+            }
+
+            CalcNode::Invert(node) => {
+                Ok(CalcNode::Invert(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Min(nodes) => {
+                Ok(CalcNode::Min(
+                    nodes.iter()
+                        .map(|n| n.substitute_channel_keywords(origin_color))
+                        .collect::<Result<Vec<_>, _>>()?
+                ))
+            }
+
+            CalcNode::Max(nodes) => {
+                Ok(CalcNode::Max(
+                    nodes.iter()
+                        .map(|n| n.substitute_channel_keywords(origin_color))
+                        .collect::<Result<Vec<_>, _>>()?
+                ))
+            }
+
+            CalcNode::Clamp { min, center, max } => {
+                Ok(CalcNode::Clamp {
+                    min: Box::new(min.substitute_channel_keywords(origin_color)?),
+                    center: Box::new(center.substitute_channel_keywords(origin_color)?),
+                    max: Box::new(max.substitute_channel_keywords(origin_color)?),
+                })
+            }
+
+            CalcNode::Abs(node) => {
+                Ok(CalcNode::Abs(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Sign(node) => {
+                Ok(CalcNode::Sign(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Round { strategy, value, step } => {
+                Ok(CalcNode::Round {
+                    strategy: *strategy,
+                    value: Box::new(value.substitute_channel_keywords(origin_color)?),
+                    step: Box::new(step.substitute_channel_keywords(origin_color)?),
+                })
+            }
+
+            CalcNode::Mod { dividend, divisor } => {
+                Ok(CalcNode::Mod {
+                    dividend: Box::new(dividend.substitute_channel_keywords(origin_color)?),
+                    divisor: Box::new(divisor.substitute_channel_keywords(origin_color)?),
+                })
+            }
+
+            CalcNode::Rem { dividend, divisor } => {
+                Ok(CalcNode::Rem {
+                    dividend: Box::new(dividend.substitute_channel_keywords(origin_color)?),
+                    divisor: Box::new(divisor.substitute_channel_keywords(origin_color)?),
+                })
+            }
+
+            CalcNode::Hypot(nodes) => {
+                Ok(CalcNode::Hypot(
+                    nodes.iter()
+                        .map(|n| n.substitute_channel_keywords(origin_color))
+                        .collect::<Result<Vec<_>, _>>()?
+                ))
+            }
+
+            CalcNode::Sin(node) => {
+                Ok(CalcNode::Sin(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Cos(node) => {
+                Ok(CalcNode::Cos(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Tan(node) => {
+                Ok(CalcNode::Tan(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Asin(node) => {
+                Ok(CalcNode::Asin(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Acos(node) => {
+                Ok(CalcNode::Acos(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Atan(node) => {
+                Ok(CalcNode::Atan(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Atan2 { y, x } => {
+                Ok(CalcNode::Atan2 {
+                    y: Box::new(y.substitute_channel_keywords(origin_color)?),
+                    x: Box::new(x.substitute_channel_keywords(origin_color)?),
+                })
+            }
+
+            CalcNode::Pow { base, exponent } => {
+                Ok(CalcNode::Pow {
+                    base: Box::new(base.substitute_channel_keywords(origin_color)?),
+                    exponent: Box::new(exponent.substitute_channel_keywords(origin_color)?),
+                })
+            }
+
+            CalcNode::Sqrt(node) => {
+                Ok(CalcNode::Sqrt(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Exp(node) => {
+                Ok(CalcNode::Exp(Box::new(
+                    node.substitute_channel_keywords(origin_color)?
+                )))
+            }
+
+            CalcNode::Log { value, base } => {
+                Ok(CalcNode::Log {
+                    value: Box::new(value.substitute_channel_keywords(origin_color)?),
+                    base: base.as_ref()
+                        .map(|b| b.substitute_channel_keywords(origin_color))
+                        .transpose()?
+                        .map(Box::new),
+                })
+            }
+        }
+    }
 }
 
 /// Try to simplify a sum by merging like terms and constant folding
