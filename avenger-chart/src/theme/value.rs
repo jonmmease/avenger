@@ -44,6 +44,18 @@ pub enum ThemeValue {
     /// Example: calc(var(--base-size) * 2), calc(100% - 20px)
     Calc(Box<super::calc::CalcNode>),
 
+    /// Relative color derived from origin using channel keywords
+    /// Example: oklch(from blue calc(l - 0.2) c h)
+    /// Syntax: <color-function>(from <origin> <components>)
+    RelativeColor {
+        space: crate::color::types::ColorSpace,
+        origin: Box<ThemeValue>,
+        lightness: super::color_component::ColorComponent,
+        component1: super::color_component::ColorComponent,
+        component2: super::color_component::ColorComponent,
+        alpha: super::color_component::ColorComponent,
+    },
+
     /// Initial value
     Initial,
 
@@ -221,6 +233,85 @@ impl ThemeValue {
     /// Try to get as normalized color array [0.0-1.0] for use with ColorOrGradient
     pub fn as_color_array(&self) -> Option<[f32; 4]> {
         self.as_color().map(|css_rgba| css_rgba.to_array())
+    }
+
+    /// Resolve to color with runtime parameters and origin color context
+    ///
+    /// This handles both absolute colors and relative color syntax.
+    /// For relative colors, it resolves the origin color, converts to target space,
+    /// evaluates component expressions with channel keywords, and builds the derived color.
+    pub fn as_color_with_params(
+        &self,
+        params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
+        base_font_size: f32,
+    ) -> Option<CssRgba> {
+        match self {
+            ThemeValue::Color(rgba) => Some(*rgba),
+
+            // Handle CSS variables - look up in params and recursively resolve
+            ThemeValue::Variable(name) => {
+                use datafusion_common::ScalarValue;
+
+                if let Some(value) = params.get(name) {
+                    match value {
+                        // String value - could be a color name or hex color
+                        ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => {
+                            parse_color_string(s)
+                        }
+                        // Already a number - not a color
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+
+            // Handle string values that might be color names
+            ThemeValue::String(s) => parse_color_string(s),
+
+            ThemeValue::RelativeColor {
+                space,
+                origin,
+                lightness,
+                component1,
+                component2,
+                alpha,
+            } => {
+                use crate::color::types::AbsoluteColor;
+
+                // 1. Resolve origin color recursively
+                let origin_rgba = origin.as_color_with_params(params, base_font_size)?;
+                let mut origin_abs = AbsoluteColor::from_css_rgba(&origin_rgba);
+
+                // 2. Convert origin to target color space
+                origin_abs = origin_abs.to_color_space(*space);
+
+                // 3. Convert params to f64
+                let params_f64 = scalar_value_params_to_f64(params);
+
+                // 4. Resolve each component with origin color context
+                let c0 = lightness
+                    .resolve(Some(&origin_abs), &params_f64, base_font_size)
+                    .ok()? as f32;
+                let c1 = component1
+                    .resolve(Some(&origin_abs), &params_f64, base_font_size)
+                    .ok()? as f32;
+                let c2 = component2
+                    .resolve(Some(&origin_abs), &params_f64, base_font_size)
+                    .ok()? as f32;
+                let a = alpha
+                    .resolve(Some(&origin_abs), &params_f64, base_font_size)
+                    .ok()? as f32;
+
+                // 5. Build derived color in target space
+                let derived = AbsoluteColor::new(*space, c0, c1, c2, a);
+
+                // 6. Convert to CssRgba
+                Some(derived.to_css_rgba())
+            }
+
+            _ => None,
+        }
     }
 
     /// Check if value is None

@@ -397,6 +397,30 @@ impl ChannelKeyword {
             _ => None,
         }
     }
+
+    /// Parse a channel keyword with color space context
+    ///
+    /// This disambiguates between:
+    /// - 'b' as RGB blue vs Lab/Oklab b-axis
+    /// - 'a' as Lab/Oklab a-axis vs alpha (though 'a' defaults to a-axis in Lab/Oklab)
+    pub fn from_ident_with_color_space(
+        ident: &str,
+        color_space: Option<crate::color::types::ColorSpace>,
+    ) -> Option<Self> {
+        use crate::color::types::ColorSpace;
+
+        let lower = ident.to_lowercase();
+        match (lower.as_str(), color_space) {
+            // In Lab/Oklab contexts, 'b' refers to the b-axis, not blue
+            ("b", Some(ColorSpace::Lab | ColorSpace::Oklab)) => Some(Self::LabB),
+
+            // In HWB context, 'b' refers to blackness, not blue
+            ("b", Some(ColorSpace::Hwb)) => Some(Self::BlacknessB),
+
+            // Otherwise use the generic parser
+            _ => Self::from_ident(ident),
+        }
+    }
 }
 
 impl CalcLeaf {
@@ -816,8 +840,34 @@ impl CalcNode {
         params: &IndexMap<String, f64>,
         base_font_size: f32,
     ) -> Result<CalcLeaf, String> {
+        self.resolve_with_params_and_origin(params, base_font_size, None)
+    }
+
+    /// Resolve to concrete value with runtime parameter substitution AND channel keyword substitution
+    ///
+    /// This is the ENHANCED ENTRY POINT for calc resolution in relative color contexts.
+    /// It:
+    /// 1. Substitutes CSS variables from runtime parameters
+    /// 2. Substitutes channel keywords from origin color
+    /// 3. Resolves the expression to a final value
+    ///
+    /// # Arguments
+    /// * `params` - Runtime parameter values (var(--name) => params["name"])
+    /// * `base_font_size` - Base font size for rem conversion
+    /// * `origin_color` - Origin color for channel keyword substitution (optional)
+    pub fn resolve_with_params_and_origin(
+        &self,
+        params: &IndexMap<String, f64>,
+        base_font_size: f32,
+        origin_color: Option<&crate::color::types::AbsoluteColor>,
+    ) -> Result<CalcLeaf, String> {
         // First, substitute variables
         let mut substituted = self.substitute_variables(params)?;
+
+        // Then substitute channel keywords if we have an origin color
+        if let Some(origin) = origin_color {
+            substituted = substituted.substitute_channel_keywords(Some(origin))?;
+        }
 
         // Simplify after substitution
         substituted.simplify();
@@ -1025,10 +1075,8 @@ impl CalcNode {
     fn substitute_variables(&self, params: &IndexMap<String, f64>) -> Result<CalcNode, String> {
         match self {
             CalcNode::Leaf(CalcLeaf::Variable(name)) => {
-                // Remove -- prefix if present (CSS variables are --name, we store as name)
-                let var_name = name.strip_prefix("--").unwrap_or(name);
-
-                if let Some(value) = params.get(var_name) {
+                // Look up variable with full name (including -- prefix)
+                if let Some(value) = params.get(name) {
                     Ok(CalcNode::Leaf(CalcLeaf::Number(*value)))
                 } else {
                     Err(format!("CSS variable '{}' not found in runtime parameters", name))
@@ -1117,14 +1165,9 @@ impl CalcNode {
 
                 let value = origin.get_component_by_channel_keyword(*keyword)?;
 
-                // Convert to appropriate leaf based on keyword type
-                // Hue keywords become angles, others become numbers
-                let leaf = match keyword {
-                    ChannelKeyword::H => {
-                        CalcLeaf::Angle(value as f64, AngleUnit::Deg)
-                    }
-                    _ => CalcLeaf::Number(value as f64),
-                };
+                // All channel keywords become unitless numbers in relative color context
+                // Even hue values are represented as numbers (in degrees)
+                let leaf = CalcLeaf::Number(value as f64);
 
                 Ok(CalcNode::Leaf(leaf))
             }

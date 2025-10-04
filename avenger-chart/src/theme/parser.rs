@@ -2,10 +2,9 @@
 
 use crate::theme::calc::{CalcLeaf, CalcNode, ChannelKeyword, RoundingStrategy};
 use crate::theme::color_mix::parse_color_mix_function;
-use crate::theme::css_value::{parse_hsl_function, parse_rgb_function};
-use crate::theme::lab_color::{
-    parse_lab_function, parse_lch_function, parse_oklab_function, parse_oklch_function,
-};
+// Color parsing functions are now imported within _with_origin helper functions
+use crate::theme::css_value;
+use crate::theme::lab_color;
 use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
 use crate::theme::theme::CompiledRule;
 use crate::theme::value::parse_color_string;
@@ -346,18 +345,36 @@ fn parse_single_value<'i, 't>(
                         parse_calc_math_function_args(p, &name_str, unsupported_units)
                     }).map(|node| ThemeValue::Calc(Box::new(node)));
                 }
+                // Handle color functions with potential "from" syntax
+                "oklch" => {
+                    return parse_oklch_with_origin(parser, unsupported_units);
+                }
+                "oklab" => {
+                    return parse_oklab_with_origin(parser, unsupported_units);
+                }
+                "lch" => {
+                    return parse_lch_with_origin(parser, unsupported_units);
+                }
+                "lab" => {
+                    return parse_lab_with_origin(parser, unsupported_units);
+                }
+                "hsl" | "hsla" => {
+                    return parse_hsl_with_origin(parser, unsupported_units);
+                }
+                "hwb" => {
+                    return parse_hwb_with_origin(parser, unsupported_units);
+                }
+                "rgb" | "rgba" => {
+                    return parse_rgb_with_origin(parser, unsupported_units);
+                }
                 _ => {
                     // Continue to regular arg parsing
                 }
             }
 
             // Special case: color-mix has complex syntax (keywords + values)
-            // Special case: lab/lch/oklab/oklch use space-separated values, not commas
             let args = if name_str == "color-mix" {
                 parse_color_mix_args(parser, unsupported_units)
-                    .map_err(|_| parser.new_custom_error(()))?
-            } else if matches!(name_str.as_str(), "lab" | "lch" | "oklab" | "oklch") {
-                parse_space_separated_args(parser, unsupported_units)
                     .map_err(|_| parser.new_custom_error(()))?
             } else {
                 parse_function_args(parser, unsupported_units)
@@ -365,50 +382,9 @@ fn parse_single_value<'i, 't>(
             };
 
             match name_str.as_str() {
-                "rgb" | "rgba" => {
-                    if let Some(color) = parse_rgb_function(&args) {
-                        Ok(ThemeValue::Color(color))
-                    } else {
-                        Ok(ThemeValue::Function(name_str, args))
-                    }
-                }
-                "hsl" | "hsla" => {
-                    if let Some(color) = parse_hsl_function(&args) {
-                        Ok(ThemeValue::Color(color))
-                    } else {
-                        Ok(ThemeValue::Function(name_str, args))
-                    }
-                }
+                // All color functions are now handled earlier with "from" syntax support
                 "color-mix" => {
                     if let Some(color) = parse_color_mix_function(&args) {
-                        Ok(ThemeValue::Color(color))
-                    } else {
-                        Ok(ThemeValue::Function(name_str, args))
-                    }
-                }
-                "oklab" => {
-                    if let Some(color) = parse_oklab_function(&args) {
-                        Ok(ThemeValue::Color(color))
-                    } else {
-                        Ok(ThemeValue::Function(name_str, args))
-                    }
-                }
-                "oklch" => {
-                    if let Some(color) = parse_oklch_function(&args) {
-                        Ok(ThemeValue::Color(color))
-                    } else {
-                        Ok(ThemeValue::Function(name_str, args))
-                    }
-                }
-                "lab" => {
-                    if let Some(color) = parse_lab_function(&args) {
-                        Ok(ThemeValue::Color(color))
-                    } else {
-                        Ok(ThemeValue::Function(name_str, args))
-                    }
-                }
-                "lch" => {
-                    if let Some(color) = parse_lch_function(&args) {
                         Ok(ThemeValue::Color(color))
                     } else {
                         Ok(ThemeValue::Function(name_str, args))
@@ -525,50 +501,6 @@ fn parse_function_args<'i, 't>(
         // light-dark(var(--color), #000)
         let values: Vec<ThemeValue> =
             p.parse_comma_separated(|parser| parse_single_value(parser, unsupported_units))?;
-
-        Ok(values)
-    })
-}
-
-/// Parse space-separated function arguments (for lab/lch/oklab/oklch)
-/// These color functions use space-separated values, not commas
-/// Example: oklab(0.6 0.1 -0.1) or lab(60 20 -30 / 0.5)
-fn parse_space_separated_args<'i, 't>(
-    parser: &mut Parser<'i, 't>,
-    unsupported_units: &RefCell<Vec<String>>,
-) -> Result<Vec<ThemeValue>, ParseError<'i, ()>> {
-    parser.parse_nested_block(|p| {
-        let mut values = Vec::new();
-
-        // Parse space-separated values until we hit a slash or end
-        loop {
-            // Try to parse a value
-            match parse_single_value(p, unsupported_units) {
-                Ok(value) => values.push(value),
-                Err(_) => break,
-            }
-
-            // Check if next token is a slash (for alpha)
-            let state = p.state();
-            match p.next() {
-                Ok(Token::Delim('/')) => {
-                    // Parse alpha value after slash
-                    if let Ok(alpha) = parse_single_value(p, unsupported_units) {
-                        values.push(alpha);
-                    }
-                    break;
-                }
-                _ => {
-                    // Not a slash, restore state and continue
-                    p.reset(&state);
-                }
-            }
-
-            // Check if we're at the end
-            if p.is_exhausted() {
-                break;
-            }
-        }
 
         Ok(values)
     })
@@ -1008,4 +940,458 @@ impl<'i> SelectorParser<'i> for ChartSelectorParser {
     ) -> Option<super::selector_impl::ChartString> {
         None
     }
+}
+
+/// Try to parse "from <color>" prefix for relative color syntax
+///
+/// Returns Some(origin_color) if "from" keyword is found, None otherwise
+fn try_parse_origin_color<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<Option<ThemeValue>, ParseError<'i, ()>> {
+    // Save state to restore if we don't find "from"
+    let state = parser.state();
+
+    // Try to match "from" keyword
+    match parser.next() {
+        Ok(Token::Ident(ident)) if ident.eq_ignore_ascii_case("from") => {
+            // Parse the origin color
+            let color = parse_single_value(parser, unsupported_units)?;
+            Ok(Some(color))
+        }
+        _ => {
+            // Not "from", restore state
+            parser.reset(&state);
+            Ok(None)
+        }
+    }
+}
+
+/// Parse a color component (number, percentage, angle, calc, or channel keyword)
+fn parse_color_component<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<super::color_component::ColorComponent, ParseError<'i, ()>> {
+    parse_color_component_with_space(parser, unsupported_units, None)
+}
+
+fn parse_color_component_with_space<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+    color_space: Option<crate::color::types::ColorSpace>,
+) -> Result<super::color_component::ColorComponent, ParseError<'i, ()>> {
+    use super::calc::ChannelKeyword;
+    use super::color_component::ColorComponent;
+
+    // Try to parse a value
+    let value = parse_single_value(parser, unsupported_units)?;
+
+    // Convert ThemeValue to ColorComponent
+    match &value {
+        // Check for channel keywords (bare identifiers)
+        ThemeValue::String(s) => {
+            if s.eq_ignore_ascii_case("none") {
+                return Ok(ColorComponent::None);
+            }
+            if let Some(keyword) = ChannelKeyword::from_ident_with_color_space(s, color_space) {
+                return Ok(ColorComponent::ChannelKeyword(keyword));
+            }
+            // Fall through to normal conversion
+            ColorComponent::from_theme_value(&value)
+                .map_err(|_| parser.new_custom_error(()))
+        }
+        _ => ColorComponent::from_theme_value(&value)
+            .map_err(|_| parser.new_custom_error(())),
+    }
+}
+
+/// Parse oklch() function with optional "from <origin>" syntax
+fn parse_oklch_with_origin<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    use super::color_component::ColorComponent;
+    use crate::color::types::ColorSpace;
+
+    parser.parse_nested_block(|p| {
+        // Try to parse "from <origin>"
+        let origin = try_parse_origin_color(p, unsupported_units)?;
+
+        if let Some(origin_color) = origin {
+            // Relative color syntax
+            let lightness = parse_color_component(p, unsupported_units)?;
+            let chroma = parse_color_component(p, unsupported_units)?;
+            let hue = parse_color_component(p, unsupported_units)?;
+
+            // Parse optional alpha
+            let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
+                parse_color_component(p, unsupported_units)?
+            } else {
+                // Default: inherit alpha from origin
+                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+            };
+
+            Ok(ThemeValue::RelativeColor {
+                space: ColorSpace::Oklch,
+                origin: Box::new(origin_color),
+                lightness,
+                component1: chroma,
+                component2: hue,
+                alpha,
+            })
+        } else {
+            // Absolute color syntax - parse as space-separated values
+            let mut values = Vec::new();
+
+            // Parse space-separated values
+            loop {
+                match parse_single_value(p, unsupported_units) {
+                    Ok(value) => values.push(value),
+                    Err(_) => break,
+                }
+
+                // Check for slash (alpha separator)
+                let state = p.state();
+                match p.next() {
+                    Ok(Token::Delim('/')) => {
+                        if let Ok(alpha) = parse_single_value(p, unsupported_units) {
+                            values.push(alpha);
+                        }
+                        break;
+                    }
+                    _ => p.reset(&state),
+                }
+            }
+
+            // Try to parse as absolute color
+            if let Some(color) = lab_color::parse_oklch_function(&values) {
+                Ok(ThemeValue::Color(color))
+            } else {
+                Ok(ThemeValue::Function("oklch".to_string(), values))
+            }
+        }
+    })
+}
+
+/// Parse oklab() function with optional "from <origin>" syntax
+fn parse_oklab_with_origin<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    use super::color_component::ColorComponent;
+    use crate::color::types::ColorSpace;
+
+    parser.parse_nested_block(|p| {
+        let origin = try_parse_origin_color(p, unsupported_units)?;
+
+        if let Some(origin_color) = origin {
+            // Relative color syntax: oklab(from <origin> L A B [/ alpha])
+            let lightness = parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Oklab))?;
+            let a_component = parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Oklab))?;
+            let b_component = parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Oklab))?;
+
+            let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
+                parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Oklab))?
+            } else {
+                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+            };
+
+            Ok(ThemeValue::RelativeColor {
+                space: ColorSpace::Oklab,
+                origin: Box::new(origin_color),
+                lightness,
+                component1: a_component,
+                component2: b_component,
+                alpha,
+            })
+        } else {
+            // Absolute color syntax
+            let mut values = Vec::new();
+            loop {
+                match parse_single_value(p, unsupported_units) {
+                    Ok(value) => values.push(value),
+                    Err(_) => break,
+                }
+                let state = p.state();
+                match p.next() {
+                    Ok(Token::Delim('/')) => {
+                        if let Ok(alpha) = parse_single_value(p, unsupported_units) {
+                            values.push(alpha);
+                        }
+                        break;
+                    }
+                    _ => p.reset(&state),
+                }
+            }
+
+            if let Some(color) = lab_color::parse_oklab_function(&values) {
+                Ok(ThemeValue::Color(color))
+            } else {
+                Ok(ThemeValue::Function("oklab".to_string(), values))
+            }
+        }
+    })
+}
+
+/// Parse lch() function with optional "from <origin>" syntax
+fn parse_lch_with_origin<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    use super::color_component::ColorComponent;
+    use crate::color::types::ColorSpace;
+
+    parser.parse_nested_block(|p| {
+        let origin = try_parse_origin_color(p, unsupported_units)?;
+
+        if let Some(origin_color) = origin {
+            // Relative color syntax: lch(from <origin> L C H [/ alpha])
+            let lightness = parse_color_component(p, unsupported_units)?;
+            let chroma = parse_color_component(p, unsupported_units)?;
+            let hue = parse_color_component(p, unsupported_units)?;
+
+            let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
+                parse_color_component(p, unsupported_units)?
+            } else {
+                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+            };
+
+            Ok(ThemeValue::RelativeColor {
+                space: ColorSpace::Lch,
+                origin: Box::new(origin_color),
+                lightness,
+                component1: chroma,
+                component2: hue,
+                alpha,
+            })
+        } else {
+            // Absolute color syntax
+            let mut values = Vec::new();
+            loop {
+                match parse_single_value(p, unsupported_units) {
+                    Ok(value) => values.push(value),
+                    Err(_) => break,
+                }
+                let state = p.state();
+                match p.next() {
+                    Ok(Token::Delim('/')) => {
+                        if let Ok(alpha) = parse_single_value(p, unsupported_units) {
+                            values.push(alpha);
+                        }
+                        break;
+                    }
+                    _ => p.reset(&state),
+                }
+            }
+
+            if let Some(color) = lab_color::parse_lch_function(&values) {
+                Ok(ThemeValue::Color(color))
+            } else {
+                Ok(ThemeValue::Function("lch".to_string(), values))
+            }
+        }
+    })
+}
+
+/// Parse lab() function with optional "from <origin>" syntax
+fn parse_lab_with_origin<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    use super::color_component::ColorComponent;
+    use crate::color::types::ColorSpace;
+
+    parser.parse_nested_block(|p| {
+        let origin = try_parse_origin_color(p, unsupported_units)?;
+
+        if let Some(origin_color) = origin {
+            // Relative color syntax: lab(from <origin> L A B [/ alpha])
+            let lightness = parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Lab))?;
+            let a_component = parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Lab))?;
+            let b_component = parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Lab))?;
+
+            let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
+                parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Lab))?
+            } else {
+                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+            };
+
+            Ok(ThemeValue::RelativeColor {
+                space: ColorSpace::Lab,
+                origin: Box::new(origin_color),
+                lightness,
+                component1: a_component,
+                component2: b_component,
+                alpha,
+            })
+        } else {
+            // Absolute color syntax
+            let mut values = Vec::new();
+            loop {
+                match parse_single_value(p, unsupported_units) {
+                    Ok(value) => values.push(value),
+                    Err(_) => break,
+                }
+                let state = p.state();
+                match p.next() {
+                    Ok(Token::Delim('/')) => {
+                        if let Ok(alpha) = parse_single_value(p, unsupported_units) {
+                            values.push(alpha);
+                        }
+                        break;
+                    }
+                    _ => p.reset(&state),
+                }
+            }
+
+            if let Some(color) = lab_color::parse_lab_function(&values) {
+                Ok(ThemeValue::Color(color))
+            } else {
+                Ok(ThemeValue::Function("lab".to_string(), values))
+            }
+        }
+    })
+}
+
+/// Parse hsl() function with optional "from <origin>" syntax
+fn parse_hsl_with_origin<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    use super::color_component::ColorComponent;
+    use crate::color::types::ColorSpace;
+
+    parser.parse_nested_block(|p| {
+        let origin = try_parse_origin_color(p, unsupported_units)?;
+
+        if let Some(origin_color) = origin {
+            // Relative color syntax: hsl(from <origin> H S L [/ alpha])
+            let hue = parse_color_component(p, unsupported_units)?;
+            let saturation = parse_color_component(p, unsupported_units)?;
+            let lightness = parse_color_component(p, unsupported_units)?;
+
+            let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
+                parse_color_component(p, unsupported_units)?
+            } else {
+                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+            };
+
+            Ok(ThemeValue::RelativeColor {
+                space: ColorSpace::Hsl,
+                origin: Box::new(origin_color),
+                lightness,
+                component1: saturation,
+                component2: hue,
+                alpha,
+            })
+        } else {
+            // Absolute color syntax - parse comma-separated args
+            let args = p.parse_comma_separated(|p| parse_single_value(p, unsupported_units))?;
+
+            if let Some(color) = css_value::parse_hsl_function(&args) {
+                Ok(ThemeValue::Color(color))
+            } else {
+                Ok(ThemeValue::Function("hsl".to_string(), args))
+            }
+        }
+    })
+}
+
+/// Parse hwb() function with optional "from <origin>" syntax
+fn parse_hwb_with_origin<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    use super::color_component::ColorComponent;
+    use crate::color::types::ColorSpace;
+
+    parser.parse_nested_block(|p| {
+        let origin = try_parse_origin_color(p, unsupported_units)?;
+
+        if let Some(origin_color) = origin {
+            // Relative color syntax: hwb(from <origin> H W B [/ alpha])
+            let hue = parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Hwb))?;
+            let whiteness = parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Hwb))?;
+            let blackness = parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Hwb))?;
+
+            let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
+                parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Hwb))?
+            } else {
+                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+            };
+
+            Ok(ThemeValue::RelativeColor {
+                space: ColorSpace::Hwb,
+                origin: Box::new(origin_color),
+                lightness: hue,
+                component1: whiteness,
+                component2: blackness,
+                alpha,
+            })
+        } else {
+            // Absolute color syntax - hwb not currently supported as absolute
+            let mut values = Vec::new();
+            loop {
+                match parse_single_value(p, unsupported_units) {
+                    Ok(value) => values.push(value),
+                    Err(_) => break,
+                }
+                let state = p.state();
+                match p.next() {
+                    Ok(Token::Delim('/')) => {
+                        if let Ok(alpha) = parse_single_value(p, unsupported_units) {
+                            values.push(alpha);
+                        }
+                        break;
+                    }
+                    _ => p.reset(&state),
+                }
+            }
+            Ok(ThemeValue::Function("hwb".to_string(), values))
+        }
+    })
+}
+
+/// Parse rgb() function with optional "from <origin>" syntax
+fn parse_rgb_with_origin<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    use super::color_component::ColorComponent;
+    use crate::color::types::ColorSpace;
+
+    parser.parse_nested_block(|p| {
+        let origin = try_parse_origin_color(p, unsupported_units)?;
+
+        if let Some(origin_color) = origin {
+            // Relative color syntax: rgb(from <origin> R G B [/ alpha])
+            let red = parse_color_component(p, unsupported_units)?;
+            let green = parse_color_component(p, unsupported_units)?;
+            let blue = parse_color_component(p, unsupported_units)?;
+
+            let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
+                parse_color_component(p, unsupported_units)?
+            } else {
+                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+            };
+
+            Ok(ThemeValue::RelativeColor {
+                space: ColorSpace::Srgb,
+                origin: Box::new(origin_color),
+                lightness: red,
+                component1: green,
+                component2: blue,
+                alpha,
+            })
+        } else {
+            // Absolute color syntax - parse comma-separated args
+            let args = p.parse_comma_separated(|p| parse_single_value(p, unsupported_units))?;
+
+            if let Some(color) = css_value::parse_rgb_function(&args) {
+                Ok(ThemeValue::Color(color))
+            } else {
+                Ok(ThemeValue::Function("rgb".to_string(), args))
+            }
+        }
+    })
 }

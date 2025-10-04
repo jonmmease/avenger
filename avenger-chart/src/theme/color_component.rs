@@ -21,7 +21,7 @@ use indexmap::IndexMap;
 ///
 /// Used in relative color syntax to represent components that can reference
 /// the origin color's channels.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ColorComponent {
     /// A literal numeric value (0.5, 180.0, etc.)
     Literal(f64),
@@ -68,19 +68,18 @@ impl ColorComponent {
             }
 
             ColorComponent::Calc(node) => {
-                // First, substitute channel keywords in the calc expression
-                let with_keywords = if origin_color.is_some() {
-                    node.substitute_channel_keywords(origin_color)?
-                } else {
-                    node.clone()
-                };
+                // Resolve calc with BOTH runtime parameters AND channel keywords
+                // The new resolve_with_params_and_origin handles the correct order:
+                // 1. Substitute CSS variables (var(--x))
+                // 2. Substitute channel keywords (l, c, h, etc.)
+                // 3. Resolve to final value
+                let resolved = node.resolve_with_params_and_origin(params, base_font_size, origin_color)?;
 
-                // Then resolve calc with runtime parameters
-                let resolved = with_keywords.resolve_with_params(params, base_font_size)?;
-
-                // Extract numeric value
-                resolved.as_number()
-                    .ok_or_else(|| "Color component calc must resolve to number".to_string())
+                // Extract numeric value - handle both Number and Angle (angles are in degrees)
+                resolved
+                    .as_number()
+                    .or_else(|| resolved.as_angle_degrees())
+                    .ok_or_else(|| "Color component calc must resolve to number or angle".to_string())
             }
         }
     }
@@ -100,13 +99,19 @@ impl ColorComponent {
                 Ok(ColorComponent::Literal(deg))
             }
 
-            ThemeValue::Length(val, unit) => {
+            ThemeValue::Length(val, _unit) => {
                 // For now, just use the numeric value
                 // In a full implementation, we'd handle unit conversion
                 Ok(ColorComponent::Literal(*val))
             }
 
             ThemeValue::Calc(node) => Ok(ColorComponent::Calc(*node.clone())),
+
+            // Handle CSS variables - wrap in a Calc node
+            ThemeValue::Variable(name) => {
+                use super::calc::{CalcLeaf, CalcNode};
+                Ok(ColorComponent::Calc(CalcNode::Leaf(CalcLeaf::Variable(name.clone()))))
+            }
 
             _ => Err(format!("Cannot convert {:?} to ColorComponent", value)),
         }
@@ -180,5 +185,63 @@ mod tests {
         let comp = ColorComponent::None;
         let result = comp.resolve(None, &IndexMap::new(), 16.0).unwrap();
         assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_calc_with_channel_keyword() {
+        use crate::theme::calc::{CalcLeaf, CalcNode};
+
+        // Build calc(l - 0.2) manually
+        let calc = CalcNode::Sum(vec![
+            CalcNode::Leaf(CalcLeaf::ChannelKeyword(ChannelKeyword::L)),
+            CalcNode::Leaf(CalcLeaf::Number(-0.2)),
+        ]);
+        let comp = ColorComponent::Calc(calc);
+
+        // Origin color with L = 0.6
+        let origin = AbsoluteColor::new(ColorSpace::Oklch, 0.6, 0.2, 180.0, 1.0);
+        let result = comp.resolve(Some(&origin), &IndexMap::new(), 16.0).unwrap();
+
+        // Should be 0.6 - 0.2 = 0.4
+        assert!((result - 0.4).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_calc_with_runtime_param() {
+        use crate::theme::calc::{CalcLeaf, CalcNode};
+
+        // Build calc(l * 0.5) manually (using literal instead of variable for unit test)
+        let calc = CalcNode::Product(vec![
+            CalcNode::Leaf(CalcLeaf::ChannelKeyword(ChannelKeyword::L)),
+            CalcNode::Leaf(CalcLeaf::Number(0.5)),
+        ]);
+        let comp = ColorComponent::Calc(calc);
+
+        // Origin color with L = 0.8
+        let origin = AbsoluteColor::new(ColorSpace::Oklch, 0.8, 0.2, 180.0, 1.0);
+
+        let result = comp.resolve(Some(&origin), &IndexMap::new(), 16.0).unwrap();
+
+        // Should be 0.8 * 0.5 = 0.4
+        assert!((result - 0.4).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_calc_with_hue_channel() {
+        use crate::theme::calc::{CalcLeaf, CalcNode};
+
+        // Build calc(h + 120) manually (hue is substituted as unitless number in degrees)
+        let calc = CalcNode::Sum(vec![
+            CalcNode::Leaf(CalcLeaf::ChannelKeyword(ChannelKeyword::H)),
+            CalcNode::Leaf(CalcLeaf::Number(120.0)),
+        ]);
+        let comp = ColorComponent::Calc(calc);
+
+        // Origin color with H = 180deg
+        let origin = AbsoluteColor::new(ColorSpace::Oklch, 0.6, 0.2, 180.0, 1.0);
+        let result = comp.resolve(Some(&origin), &IndexMap::new(), 16.0).unwrap();
+
+        // Should be 180 + 120 = 300
+        assert!((result - 300.0).abs() < 0.001);
     }
 }
