@@ -144,7 +144,8 @@ async fn test_base_font_size_with_param() {
     let theme = Theme::light();
 
     // Override base font size to 18px using a parameter
-    let base_font_param = Param::new("base-font-size", 18.0f32);
+    // NOTE: Must use string "18px" not float 18.0, so it gets parsed as Length
+    let base_font_param = Param::new("base-font-size", "18px");
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
@@ -171,7 +172,8 @@ async fn test_base_font_size_with_param() {
     assert_visual_match_default(plot, "theme_font_size", "base_font_size_with_param").await;
 
     // Now test with a larger font size (24px) to show params can be changed
-    let larger_font_param = Param::new("base-font-size", 24.0f32);
+    // NOTE: Must use string "24px" not float 24.0, so it gets parsed as Length
+    let larger_font_param = Param::new("base-font-size", "24px");
 
     // Recreate the same plot with the larger param
     let categories = StringArray::from(vec!["Red", "Green", "Blue", "Red", "Green", "Blue"]);
