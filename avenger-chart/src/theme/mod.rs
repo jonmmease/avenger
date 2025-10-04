@@ -246,6 +246,7 @@ mod value;
 
 // CSS-based theme implementation modules
 pub(crate) mod color_mix;
+pub(crate) mod contrast_color;
 pub(crate) mod css_value;
 pub(crate) mod element;
 pub(crate) mod lab_color;

@@ -180,7 +180,9 @@ impl ThemeValue {
                 let f64_params = scalar_value_params_to_f64(params);
 
                 // Resolve calc with params
-                let resolved = calc_node.resolve_with_params(&f64_params, base_font_size).ok()?;
+                let resolved = calc_node
+                    .resolve_with_params(&f64_params, base_font_size)
+                    .ok()?;
                 resolved.as_length_px(base_font_size)
             }
             _ => None,
@@ -309,6 +311,19 @@ impl ThemeValue {
                 // 6. Convert to CssRgba
                 Some(derived.to_css_rgba())
             }
+
+            // Handle function calls that return colors (e.g., contrast-color, color-mix)
+            ThemeValue::Function(name, args) => match name.as_str() {
+                "contrast-color" => {
+                    use crate::theme::contrast_color::resolve_contrast_color_with_params;
+                    resolve_contrast_color_with_params(args, params, base_font_size)
+                }
+                "color-mix" => {
+                    use crate::theme::color_mix::resolve_color_mix_with_params;
+                    resolve_color_mix_with_params(args, params, base_font_size)
+                }
+                _ => None,
+            },
 
             _ => None,
         }
