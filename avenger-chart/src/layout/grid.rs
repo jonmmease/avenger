@@ -208,7 +208,7 @@ impl GridBuilder {
         theme: &Theme,
         layout_spec: &LayoutSpec,
         legend_sizes: &HashMap<String, Size<f32>>,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<GridLayout, AvengerChartError> {
         // Use margins from layout spec
         let margins = &layout_spec.margins;
@@ -305,7 +305,7 @@ impl GridBuilder {
                     .or_else(|| theme.font_size(&title_ctx))
                     .unwrap_or(16.0);
                 let title_font_family = theme
-                    .title_font_family()
+                    .font_family(&title_ctx)
                     .unwrap_or_else(|| "sans-serif".to_string());
                 let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
 
@@ -338,7 +338,7 @@ impl GridBuilder {
                     .or_else(|| theme.font_size(&subtitle_ctx))
                     .unwrap_or(14.0);
                 let subtitle_font_family = theme
-                    .subtitle_font_family()
+                    .font_family(&subtitle_ctx)
                     .unwrap_or_else(|| "sans-serif".to_string());
                 let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
 

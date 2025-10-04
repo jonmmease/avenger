@@ -37,7 +37,7 @@ impl CompiledPlot {
             x: x.into(),
             y: y.into(),
             color: avenger_common::types::ColorOrGradient::Color(
-                theme.title_color().unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
             )
             .into(),
             font_size: title
@@ -48,12 +48,12 @@ impl CompiledPlot {
             font: title
                 .font_family
                 .clone()
-                .or_else(|| theme.title_font_family())
+                .or_else(|| theme.font_family(&title_ctx))
                 .unwrap_or_else(|| "sans-serif".to_string())
                 .into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(
-                theme.title_font_weight().unwrap_or(400.0),
+                theme.font_weight(&title_ctx).unwrap_or(400.0),
             )
             .into(),
             align: TextAlign::Left.into(),
@@ -93,7 +93,7 @@ impl CompiledPlot {
             x: x.into(),
             y: y.into(),
             color: avenger_common::types::ColorOrGradient::Color(
-                theme.subtitle_color().unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                theme.text_color(&subtitle_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
             )
             .into(),
             font_size: subtitle
@@ -104,12 +104,12 @@ impl CompiledPlot {
             font: subtitle
                 .font_family
                 .clone()
-                .or_else(|| theme.subtitle_font_family())
+                .or_else(|| theme.font_family(&subtitle_ctx))
                 .unwrap_or_else(|| "sans-serif".to_string())
                 .into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(
-                theme.subtitle_font_weight().unwrap_or(400.0),
+                theme.font_weight(&subtitle_ctx).unwrap_or(400.0),
             )
             .into(),
             align: TextAlign::Left.into(),

@@ -85,7 +85,7 @@ fn test_theme_trait_methods() {
 
     let axis_context = ThemeContext::new("axis");
     // Colors are now returned as [f32; 4] arrays
-    let axis_color = theme.color(&axis_context).unwrap();
+    let axis_color = theme.text_color(&axis_context).unwrap();
     assert!((axis_color[0] - 0.4).abs() < 0.01); // ~102/255 = 0.4
     assert!((axis_color[1] - 0.4).abs() < 0.01);
     assert!((axis_color[2] - 0.4).abs() < 0.01);

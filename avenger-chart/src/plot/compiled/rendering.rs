@@ -444,7 +444,7 @@ impl CompiledPlot {
         };
 
         // Get legends with theme applied
-        let all_legends = self.get_legends_with_theme(scales, ctx);
+        let all_legends = self.get_legends_with_theme(scales, ctx, params);
 
         // Use the helper to merge legend channels
         let (_channel_groups, legends_map) =
@@ -485,7 +485,7 @@ impl CompiledPlot {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Get legends with theme applied (same as used for layout)
-        let all_legend_configs = self.get_legends_with_theme(scales, ctx);
+        let all_legend_configs = self.get_legends_with_theme(scales, ctx, params);
 
         // Use the helper to merge legend channels
         let (sorted_channel_groups, _legends_map) =
@@ -770,7 +770,8 @@ impl CompiledPlot {
         };
 
         // Add background rect if theme specifies one
-        if let Some(color) = theme.canvas_background() {
+        let canvas_ctx = crate::theme::ThemeContext::new("canvas").with_params(merged_params.clone());
+        if let Some(color) = theme.query(&canvas_ctx, "background-color").and_then(|v| v.as_color_array()) {
             use avenger_common::types::ColorOrGradient;
             use avenger_scenegraph::marks::rect::SceneRectMark;
 
