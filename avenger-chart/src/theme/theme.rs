@@ -83,93 +83,113 @@ impl Theme {
                 --base-font-size: 12px;  /* Can be overridden via parameter */
                 font-size: var(--base-font-size);  /* Base font size for rem calculations */
 
-                /* Adaptive color palette - uses comma-separated list, each item can use light-dark() */
+                /* === Core Color System === */
+                /* Define background, derive everything else */
+                --bg-color: light-dark(white, #1E1E1E);
+                --canvas-bg-color: light-dark(transparent, #121212);
+
+                /* Define text color - very dark gray for light mode, white for dark mode */
+                --text-color: light-dark(#1a1a1a, white);
+
+                /* === Derived Grays via color-mix === */
+                /* Grid: Very subtle, 88% background */
+                --grid-color: color-mix(in srgb, var(--bg-color) 88%, var(--text-color) 12%);
+
+                /* Secondary text: Medium mix, 35% toward background */
+                --text-secondary: color-mix(in srgb, var(--text-color) 65%, var(--bg-color) 35%);
+
+                /* Tertiary text: Lighter, 50% toward background */
+                --text-tertiary: color-mix(in srgb, var(--text-color) 50%, var(--bg-color) 50%);
+
+                /* Border/domain: Very close to text, 10% toward background */
+                --border-color: color-mix(in srgb, var(--text-color) 90%, var(--bg-color) 10%);
+
+                /* Okabe-Ito color palette (colorblind-friendly) */
                 --categorical-colors:
-                    light-dark(#0072B2, #56B4E9),
-                    light-dark(#E69F00, #E69F00),
-                    light-dark(#009E73, #009E73),
-                    light-dark(#F0E442, #F0E442),
-                    light-dark(#D55E00, #D55E00),
-                    light-dark(#56B4E9, #0072B2),
-                    light-dark(#CC79A7, #CC79A7),
-                    light-dark(#999999, #999999);
+                    #0072B2,
+                    #E69F00,
+                    #009E73,
+                    #F0E442,
+                    #D55E00,
+                    #56B4E9,
+                    #CC79A7,
+                    #999999;
                 --viridis-colors: #440154, #31688E, #35B779, #FDE725;
             }
 
-            /* Backgrounds - only in dark mode */
+            /* Backgrounds */
             canvas {
-                background-color: light-dark(transparent, #121212);
+                background-color: var(--canvas-bg-color);
             }
 
             plot {
-                background-color: light-dark(transparent, #1E1E1E);
+                background-color: var(--bg-color);
             }
 
-            /* Chart title styling */
+            /* === Chart Titles === */
             chart-title {
-                color: light-dark(#1a1a1a, #FFFFFF);
+                color: var(--text-color);
                 font-weight: 500;
                 font-size: 1.5rem; /* 18px @ 12px base */
             }
 
             chart-subtitle {
-                color: light-dark(#4a4a4a, #FFFFFF);
+                color: var(--text-secondary);
                 font-weight: 200;
                 font-size: 1.167rem; /* 14px @ 12px base */
             }
 
-            /* Axis child elements */
+            /* === Axis Elements === */
             axis domain {
-                stroke: light-dark(#000, #FFFFFF);
+                stroke: var(--border-color);
                 stroke-width: 1.0;
             }
 
             axis tick {
-                stroke: light-dark(#000, #FFFFFF);
+                stroke: var(--border-color);
                 size: 5.0;
             }
 
             axis title {
-                color: light-dark(#2a2a2a, #FFFFFF);
+                color: var(--text-color);
                 font-weight: 400;
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
             axis label {
-                color: light-dark(#5a5a5a, #AAAAAA);
+                color: var(--text-secondary);
                 font-weight: 300;
                 font-size: 0.833rem; /* 10px @ 12px base */
                 padding: 3;
             }
 
             axis grid {
-                stroke: light-dark(#e0e0e0, #30363D);
+                stroke: var(--grid-color);
                 opacity: 0.5;
                 stroke-width: 0.5;
             }
 
-            /* Legend styling - container level */
+            /* === Legend Elements === */
             legend {
                 spacing: 10;
                 symbol-size: 100;
                 label-padding: 5;
             }
 
-            /* Legend child elements */
             legend title {
-                color: light-dark(#2C2C2C, #FFFFFF);
+                color: var(--text-color);
                 font-weight: 400;
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
             legend label {
-                color: light-dark(#3C3C3C, #E1E6EA);
+                color: var(--text-color);
                 font-weight: 300;
                 font-size: 0.917rem; /* 11px @ 12px base */
             }
 
             legend tick {
-                color: light-dark(#5a5a5a, #AAAAAA);
+                color: var(--text-secondary);
                 font-weight: 300;
                 font-size: 0.833rem; /* 10px @ 12px base */
             }
@@ -178,10 +198,10 @@ impl Theme {
                 padding: 8;
             }
 
-            /* Mark defaults - dark theme uses 0 stroke width by default */
+            /* === Mark Defaults === */
             mark[type="symbol"] {
-                fill: light-dark(#4682b4, #56B4E9);
-                stroke: light-dark(#000000, #30363D);
+                fill: light-dark(#0072B2, #56B4E9);
+                stroke: var(--border-color);
                 stroke-width: light-dark(1.0, 0.0);
                 size: 64;
                 shape: circle;
@@ -189,15 +209,15 @@ impl Theme {
             }
 
             mark[type="rect"] {
-                fill: light-dark(#4682b4, #56B4E9);
-                stroke: light-dark(#000000, #30363D);
+                fill: light-dark(#0072B2, #56B4E9);
+                stroke: var(--border-color);
                 stroke-width: light-dark(1.0, 0.0);
                 corner-radius: 0;
                 opacity: 1.0;
             }
 
             mark[type="line"] {
-                stroke: light-dark(#4682b4, #56B4E9);
+                stroke: light-dark(#0072B2, #56B4E9);
                 stroke-width: 2.0;
                 stroke-dash: solid;
                 stroke-cap: round;
@@ -206,7 +226,7 @@ impl Theme {
             }
 
             mark[type="text"] {
-                fill: light-dark(#000000, #C9D1D9);
+                fill: var(--text-color);
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
@@ -549,7 +569,6 @@ impl Theme {
         DEFAULT_BASE_FONT_SIZE
     }
 
-
     /// Build a legend context with optional subtype
     pub fn legend_context(&self, subtype: Option<&str>) -> ThemeContext {
         let mut legend_ctx = ThemeContext::new("legend");
@@ -673,10 +692,7 @@ impl Theme {
             .map(|n| n as f32)
     }
 
-
     // Guide (coordinate system) theme methods
-
-
 
     /// Get axis grid width
     ///
@@ -688,7 +704,6 @@ impl Theme {
         self.stroke_width(&ctx)
     }
 
-
     /// Get axis tick length
     ///
     /// # Arguments
@@ -699,7 +714,6 @@ impl Theme {
         self.query(&ctx, "size")
             .and_then(|v| v.as_font_size(self.get_base_font_size(&ctx.params)))
     }
-
 
     /// Get range for a specific channel based on mark type and range kind
     ///
@@ -1040,7 +1054,10 @@ mod tests {
 
         // Check that CSS sources are preserved
         assert_eq!(theme.css_sources.len(), deserialized.css_sources.len());
-        assert_eq!(theme.get_base_font_size(&IndexMap::new()), deserialized.get_base_font_size(&IndexMap::new()));
+        assert_eq!(
+            theme.get_base_font_size(&IndexMap::new()),
+            deserialized.get_base_font_size(&IndexMap::new())
+        );
 
         // Verify the theme works correctly after deserialization
         let context = crate::theme::ThemeContext {
@@ -1903,10 +1920,10 @@ mod tests {
         let fill_light = theme.query(&ctx, "fill");
         match fill_light {
             Some(ThemeValue::Color(c)) => {
-                // Should be light mode color #4682b4
-                assert_eq!(c.red, 70);
-                assert_eq!(c.green, 130);
-                assert_eq!(c.blue, 180);
+                // Should be light mode color #0072B2 (Okabe-Ito blue)
+                assert_eq!(c.red, 0);
+                assert_eq!(c.green, 114);
+                assert_eq!(c.blue, 178);
             }
             _ => panic!("Expected light mode fill color"),
         }
@@ -1924,7 +1941,7 @@ mod tests {
         let fill_dark = theme.query(&ctx_dark, "fill");
         match fill_dark {
             Some(ThemeValue::Color(c)) => {
-                // Should be dark mode color #56B4E9
+                // Should be dark mode color #56B4E9 (lighter Okabe-Ito blue)
                 assert_eq!(c.red, 86);
                 assert_eq!(c.green, 180);
                 assert_eq!(c.blue, 233);
@@ -1959,10 +1976,10 @@ mod tests {
         let fill_light_override = dark_theme.query(&ctx_light_override, "fill");
         match fill_light_override {
             Some(ThemeValue::Color(c)) => {
-                // Should be light mode color #4682b4
-                assert_eq!(c.red, 70);
-                assert_eq!(c.green, 130);
-                assert_eq!(c.blue, 180);
+                // Should be light mode color #0072B2 (Okabe-Ito blue)
+                assert_eq!(c.red, 0);
+                assert_eq!(c.green, 114);
+                assert_eq!(c.blue, 178);
             }
             _ => panic!("Expected light mode fill color with override"),
         }
