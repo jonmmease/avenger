@@ -243,7 +243,8 @@ impl CompiledGuide for CartesianGuide {
             let guide_ctx = crate::theme::ThemeContext::new("guide")
                 .with_subtype("cartesian")
                 .with_params(params.clone());
-            theme.query(&guide_ctx, "background-color")
+            theme
+                .query(&guide_ctx, "background-color")
                 .and_then(|v| v.as_color_array())
         });
 

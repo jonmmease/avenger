@@ -115,7 +115,9 @@ impl CompiledPlot {
                 .position(self.default_legend_position(channel));
 
             // Create legend context for querying theme values
-            let legend_ctx = theme.legend_context(legend_type).with_params(params.clone());
+            let legend_ctx = theme
+                .legend_context(legend_type)
+                .with_params(params.clone());
             let bg_ctx = legend_ctx.child("background");
             let base_font_size = theme.get_base_font_size(&legend_ctx.params);
 
@@ -261,7 +263,9 @@ impl CompiledPlot {
             };
 
             // Create legend context for querying theme values
-            let legend_ctx = theme.legend_context(legend_type).with_params(params.clone());
+            let legend_ctx = theme
+                .legend_context(legend_type)
+                .with_params(params.clone());
 
             // Theme only fills in Unset values
             // Apply theme fonts if not explicitly set

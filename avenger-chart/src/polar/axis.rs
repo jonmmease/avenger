@@ -365,7 +365,9 @@ impl PolarAxis {
                     text: ScalarOrArray::new_array(text_vals),
                     font: ScalarOrArray::new_scalar({
                         let ctx = axis_ctx.child("label");
-                        theme.font_family(&ctx).unwrap_or_else(|| "sans-serif".to_string())
+                        theme
+                            .font_family(&ctx)
+                            .unwrap_or_else(|| "sans-serif".to_string())
                     }),
                     font_weight: ScalarOrArray::new_scalar(
                         avenger_text::types::FontWeight::Number({
@@ -595,7 +597,9 @@ impl PolarAxis {
                     baseline: ScalarOrArray::new_array(label_baselines),
                     font: ScalarOrArray::new_scalar({
                         let ctx = axis_ctx.child("label");
-                        theme.font_family(&ctx).unwrap_or_else(|| "sans-serif".to_string())
+                        theme
+                            .font_family(&ctx)
+                            .unwrap_or_else(|| "sans-serif".to_string())
                     }),
                     font_weight: ScalarOrArray::new_scalar(
                         avenger_text::types::FontWeight::Number({
