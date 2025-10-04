@@ -208,6 +208,7 @@ impl GridBuilder {
         theme: &Theme,
         layout_spec: &LayoutSpec,
         legend_sizes: &HashMap<String, Size<f32>>,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<GridLayout, AvengerChartError> {
         // Use margins from layout spec
         let margins = &layout_spec.margins;
@@ -297,9 +298,11 @@ impl GridBuilder {
         // 2. Add title row if present
         if self.has_title {
             if let Some(t) = title {
+                // Create theme context with params for querying font size
+                let title_ctx = theme.title_context().with_params(params.clone());
                 let font_size = t
                     .font_size
-                    .or_else(|| theme.title_font_size())
+                    .or_else(|| theme.font_size(&title_ctx))
                     .unwrap_or(16.0);
                 let title_font_family = theme
                     .title_font_family()
@@ -328,9 +331,11 @@ impl GridBuilder {
         // 3. Add subtitle row if present
         if self.has_subtitle {
             if let Some(s) = subtitle {
+                // Create theme context with params for querying font size
+                let subtitle_ctx = theme.subtitle_context().with_params(params.clone());
                 let font_size = s
                     .font_size
-                    .or_else(|| theme.subtitle_font_size())
+                    .or_else(|| theme.font_size(&subtitle_ctx))
                     .unwrap_or(14.0);
                 let subtitle_font_family = theme
                     .subtitle_font_family()

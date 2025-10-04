@@ -55,6 +55,7 @@ impl CompiledGuide for NoGuide {
         _plot_width: f32,
         _plot_height: f32,
         _theme: &Theme,
+        _params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
     }
@@ -66,6 +67,7 @@ impl CompiledGuide for NoGuide {
         _plot_height: f32,
         _plot_bounds: &LayoutBounds,
         _theme: &Theme,
+        _params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }

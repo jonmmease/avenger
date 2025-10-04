@@ -80,6 +80,8 @@ impl LegendRenderer for CompiledSymbolLegend {
         y: f32,
         _width: f32,
         _height: f32,
+        theme: &crate::theme::Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         // Determine if this is a measure call (x=0, y=0) or actual render
         let is_measure = x == 0.0 && y == 0.0;
@@ -268,15 +270,30 @@ impl LegendRenderer for CompiledSymbolLegend {
         if let Some(size) = config.title_font_size.as_option() {
             legend_config.title_font_size = Some(*size);
         }
+        // Override font sizes with params
+        let legend_type = if self.has_rect_mark {
+            Some("rect")
+        } else {
+            Some("symbol")
+        };
+        let legend_ctx = theme
+            .legend_context(legend_type)
+            .with_params(params.clone());
+        let title_ctx = legend_ctx.child("title");
+        let label_ctx = legend_ctx.child("label");
+
+        if let Some(size) = theme.font_size(&title_ctx) {
+            legend_config.title_font_size = Some(size);
+        }
+        if let Some(size) = theme.font_size(&label_ctx) {
+            legend_config.label_font_size = Some(size);
+        }
         if let Some(weight) = config.title_font_weight.as_option() {
             legend_config.title_font_weight =
                 Some(avenger_text::types::FontWeight::Number(*weight));
         }
         if let Some(family) = config.label_font_family.as_option() {
             legend_config.label_font_family = Some(family.clone());
-        }
-        if let Some(size) = config.label_font_size.as_option() {
-            legend_config.label_font_size = Some(*size);
         }
         if let Some(weight) = config.label_font_weight.as_option() {
             legend_config.label_font_weight =

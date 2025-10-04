@@ -377,6 +377,7 @@ impl CompiledPlot {
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use the pre-built guide renderer if available
         if let Some(compiled_guide) = &self.compiled_guide {
@@ -393,6 +394,7 @@ impl CompiledPlot {
                     plot_height,
                     plot_bounds,
                     theme.as_ref(),
+                    params,
                 )
                 .await
         } else {
@@ -433,6 +435,7 @@ impl CompiledPlot {
                     width_estimate,
                     height_estimate,
                     theme.as_ref(),
+                    params,
                 )
                 .await?
         } else {
@@ -464,6 +467,7 @@ impl CompiledPlot {
             self.get_subtitle(),
             self.get_theme().as_ref(),
             &legend_measurements,
+            params,
         )?;
 
         // Compute layout using the layout spec and return it directly
@@ -527,6 +531,7 @@ impl CompiledPlot {
                 // Skip this legend group if no renderer is available
                 if let Some(renderer) = renderer_opt {
                     // Render the legend with the determined renderer
+                    let theme = self.get_theme();
                     let group_opt = renderer.render(
                         &channels,
                         legend,
@@ -534,6 +539,8 @@ impl CompiledPlot {
                         bounds.y,
                         bounds.width,
                         bounds.height,
+                        theme.as_ref(),
+                        params,
                     )?;
 
                     // Add the legend group mark if it was rendered
@@ -588,7 +595,13 @@ impl CompiledPlot {
 
         // Create guide marks (axes, grids, backgrounds)
         let guide_marks = self
-            .create_guide_marks(scales, plot_area_width, plot_area_height, plot_bounds)
+            .create_guide_marks(
+                scales,
+                plot_area_width,
+                plot_area_height,
+                plot_bounds,
+                params,
+            )
             .await?;
 
         // Create legends
@@ -603,14 +616,14 @@ impl CompiledPlot {
 
         // Create title
         let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
-            self.create_title(Some(*title_bounds))?
+            self.create_title(Some(*title_bounds), params)?
         } else {
             Vec::new()
         };
 
         // Create subtitle
         let subtitle_marks = if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
-            self.create_subtitle(Some(*subtitle_bounds))?
+            self.create_subtitle(Some(*subtitle_bounds), params)?
         } else {
             Vec::new()
         };

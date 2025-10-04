@@ -159,8 +159,8 @@ impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
         };
 
         // Collect all declaration parsing results, propagating errors
-        let results: Result<Vec<_>, _> = RuleBodyParser::new(input, &mut declaration_parser)
-            .collect();
+        let results: Result<Vec<_>, _> =
+            RuleBodyParser::new(input, &mut declaration_parser).collect();
 
         // If there were parse errors, convert to ParseError and return
         if let Err((err, _context)) = results {
@@ -504,10 +504,8 @@ fn parse_function_args<'i, 't>(
         // Parse comma-separated list of values
         // Each value is parsed recursively, enabling nested functions like:
         // light-dark(var(--color), #000)
-        let values: Vec<ThemeValue> = p
-            .parse_comma_separated(|parser| {
-                parse_single_value(parser, unsupported_units)
-            })?;
+        let values: Vec<ThemeValue> =
+            p.parse_comma_separated(|parser| parse_single_value(parser, unsupported_units))?;
 
         Ok(values)
     })

@@ -67,6 +67,8 @@ pub trait LegendRenderer: Send + Sync + 'static {
         y: f32,
         width: f32,
         height: f32,
+        theme: &crate::theme::Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Option<SceneGroup>, AvengerChartError>;
 
     /// Measure the size this legend will require by rendering it
@@ -75,6 +77,8 @@ pub trait LegendRenderer: Send + Sync + 'static {
         channels: &[LegendChannel],
         config: &Legend,
         available_space: taffy::Size<f32>,
+        theme: &crate::theme::Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<taffy::Size<f32>, AvengerChartError> {
         // Default implementation: render at origin and measure bounds
         use avenger_geometry::marks::MarkGeometryUtils;
@@ -88,6 +92,8 @@ pub trait LegendRenderer: Send + Sync + 'static {
             0.0,
             available_space.width,
             available_space.height,
+            theme,
+            params,
         )? {
             let bounds = group.bounding_box();
 

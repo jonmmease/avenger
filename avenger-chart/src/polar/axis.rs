@@ -130,11 +130,17 @@ impl PolarAxis {
         plot_bounds: &crate::layout::LayoutBounds,
         theme: &Theme,
         _plot_background_color: Option<[f32; 4]>,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use coordinate system type and channel for CSS selector support
         // e.g., guide[type="polar"] axis[type="theta"]
         let coord_type = Some("polar");
         let axis_type = Some(channel);
+
+        // Create context for theme queries with params
+        let axis_ctx = theme
+            .axis_context(coord_type, axis_type)
+            .with_params(params.clone());
         // Skip if invisible (default to visible if not set)
         if !self.visible.clone().unwrap_or(true) {
             return Ok(vec![]);
@@ -148,14 +154,12 @@ impl PolarAxis {
         match self.axis_type.clone().unwrap_or(PolarAxisType::Radial) {
             PolarAxisType::Radial => {
                 // Render radial axis (circles from center)
-                self.render_radial_axis(
-                    scale, center_x, center_y, radius, theme, coord_type, axis_type,
-                )
+                self.render_radial_axis(scale, center_x, center_y, radius, theme, &axis_ctx)
             }
             PolarAxisType::Angular => {
                 // Render angular axis (lines from center)
                 self.render_angular_axis(
-                    scale, center_x, center_y, radius, scales, theme, coord_type, axis_type,
+                    scale, center_x, center_y, radius, scales, theme, &axis_ctx,
                 )
             }
         }
@@ -168,9 +172,10 @@ impl PolarAxis {
         center_y: f32,
         _max_radius: f32,
         theme: &Theme,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
+        axis_ctx: &crate::theme::ThemeContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let coord_type = Some("polar");
+        let axis_type = axis_ctx.subtype.as_deref();
         use avenger_common::types::ColorOrGradient;
         use avenger_common::value::ScalarOrArray;
         use avenger_scenegraph::marks::arc::SceneArcMark;
@@ -404,9 +409,10 @@ impl PolarAxis {
         radius: f32,
         scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
         theme: &Theme,
-        coord_type: Option<&str>,
-        axis_type: Option<&str>,
+        axis_ctx: &crate::theme::ThemeContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let coord_type = Some("polar");
+        let axis_type = axis_ctx.subtype.as_deref();
         use avenger_common::types::ColorOrGradient;
         use avenger_common::types::StrokeCap;
         use avenger_common::value::ScalarOrArray;
@@ -497,7 +503,7 @@ impl PolarAxis {
                     color
                 })),
                 stroke_width: ScalarOrArray::new_scalar(
-                    theme.axis_grid_width(coord_type, axis_type).unwrap_or(1.0),
+                    theme.axis_grid_width(&axis_ctx).unwrap_or(1.0),
                 ),
                 stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Butt),
                 stroke_dash: None,

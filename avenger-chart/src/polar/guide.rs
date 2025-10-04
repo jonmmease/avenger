@@ -152,6 +152,7 @@ impl CompiledGuide for PolarGuide {
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
 
@@ -163,9 +164,16 @@ impl CompiledGuide for PolarGuide {
             height: plot_height,
         };
 
-        // Render axes to measure their bounding box
+        // Render axes to measure their bounding box with actual params
         let axis_marks = self
-            .render(scales, plot_width, plot_height, &initial_bounds, theme)
+            .render(
+                scales,
+                plot_width,
+                plot_height,
+                &initial_bounds,
+                theme,
+                params,
+            )
             .await?;
 
         // Calculate bounding box of all axis marks
@@ -223,6 +231,7 @@ impl CompiledGuide for PolarGuide {
         plot_height: f32,
         plot_bounds: &LayoutBounds,
         theme: &Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 
@@ -311,6 +320,7 @@ impl CompiledGuide for PolarGuide {
                     plot_bounds,
                     theme,
                     self.options.plot_background_color,
+                    params,
                 )?;
                 marks.extend(axis_marks);
             }

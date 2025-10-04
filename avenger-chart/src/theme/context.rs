@@ -1,5 +1,7 @@
 //! Theme context for hierarchical element styling
 
+use datafusion::common::ScalarValue;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -27,6 +29,10 @@ pub struct ThemeContext {
 
     /// Parent context for hierarchical CSS selectors
     pub parent: Option<Arc<ThemeContext>>,
+
+    /// Parameter values for CSS variable resolution
+    /// These params can override CSS variables defined in the theme
+    pub params: IndexMap<String, ScalarValue>,
 }
 
 impl ThemeContext {
@@ -39,6 +45,7 @@ impl ThemeContext {
             id: None,
             attributes: HashMap::new(),
             parent: None,
+            params: IndexMap::new(),
         }
     }
 
@@ -51,7 +58,14 @@ impl ThemeContext {
             id: None,
             attributes: HashMap::new(),
             parent: Some(Arc::new(self.clone())),
+            params: self.params.clone(), // Inherit params from parent
         }
+    }
+
+    /// Set the params for this context
+    pub fn with_params(mut self, params: IndexMap<String, ScalarValue>) -> Self {
+        self.params = params;
+        self
     }
 
     /// Set the subtype for the element

@@ -145,6 +145,7 @@ impl CompiledGuide for CartesianGuide {
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
 
@@ -156,9 +157,16 @@ impl CompiledGuide for CartesianGuide {
             height: plot_height,
         };
 
-        // Render axes to measure their bounding box
+        // Render axes to measure their bounding box with actual params
         let axis_marks = self
-            .render(scales, plot_width, plot_height, &initial_bounds, theme)
+            .render(
+                scales,
+                plot_width,
+                plot_height,
+                &initial_bounds,
+                theme,
+                params,
+            )
             .await?;
 
         // Calculate bounding box of all axis marks
@@ -224,6 +232,7 @@ impl CompiledGuide for CartesianGuide {
         plot_height: f32,
         plot_bounds: &LayoutBounds,
         theme: &Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 
@@ -305,8 +314,15 @@ impl CompiledGuide for CartesianGuide {
         // Render each axis
         for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
-                let axis_mark =
-                    axis.render(channel, scale, plot_width, plot_height, plot_bounds, theme)?;
+                let axis_mark = axis.render(
+                    channel,
+                    scale,
+                    plot_width,
+                    plot_height,
+                    plot_bounds,
+                    theme,
+                    params,
+                )?;
                 marks.push(axis_mark);
             }
         }

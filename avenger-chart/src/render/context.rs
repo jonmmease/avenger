@@ -66,7 +66,9 @@ impl RenderContext {
         context: &crate::theme::ThemeContext,
         property: &str,
     ) -> Option<crate::theme::ThemeValue> {
-        self.theme.query_with_params(context, property, &self.params)
+        // Add render params to the context
+        let context_with_params = context.clone().with_params(self.params.clone());
+        self.theme.query(&context_with_params, property)
     }
 
     /// Get font size with parameter support
@@ -80,6 +82,8 @@ impl RenderContext {
     /// # Returns
     /// Resolved font size in pixels, or None if not found
     pub fn font_size(&self, context: &crate::theme::ThemeContext) -> Option<f32> {
-        self.theme.font_size_with_params(context, &self.params)
+        // Add render params to the context
+        let context_with_params = context.clone().with_params(self.params.clone());
+        self.theme.font_size(&context_with_params)
     }
 }
