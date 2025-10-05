@@ -29,7 +29,7 @@ async fn test_symbol_default_channel_values() {
     // Test default channel values
     assert_eq!(
         renderer.default_channel_value("size", &context).unwrap(),
-        ScalarValue::Float32(Some(64.0))
+        ScalarValue::Float32(Some(72.0))
     );
     assert_eq!(
         renderer.default_channel_value("shape", &context).unwrap(),
@@ -39,13 +39,16 @@ async fn test_symbol_default_channel_values() {
         renderer.default_channel_value("angle", &context).unwrap(),
         ScalarValue::Float32(Some(0.0))
     );
+    // Fill has a hardcoded default of steelblue (#4682b4)
     assert_eq!(
         renderer.default_channel_value("fill", &context).unwrap(),
         ScalarValue::Utf8(Some("#4682b4".to_string()))
     );
+
+    // Stroke is var(--bg-color) which is white in light mode
     assert_eq!(
         renderer.default_channel_value("stroke", &context).unwrap(),
-        ScalarValue::Utf8(Some("#000000".to_string()))
+        ScalarValue::Utf8(Some("#ffffff".to_string()))
     );
     assert_eq!(
         renderer.default_channel_value("opacity", &context).unwrap(),
