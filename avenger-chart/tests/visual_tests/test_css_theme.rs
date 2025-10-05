@@ -492,3 +492,71 @@ async fn test_css_theme_discrete_continuous_properties() {
 
     assert_visual_match(plot, "css_theme", "css_theme_discrete_continuous", 0.9999).await;
 }
+
+#[tokio::test]
+async fn test_runtime_color_params() {
+    // Use default theme but override colors with runtime params
+    use avenger_chart::param::Param;
+    use datafusion::common::ScalarValue;
+
+    let theme = Theme::light();
+
+    // Create a simple scatter plot
+    let data = vec![
+        (1.0, 2.0, "Category A"),
+        (2.0, 5.0, "Category B"),
+        (3.0, 3.0, "Category C"),
+        (4.0, 8.0, "Category A"),
+        (5.0, 4.0, "Category B"),
+        (6.0, 9.0, "Category C"),
+        (7.0, 6.0, "Category A"),
+        (8.0, 7.0, "Category B"),
+    ];
+
+    let x_array = Float64Array::from(data.iter().map(|(x, _, _)| *x).collect::<Vec<_>>());
+    let y_array = Float64Array::from(data.iter().map(|(_, y, _)| *y).collect::<Vec<_>>());
+    let category_array = StringArray::from(data.iter().map(|(_, _, c)| *c).collect::<Vec<_>>());
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("category", DataType::Utf8, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(x_array),
+            Arc::new(y_array),
+            Arc::new(category_array),
+        ],
+    )
+    .expect("Failed to create RecordBatch");
+
+    let ctx = SessionContext::new();
+    let df = ctx
+        .read_batch(batch)
+        .expect("Failed to read batch into DataFrame");
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .title("Runtime Color Override")
+        .subtitle("Chocolate brown background with cyan text")
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| c.axis(|a| a.title("X Values").grid(true)))
+                .y_with(col("y"), |c| c.axis(|a| a.title("Y Values").grid(true)))
+                .fill(col("category")),
+        )
+        .theme(theme)
+        .add_param(Param::new(
+            "--bg-color",
+            ScalarValue::Utf8(Some("#3E2723".to_string())), // Dark chocolate brown
+        ))
+        .add_param(Param::new(
+            "--text-color",
+            ScalarValue::Utf8(Some("#00D9FF".to_string())), // Bright cyan
+        ));
+
+    assert_visual_match(plot, "css_theme", "runtime_color_params", 0.9999).await;
+}
