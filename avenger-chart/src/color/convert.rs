@@ -488,7 +488,7 @@ fn rgb_to_hwb(rgb: &[f32; 3]) -> [f32; 3] {
 }
 
 /// Convert HWB to sRGB
-fn hwb_to_rgb(hwb: &[f32; 3]) -> [f32; 3] {
+pub fn hwb_to_rgb(hwb: &[f32; 3]) -> [f32; 3] {
     let [hue, whiteness, blackness] = *hwb;
     let w = whiteness / 100.0;
     let b = blackness / 100.0;
