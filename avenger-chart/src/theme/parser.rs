@@ -1352,7 +1352,7 @@ fn parse_hwb_with_origin<'i, 't>(
                 alpha,
             })
         } else {
-            // Absolute color syntax - hwb not currently supported as absolute
+            // Absolute color syntax: hwb(hue whiteness blackness [/ alpha])
             let mut values = Vec::new();
             loop {
                 match parse_single_value(p, unsupported_units) {
@@ -1370,7 +1370,13 @@ fn parse_hwb_with_origin<'i, 't>(
                     _ => p.reset(&state),
                 }
             }
-            Ok(ThemeValue::Function("hwb".to_string(), values))
+
+            // Try to parse as absolute hwb() color
+            if let Some(color) = css_value::parse_hwb_function(&values) {
+                Ok(ThemeValue::Color(color))
+            } else {
+                Ok(ThemeValue::Function("hwb".to_string(), values))
+            }
         }
     })
 }
