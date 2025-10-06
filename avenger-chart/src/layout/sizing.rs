@@ -43,19 +43,70 @@
 //! When both canvas and plot dimensions are fixed in the same direction, margins become
 //! expandable and will grow to center the plot within the canvas.
 
+use crate::serialization::SerializableExpr;
+use datafusion::prelude::{Expr, lit};
 use serde::{Deserialize, Serialize};
 
+/// Trait for types that can be converted to Expr (for dimensions)
+pub trait IntoExprDimension {
+    fn into_expr_dim(self) -> Expr;
+}
+
+impl IntoExprDimension for Expr {
+    fn into_expr_dim(self) -> Expr {
+        self
+    }
+}
+
+impl IntoExprDimension for f32 {
+    fn into_expr_dim(self) -> Expr {
+        lit(self)
+    }
+}
+
+impl IntoExprDimension for f64 {
+    fn into_expr_dim(self) -> Expr {
+        lit(self)
+    }
+}
+
+impl IntoExprDimension for i32 {
+    fn into_expr_dim(self) -> Expr {
+        lit(self)
+    }
+}
+
+impl IntoExprDimension for i64 {
+    fn into_expr_dim(self) -> Expr {
+        lit(self)
+    }
+}
+
 /// Constraints that can be applied to the canvas
-#[derive(Clone, Debug, PartialEq)]
+///
+/// Dimensions accept numeric literals (e.g., `800.0`), `Expr` values, or column references
+#[derive(Clone, Debug)]
 pub enum CanvasConstraint {
     /// No constraint - canvas shrinks to fit content
     None,
 
     /// Fixed width, height adjusts to content
-    Width(f32),
+    Width(Expr),
 
     /// Fixed height, width adjusts to content
-    Height(f32),
+    Height(Expr),
+}
+
+impl CanvasConstraint {
+    /// Create a width constraint from a numeric value
+    pub fn width<T: IntoExprDimension>(value: T) -> Self {
+        Self::Width(value.into_expr_dim())
+    }
+
+    /// Create a height constraint from a numeric value
+    pub fn height<T: IntoExprDimension>(value: T) -> Self {
+        Self::Height(value.into_expr_dim())
+    }
 }
 
 impl Default for CanvasConstraint {
@@ -65,16 +116,28 @@ impl Default for CanvasConstraint {
 }
 
 /// Constraints that can be applied to the plot area
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum PlotConstraint {
     /// Plot area fills available space in canvas
     Auto,
 
     /// Fixed plot width, height adjusts
-    Width(f32),
+    Width(Expr),
 
     /// Fixed plot height, width adjusts
-    Height(f32),
+    Height(Expr),
+}
+
+impl PlotConstraint {
+    /// Create a width constraint from a numeric value
+    pub fn width<T: IntoExprDimension>(value: T) -> Self {
+        Self::Width(value.into_expr_dim())
+    }
+
+    /// Create a height constraint from a numeric value
+    pub fn height<T: IntoExprDimension>(value: T) -> Self {
+        Self::Height(value.into_expr_dim())
+    }
 }
 
 impl Default for PlotConstraint {
@@ -84,8 +147,21 @@ impl Default for PlotConstraint {
 }
 
 // Internal representation for layout computation
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+// This stores dimension expressions that are evaluated at render time
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) enum SizeMode {
+    Fixed {
+        width: SerializableExpr,
+        height: SerializableExpr,
+    },
+    Width(SerializableExpr),
+    Height(SerializableExpr),
+    Auto,
+}
+
+// Evaluated version of SizeMode with concrete f32 values for layout computation
+#[derive(Clone, Debug)]
+pub(crate) enum EvaluatedSizeMode {
     Fixed { width: f32, height: f32 },
     Width(f32),
     Height(f32),
@@ -96,8 +172,8 @@ impl From<CanvasConstraint> for SizeMode {
     fn from(constraint: CanvasConstraint) -> Self {
         match constraint {
             CanvasConstraint::None => SizeMode::Auto,
-            CanvasConstraint::Width(w) => SizeMode::Width(w),
-            CanvasConstraint::Height(h) => SizeMode::Height(h),
+            CanvasConstraint::Width(w) => SizeMode::Width(w.into()),
+            CanvasConstraint::Height(h) => SizeMode::Height(h.into()),
         }
     }
 }
@@ -106,14 +182,14 @@ impl From<PlotConstraint> for SizeMode {
     fn from(constraint: PlotConstraint) -> Self {
         match constraint {
             PlotConstraint::Auto => SizeMode::Auto,
-            PlotConstraint::Width(w) => SizeMode::Width(w),
-            PlotConstraint::Height(h) => SizeMode::Height(h),
+            PlotConstraint::Width(w) => SizeMode::Width(w.into()),
+            PlotConstraint::Height(h) => SizeMode::Height(h.into()),
         }
     }
 }
 
-/// Complete layout specification
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Complete layout specification with dimension expressions
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LayoutSpec {
     /// Canvas sizing mode (internal representation)
     pub(crate) canvas: SizeMode,
@@ -123,6 +199,47 @@ pub struct LayoutSpec {
 
     /// Fixed margins around entire chart
     pub margins: Margins,
+}
+
+/// Evaluated layout specification with concrete f32 values for layout computation
+#[derive(Clone, Debug)]
+pub(crate) struct EvaluatedLayoutSpec {
+    /// Canvas sizing mode with evaluated dimensions
+    pub(crate) canvas: EvaluatedSizeMode,
+
+    /// Plot area sizing mode with evaluated dimensions
+    pub(crate) plot_area: EvaluatedSizeMode,
+
+    /// Fixed margins around entire chart
+    pub margins: Margins,
+}
+
+impl EvaluatedLayoutSpec {
+    /// Determine if horizontal margins should be expandable
+    pub(crate) fn should_expand_margins_horizontal(&self) -> bool {
+        let canvas_width_fixed = matches!(
+            self.canvas,
+            EvaluatedSizeMode::Fixed { .. } | EvaluatedSizeMode::Width(_)
+        );
+        let plot_width_constrained = matches!(
+            self.plot_area,
+            EvaluatedSizeMode::Fixed { .. } | EvaluatedSizeMode::Width(_)
+        );
+        canvas_width_fixed && plot_width_constrained
+    }
+
+    /// Determine if vertical margins should be expandable
+    pub(crate) fn should_expand_margins_vertical(&self) -> bool {
+        let canvas_height_fixed = matches!(
+            self.canvas,
+            EvaluatedSizeMode::Fixed { .. } | EvaluatedSizeMode::Height(_)
+        );
+        let plot_height_constrained = matches!(
+            self.plot_area,
+            EvaluatedSizeMode::Fixed { .. } | EvaluatedSizeMode::Height(_)
+        );
+        canvas_height_fixed && plot_height_constrained
+    }
 }
 
 impl Default for LayoutSpec {
@@ -137,46 +254,27 @@ impl Default for LayoutSpec {
 
 impl LayoutSpec {
     /// Create a layout spec with fixed canvas size (traditional mode)
-    pub fn fixed_canvas(width: f32, height: f32, margins: Margins) -> Self {
+    pub fn fixed_canvas(width: Expr, height: Expr, margins: Margins) -> Self {
         Self {
-            canvas: SizeMode::Fixed { width, height },
+            canvas: SizeMode::Fixed {
+                width: width.into(),
+                height: height.into(),
+            },
             plot_area: SizeMode::Auto,
             margins,
         }
     }
 
     /// Create a layout spec with fixed plot area size
-    pub fn fixed_plot_area(width: f32, height: f32, margins: Margins) -> Self {
+    pub fn fixed_plot_area(width: Expr, height: Expr, margins: Margins) -> Self {
         Self {
             canvas: SizeMode::Auto,
-            plot_area: SizeMode::Fixed { width, height },
+            plot_area: SizeMode::Fixed {
+                width: width.into(),
+                height: height.into(),
+            },
             margins,
         }
-    }
-
-    /// Determine if horizontal margins should be expandable
-    ///
-    /// Margins expand horizontally when canvas width is fixed AND plot width is directly fixed.
-    pub(crate) fn should_expand_margins_horizontal(&self) -> bool {
-        let canvas_width_fixed = matches!(self.canvas, SizeMode::Fixed { .. } | SizeMode::Width(_));
-
-        let plot_width_constrained =
-            matches!(self.plot_area, SizeMode::Fixed { .. } | SizeMode::Width(_));
-
-        canvas_width_fixed && plot_width_constrained
-    }
-
-    /// Determine if vertical margins should be expandable
-    ///
-    /// Margins expand vertically when canvas height is fixed AND plot height is directly fixed.
-    pub(crate) fn should_expand_margins_vertical(&self) -> bool {
-        let canvas_height_fixed =
-            matches!(self.canvas, SizeMode::Fixed { .. } | SizeMode::Height(_));
-
-        let plot_height_constrained =
-            matches!(self.plot_area, SizeMode::Fixed { .. } | SizeMode::Height(_));
-
-        canvas_height_fixed && plot_height_constrained
     }
 }
 

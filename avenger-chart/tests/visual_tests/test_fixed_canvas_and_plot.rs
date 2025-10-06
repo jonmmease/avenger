@@ -58,8 +58,8 @@ async fn test_canvas_width_400_plot_width_250() {
     // - Uniform margins: 10px
     // Tests horizontal space distribution with fixed canvas and plot widths
     let plot = Plot::<Cartesian>::new()
-        .canvas_constraint(CanvasConstraint::Width(400.0))
-        .plot_constraint(PlotConstraint::Width(250.0))
+        .canvas_constraint(CanvasConstraint::width(400.0))
+        .plot_constraint(PlotConstraint::width(250.0))
         .margins(Margins::uniform(10.0))
         .data(df)
         .mark(
@@ -88,8 +88,8 @@ async fn test_canvas_height_350_plot_height_200() {
     // - Uniform margins: 15px
     // Tests vertical space distribution with fixed canvas and plot heights
     let plot = Plot::<Cartesian>::new()
-        .canvas_constraint(CanvasConstraint::Height(350.0))
-        .plot_constraint(PlotConstraint::Height(200.0))
+        .canvas_constraint(CanvasConstraint::height(350.0))
+        .plot_constraint(PlotConstraint::height(200.0))
         .margins(Margins::uniform(15.0))
         .data(df)
         .mark(

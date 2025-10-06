@@ -2,7 +2,7 @@
 use crate::theme::Theme;
 
 use super::grid::{GridBuilder, GridLayout};
-use super::sizing::{LayoutSpec, SizeMode};
+use super::sizing::{EvaluatedLayoutSpec, EvaluatedSizeMode};
 use super::types::{
     ComponentType, LayoutBounds, LayoutResult, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide,
 };
@@ -87,9 +87,9 @@ pub struct ChartLayout {
 impl ChartLayout {
     /// Create a new ChartLayout with overflow space requirements
     /// This is the unified layout method for all coordinate systems
-    pub fn new(
+    pub(crate) fn new(
         overflow: &OverflowSpaceRequirement,
-        layout_spec: &LayoutSpec,
+        layout_spec: &EvaluatedLayoutSpec,
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         theme: &Theme,
@@ -163,18 +163,18 @@ impl ChartLayout {
         Ok(layout)
     }
 
-    /// Compute layout with flexible sizing based on LayoutSpec
+    /// Compute layout with flexible sizing based on EvaluatedLayoutSpec
     pub(crate) fn compute(
         &mut self,
-        layout_spec: &LayoutSpec,
+        layout_spec: &EvaluatedLayoutSpec,
     ) -> Result<LayoutSolution, AvengerChartError> {
         // Normalize the layout spec to handle special cases
         // The layout spec should already have canvas and plot_area fields set from the mode
         let normalized_spec = match (&layout_spec.canvas, &layout_spec.plot_area) {
             // Case 1: Both canvas and plot area are Auto - use default 400x300
-            (SizeMode::Auto, SizeMode::Auto) => {
+            (EvaluatedSizeMode::Auto, EvaluatedSizeMode::Auto) => {
                 let mut spec = layout_spec.clone();
-                spec.canvas = SizeMode::Fixed {
+                spec.canvas = EvaluatedSizeMode::Fixed {
                     width: 400.0,
                     height: 300.0,
                 };
@@ -186,10 +186,10 @@ impl ChartLayout {
 
         // Step 1: Configure canvas (root) dimensions
         let (canvas_width, canvas_height) = match &normalized_spec.canvas {
-            SizeMode::Fixed { width, height } => (length(*width), length(*height)),
-            SizeMode::Width(w) => (length(*w), auto()),
-            SizeMode::Height(h) => (auto(), length(*h)),
-            SizeMode::Auto => (auto(), auto()),
+            EvaluatedSizeMode::Fixed { width, height } => (length(*width), length(*height)),
+            EvaluatedSizeMode::Width(w) => (length(*w), auto()),
+            EvaluatedSizeMode::Height(h) => (auto(), length(*h)),
+            EvaluatedSizeMode::Auto => (auto(), auto()),
         };
 
         let root_style = Style {
@@ -209,10 +209,10 @@ impl ChartLayout {
             let current_style = self.taffy.style(plot_node)?;
 
             let (plot_width, plot_height) = match &normalized_spec.plot_area {
-                SizeMode::Fixed { width, height } => (length(*width), length(*height)),
-                SizeMode::Width(w) => (length(*w), auto()),
-                SizeMode::Height(h) => (auto(), length(*h)),
-                SizeMode::Auto => (auto(), auto()),
+                EvaluatedSizeMode::Fixed { width, height } => (length(*width), length(*height)),
+                EvaluatedSizeMode::Width(w) => (length(*w), auto()),
+                EvaluatedSizeMode::Height(h) => (auto(), length(*h)),
+                EvaluatedSizeMode::Auto => (auto(), auto()),
             };
 
             let plot_style = Style {
@@ -229,13 +229,13 @@ impl ChartLayout {
                 // Use the same value as size if it's fixed, otherwise use default minimum
                 min_size: Size {
                     width: match &normalized_spec.plot_area {
-                        SizeMode::Fixed { width, .. } | SizeMode::Width(width) => length(*width),
+                        EvaluatedSizeMode::Fixed { width, .. }
+                        | EvaluatedSizeMode::Width(width) => length(*width),
                         _ => length(50.0),
                     },
                     height: match &normalized_spec.plot_area {
-                        SizeMode::Fixed { height, .. } | SizeMode::Height(height) => {
-                            length(*height)
-                        }
+                        EvaluatedSizeMode::Fixed { height, .. }
+                        | EvaluatedSizeMode::Height(height) => length(*height),
                         _ => length(50.0),
                     },
                 },
@@ -247,14 +247,14 @@ impl ChartLayout {
         // Step 3: Determine available space for layout computation
         // If dimension is fixed, use Definite; otherwise use MinContent
         let available_width = match &normalized_spec.canvas {
-            SizeMode::Fixed { width, .. } | SizeMode::Width(width) => {
+            EvaluatedSizeMode::Fixed { width, .. } | EvaluatedSizeMode::Width(width) => {
                 AvailableSpace::Definite(*width)
             }
             _ => AvailableSpace::MinContent,
         };
 
         let available_height = match &normalized_spec.canvas {
-            SizeMode::Fixed { height, .. } | SizeMode::Height(height) => {
+            EvaluatedSizeMode::Fixed { height, .. } | EvaluatedSizeMode::Height(height) => {
                 AvailableSpace::Definite(*height)
             }
             _ => AvailableSpace::MinContent,
