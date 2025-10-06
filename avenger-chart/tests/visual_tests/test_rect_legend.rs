@@ -51,7 +51,8 @@ async fn test_rect_discrete_fill_legend() {
                 .stroke_width_with(lit(1.0), |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "legend", "rect_discrete_fill_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "rect_discrete_fill_legend").await;
 }
 
 #[tokio::test]
@@ -100,7 +101,15 @@ async fn test_rect_continuous_fill_legend() {
                 .stroke_width_with(lit(0.5), |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "legend", "rect_continuous_fill_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "rect_continuous_fill_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -153,5 +162,6 @@ async fn test_rect_stroke_legend() {
                 .stroke_width_with(lit(3.0), |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "legend", "rect_stroke_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "rect_stroke_legend").await;
 }

@@ -34,7 +34,15 @@ async fn test_channel_level_scale_config() {
             .fill_with("#3498db", |c| c.no_scale()),
     );
 
-    assert_visual_match_default(plot, "plot_level_config", "plot_level_scales").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "plot_level_config",
+        "plot_level_scales",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -70,7 +78,15 @@ async fn test_channel_level_legend_config() {
             .size(100.0),
     );
 
-    assert_visual_match_default(plot, "plot_level_config", "plot_level_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "plot_level_config",
+        "plot_level_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -116,5 +132,6 @@ async fn test_channel_level_mixed_config() {
             }),
     );
 
-    assert_visual_match_default(plot, "plot_level_config", "mixed_config").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "plot_level_config", "mixed_config").await;
 }

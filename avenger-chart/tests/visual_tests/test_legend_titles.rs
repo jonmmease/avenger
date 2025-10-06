@@ -40,7 +40,8 @@ async fn test_symbol_legend_with_title() {
             }),
     );
 
-    assert_visual_match_default(plot, "legend", "symbol_legend_with_title").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "symbol_legend_with_title").await;
 }
 
 /// Test line legend with title
@@ -80,7 +81,8 @@ async fn test_line_legend_with_title() {
             .stroke_width(2.0),
     );
 
-    assert_visual_match_default(plot, "legend", "line_legend_with_title").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "line_legend_with_title").await;
 }
 
 /// Test rect stroke legend with title (should use symbol legend)
@@ -132,7 +134,15 @@ async fn test_rect_stroke_legend_with_title() {
             .stroke_width_with(lit(3.0), |c| c.no_scale()),
     );
 
-    assert_visual_match_default(plot, "legend", "rect_stroke_legend_with_title").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "rect_stroke_legend_with_title",
+    )
+    .await;
 }
 
 /// Test shape legend with title
@@ -171,7 +181,8 @@ async fn test_shape_legend_with_title() {
             .fill_with(lit("#1f77b4"), |c| c.no_scale()),
     );
 
-    assert_visual_match_default(plot, "legend", "shape_legend_with_title").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "shape_legend_with_title").await;
 }
 
 /// Test legend with background and title
@@ -215,5 +226,13 @@ async fn test_legend_with_title_and_background() {
             }),
     );
 
-    assert_visual_match_default(plot, "legend", "legend_with_title_and_background").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "legend_with_title_and_background",
+    )
+    .await;
 }

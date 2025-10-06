@@ -35,6 +35,7 @@ fn create_zerod_data() -> DataFrame {
 
 #[tokio::test]
 async fn test_zerod_symbol_basic() {
+    let ctx = SessionContext::new();
     let df = create_zerod_data();
 
     // Create a ZeroD plot - all symbols render at center
@@ -51,11 +52,13 @@ async fn test_zerod_symbol_basic() {
                 .shape("circle"),
         );
 
-    assert_visual_match_default(plot, "zerod", "symbol_basic").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "zerod", "symbol_basic").await;
 }
 
 #[tokio::test]
 async fn test_zerod_symbol_with_color_encoding() {
+    let ctx = SessionContext::new();
     let df = create_zerod_data();
 
     // ZeroD with color encoding - shows how data can still be encoded visually
@@ -72,7 +75,8 @@ async fn test_zerod_symbol_with_color_encoding() {
                 .shape("circle"),
         );
 
-    assert_visual_match_default(plot, "zerod", "symbol_color_encoding").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "zerod", "symbol_color_encoding").await;
 }
 
 #[tokio::test]
@@ -108,7 +112,8 @@ async fn test_zerod_symbol_single_point() {
                 .shape("square"),
         );
 
-    assert_visual_match_default(plot, "zerod", "symbol_single_point").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "zerod", "symbol_single_point").await;
 }
 
 #[tokio::test]
@@ -149,11 +154,13 @@ async fn test_zerod_symbol_shapes() {
                 .shape_with(col("shape"), |c| c.legend(|l| l.title("Shape Type"))),
         );
 
-    assert_visual_match_default(plot, "zerod", "symbol_shapes").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "zerod", "symbol_shapes").await;
 }
 
 #[tokio::test]
 async fn test_zerod_symbol_varied_sizes() {
+    let ctx = SessionContext::new();
     let df = create_zerod_data();
 
     // ZeroD with varied sizes
@@ -170,5 +177,6 @@ async fn test_zerod_symbol_varied_sizes() {
                 .shape("circle"),
         );
 
-    assert_visual_match_default(plot, "zerod", "symbol_varied_sizes").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "zerod", "symbol_varied_sizes").await;
 }

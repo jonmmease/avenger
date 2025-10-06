@@ -209,5 +209,14 @@ async fn test_css_axis_and_legend_subtype_selectors() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "css_theme", "css_subtype_selectors", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_theme",
+        "css_subtype_selectors",
+        0.9999,
+    )
+    .await;
 }

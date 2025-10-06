@@ -33,6 +33,7 @@ fn create_test_data() -> DataFrame {
 
 #[tokio::test]
 async fn test_fixed_plot_area_400x300_with_legend() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot with fixed PLOT AREA of 400x300
@@ -60,11 +61,20 @@ async fn test_fixed_plot_area_400x300_with_legend() {
                 .stroke_width(2.5),
         );
 
-    assert_visual_match_default(plot, "fixed_plot_area", "plot_400x300_with_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "fixed_plot_area",
+        "plot_400x300_with_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_fixed_plot_area_300x200_no_legend() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot with fixed plot area but no legend
@@ -80,11 +90,20 @@ async fn test_fixed_plot_area_300x200_no_legend() {
                 .size(40.0),
         );
 
-    assert_visual_match_default(plot, "fixed_plot_area", "plot_300x200_no_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "fixed_plot_area",
+        "plot_300x200_no_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_comparison_canvas_vs_plot_area() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Traditional fixed canvas size
@@ -112,14 +131,37 @@ async fn test_comparison_canvas_vs_plot_area() {
         );
 
     // Canvas mode uses standard renderer (produces 800x600 at 2x scale)
-    assert_visual_match_default(plot_canvas, "fixed_plot_area", "canvas_mode_400x300").await;
+    let compiled_canvas = plot_canvas
+        .compile(&ctx)
+        .await
+        .expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled_canvas,
+        &ctx,
+        None,
+        "fixed_plot_area",
+        "canvas_mode_400x300",
+    )
+    .await;
 
     // Plot area mode uses computed canvas (produces larger image)
-    assert_visual_match_default(plot_area, "fixed_plot_area", "plot_area_mode_400x300").await;
+    let compiled_area = plot_area
+        .compile(&ctx)
+        .await
+        .expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled_area,
+        &ctx,
+        None,
+        "fixed_plot_area",
+        "plot_area_mode_400x300",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_plot_width_with_canvas_height() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot with:
@@ -148,11 +190,20 @@ async fn test_plot_width_with_canvas_height() {
                 .size(60.0),
         );
 
-    assert_visual_match_default(plot, "fixed_plot_area", "plot_width_canvas_height").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "fixed_plot_area",
+        "plot_width_canvas_height",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_fixed_plot_area_with_fixed_canvas() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot with:
@@ -181,5 +232,13 @@ async fn test_fixed_plot_area_with_fixed_canvas() {
                 .stroke_width(2.5),
         );
 
-    assert_visual_match_default(plot, "fixed_plot_area", "fixed_plot_with_fixed_canvas").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "fixed_plot_area",
+        "fixed_plot_with_fixed_canvas",
+    )
+    .await;
 }

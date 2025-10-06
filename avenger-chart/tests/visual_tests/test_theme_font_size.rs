@@ -66,7 +66,15 @@ async fn test_large_base_font_size() {
                 .size_with(lit(150.0), |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "theme_font_size", "large_base_font_size").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "theme_font_size",
+        "large_base_font_size",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -115,7 +123,15 @@ async fn test_default_base_font_size() {
                 .size_with(lit(150.0), |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "theme_font_size", "default_base_font_size").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "theme_font_size",
+        "default_base_font_size",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -169,7 +185,15 @@ async fn test_base_font_size_with_param() {
                 .size_with(lit(150.0), |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "theme_font_size", "base_font_size_with_param_14px").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "theme_font_size",
+        "base_font_size_with_param_14px",
+    )
+    .await;
 
     // Now test with a larger font size (18px) to show params can be changed
     // NOTE: Must use string "18px" not float 18.0, so it gets parsed as Length
@@ -219,8 +243,14 @@ async fn test_base_font_size_with_param() {
                 .size_with(lit(150.0), |c| c.no_scale()),
         );
 
+    let compiled = plot_larger
+        .compile(&ctx)
+        .await
+        .expect("Failed to compile plot");
     assert_visual_match_default(
-        plot_larger,
+        &compiled,
+        &ctx,
+        None,
         "theme_font_size",
         "base_font_size_with_param_18px",
     )
@@ -280,5 +310,13 @@ async fn test_mark_default_with_param() {
                 .size_with(lit(200.0), |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "theme_font_size", "mark_default_with_param").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "theme_font_size",
+        "mark_default_with_param",
+    )
+    .await;
 }

@@ -160,7 +160,16 @@ async fn test_css_theme_basic() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "css_theme", "css_theme_basic", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_theme",
+        "css_theme_basic",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -242,7 +251,16 @@ async fn test_css_theme_scale_ranges() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "css_theme", "css_theme_scale_ranges", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_theme",
+        "css_theme_scale_ranges",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -393,7 +411,16 @@ async fn test_css_theme_dark_mode() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "css_theme", "css_theme_dark_mode", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_theme",
+        "css_theme_dark_mode",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -490,7 +517,16 @@ async fn test_css_theme_discrete_continuous_properties() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "css_theme", "css_theme_discrete_continuous", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_theme",
+        "css_theme_discrete_continuous",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -558,5 +594,14 @@ async fn test_runtime_color_params() {
             ScalarValue::Utf8(Some("#00D9FF".to_string())), // Bright cyan
         ));
 
-    assert_visual_match(plot, "css_theme", "runtime_color_params", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_theme",
+        "runtime_color_params",
+        0.9999,
+    )
+    .await;
 }

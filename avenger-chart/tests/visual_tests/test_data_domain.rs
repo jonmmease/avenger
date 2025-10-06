@@ -39,7 +39,16 @@ async fn test_bar_chart_inferred_domain() {
             .stroke_width(1.0),
     );
 
-    assert_visual_match(plot, "data_domain", "bar_chart_inferred", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "data_domain",
+        "bar_chart_inferred",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -74,5 +83,14 @@ async fn test_scatter_plot_inferred_domain() {
             .opacity(0.7),
     );
 
-    assert_visual_match(plot, "data_domain", "scatter_inferred", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "data_domain",
+        "scatter_inferred",
+        0.9999,
+    )
+    .await;
 }

@@ -111,7 +111,16 @@ async fn test_css_guide_subtypes() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "css_theme", "css_guide_subtype_cartesian", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_theme",
+        "css_guide_subtype_cartesian",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -179,5 +188,14 @@ async fn test_css_guide_subtypes_polar() {
         .mark(Symbol::<Polar>::new().r(col("r")).theta(col("theta")))
         .theme(theme);
 
-    assert_visual_match(plot, "css_theme", "css_guide_subtype_polar", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_theme",
+        "css_guide_subtype_polar",
+        0.9999,
+    )
+    .await;
 }

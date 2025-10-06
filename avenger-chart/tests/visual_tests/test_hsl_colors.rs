@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_hsl_primary_colors() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let css_theme = r#"
@@ -34,7 +35,8 @@ async fn test_hsl_primary_colors() {
             .y2(col("value")),
     );
 
-    assert_visual_match_default(plot, "hsl", "hsl_red_fill_blue_stroke").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "hsl", "hsl_red_fill_blue_stroke").await;
 }
 
 #[tokio::test]
@@ -43,7 +45,8 @@ async fn test_hsl_color_wheel() {
     let categories = vec!["0°", "60°", "120°", "180°", "240°", "300°"];
     let values = vec![10.0; 6];
 
-    let df = SessionContext::new()
+    let ctx = SessionContext::new();
+    let df = ctx
         .read_batch(
             RecordBatch::try_from_iter(vec![
                 (
@@ -82,11 +85,13 @@ async fn test_hsl_color_wheel() {
             .y2(col("value")),
     );
 
-    assert_visual_match_default(plot, "hsl", "hsl_color_wheel").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "hsl", "hsl_color_wheel").await;
 }
 
 #[tokio::test]
 async fn test_hsla_with_alpha() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let css_theme = r#"
@@ -111,11 +116,13 @@ async fn test_hsla_with_alpha() {
             .y2(col("value")),
     );
 
-    assert_visual_match_default(plot, "hsl", "hsla_semi_transparent_green").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "hsl", "hsla_semi_transparent_green").await;
 }
 
 #[tokio::test]
 async fn test_hsl_grayscale() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let css_theme = r#"
@@ -141,5 +148,6 @@ async fn test_hsl_grayscale() {
             .y2(col("value")),
     );
 
-    assert_visual_match_default(plot, "hsl", "hsl_grayscale").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "hsl", "hsl_grayscale").await;
 }

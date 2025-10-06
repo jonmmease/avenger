@@ -56,7 +56,15 @@ async fn test_conditional_color_when_value() {
             }),
     );
 
-    assert_visual_match_default(plot, "conditional", "conditional_color_when_value").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "conditional",
+        "conditional_color_when_value",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -107,7 +115,15 @@ async fn test_conditional_size_when_scaled() {
             .stroke_width(1.0),
     );
 
-    assert_visual_match_default(plot, "conditional", "conditional_size_when_scaled").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "conditional",
+        "conditional_size_when_scaled",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -172,7 +188,15 @@ async fn test_conditional_multiple_conditions() {
             .shape_with(col("category"), |c| c.legend(|l| l.title("Category"))),
     );
 
-    assert_visual_match_default(plot, "conditional", "conditional_multiple_conditions").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "conditional",
+        "conditional_multiple_conditions",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -221,5 +245,13 @@ async fn test_conditional_with_legend() {
             }),
     );
 
-    assert_visual_match_default(plot, "conditional", "conditional_with_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "conditional",
+        "conditional_with_legend",
+    )
+    .await;
 }

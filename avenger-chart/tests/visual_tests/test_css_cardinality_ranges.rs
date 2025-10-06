@@ -96,7 +96,16 @@ async fn test_cardinality_3_categories() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "css_cardinality", "cardinality_3_categories", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_cardinality",
+        "cardinality_3_categories",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -187,7 +196,16 @@ async fn test_cardinality_5_categories() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "css_cardinality", "cardinality_5_categories", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_cardinality",
+        "cardinality_5_categories",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -274,7 +292,16 @@ async fn test_cardinality_fallback() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "css_cardinality", "cardinality_fallback", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_cardinality",
+        "cardinality_fallback",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -373,8 +400,11 @@ async fn test_cardinality_multiple_channels() {
         )
         .theme(theme);
 
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match(
-        plot,
+        &compiled,
+        &ctx,
+        None,
         "css_cardinality",
         "cardinality_multiple_channels",
         0.9999,

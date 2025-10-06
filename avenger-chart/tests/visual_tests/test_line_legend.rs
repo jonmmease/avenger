@@ -65,7 +65,15 @@ async fn test_line_discrete_stroke_legend() {
             .order(col("order")),
     );
 
-    assert_visual_match_default(plot, "legend", "line_discrete_stroke_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "line_discrete_stroke_legend",
+    )
+    .await;
 }
 
 // Continuous stroke legend test removed - not supported yet
@@ -134,7 +142,8 @@ async fn test_line_stroke_width_legend() {
             .order(col("order")),
     );
 
-    assert_visual_match_default(plot, "legend", "line_stroke_width_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "line_stroke_width_legend").await;
 }
 
 #[tokio::test]
@@ -220,7 +229,8 @@ async fn test_line_stroke_dash_legend() {
                 }),
         );
 
-    assert_visual_match_default(plot, "legend", "line_stroke_dash_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "line_stroke_dash_legend").await;
 }
 
 #[tokio::test]
@@ -293,5 +303,13 @@ async fn test_line_combined_stroke_width_legend() {
             .order(col("order")),
     );
 
-    assert_visual_match_default(plot, "legend", "line_combined_stroke_width_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "line_combined_stroke_width_legend",
+    )
+    .await;
 }

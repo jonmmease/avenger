@@ -1,10 +1,13 @@
 use super::datasets;
 use super::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
+use datafusion::logical_expr::when;
+use datafusion::prelude::SessionContext;
 // Visual tests for bar charts
 
 #[tokio::test]
 async fn test_simple_bar_chart() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new()
@@ -49,11 +52,13 @@ async fn test_simple_bar_chart() {
                 .opacity(0.7),
         );
 
-    assert_visual_match_default(plot, "bar", "simple_bar_chart").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "bar", "simple_bar_chart").await;
 }
 
 #[tokio::test]
 async fn test_bar_chart_with_custom_colors() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -85,11 +90,13 @@ async fn test_bar_chart_with_custom_colors() {
             .stroke_width(2.0),
     );
 
-    assert_visual_match_default(plot, "bar", "bar_chart_custom_colors").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "bar", "bar_chart_custom_colors").await;
 }
 
 #[tokio::test]
 async fn test_bar_chart_with_narrow_bars() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -121,11 +128,13 @@ async fn test_bar_chart_with_narrow_bars() {
             .stroke_width(1.5),
     );
 
-    assert_visual_match_default(plot, "bar", "bar_chart_narrow_bars").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "bar", "bar_chart_narrow_bars").await;
 }
 
 #[tokio::test]
 async fn test_bar_chart_inferred_domains() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -141,13 +150,13 @@ async fn test_bar_chart_inferred_domains() {
             .stroke_width(1.0),
     );
 
-    assert_visual_match_default(plot, "bar", "bar_chart_inferred_domains").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "bar", "bar_chart_inferred_domains").await;
 }
 
 #[tokio::test]
 async fn test_bar_chart_color_case_expression() {
-    use datafusion::prelude::*;
-
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     // Create a bar chart where each bar's color depends on its value
@@ -192,5 +201,13 @@ async fn test_bar_chart_color_case_expression() {
             .opacity(0.9),
     );
 
-    assert_visual_match_default(plot, "bar", "bar_chart_color_case_expression").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "bar",
+        "bar_chart_color_case_expression",
+    )
+    .await;
 }

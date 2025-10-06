@@ -1,11 +1,13 @@
 use super::datasets;
 use super::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
+use datafusion::prelude::SessionContext;
 use palette::rgb::Srgba;
 // Visual tests for various scales with color ranges
 
 #[tokio::test]
 async fn test_bar_chart_linear_color_interpolation() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -48,8 +50,11 @@ async fn test_bar_chart_linear_color_interpolation() {
             .opacity(0.95),
     );
 
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(
-        plot,
+        &compiled,
+        &ctx,
+        None,
         "bar_scale_color",
         "bar_chart_linear_color_interpolation",
     )
@@ -58,6 +63,7 @@ async fn test_bar_chart_linear_color_interpolation() {
 
 #[tokio::test]
 async fn test_bar_chart_log_color_interpolation() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -84,11 +90,20 @@ async fn test_bar_chart_log_color_interpolation() {
             .opacity(0.95),
     );
 
-    assert_visual_match_default(plot, "bar_scale_color", "bar_chart_log_color_interpolation").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "bar_scale_color",
+        "bar_chart_log_color_interpolation",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_bar_chart_pow_color_interpolation() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -131,11 +146,20 @@ async fn test_bar_chart_pow_color_interpolation() {
             .opacity(0.95),
     );
 
-    assert_visual_match_default(plot, "bar_scale_color", "bar_chart_pow_color_interpolation").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "bar_scale_color",
+        "bar_chart_pow_color_interpolation",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_bar_chart_sqrt_color_interpolation() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -175,8 +199,11 @@ async fn test_bar_chart_sqrt_color_interpolation() {
             .stroke_width(0.75),
     );
 
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(
-        plot,
+        &compiled,
+        &ctx,
+        None,
         "bar_scale_color",
         "bar_chart_sqrt_color_interpolation",
     )
@@ -185,6 +212,7 @@ async fn test_bar_chart_sqrt_color_interpolation() {
 
 #[tokio::test]
 async fn test_bar_chart_threshold_scale_colors() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -228,11 +256,20 @@ async fn test_bar_chart_threshold_scale_colors() {
             .opacity(0.9),
     );
 
-    assert_visual_match_default(plot, "bar_scale_color", "bar_chart_threshold_scale_colors").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "bar_scale_color",
+        "bar_chart_threshold_scale_colors",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_bar_chart_linear_color_default_colors() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -248,8 +285,11 @@ async fn test_bar_chart_linear_color_default_colors() {
             .stroke_width(1.0),
     );
 
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(
-        plot,
+        &compiled,
+        &ctx,
+        None,
         "bar_scale_color",
         "bar_chart_linear_color_default_colors",
     )
@@ -258,6 +298,7 @@ async fn test_bar_chart_linear_color_default_colors() {
 
 #[tokio::test]
 async fn test_bar_chart_ordinal_scale_colors() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -277,5 +318,13 @@ async fn test_bar_chart_ordinal_scale_colors() {
             .stroke_width(1.0),
     );
 
-    assert_visual_match_default(plot, "bar_scale_color", "bar_chart_ordinal_scale_colors").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "bar_scale_color",
+        "bar_chart_ordinal_scale_colors",
+    )
+    .await;
 }

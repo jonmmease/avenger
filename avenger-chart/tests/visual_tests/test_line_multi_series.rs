@@ -148,6 +148,7 @@ fn create_multi_series_with_widths() -> DataFrame {
 
 #[tokio::test]
 async fn test_multi_series_line_with_color() {
+    let ctx = SessionContext::new();
     let df = create_multi_series_data();
 
     // Create a plot with lines colored by series
@@ -163,11 +164,13 @@ async fn test_multi_series_line_with_color() {
             .stroke_width(2.0),
     );
 
-    assert_visual_match_default(plot, "line", "multi_series_color").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "multi_series_color").await;
 }
 
 #[tokio::test]
 async fn test_multi_series_line_with_width() {
+    let ctx = SessionContext::new();
     let df = create_multi_series_with_widths();
 
     // Create a plot with lines having different widths per series
@@ -183,11 +186,13 @@ async fn test_multi_series_line_with_width() {
             .stroke_width(col("series")),
     );
 
-    assert_visual_match_default(plot, "line", "multi_series_width").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "multi_series_width").await;
 }
 
 #[tokio::test]
 async fn test_multi_series_with_color_and_width() {
+    let ctx = SessionContext::new();
     let df = create_multi_series_with_widths();
 
     // Create a plot where color and width vary by series
@@ -203,11 +208,13 @@ async fn test_multi_series_with_color_and_width() {
             .stroke_width_with(col("width"), |c| c.no_scale()),
     );
 
-    assert_visual_match_default(plot, "line", "multi_series_color_width").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "multi_series_color_width").await;
 }
 
 #[tokio::test]
 async fn test_line_with_order_channel() {
+    let ctx = SessionContext::new();
     let df = create_mixed_order_data();
 
     // Create a plot using order channel to sort points
@@ -223,7 +230,8 @@ async fn test_line_with_order_channel() {
             .order(col("order")), // Use order channel
     );
 
-    assert_visual_match_default(plot, "line", "multi_series_order").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "multi_series_order").await;
 }
 
 #[tokio::test]
@@ -270,7 +278,8 @@ async fn test_multi_series_line_with_dash() {
             .stroke("#4472C4"),
     );
 
-    assert_visual_match_default(plot, "line", "multi_series_dash").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "multi_series_dash").await;
 }
 
 #[tokio::test]
@@ -330,7 +339,8 @@ async fn test_multi_series_line_with_color_and_dash() {
             .stroke_width(2.0),
     );
 
-    assert_visual_match_default(plot, "line", "multi_series_color_dash").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "multi_series_color_dash").await;
 }
 
 #[tokio::test]
@@ -393,5 +403,6 @@ async fn test_multi_series_line_all_encodings() {
             }),
     );
 
-    assert_visual_match_default(plot, "line", "multi_series_all_encodings").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "multi_series_all_encodings").await;
 }

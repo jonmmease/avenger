@@ -3,9 +3,11 @@
 use super::datasets;
 use super::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
+use datafusion::prelude::SessionContext;
 
 #[tokio::test]
 async fn test_bar_chart_y_scale_auto_zero() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -25,11 +27,13 @@ async fn test_bar_chart_y_scale_auto_zero() {
 
     // This should produce the same result as bar_chart_inferred_domains
     // since the zero option is now applied by default
-    assert_visual_match_default(plot, "bar", "bar_chart_y_scale_auto_zero").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "bar", "bar_chart_y_scale_auto_zero").await;
 }
 
 #[tokio::test]
 async fn test_bar_chart_y_scale_no_nice() {
+    let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -49,5 +53,6 @@ async fn test_bar_chart_y_scale_no_nice() {
     );
 
     // Y-axis should start near the data minimum, not at zero
-    assert_visual_match_default(plot, "bar", "bar_chart_y_scale_no_nice").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "bar", "bar_chart_y_scale_no_nice").await;
 }

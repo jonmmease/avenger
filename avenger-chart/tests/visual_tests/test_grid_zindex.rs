@@ -32,5 +32,13 @@ async fn test_grid_lines_behind_data() {
                 .opacity(0.5), // Semi-transparent so we can see grid lines through it
         );
 
-    assert_visual_match_default(plot, "grid_zindex", "grid_lines_behind_data").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "grid_zindex",
+        "grid_lines_behind_data",
+    )
+    .await;
 }

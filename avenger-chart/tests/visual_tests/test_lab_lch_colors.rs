@@ -16,7 +16,8 @@ async fn test_oklch_perceptual_lightness_scale() {
     ];
     let values = vec![10.0; 7];
 
-    let df = SessionContext::new()
+    let ctx = SessionContext::new();
+    let df = ctx
         .read_batch(
             RecordBatch::try_from_iter(vec![
                 (
@@ -62,7 +63,15 @@ async fn test_oklch_perceptual_lightness_scale() {
             .y2(col("value")),
     );
 
-    assert_visual_match_default(plot, "lab_lch_colors", "oklch_lightness_scale").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "lab_lch_colors",
+        "oklch_lightness_scale",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -72,7 +81,8 @@ async fn test_oklch_hue_wheel() {
     let categories = vec!["0°", "60°", "120°", "180°", "240°", "300°"];
     let values = vec![10.0; 6];
 
-    let df = SessionContext::new()
+    let ctx = SessionContext::new();
+    let df = ctx
         .read_batch(
             RecordBatch::try_from_iter(vec![
                 (
@@ -117,7 +127,8 @@ async fn test_oklch_hue_wheel() {
             .y2(col("value")),
     );
 
-    assert_visual_match_default(plot, "lab_lch_colors", "oklch_hue_wheel").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "lab_lch_colors", "oklch_hue_wheel").await;
 }
 
 #[tokio::test]
@@ -126,7 +137,8 @@ async fn test_all_lab_color_spaces() {
     let categories = vec!["oklab", "oklch", "lab", "lch"];
     let values = vec![10.0; 4];
 
-    let df = SessionContext::new()
+    let ctx = SessionContext::new();
+    let df = ctx
         .read_batch(
             RecordBatch::try_from_iter(vec![
                 (
@@ -169,5 +181,6 @@ async fn test_all_lab_color_spaces() {
             .y2(col("value")),
     );
 
-    assert_visual_match_default(plot, "lab_lch_colors", "all_color_spaces").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "lab_lch_colors", "all_color_spaces").await;
 }

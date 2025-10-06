@@ -9,6 +9,8 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_color_mix_combinations() {
+    let ctx = SessionContext::new();
+
     // Create data for different color mix combinations
     let categories = vec![
         "sRGB 50/50",
@@ -20,7 +22,7 @@ async fn test_color_mix_combinations() {
     ];
     let values = vec![10.0; 6];
 
-    let df = SessionContext::new()
+    let df = ctx
         .read_batch(
             RecordBatch::try_from_iter(vec![
                 (
@@ -65,5 +67,6 @@ async fn test_color_mix_combinations() {
             .y2(col("value")),
     );
 
-    assert_visual_match_default(plot, "color_mix", "color_mix_combinations").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "color_mix", "color_mix_combinations").await;
 }
