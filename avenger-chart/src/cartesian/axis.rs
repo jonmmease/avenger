@@ -131,7 +131,7 @@ impl CartesianAxis {
         };
 
         // Skip if invisible (default to visible if not set)
-        if !self.visible.clone().unwrap_or(true) {
+        if !self.visible.as_option().copied().unwrap_or(true) {
             return Ok(SceneMark::Group(
                 avenger_scenegraph::marks::group::SceneGroup {
                     marks: vec![],
@@ -216,12 +216,15 @@ impl CartesianAxis {
                 .or_else(|| theme.font_family(&title_ctx)),
         };
 
+        // Extract title once to avoid repeated cloning
+        let title_string = self.title.clone().flatten();
+        let title = title_string.as_deref().unwrap_or("");
+
         // Generate axis marks based on scale characteristics
         // Use domain and range kinds to determine which axis maker to use
         use avenger_scales::scales::DomainKind;
 
         let domain_kind = scale.scale_impl.domain_kind();
-        let _range_kind = scale.scale_impl.range_kind();
 
         // For categorical domains, check the scale type
         let axis_group = match domain_kind {
@@ -231,24 +234,24 @@ impl CartesianAxis {
                 match scale_type {
                     "band" => make_band_axis_marks(
                         scale,
-                        self.title.clone().flatten().as_deref().unwrap_or(""),
+                        title,
                         axis_origin,
                         &axis_config,
                     )?,
                     "point" => make_point_axis_marks(
                         scale.clone(),
-                        self.title.clone().flatten().as_deref().unwrap_or(""),
+                        title,
                         axis_origin,
                         &axis_config,
                     )?,
                     "ordinal" => {
                         // Ordinal scales with discrete ranges need band-like rendering
-                        // Convert to band scale for axis rendering
+                        // For ordinal scales, convert to band scale for axis rendering
                         use avenger_scales::scales::band::BandScale;
                         let band_scale = BandScale::from_point_scale(scale);
                         make_band_axis_marks(
                             &band_scale,
-                            self.title.clone().flatten().as_deref().unwrap_or(""),
+                            title,
                             axis_origin,
                             &axis_config,
                         )?
@@ -265,7 +268,7 @@ impl CartesianAxis {
                 // All continuous domain scales use numeric axis
                 make_numeric_axis_marks(
                     scale,
-                    self.title.clone().flatten().as_deref().unwrap_or(""),
+                    title,
                     axis_origin,
                     &axis_config,
                 )?

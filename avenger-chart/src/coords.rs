@@ -1,5 +1,5 @@
 use crate::error::AvengerChartError;
-use crate::guide::CoordinateGuideBuilder;
+use crate::guide::CoordinateGuide;
 pub use crate::guide::OverflowSpaceRequirement;
 use crate::marks::CompiledMark;
 use avenger_common::value::ScalarOrArray;
@@ -31,7 +31,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ///
     /// This could be axes (Cartesian), geographic features (Geo),
     /// camera controls (3D), or no guide at all (ZeroD)
-    type Guide: CoordinateGuideBuilder;
+    type Guide: CoordinateGuide;
 
     // /// The plot geometry type produced by this coordinate system's transform
     // type PlotGeometry: PlotGeometry;

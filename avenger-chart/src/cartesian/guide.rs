@@ -4,7 +4,7 @@ use crate::theme::Theme;
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{CompiledGuide, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
@@ -72,6 +72,22 @@ impl Default for CartesianGuide {
 }
 
 impl CartesianGuide {
+    /// Get plot background color from options or theme
+    fn get_background_color(
+        &self,
+        theme: &Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> Option<[f32; 4]> {
+        self.options.plot_background_color.or_else(|| {
+            let guide_ctx = crate::theme::ThemeContext::new("guide")
+                .with_subtype("cartesian")
+                .with_params(params.clone());
+            theme
+                .query(&guide_ctx, "background-color")
+                .and_then(|v| v.as_color_array())
+        })
+    }
+
     /// Update this guide with values from another guide
     pub fn update(mut self, other: Self) -> Self {
         // Merge axes - other's axes take precedence
@@ -100,26 +116,26 @@ impl CartesianGuide {
 
 impl GuideUpdate for CartesianGuide {
     fn update(self, other: Self) -> Self {
-        self.update(other)
+        CartesianGuide::update(self, other)
     }
 }
 
-impl CoordinateGuideBuilder for CartesianGuide {
+impl CoordinateGuide for CartesianGuide {
     type Axis = CartesianAxis;
 
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
         self.axes = axes;
     }
 
-    fn set_mark_renderers(
+    fn set_compiled_marks(
         &mut self,
-        mark_renderers: Vec<Arc<dyn crate::marks::CompiledMark>>,
+        compiled_marks: Vec<Arc<dyn crate::marks::CompiledMark>>,
         session_context: &datafusion::prelude::SessionContext,
     ) {
         // Extract titles from mark renderers immediately
         for channel in ["x", "y"] {
             if let Some(title) =
-                extract_channel_title_from_marks(&mark_renderers, channel, session_context)
+                extract_channel_title_from_marks(&compiled_marks, channel, session_context)
             {
                 self.channel_titles.insert(channel.to_string(), title);
             }
@@ -127,7 +143,7 @@ impl CoordinateGuideBuilder for CartesianGuide {
     }
 
     fn update(&mut self, other: Self) {
-        *self = CartesianGuide::update(self.clone(), other);
+        *self = std::mem::take(self).update(other);
     }
 
     fn build(self) -> Box<dyn CompiledGuide> {
@@ -237,18 +253,7 @@ impl CompiledGuide for CartesianGuide {
         let mut marks = Vec::new();
 
         // Render background if specified (behind everything else)
-        // First check explicit option, then fall back to theme
-        let bg_color = self.options.plot_background_color.or_else(|| {
-            // Theme already returns color in normalized [f32; 4] format
-            let guide_ctx = crate::theme::ThemeContext::new("guide")
-                .with_subtype("cartesian")
-                .with_params(params.clone());
-            theme
-                .query(&guide_ctx, "background-color")
-                .and_then(|v| v.as_color_array())
-        });
-
-        if let Some(bg_color) = bg_color {
+        if let Some(bg_color) = self.get_background_color(theme, params) {
             use avenger_common::types::ColorOrGradient;
             use avenger_common::value::ScalarOrArray;
             use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -279,10 +284,10 @@ impl CompiledGuide for CartesianGuide {
         for channel_name in scales.keys() {
             if channel_name == "x" || channel_name == "y" {
                 // Set default position based on channel
-                let position = match channel_name.as_str() {
-                    "x" => AxisPosition::Bottom,
-                    "y" => AxisPosition::Left,
-                    _ => AxisPosition::Bottom,
+                let position = if channel_name == "x" {
+                    AxisPosition::Bottom
+                } else {
+                    AxisPosition::Left
                 };
 
                 // Determine if grid should be enabled based on scale type
@@ -310,7 +315,7 @@ impl CompiledGuide for CartesianGuide {
         // Apply user configurations on top of defaults
         for (channel, user_axis) in &self.axes {
             if let Some(default_axis) = all_axes.get_mut(channel) {
-                *default_axis = default_axis.clone().update(user_axis.clone());
+                *default_axis = std::mem::take(default_axis).update(user_axis.clone());
             } else {
                 all_axes.insert(channel.clone(), user_axis.clone());
             }

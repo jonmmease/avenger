@@ -2,7 +2,7 @@
 use crate::theme::Theme;
 
 use crate::error::AvengerChartError;
-use crate::guide::{CompiledGuide, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
@@ -10,10 +10,7 @@ use std::collections::HashMap;
 
 /// Empty guide for coordinate systems without visual guides
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct NoGuide {
-    // Store an empty map directly in the struct
-    axes: HashMap<String, ()>,
-}
+pub struct NoGuide;
 
 impl GuideUpdate for NoGuide {
     fn update(self, _other: Self) -> Self {
@@ -22,16 +19,16 @@ impl GuideUpdate for NoGuide {
     }
 }
 
-impl CoordinateGuideBuilder for NoGuide {
+impl CoordinateGuide for NoGuide {
     type Axis = ();
 
     fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {
         // No-op for systems without axes
     }
 
-    fn set_mark_renderers(
+    fn set_compiled_marks(
         &mut self,
-        _mark_renderers: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
+        _compiled_marks: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
         _session_context: &datafusion::prelude::SessionContext,
     ) {
         // No-op for systems without axes

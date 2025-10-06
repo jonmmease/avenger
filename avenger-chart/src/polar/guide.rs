@@ -2,7 +2,7 @@
 
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{CompiledGuide, CoordinateGuideBuilder, GuideUpdate, OverflowSpaceRequirement};
+use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::polar::{PolarAxis, PolarAxisType};
 use crate::theme::Theme;
@@ -112,22 +112,22 @@ impl GuideUpdate for PolarGuide {
     }
 }
 
-impl CoordinateGuideBuilder for PolarGuide {
+impl CoordinateGuide for PolarGuide {
     type Axis = PolarAxis;
 
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
         self.axes = axes;
     }
 
-    fn set_mark_renderers(
+    fn set_compiled_marks(
         &mut self,
-        mark_renderers: Vec<Arc<dyn crate::marks::CompiledMark>>,
+        compiled_marks: Vec<Arc<dyn crate::marks::CompiledMark>>,
         session_context: &datafusion::prelude::SessionContext,
     ) {
         // Extract titles from mark renderers immediately
         for channel in ["r", "theta"] {
             if let Some(title) =
-                extract_channel_title_from_marks(&mark_renderers, channel, session_context)
+                extract_channel_title_from_marks(&compiled_marks, channel, session_context)
             {
                 self.channel_titles.insert(channel.to_string(), title);
             }
@@ -324,7 +324,6 @@ impl CompiledGuide for PolarGuide {
                     plot_height,
                     plot_bounds,
                     theme,
-                    self.options.plot_background_color,
                     params,
                 )?;
                 marks.extend(axis_marks);

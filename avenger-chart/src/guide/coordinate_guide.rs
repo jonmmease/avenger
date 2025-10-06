@@ -13,7 +13,7 @@ use std::collections::HashMap;
 /// A CoordinateGuide represents the visual reference elements for a coordinate system.
 /// This includes both axes (configured at the channel level) and coordinate-specific
 /// options (configured at the plot level).
-pub trait CoordinateGuideBuilder: Clone + Default {
+pub trait CoordinateGuide: Clone + Default {
     type Axis: Axis + Clone;
 
     /// Set axes that were configured at the channel level
@@ -22,13 +22,13 @@ pub trait CoordinateGuideBuilder: Clone + Default {
     /// from both plot-level and mark-level specifications.
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>);
 
-    /// Set mark renderers for extracting default axis titles
+    /// Set compiled marks for extracting default axis titles
     ///
-    /// This is called during guide creation to provide access to mark renderers
+    /// This is called during guide creation to provide access to compiled mark
     /// so that default axis titles can be extracted at render time.
-    fn set_mark_renderers(
+    fn set_compiled_marks(
         &mut self,
-        mark_renderers: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
+        compiled_marks: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
         session_context: &datafusion::prelude::SessionContext,
     );
 
