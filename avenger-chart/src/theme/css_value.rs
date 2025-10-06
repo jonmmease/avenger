@@ -3,41 +3,64 @@
 use crate::color::convert::{hsl_to_rgb, hwb_to_rgb};
 use crate::theme::{CssRgba, ThemeValue};
 
+/// Extract an RGB component value from a ThemeValue
+/// Supports both numbers (0-255) and percentages (0%-100%)
+fn extract_rgb_component(value: &ThemeValue) -> Option<u8> {
+    match value {
+        ThemeValue::Number(n) => Some((*n as f32).clamp(0.0, 255.0) as u8),
+        ThemeValue::Percentage(p) => {
+            // Convert percentage to 0-255 range
+            Some(((*p as f32 / 100.0) * 255.0).clamp(0.0, 255.0) as u8)
+        }
+        _ => None,
+    }
+}
+
 /// Parse an rgb() or rgba() function from parsed CSS arguments
+///
+/// # Arguments
+///
+/// * `args` - Parsed CSS function arguments
+///
+/// # CSS Syntax
+///
+/// Modern syntax (space-separated):
+/// - `rgb(r g b)` or `rgb(r g b / alpha)`
+/// - r, g, b: numbers (0-255) or percentages (0%-100%)
+/// - alpha: number (0-1) or percentage (0%-100%)
+///
+/// Legacy syntax (comma-separated):
+/// - `rgb(r, g, b)` or `rgba(r, g, b, alpha)`
+/// - Same value types as modern syntax
+///
+/// # Examples
+///
+/// ```css
+/// rgb(255, 0, 0)           /* red - legacy */
+/// rgb(100%, 0%, 0%)        /* red - percentages */
+/// rgb(255 0 0 / 0.5)       /* semi-transparent red - modern */
+/// rgb(100% 0% 0% / 50%)    /* semi-transparent red - percentages */
+/// ```
 pub fn parse_rgb_function(args: &[ThemeValue]) -> Option<CssRgba> {
     if args.len() < 3 {
         return None;
     }
 
-    let red = match &args[0] {
-        ThemeValue::Number(n) => (*n as u8).min(255),
-        _ => return None,
-    };
-
-    let green = match &args[1] {
-        ThemeValue::Number(n) => (*n as u8).min(255),
-        _ => return None,
-    };
-
-    let blue = match &args[2] {
-        ThemeValue::Number(n) => (*n as u8).min(255),
-        _ => return None,
-    };
+    let red = extract_rgb_component(&args[0])?;
+    let green = extract_rgb_component(&args[1])?;
+    let blue = extract_rgb_component(&args[2])?;
 
     let alpha = if args.len() > 3 {
-        match &args[3] {
-            ThemeValue::Number(n) => ((*n * 255.0) as u8).min(255),
-            _ => 255,
-        }
+        extract_alpha(&args[3])? * 255.0
     } else {
-        255
+        255.0
     };
 
     Some(CssRgba {
         red,
         green,
         blue,
-        alpha,
+        alpha: alpha as u8,
     })
 }
 
@@ -182,6 +205,184 @@ pub fn parse_hwb_function(args: &[ThemeValue]) -> Option<CssRgba> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ============================================================
+    // RGB Tests
+    // ============================================================
+
+    #[test]
+    fn test_parse_rgb_legacy_numbers() {
+        use crate::theme::Theme;
+
+        // Legacy comma-separated syntax with numbers
+        let css = r#"
+            mark {
+                fill: rgb(255, 0, 0);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(color.is_some(), "Should parse rgb with legacy syntax");
+        let [r, g, b, _a] = color.unwrap();
+
+        assert!((r - 1.0).abs() < 0.01, "Red should be ~1, got {}", r);
+        assert!((g - 0.0).abs() < 0.01, "Green should be ~0, got {}", g);
+        assert!((b - 0.0).abs() < 0.01, "Blue should be ~0, got {}", b);
+    }
+
+    #[test]
+    fn test_parse_rgb_legacy_percentages() {
+        use crate::theme::Theme;
+
+        // Legacy comma-separated syntax with percentages
+        let css = r#"
+            mark {
+                fill: rgb(100%, 0%, 0%);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(color.is_some(), "Should parse rgb with percentages");
+        let [r, g, b, _a] = color.unwrap();
+
+        assert!((r - 1.0).abs() < 0.01, "Red should be ~1, got {}", r);
+        assert!((g - 0.0).abs() < 0.01, "Green should be ~0, got {}", g);
+        assert!((b - 0.0).abs() < 0.01, "Blue should be ~0, got {}", b);
+    }
+
+    #[test]
+    fn test_parse_rgba_legacy_with_alpha() {
+        use crate::theme::Theme;
+
+        // Legacy rgba() with alpha
+        let css = r#"
+            mark {
+                fill: rgba(0, 255, 0, 0.5);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(color.is_some(), "Should parse rgba with alpha");
+        let [r, g, b, a] = color.unwrap();
+
+        assert!((r - 0.0).abs() < 0.01, "Red should be ~0, got {}", r);
+        assert!((g - 1.0).abs() < 0.01, "Green should be ~1, got {}", g);
+        assert!((b - 0.0).abs() < 0.01, "Blue should be ~0, got {}", b);
+        assert!((a - 0.5).abs() < 0.01, "Alpha should be ~0.5, got {}", a);
+    }
+
+    #[test]
+    fn test_parse_rgb_modern_numbers() {
+        use crate::theme::Theme;
+
+        // Modern space-separated syntax with numbers
+        let css = r#"
+            mark {
+                fill: rgb(0 0 255);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(color.is_some(), "Should parse rgb with modern syntax");
+        let [r, g, b, _a] = color.unwrap();
+
+        assert!((r - 0.0).abs() < 0.01, "Red should be ~0, got {}", r);
+        assert!((g - 0.0).abs() < 0.01, "Green should be ~0, got {}", g);
+        assert!((b - 1.0).abs() < 0.01, "Blue should be ~1, got {}", b);
+    }
+
+    #[test]
+    fn test_parse_rgb_modern_with_alpha() {
+        use crate::theme::Theme;
+
+        // Modern space-separated syntax with alpha
+        let css = r#"
+            mark {
+                fill: rgb(255 0 0 / 0.5);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(
+            color.is_some(),
+            "Should parse rgb with modern syntax and alpha"
+        );
+        let [r, g, b, a] = color.unwrap();
+
+        assert!((r - 1.0).abs() < 0.01, "Red should be ~1, got {}", r);
+        assert!((g - 0.0).abs() < 0.01, "Green should be ~0, got {}", g);
+        assert!((b - 0.0).abs() < 0.01, "Blue should be ~0, got {}", b);
+        assert!((a - 0.5).abs() < 0.01, "Alpha should be ~0.5, got {}", a);
+    }
+
+    #[test]
+    fn test_parse_rgb_modern_percentages() {
+        use crate::theme::Theme;
+
+        // Modern syntax with percentages
+        let css = r#"
+            mark {
+                fill: rgb(0% 100% 0%);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(
+            color.is_some(),
+            "Should parse rgb with modern syntax and percentages"
+        );
+        let [r, g, b, _a] = color.unwrap();
+
+        assert!((r - 0.0).abs() < 0.01, "Red should be ~0, got {}", r);
+        assert!((g - 1.0).abs() < 0.01, "Green should be ~1, got {}", g);
+        assert!((b - 0.0).abs() < 0.01, "Blue should be ~0, got {}", b);
+    }
+
+    #[test]
+    fn test_parse_rgb_modern_percentage_alpha() {
+        use crate::theme::Theme;
+
+        // Modern syntax with percentage alpha
+        let css = r#"
+            mark {
+                fill: rgb(100% 50% 0% / 75%);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(color.is_some(), "Should parse rgb with percentage alpha");
+        let [r, g, b, a] = color.unwrap();
+
+        assert!((r - 1.0).abs() < 0.01, "Red should be ~1, got {}", r);
+        assert!((g - 0.5).abs() < 0.05, "Green should be ~0.5, got {}", g);
+        assert!((b - 0.0).abs() < 0.01, "Blue should be ~0, got {}", b);
+        assert!((a - 0.75).abs() < 0.01, "Alpha should be ~0.75, got {}", a);
+    }
+
+    // ============================================================
+    // HSL Tests
+    // ============================================================
 
     #[test]
     fn test_parse_hsl_red() {
@@ -369,7 +570,111 @@ mod tests {
         assert!((g - 1.0).abs() < 0.01, "Green should be ~1");
     }
 
-    // HWB tests
+    #[test]
+    fn test_parse_hsl_modern_syntax() {
+        use crate::theme::Theme;
+
+        // Modern space-separated syntax
+        let css = r#"
+            mark {
+                fill: hsl(240 100% 50%);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(color.is_some(), "Should parse hsl with modern syntax");
+        let [r, g, b, _a] = color.unwrap();
+
+        // Should be blue: hsl(240, 100%, 50%)
+        assert!((r - 0.0).abs() < 0.01, "Red should be ~0, got {}", r);
+        assert!((g - 0.0).abs() < 0.01, "Green should be ~0, got {}", g);
+        assert!((b - 1.0).abs() < 0.01, "Blue should be ~1, got {}", b);
+    }
+
+    #[test]
+    fn test_parse_hsl_modern_with_alpha() {
+        use crate::theme::Theme;
+
+        // Modern syntax with alpha
+        let css = r#"
+            mark {
+                fill: hsl(0 100% 50% / 0.5);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(
+            color.is_some(),
+            "Should parse hsl with modern syntax and alpha"
+        );
+        let [r, g, b, a] = color.unwrap();
+
+        // Should be semi-transparent red
+        assert!((r - 1.0).abs() < 0.01, "Red should be ~1, got {}", r);
+        assert!((g - 0.0).abs() < 0.01, "Green should be ~0, got {}", g);
+        assert!((b - 0.0).abs() < 0.01, "Blue should be ~0, got {}", b);
+        assert!((a - 0.5).abs() < 0.01, "Alpha should be ~0.5, got {}", a);
+    }
+
+    #[test]
+    fn test_parse_hsl_modern_percentage_alpha() {
+        use crate::theme::Theme;
+
+        // Modern syntax with percentage alpha
+        let css = r#"
+            mark {
+                fill: hsl(120deg 100% 50% / 75%);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(color.is_some(), "Should parse hsl with percentage alpha");
+        let [r, g, b, a] = color.unwrap();
+
+        // Should be semi-transparent green
+        assert!((r - 0.0).abs() < 0.01, "Red should be ~0, got {}", r);
+        assert!((g - 1.0).abs() < 0.01, "Green should be ~1, got {}", g);
+        assert!((b - 0.0).abs() < 0.01, "Blue should be ~0, got {}", b);
+        assert!((a - 0.75).abs() < 0.01, "Alpha should be ~0.75, got {}", a);
+    }
+
+    #[test]
+    fn test_parse_hsla_legacy() {
+        use crate::theme::Theme;
+
+        // Legacy hsla() syntax
+        let css = r#"
+            mark {
+                fill: hsla(180, 100%, 50%, 0.3);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+        let ctx = crate::theme::ThemeContext::new("mark");
+        let color = theme.fill_color(&ctx);
+
+        assert!(color.is_some(), "Should parse hsla with legacy syntax");
+        let [r, g, b, a] = color.unwrap();
+
+        // Should be semi-transparent cyan
+        assert!((r - 0.0).abs() < 0.01, "Red should be ~0, got {}", r);
+        assert!((g - 1.0).abs() < 0.01, "Green should be ~1, got {}", g);
+        assert!((b - 1.0).abs() < 0.01, "Blue should be ~1, got {}", b);
+        assert!((a - 0.3).abs() < 0.01, "Alpha should be ~0.3, got {}", a);
+    }
+
+    // ============================================================
+    // HWB Tests
+    // ============================================================
     #[test]
     fn test_parse_hwb_red() {
         // hwb(0, 0%, 0%) = pure red
@@ -620,9 +925,24 @@ mod tests {
 
         // W+B = 100%, should produce gray at W/(W+B) = 60%
         let expected_gray = 0.6;
-        assert!((r - expected_gray).abs() < 0.01, "Red should be ~{}, got {}", expected_gray, r);
-        assert!((g - expected_gray).abs() < 0.01, "Green should be ~{}, got {}", expected_gray, g);
-        assert!((b - expected_gray).abs() < 0.01, "Blue should be ~{}, got {}", expected_gray, b);
+        assert!(
+            (r - expected_gray).abs() < 0.01,
+            "Red should be ~{}, got {}",
+            expected_gray,
+            r
+        );
+        assert!(
+            (g - expected_gray).abs() < 0.01,
+            "Green should be ~{}, got {}",
+            expected_gray,
+            g
+        );
+        assert!(
+            (b - expected_gray).abs() < 0.01,
+            "Blue should be ~{}, got {}",
+            expected_gray,
+            b
+        );
     }
 
     #[test]

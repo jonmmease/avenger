@@ -1305,13 +1305,35 @@ fn parse_hsl_with_origin<'i, 't>(
                 alpha,
             })
         } else {
-            // Absolute color syntax - parse comma-separated args
-            let args = p.parse_comma_separated(|p| parse_single_value(p, unsupported_units))?;
+            // Absolute color syntax: hsl(h s l [/ alpha])
+            // Parse space-separated values (modern syntax) or comma-separated (legacy)
+            let mut values = Vec::new();
+            loop {
+                match parse_single_value(p, unsupported_units) {
+                    Ok(value) => values.push(value),
+                    Err(_) => break,
+                }
+                let state = p.state();
+                match p.next() {
+                    Ok(Token::Delim('/')) => {
+                        if let Ok(alpha) = parse_single_value(p, unsupported_units) {
+                            values.push(alpha);
+                        }
+                        break;
+                    }
+                    Ok(Token::Comma) => {
+                        // Legacy comma-separated syntax - continue parsing
+                        continue;
+                    }
+                    _ => p.reset(&state),
+                }
+            }
 
-            if let Some(color) = css_value::parse_hsl_function(&args) {
+            // Try to parse as absolute hsl() color
+            if let Some(color) = css_value::parse_hsl_function(&values) {
                 Ok(ThemeValue::Color(color))
             } else {
-                Ok(ThemeValue::Function("hsl".to_string(), args))
+                Ok(ThemeValue::Function("hsl".to_string(), values))
             }
         }
     })
@@ -1413,13 +1435,35 @@ fn parse_rgb_with_origin<'i, 't>(
                 alpha,
             })
         } else {
-            // Absolute color syntax - parse comma-separated args
-            let args = p.parse_comma_separated(|p| parse_single_value(p, unsupported_units))?;
+            // Absolute color syntax: rgb(r g b [/ alpha])
+            // Parse space-separated values (modern syntax) or comma-separated (legacy)
+            let mut values = Vec::new();
+            loop {
+                match parse_single_value(p, unsupported_units) {
+                    Ok(value) => values.push(value),
+                    Err(_) => break,
+                }
+                let state = p.state();
+                match p.next() {
+                    Ok(Token::Delim('/')) => {
+                        if let Ok(alpha) = parse_single_value(p, unsupported_units) {
+                            values.push(alpha);
+                        }
+                        break;
+                    }
+                    Ok(Token::Comma) => {
+                        // Legacy comma-separated syntax - continue parsing
+                        continue;
+                    }
+                    _ => p.reset(&state),
+                }
+            }
 
-            if let Some(color) = css_value::parse_rgb_function(&args) {
+            // Try to parse as absolute rgb() color
+            if let Some(color) = css_value::parse_rgb_function(&values) {
                 Ok(ThemeValue::Color(color))
             } else {
-                Ok(ThemeValue::Function("rgb".to_string(), args))
+                Ok(ThemeValue::Function("rgb".to_string(), values))
             }
         }
     })
