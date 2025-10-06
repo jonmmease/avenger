@@ -1,7 +1,7 @@
 //! CompiledPlot - Immutable, serializable plot ready for rendering
 
 mod legends;
-mod rendering;
+pub(crate) mod rendering;
 mod scales;
 mod titles;
 mod validation;

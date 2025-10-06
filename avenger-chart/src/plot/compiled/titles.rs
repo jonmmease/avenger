@@ -10,9 +10,10 @@ use super::CompiledPlot;
 
 impl CompiledPlot {
     /// Create title mark if configured
-    pub(super) fn create_title(
+    pub(super) async fn create_title(
         &self,
         layout_bounds: Option<crate::layout::LayoutBounds>,
+        ctx: &datafusion::prelude::SessionContext,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let Some(title) = &self.title else {
@@ -24,6 +25,13 @@ impl CompiledPlot {
 
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
+        use crate::serialization::LogicalExprNodeExt;
+        use datafusion_proto::protobuf::LogicalExprNode;
+
+        // Evaluate the title text expression
+        let text_node: LogicalExprNode = title.text.clone().into();
+        let text_expr = text_node.to_expr(ctx)?;
+        let text_value = super::rendering::evaluate_string_expr(&text_expr, ctx, params).await?;
 
         // Position title within its layout bounds or use fallback
         let (x, y) = if let Some(bounds) = layout_bounds {
@@ -33,7 +41,7 @@ impl CompiledPlot {
         };
 
         let text_mark = SceneTextMark {
-            text: title.text.clone().into(),
+            text: text_value.into(),
             x: x.into(),
             y: y.into(),
             color: avenger_common::types::ColorOrGradient::Color(
@@ -65,9 +73,10 @@ impl CompiledPlot {
     }
 
     /// Create subtitle mark if configured
-    pub(super) fn create_subtitle(
+    pub(super) async fn create_subtitle(
         &self,
         layout_bounds: Option<crate::layout::LayoutBounds>,
+        ctx: &datafusion::prelude::SessionContext,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let Some(subtitle) = &self.subtitle else {
@@ -80,6 +89,13 @@ impl CompiledPlot {
 
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
+        use crate::serialization::LogicalExprNodeExt;
+        use datafusion_proto::protobuf::LogicalExprNode;
+
+        // Evaluate the subtitle text expression
+        let text_node: LogicalExprNode = subtitle.text.clone().into();
+        let text_expr = text_node.to_expr(ctx)?;
+        let text_value = super::rendering::evaluate_string_expr(&text_expr, ctx, params).await?;
 
         // Position subtitle within its layout bounds or use fallback
         let (x, y) = if let Some(bounds) = layout_bounds {
@@ -89,7 +105,7 @@ impl CompiledPlot {
         };
 
         let text_mark = SceneTextMark {
-            text: subtitle.text.clone().into(),
+            text: text_value.into(),
             x: x.into(),
             y: y.into(),
             color: avenger_common::types::ColorOrGradient::Color(

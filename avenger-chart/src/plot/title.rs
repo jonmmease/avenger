@@ -2,6 +2,7 @@
 
 use crate::coords::CoordinateSystem;
 use crate::plot::Plot;
+use crate::serialization::SerializableExpr;
 use serde::{Deserialize, Serialize};
 
 /// Alignment options for title and subtitle
@@ -17,7 +18,7 @@ pub enum TitleAlign {
 /// Minimal plot title configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlotTitle {
-    pub text: String,
+    pub text: SerializableExpr,
     pub font_size: Option<f32>,
     pub font_family: Option<String>,
     pub align: TitleAlign,
@@ -26,7 +27,7 @@ pub struct PlotTitle {
 /// Minimal plot subtitle configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlotSubtitle {
-    pub text: String,
+    pub text: SerializableExpr,
     pub font_size: Option<f32>,
     pub font_family: Option<String>,
     pub align: TitleAlign,
@@ -35,9 +36,10 @@ pub struct PlotSubtitle {
 /// Title and subtitle configuration methods for Plot
 impl<C: CoordinateSystem> Plot<C> {
     /// Set a simple plot title. For advanced styling, a richer API can be added later.
-    pub fn title(mut self, text: impl Into<String>) -> Self {
+    /// Accepts string literals, expressions, or column references.
+    pub fn title(mut self, text: impl super::plot::IntoExpr) -> Self {
         self.title = Some(PlotTitle {
-            text: text.into(),
+            text: text.into_expr().into(),
             font_size: None,
             font_family: None,
             align: TitleAlign::default(),
@@ -46,12 +48,12 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Configure the title with a closure for advanced options
-    pub fn configure_title<F>(mut self, text: impl Into<String>, f: F) -> Self
+    pub fn configure_title<F>(mut self, text: impl super::plot::IntoExpr, f: F) -> Self
     where
         F: FnOnce(PlotTitle) -> PlotTitle,
     {
         let title = PlotTitle {
-            text: text.into(),
+            text: text.into_expr().into(),
             font_size: None,
             font_family: None,
             align: TitleAlign::default(),
@@ -61,9 +63,10 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Set a simple plot subtitle. For advanced styling, a richer API can be added later.
-    pub fn subtitle(mut self, text: impl Into<String>) -> Self {
+    /// Accepts string literals, expressions, or column references.
+    pub fn subtitle(mut self, text: impl super::plot::IntoExpr) -> Self {
         self.subtitle = Some(PlotSubtitle {
-            text: text.into(),
+            text: text.into_expr().into(),
             font_size: None,
             font_family: None,
             align: TitleAlign::default(),
@@ -72,12 +75,12 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Configure the subtitle with a closure for advanced options
-    pub fn configure_subtitle<F>(mut self, text: impl Into<String>, f: F) -> Self
+    pub fn configure_subtitle<F>(mut self, text: impl super::plot::IntoExpr, f: F) -> Self
     where
         F: FnOnce(PlotSubtitle) -> PlotSubtitle,
     {
         let subtitle = PlotSubtitle {
-            text: text.into(),
+            text: text.into_expr().into(),
             font_size: None,
             font_family: None,
             align: TitleAlign::default(),

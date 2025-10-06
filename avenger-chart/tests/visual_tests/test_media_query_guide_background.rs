@@ -1,12 +1,16 @@
 //! Visual tests for CSS Media Query support with guide background colors
 
 use super::helpers::assert_visual_match;
+use avenger_chart::param::Param;
 use avenger_chart::prelude::*;
 use avenger_chart::theme::Theme;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::ScalarValue;
+use datafusion::logical_expr::when;
 use datafusion::prelude::*;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 /// Shared CSS theme for media query tests
@@ -100,24 +104,53 @@ async fn test_media_query_guide_background_responsive() {
     let df = create_test_data(&ctx);
     let theme = create_media_query_theme();
 
-    // Test 1: Small width (400px) - should trigger width < 600px media query (Light Blue)
-    let plot_small = Plot::<Cartesian>::new()
-        .canvas_size(400.0, 300.0)
-        .title("Small Screen (400px)")
-        .subtitle("Media Query: width < 600px → Light Blue Background")
-        .data(df.clone())
+    // Create width and height parameters
+    let width_param = Param::new("width", ScalarValue::Float32(Some(400.0)));
+    let height_param = Param::new("height", ScalarValue::Float32(Some(300.0)));
+
+    // Create CASE expressions for title and subtitle that match media query boundaries
+    let title_expr = when(col("width").lt(lit(600)), lit("Small Screen (400px)"))
+        .when(col("width").lt(lit(1200)), lit("Medium Screen (800px)"))
+        .otherwise(lit("Large Screen (1400px)"))
+        .unwrap();
+
+    let subtitle_expr = when(
+        col("width").lt(lit(600)),
+        lit("Media Query: width < 600px → Light Blue Background"),
+    )
+    .when(
+        col("width").lt(lit(1200)),
+        lit("Media Query: 600px ≤ width < 1200px → Light Green Background"),
+    )
+    .otherwise(lit("Media Query: width ≥ 1200px → Light Red Background"))
+    .unwrap();
+
+    // Create a SINGLE plot with responsive title/subtitle based on width parameter
+    let plot = Plot::<Cartesian>::new()
+        .canvas_size(col("width"), col("height"))
+        .title(title_expr)
+        .subtitle(subtitle_expr)
+        .data(df)
+        .add_param(width_param)
+        .add_param(height_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
-        .theme(theme.clone());
+        .theme(theme);
 
-    let compiled_small = plot_small.compile(&ctx).await.expect("Failed to compile plot");
+    // Compile ONCE
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+
+    // Test 1: Small width (400px) - should trigger width < 600px media query (Light Blue)
+    let mut params_small = IndexMap::new();
+    params_small.insert("width".to_string(), ScalarValue::Float32(Some(400.0)));
+    params_small.insert("height".to_string(), ScalarValue::Float32(Some(300.0)));
     assert_visual_match(
-        &compiled_small,
+        &compiled,
         &ctx,
-        None,
+        Some(params_small),
         "media_query",
         "guide_background_small_400px",
         0.9999,
@@ -125,23 +158,13 @@ async fn test_media_query_guide_background_responsive() {
     .await;
 
     // Test 2: Medium width (800px) - should trigger 600px <= width < 1200px media query (Light Green)
-    let plot_medium = Plot::<Cartesian>::new()
-        .canvas_size(800.0, 300.0)
-        .title("Medium Screen (800px)")
-        .subtitle("Media Query: 600px ≤ width < 1200px → Light Green Background")
-        .data(df.clone())
-        .mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
-                .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
-        )
-        .theme(theme.clone());
-
-    let compiled_medium = plot_medium.compile(&ctx).await.expect("Failed to compile plot");
+    let mut params_medium = IndexMap::new();
+    params_medium.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
+    params_medium.insert("height".to_string(), ScalarValue::Float32(Some(300.0)));
     assert_visual_match(
-        &compiled_medium,
+        &compiled,
         &ctx,
-        None,
+        Some(params_medium),
         "media_query",
         "guide_background_medium_800px",
         0.9999,
@@ -149,23 +172,13 @@ async fn test_media_query_guide_background_responsive() {
     .await;
 
     // Test 3: Large width (1400px) - should trigger width >= 1200px media query (Light Red)
-    let plot_large = Plot::<Cartesian>::new()
-        .canvas_size(1400.0, 300.0)
-        .title("Large Screen (1400px)")
-        .subtitle("Media Query: width ≥ 1200px → Light Red Background")
-        .data(df.clone())
-        .mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
-                .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
-        )
-        .theme(theme.clone());
-
-    let compiled_large = plot_large.compile(&ctx).await.expect("Failed to compile plot");
+    let mut params_large = IndexMap::new();
+    params_large.insert("width".to_string(), ScalarValue::Float32(Some(1400.0)));
+    params_large.insert("height".to_string(), ScalarValue::Float32(Some(300.0)));
     assert_visual_match(
-        &compiled_large,
+        &compiled,
         &ctx,
-        None,
+        Some(params_large),
         "media_query",
         "guide_background_large_1400px",
         0.9999,
@@ -226,24 +239,57 @@ async fn test_media_query_multi_range_syntax() {
     let df = create_test_data(&ctx);
     let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
-    // Test 1: 800px width - should match the multi-range (in range) - Light Purple
-    let plot_match = Plot::<Cartesian>::new()
-        .canvas_size(800.0, 300.0)
-        .title("Multi-Range Match (800px)")
-        .subtitle("Media Query: 600px ≤ width < 1200px → Light Purple Background")
-        .data(df.clone())
+    // Create width and height parameters
+    let width_param = Param::new("width", ScalarValue::Float32(Some(800.0)));
+    let height_param = Param::new("height", ScalarValue::Float32(Some(300.0)));
+
+    // Create CASE expressions for title and subtitle that match the multi-range boundaries
+    // 600px <= width < 1200px
+    let title_expr = when(
+        col("width").gt_eq(lit(600)).and(col("width").lt(lit(1200))),
+        lit("Multi-Range Match (800px)"),
+    )
+    .when(col("width").lt(lit(600)), lit("Multi-Range No Match (400px)"))
+    .otherwise(lit("Multi-Range Boundary (1200px)"))
+    .unwrap();
+
+    let subtitle_expr = when(
+        col("width").gt_eq(lit(600)).and(col("width").lt(lit(1200))),
+        lit("Media Query: 600px ≤ width < 1200px → Light Purple Background"),
+    )
+    .when(
+        col("width").lt(lit(600)),
+        lit("Media Query: 600px ≤ width < 1200px → No Match (Transparent)"),
+    )
+    .otherwise(lit("Media Query: 600px ≤ width < 1200px → No Match (Exclusive)"))
+    .unwrap();
+
+    // Create a SINGLE plot with responsive title/subtitle based on width parameter
+    let plot = Plot::<Cartesian>::new()
+        .canvas_size(col("width"), col("height"))
+        .title(title_expr)
+        .subtitle(subtitle_expr)
+        .data(df)
+        .add_param(width_param)
+        .add_param(height_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
-        .theme(theme.clone());
+        .theme(theme);
 
-    let compiled_match = plot_match.compile(&ctx).await.expect("Failed to compile plot");
+    // Compile ONCE
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+
+    // Test 1: 800px width - should match the multi-range (in range) - Light Purple
+    let mut params_match = IndexMap::new();
+    params_match.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
+    params_match.insert("height".to_string(), ScalarValue::Float32(Some(300.0)));
     assert_visual_match(
-        &compiled_match,
+        &compiled,
         &ctx,
-        None,
+        Some(params_match),
         "media_query",
         "multi_range_match_800px",
         0.9999,
@@ -251,23 +297,13 @@ async fn test_media_query_multi_range_syntax() {
     .await;
 
     // Test 2: 400px width - should NOT match (below range) - Transparent
-    let plot_no_match = Plot::<Cartesian>::new()
-        .canvas_size(400.0, 300.0)
-        .title("Multi-Range No Match (400px)")
-        .subtitle("Media Query: 600px ≤ width < 1200px → No Match (Transparent)")
-        .data(df.clone())
-        .mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
-                .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
-        )
-        .theme(theme.clone());
-
-    let compiled_no_match = plot_no_match.compile(&ctx).await.expect("Failed to compile plot");
+    let mut params_no_match = IndexMap::new();
+    params_no_match.insert("width".to_string(), ScalarValue::Float32(Some(400.0)));
+    params_no_match.insert("height".to_string(), ScalarValue::Float32(Some(300.0)));
     assert_visual_match(
-        &compiled_no_match,
+        &compiled,
         &ctx,
-        None,
+        Some(params_no_match),
         "media_query",
         "multi_range_no_match_400px",
         0.9999,
@@ -275,23 +311,13 @@ async fn test_media_query_multi_range_syntax() {
     .await;
 
     // Test 3: 1200px width - should NOT match (at exclusive boundary) - Transparent
-    let plot_boundary = Plot::<Cartesian>::new()
-        .canvas_size(1200.0, 300.0)
-        .title("Multi-Range Boundary (1200px)")
-        .subtitle("Media Query: 600px ≤ width < 1200px → No Match (Exclusive)")
-        .data(df.clone())
-        .mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
-                .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
-        )
-        .theme(theme.clone());
-
-    let compiled_boundary = plot_boundary.compile(&ctx).await.expect("Failed to compile plot");
+    let mut params_boundary = IndexMap::new();
+    params_boundary.insert("width".to_string(), ScalarValue::Float32(Some(1200.0)));
+    params_boundary.insert("height".to_string(), ScalarValue::Float32(Some(300.0)));
     assert_visual_match(
-        &compiled_boundary,
+        &compiled,
         &ctx,
-        None,
+        Some(params_boundary),
         "media_query",
         "multi_range_boundary_1200px",
         0.9999,

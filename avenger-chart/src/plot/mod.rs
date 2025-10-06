@@ -4,7 +4,7 @@
 //! along with supporting types for titles, scales, and axes.
 
 mod channel;
-mod compiled;
+pub(crate) mod compiled;
 mod plot;
 mod scales;
 mod specs;
