@@ -232,29 +232,16 @@ impl CartesianAxis {
                 // Use scale_type to distinguish band/point/ordinal
                 let scale_type = scale.scale_impl.scale_type();
                 match scale_type {
-                    "band" => make_band_axis_marks(
-                        scale,
-                        title,
-                        axis_origin,
-                        &axis_config,
-                    )?,
-                    "point" => make_point_axis_marks(
-                        scale.clone(),
-                        title,
-                        axis_origin,
-                        &axis_config,
-                    )?,
+                    "band" => make_band_axis_marks(scale, title, axis_origin, &axis_config)?,
+                    "point" => {
+                        make_point_axis_marks(scale.clone(), title, axis_origin, &axis_config)?
+                    }
                     "ordinal" => {
                         // Ordinal scales with discrete ranges need band-like rendering
                         // For ordinal scales, convert to band scale for axis rendering
                         use avenger_scales::scales::band::BandScale;
                         let band_scale = BandScale::from_point_scale(scale);
-                        make_band_axis_marks(
-                            &band_scale,
-                            title,
-                            axis_origin,
-                            &axis_config,
-                        )?
+                        make_band_axis_marks(&band_scale, title, axis_origin, &axis_config)?
                     }
                     _ => {
                         return Err(AvengerChartError::InternalError(format!(
@@ -266,12 +253,7 @@ impl CartesianAxis {
             }
             _ => {
                 // All continuous domain scales use numeric axis
-                make_numeric_axis_marks(
-                    scale,
-                    title,
-                    axis_origin,
-                    &axis_config,
-                )?
+                make_numeric_axis_marks(scale, title, axis_origin, &axis_config)?
             }
         };
 

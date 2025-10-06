@@ -31,6 +31,18 @@ impl From<SerializableExpr> for LogicalExprNode {
     }
 }
 
+// Conversion from Expr to SerializableExpr via LogicalExprNode
+impl From<datafusion::prelude::Expr> for SerializableExpr {
+    fn from(expr: datafusion::prelude::Expr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        // Convert Expr to LogicalExprNode
+        let node =
+            LogicalExprNode::from_expr(expr).expect("Failed to convert Expr to LogicalExprNode");
+        // Convert LogicalExprNode to SerializableExpr
+        node.into()
+    }
+}
+
 // Custom serialization for better JSON support
 impl Serialize for SerializableExpr {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

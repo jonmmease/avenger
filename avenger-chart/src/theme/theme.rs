@@ -476,9 +476,33 @@ impl Theme {
             selectors::context::MatchingForInvalidation::No,
         );
 
+        // Extract base font size from params or use default
+        let base_font_size = context
+            .params
+            .get("base-font-size")
+            .or_else(|| context.params.get("--base-font-size"))
+            .and_then(|v| match v {
+                datafusion_common::ScalarValue::Float32(Some(px)) => Some(*px),
+                datafusion_common::ScalarValue::Float64(Some(px)) => Some(*px as f32),
+                datafusion_common::ScalarValue::Int32(Some(px)) => Some(*px as f32),
+                datafusion_common::ScalarValue::Int64(Some(px)) => Some(*px as f32),
+                datafusion_common::ScalarValue::UInt32(Some(px)) => Some(*px as f32),
+                datafusion_common::ScalarValue::UInt64(Some(px)) => Some(*px as f32),
+                _ => None,
+            })
+            .unwrap_or(16.0); // Default to 16px if not specified
+
         // Find matching rules
         let mut matches = Vec::new();
         for rule in &self.rules {
+            // Check media query condition first (if present)
+            if let Some(media_cond) = &rule.media_condition {
+                if !media_cond.evaluate(&context.params, base_font_size) {
+                    continue; // Media query doesn't match, skip rule
+                }
+            }
+
+            // Then check selector match
             let is_match = selectors::matching::matches_selector(
                 &rule.selector,
                 0,
@@ -1102,6 +1126,7 @@ pub(crate) struct CompiledRule {
     pub(crate) specificity: u32,
     pub(crate) source_order: usize,
     pub(crate) declarations: IndexMap<String, ThemeValue>,
+    pub(crate) media_condition: Option<crate::theme::media_query::MediaCondition>,
 }
 
 // ============================================================================
@@ -2368,5 +2393,88 @@ mod tests {
         assert_eq!(theme.get_base_font_size(&params), 25.0);
         let ctx_with_params = ctx.clone().with_params(params);
         assert_eq!(theme.font_size(&ctx_with_params), Some(75.0));
+    }
+
+    #[test]
+    fn test_media_query_evaluation_in_theme_query() {
+        use crate::theme::media_query::{
+            DimensionValue, MediaCondition, MediaFeature, MediaOperator,
+        };
+        use crate::theme::parser::parse_stylesheet;
+
+        // Create a simple CSS with media queries (simulated manually for now)
+        let css = r#"
+            test-element { fill: blue; }
+        "#;
+
+        let mut theme = Theme::from_css(css).expect("Failed to parse CSS");
+
+        // Add a rule with a media condition manually
+        let rules = parse_stylesheet("test-element { fill: red; }").expect("Failed to parse rule");
+        let mut rule = rules
+            .into_iter()
+            .next()
+            .expect("Expected at least one rule");
+
+        // Add a media condition to the rule
+        rule.media_condition = Some(MediaCondition::Feature(MediaFeature::Single {
+            name: "width".to_string(),
+            op: MediaOperator::GreaterEqual,
+            value: DimensionValue::Pixels(600.0),
+        }));
+
+        // Give it a high source_order so it overrides defaults
+        rule.source_order = 1000;
+
+        theme.rules.push(rule);
+
+        // Test without width param - media query should not match, get blue
+        let ctx = ThemeContext::new("test-element");
+        let fill = theme.query(&ctx, "fill");
+        assert!(fill.is_some(), "Should have fill value");
+        if let Some(ThemeValue::Color(c)) = fill {
+            assert_eq!(
+                c.blue, 255,
+                "Without width param, should get blue (default rule)"
+            );
+            assert_eq!(c.red, 0, "Should not be red");
+        } else {
+            panic!("Expected color value");
+        }
+
+        // Test with width < 600 - media query should not match, get blue
+        let mut params_small = IndexMap::new();
+        params_small.insert(
+            "width".to_string(),
+            datafusion_common::ScalarValue::Float32(Some(400.0)),
+        );
+        let ctx_small = ThemeContext::new("test-element").with_params(params_small);
+        let fill_small = theme.query(&ctx_small, "fill");
+        if let Some(ThemeValue::Color(c)) = fill_small {
+            assert_eq!(
+                c.blue, 255,
+                "With width < 600, should get blue (default rule)"
+            );
+            assert_eq!(c.red, 0, "Should not be red");
+        }
+
+        // Test with width >= 600 - media query SHOULD match, get red
+        let mut params_large = IndexMap::new();
+        params_large.insert(
+            "width".to_string(),
+            datafusion_common::ScalarValue::Float32(Some(800.0)),
+        );
+        let ctx_large = ThemeContext::new("test-element").with_params(params_large);
+        let fill_large = theme.query(&ctx_large, "fill");
+        if let Some(ThemeValue::Color(c)) = fill_large {
+            assert_eq!(
+                c.red, 255,
+                "With width >= 600, should get red from media query rule"
+            );
+            assert_eq!(c.green, 0);
+            assert_eq!(c.blue, 0);
+        } else {
+            panic!("Expected media query rule to match");
+        }
     }
 }

@@ -1,7 +1,6 @@
 //! Grid layout building logic
 use crate::theme::Theme;
 
-use super::sizing::LayoutSpec;
 use super::types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide};
 use crate::error::AvengerChartError;
 use crate::legend::LegendPosition;
@@ -206,7 +205,7 @@ impl GridBuilder {
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         theme: &Theme,
-        layout_spec: &LayoutSpec,
+        layout_spec: &crate::layout::sizing::EvaluatedLayoutSpec,
         legend_sizes: &HashMap<String, Size<f32>>,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<GridLayout, AvengerChartError> {
@@ -246,8 +245,8 @@ impl GridBuilder {
         // Use fixed width if plot width is specified, otherwise flexible (fr)
         let plot_col_index = col_index;
         let plot_col_size = match &layout_spec.plot_area {
-            crate::layout::SizeMode::Fixed { width, .. }
-            | crate::layout::SizeMode::Width(width) => length(*width),
+            crate::layout::sizing::EvaluatedSizeMode::Fixed { width, .. }
+            | crate::layout::sizing::EvaluatedSizeMode::Width(width) => length(*width),
             _ => fr(1.0), // Flexible - takes remaining space
         };
         grid.cols.push(plot_col_size);
@@ -376,8 +375,8 @@ impl GridBuilder {
         // Use fixed height if plot height is specified, otherwise flexible (fr)
         let plot_row_index = row_index;
         let plot_row_size = match &layout_spec.plot_area {
-            crate::layout::SizeMode::Fixed { height, .. }
-            | crate::layout::SizeMode::Height(height) => length(*height),
+            crate::layout::sizing::EvaluatedSizeMode::Fixed { height, .. }
+            | crate::layout::sizing::EvaluatedSizeMode::Height(height) => length(*height),
             _ => fr(1.0), // Flexible - takes remaining vertical space
         };
         grid.rows.push(plot_row_size);

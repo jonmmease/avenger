@@ -18,6 +18,156 @@ use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
 
 use super::CompiledPlot;
 
+/// Evaluate a SizeMode to get an EvaluatedSizeMode with concrete f32 values
+async fn evaluate_size_mode(
+    size_mode: &crate::layout::SizeMode,
+    ctx: &SessionContext,
+    params: &IndexMap<String, datafusion::common::ScalarValue>,
+) -> Result<crate::layout::EvaluatedSizeMode, AvengerChartError> {
+    use crate::layout::{EvaluatedSizeMode, SizeMode};
+    use crate::serialization::LogicalExprNodeExt;
+    use datafusion_proto::protobuf::LogicalExprNode;
+
+    match size_mode {
+        SizeMode::Fixed { width, height } => {
+            let width_node: LogicalExprNode = width.clone().into();
+            let height_node: LogicalExprNode = height.clone().into();
+            let width_expr = width_node.to_expr(ctx)?;
+            let height_expr = height_node.to_expr(ctx)?;
+            let w = evaluate_dimension_expr(&width_expr, ctx, params).await?;
+            let h = evaluate_dimension_expr(&height_expr, ctx, params).await?;
+            Ok(EvaluatedSizeMode::Fixed {
+                width: w,
+                height: h,
+            })
+        }
+        SizeMode::Width(width) => {
+            let width_node: LogicalExprNode = width.clone().into();
+            let width_expr = width_node.to_expr(ctx)?;
+            let w = evaluate_dimension_expr(&width_expr, ctx, params).await?;
+            Ok(EvaluatedSizeMode::Width(w))
+        }
+        SizeMode::Height(height) => {
+            let height_node: LogicalExprNode = height.clone().into();
+            let height_expr = height_node.to_expr(ctx)?;
+            let h = evaluate_dimension_expr(&height_expr, ctx, params).await?;
+            Ok(EvaluatedSizeMode::Height(h))
+        }
+        SizeMode::Auto => Ok(EvaluatedSizeMode::Auto),
+    }
+}
+
+/// Evaluate a LayoutSpec to get an EvaluatedLayoutSpec with concrete f32 values
+async fn evaluate_layout_spec(
+    layout_spec: &crate::layout::LayoutSpec,
+    ctx: &SessionContext,
+    params: &IndexMap<String, datafusion::common::ScalarValue>,
+) -> Result<crate::layout::EvaluatedLayoutSpec, AvengerChartError> {
+    use crate::layout::EvaluatedLayoutSpec;
+
+    let canvas = evaluate_size_mode(&layout_spec.canvas, ctx, params).await?;
+    let plot_area = evaluate_size_mode(&layout_spec.plot_area, ctx, params).await?;
+
+    Ok(EvaluatedLayoutSpec {
+        canvas,
+        plot_area,
+        margins: layout_spec.margins.clone(),
+    })
+}
+
+/// Helper function to evaluate a dimension expression to a concrete f32 value
+async fn evaluate_dimension_expr(
+    expr: &datafusion::prelude::Expr,
+    ctx: &SessionContext,
+    params: &IndexMap<String, datafusion::common::ScalarValue>,
+) -> Result<f32, AvengerChartError> {
+    use datafusion::common::ScalarValue;
+
+    // Check if it's a literal first (most common case - literal dimensions)
+    if let datafusion::prelude::Expr::Literal(scalar, _) = expr {
+        return match scalar {
+            ScalarValue::Float32(Some(v)) => Ok(*v),
+            ScalarValue::Float64(Some(v)) => Ok(*v as f32),
+            ScalarValue::Int32(Some(v)) => Ok(*v as f32),
+            ScalarValue::Int64(Some(v)) => Ok(*v as f32),
+            ScalarValue::UInt32(Some(v)) => Ok(*v as f32),
+            ScalarValue::UInt64(Some(v)) => Ok(*v as f32),
+            _ => Err(AvengerChartError::InternalError(format!(
+                "Cannot convert scalar {:?} to f32 for dimension",
+                scalar
+            ))),
+        };
+    }
+
+    // If it's a column reference, look it up in params
+    if let datafusion::prelude::Expr::Column(c) = expr {
+        if let Some(param_value) = params.get(&c.name) {
+            return match param_value {
+                ScalarValue::Float32(Some(v)) => Ok(*v),
+                ScalarValue::Float64(Some(v)) => Ok(*v as f32),
+                ScalarValue::Int32(Some(v)) => Ok(*v as f32),
+                ScalarValue::Int64(Some(v)) => Ok(*v as f32),
+                ScalarValue::UInt32(Some(v)) => Ok(*v as f32),
+                ScalarValue::UInt64(Some(v)) => Ok(*v as f32),
+                _ => Err(AvengerChartError::InternalError(format!(
+                    "Cannot convert param '{}' value {:?} to f32 for dimension",
+                    c.name, param_value
+                ))),
+            };
+        } else {
+            return Err(AvengerChartError::InternalError(format!(
+                "Dimension references param '{}' which was not provided",
+                c.name
+            )));
+        }
+    }
+
+    // For complex expressions, we need to evaluate using datafusion
+    // Create a dataframe with params as columns
+    use datafusion::arrow::array::{Float32Array, RecordBatch};
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "dummy",
+        DataType::Float32,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(Float32Array::from(vec![1.0]))])?;
+
+    let df = ctx.read_batch(batch)?;
+    let result_df = df.select(vec![expr.clone().alias("result")])?;
+    let batches = result_df.collect().await?;
+
+    if batches.is_empty() || batches[0].num_rows() == 0 {
+        return Err(AvengerChartError::InternalError(
+            "Failed to evaluate dimension expression: no rows returned".to_string(),
+        ));
+    }
+
+    let array = batches[0].column(0);
+
+    // Try various numeric types
+    use datafusion::arrow::array::AsArray;
+    use datafusion::arrow::datatypes::{Float32Type, Float64Type, Int32Type, Int64Type};
+
+    let value = if let Some(arr) = array.as_primitive_opt::<Float32Type>() {
+        arr.value(0)
+    } else if let Some(arr) = array.as_primitive_opt::<Float64Type>() {
+        arr.value(0) as f32
+    } else if let Some(arr) = array.as_primitive_opt::<Int32Type>() {
+        arr.value(0) as f32
+    } else if let Some(arr) = array.as_primitive_opt::<Int64Type>() {
+        arr.value(0) as f32
+    } else {
+        return Err(AvengerChartError::InternalError(format!(
+            "Dimension expression evaluated to non-numeric type: {:?}",
+            array.data_type()
+        )));
+    };
+
+    Ok(value)
+}
+
 impl CompiledPlot {
     /// Apply scaling transformation to a channel expression
     fn apply_channel_scale(
@@ -460,9 +610,13 @@ impl CompiledPlot {
 
         // Create ChartLayout with overflow directly
         let layout_spec = self.get_layout_spec();
+
+        // Evaluate the layout spec to get concrete dimensions
+        let evaluated_spec = evaluate_layout_spec(layout_spec, ctx, params).await?;
+
         let mut layout = ChartLayout::new(
             &overflow,
-            layout_spec,
+            &evaluated_spec,
             self.get_title(),
             self.get_subtitle(),
             self.get_theme().as_ref(),
@@ -470,8 +624,8 @@ impl CompiledPlot {
             params,
         )?;
 
-        // Compute layout using the layout spec and return it directly
-        layout.compute(layout_spec)
+        // Compute layout using the evaluated layout spec and return it directly
+        layout.compute(&evaluated_spec)
     }
 
     /// Create legends positioned according to layout
@@ -651,18 +805,7 @@ impl CompiledPlot {
         // Get layout spec and estimate initial dimensions
         let layout_spec = &self.layout_spec;
 
-        // For now, we'll use a simple estimation for canvas size
-        // This will be refined after we compute the actual layout
-        let (estimated_width, estimated_height) = match &layout_spec.canvas {
-            crate::layout::SizeMode::Fixed { width, height } => (*width, *height),
-            _ => (400.0, 300.0), // Default for Auto or other modes
-        };
-
-        // Use estimated dimensions for initial scale construction
-        let estimated_plot_width = estimated_width * INITIAL_PLOT_AREA_RATIO;
-        let estimated_plot_height = estimated_height * INITIAL_PLOT_AREA_RATIO;
-
-        // Merge provided params with default params
+        // Merge provided params with default params first (needed for dimension evaluation)
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
             merged.extend(provided);
@@ -670,6 +813,57 @@ impl CompiledPlot {
         } else {
             self.default_params.clone()
         };
+
+        // Evaluate dimension expressions to get concrete values
+        // This will be refined after we compute the actual layout
+        use crate::serialization::LogicalExprNodeExt;
+        use datafusion_proto::protobuf::LogicalExprNode;
+
+        let (estimated_width, estimated_height) = match &layout_spec.canvas {
+            crate::layout::SizeMode::Fixed { width, height } => {
+                let width_node: LogicalExprNode = width.clone().into();
+                let height_node: LogicalExprNode = height.clone().into();
+                let width_expr = width_node.to_expr(ctx)?;
+                let height_expr = height_node.to_expr(ctx)?;
+                let w = evaluate_dimension_expr(&width_expr, ctx, &merged_params).await?;
+                let h = evaluate_dimension_expr(&height_expr, ctx, &merged_params).await?;
+                (Some(w), Some(h))
+            }
+            crate::layout::SizeMode::Width(width) => {
+                let width_node: LogicalExprNode = width.clone().into();
+                let width_expr = width_node.to_expr(ctx)?;
+                let w = evaluate_dimension_expr(&width_expr, ctx, &merged_params).await?;
+                (Some(w), None)
+            }
+            crate::layout::SizeMode::Height(height) => {
+                let height_node: LogicalExprNode = height.clone().into();
+                let height_expr = height_node.to_expr(ctx)?;
+                let h = evaluate_dimension_expr(&height_expr, ctx, &merged_params).await?;
+                (None, Some(h))
+            }
+            _ => (None, None), // No dimensions specified
+        };
+
+        // Add evaluated dimensions to merged params for media query evaluation
+        // Only add params if we have actual dimension values
+        let mut merged_params = merged_params;
+        if let Some(w) = estimated_width {
+            merged_params.insert(
+                "width".to_string(),
+                datafusion::common::ScalarValue::Float32(Some(w)),
+            );
+        }
+        if let Some(h) = estimated_height {
+            merged_params.insert(
+                "height".to_string(),
+                datafusion::common::ScalarValue::Float32(Some(h)),
+            );
+        }
+
+        // Use estimated dimensions for initial scale construction
+        // Default to reasonable sizes if not specified
+        let estimated_plot_width = estimated_width.unwrap_or(400.0) * INITIAL_PLOT_AREA_RATIO;
+        let estimated_plot_height = estimated_height.unwrap_or(300.0) * INITIAL_PLOT_AREA_RATIO;
 
         // Create initial RenderContext with estimated dimensions and SessionContext
         let theme = self.get_theme();
@@ -691,8 +885,8 @@ impl CompiledPlot {
         // STAGE 2: COMPUTE LAYOUT USING INITIAL SCALES
         let layout = self
             .compute_layout(
-                estimated_width,
-                estimated_height,
+                estimated_width.unwrap_or(400.0),
+                estimated_height.unwrap_or(300.0),
                 &initial_configured_scales,
                 ctx,
                 &merged_params,

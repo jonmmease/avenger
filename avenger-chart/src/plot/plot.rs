@@ -4,8 +4,44 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use datafusion::dataframe::DataFrame;
+use datafusion::prelude::{Expr, lit};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
+
+/// Trait for types that can be converted to Expr (for dimensions)
+pub trait IntoExpr {
+    fn into_expr(self) -> Expr;
+}
+
+impl IntoExpr for Expr {
+    fn into_expr(self) -> Expr {
+        self
+    }
+}
+
+impl IntoExpr for f32 {
+    fn into_expr(self) -> Expr {
+        lit(self)
+    }
+}
+
+impl IntoExpr for f64 {
+    fn into_expr(self) -> Expr {
+        lit(self)
+    }
+}
+
+impl IntoExpr for i32 {
+    fn into_expr(self) -> Expr {
+        lit(self)
+    }
+}
+
+impl IntoExpr for i64 {
+    fn into_expr(self) -> Expr {
+        lit(self)
+    }
+}
 
 use super::compiled::CompiledPlot;
 use super::specs::{AxisSpec, ScaleSpec};
@@ -217,8 +253,20 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Set fixed canvas dimensions (traditional mode)
     /// The plot area will fill the available space within the canvas
-    pub fn canvas_size(mut self, width: f32, height: f32) -> Self {
-        self.layout_spec.canvas = crate::layout::SizeMode::Fixed { width, height };
+    ///
+    /// Accepts numeric literals (e.g., `800.0`), `Expr` values, or column references via `col()`
+    pub fn canvas_size<W, H>(mut self, width: W, height: H) -> Self
+    where
+        W: IntoExpr,
+        H: IntoExpr,
+    {
+        let width_expr = width.into_expr();
+        let height_expr = height.into_expr();
+
+        self.layout_spec.canvas = crate::layout::SizeMode::Fixed {
+            width: width_expr.into(),
+            height: height_expr.into(),
+        };
         self
     }
 
@@ -230,8 +278,20 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Set fixed plot area dimensions (data-first mode)
     /// The canvas will expand to accommodate the plot area plus margins, axes, and legends
-    pub fn plot_size(mut self, width: f32, height: f32) -> Self {
-        self.layout_spec.plot_area = crate::layout::SizeMode::Fixed { width, height };
+    ///
+    /// Accepts numeric literals (e.g., `400.0`), `Expr` values, or column references via `col()`
+    pub fn plot_size<W, H>(mut self, width: W, height: H) -> Self
+    where
+        W: IntoExpr,
+        H: IntoExpr,
+    {
+        let width_expr = width.into_expr();
+        let height_expr = height.into_expr();
+
+        self.layout_spec.plot_area = crate::layout::SizeMode::Fixed {
+            width: width_expr.into(),
+            height: height_expr.into(),
+        };
         self
     }
 
@@ -239,8 +299,8 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn plot_constraint(mut self, constraint: PlotConstraint) -> Self {
         self.layout_spec.plot_area = match constraint {
             PlotConstraint::Auto => crate::layout::SizeMode::Auto,
-            PlotConstraint::Width(w) => crate::layout::SizeMode::Width(w),
-            PlotConstraint::Height(h) => crate::layout::SizeMode::Height(h),
+            PlotConstraint::Width(w) => crate::layout::SizeMode::Width(w.into()),
+            PlotConstraint::Height(h) => crate::layout::SizeMode::Height(h.into()),
         };
         self
     }

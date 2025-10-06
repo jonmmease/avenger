@@ -127,8 +127,8 @@ async fn test_plot_width_with_canvas_height() {
     // - Fixed canvas height of 400px
     // Plot area height and canvas width will be computed
     let plot = Plot::<Cartesian>::new()
-        .plot_constraint(PlotConstraint::Width(350.0)) // Fixed plot area width
-        .canvas_constraint(CanvasConstraint::Height(400.0)) // Fixed canvas height
+        .plot_constraint(PlotConstraint::width(350.0)) // Fixed plot area width
+        .canvas_constraint(CanvasConstraint::height(400.0)) // Fixed canvas height
         .margins(Margins {
             top: 20.0,
             right: 20.0,

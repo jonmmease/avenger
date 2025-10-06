@@ -26,18 +26,33 @@ pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
     let mut chart_parser = ChartStyleParser::new(&unsupported_units);
     let mut source_order = 0;
 
-    let rules: Vec<CompiledRule> = StyleSheetParser::new(&mut parser, &mut chart_parser)
-        .filter_map(|result| {
-            match result {
-                Ok(mut rule) => {
-                    rule.source_order = source_order;
-                    source_order += 1;
-                    Some(rule)
+    let mut all_rules = Vec::new();
+
+    for result in StyleSheetParser::new(&mut parser, &mut chart_parser) {
+        match result {
+            Ok(rule_or_rules) => {
+                // Handle both single rules and @media blocks (which return Vec<CompiledRule>)
+                match rule_or_rules {
+                    RuleOrRules::Rule(mut rule) => {
+                        rule.source_order = source_order;
+                        source_order += 1;
+                        all_rules.push(rule);
+                    }
+                    RuleOrRules::Rules(rules) => {
+                        // Rules from @media block
+                        for mut rule in rules {
+                            rule.source_order = source_order;
+                            source_order += 1;
+                            all_rules.push(rule);
+                        }
+                    }
                 }
-                Err(_) => None, // Ignore invalid rules
             }
-        })
-        .collect();
+            Err(_) => {
+                // Ignore invalid rules
+            }
+        }
+    }
 
     // Check if any unsupported units were encountered
     let errors = unsupported_units.into_inner();
@@ -52,7 +67,25 @@ pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
         ));
     }
 
-    Ok(rules)
+    Ok(all_rules)
+}
+
+/// Enum to handle both single rules and rule collections from @media
+enum RuleOrRules {
+    Rule(CompiledRule),
+    Rules(Vec<CompiledRule>),
+}
+
+impl From<CompiledRule> for RuleOrRules {
+    fn from(rule: CompiledRule) -> Self {
+        RuleOrRules::Rule(rule)
+    }
+}
+
+impl From<Vec<CompiledRule>> for RuleOrRules {
+    fn from(rules: Vec<CompiledRule>) -> Self {
+        RuleOrRules::Rules(rules)
+    }
 }
 
 /// Parser struct that implements the required traits for StyleSheetParser
@@ -69,7 +102,7 @@ impl<'a> ChartStyleParser<'a> {
 /// Implementation of QualifiedRuleParser for parsing style rules
 impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
     type Prelude = String;
-    type QualifiedRule = CompiledRule;
+    type QualifiedRule = RuleOrRules;
     type Error = ();
 
     fn parse_prelude<'t>(
@@ -115,7 +148,7 @@ impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
         selector_str: String,
         _start: &ParserState,
         input: &mut Parser<'i, 't>,
-    ) -> Result<CompiledRule, ParseError<'i, ()>> {
+    ) -> Result<RuleOrRules, ParseError<'i, ()>> {
         // Handle :root specially
         let (selector, specificity) = if selector_str == ":root" {
             // Create a universal selector for :root
@@ -167,12 +200,13 @@ impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
             return Err(err);
         }
 
-        Ok(CompiledRule {
+        Ok(RuleOrRules::Rule(CompiledRule {
             selector,
             specificity,
             source_order: 0, // Will be set later
             declarations: declaration_parser.declarations,
-        })
+            media_condition: None, // No media query for now (will be added in parse_stylesheet)
+        }))
     }
 }
 
@@ -217,13 +251,105 @@ impl<'i, 'a> DeclarationParser<'i> for DeclarationParserImpl<'a> {
     }
 }
 
-/// Implementation of AtRuleParser - we don't support at-rules
-/// The default implementation rejects all at-rules, which is what we want
+/// Implementation of AtRuleParser - supports @media rules
 impl<'i, 'a> AtRuleParser<'i> for ChartStyleParser<'a> {
-    type Prelude = ();
-    type AtRule = CompiledRule;
+    type Prelude = MediaQueryPrelude;
+    type AtRule = RuleOrRules;
     type Error = ();
-    // Using default implementations - they reject all at-rules
+
+    fn parse_prelude<'t>(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Self::Prelude, ParseError<'i, ()>> {
+        // Only handle @media rules
+        if name.as_ref() == "media" {
+            // Capture the starting position
+            let start = input.position();
+
+            // Consume all tokens in the prelude to get the full condition string
+            while input.next().is_ok() {}
+
+            // Get the condition string from the input
+            let condition_str = input.slice_from(start).trim();
+
+            // Parse the condition
+            let condition = parse_media_condition(condition_str).map_err(|e| {
+                eprintln!("Failed to parse media condition '{}': {}", condition_str, e);
+                input.new_custom_error(())
+            })?;
+
+            Ok(MediaQueryPrelude { condition })
+        } else {
+            // Reject other at-rules
+            Err(input.new_custom_error(()))
+        }
+    }
+
+    fn parse_block<'t>(
+        &mut self,
+        prelude: Self::Prelude,
+        _start: &ParserState,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Self::AtRule, ParseError<'i, ()>> {
+        use crate::theme::media_query::MediaCondition;
+
+        // Parse the rules inside the @media block
+        let mut nested_rules = Vec::new();
+
+        // Use StyleSheetParser to parse nested qualified rules
+        let nested_parser = StyleSheetParser::new(input, self);
+
+        for result in nested_parser {
+            match result {
+                Ok(rule_or_rules) => {
+                    // Handle both single rules and collections
+                    match rule_or_rules {
+                        RuleOrRules::Rule(mut rule) => {
+                            // Add the media condition to the rule
+                            rule.media_condition = Some(prelude.condition.clone());
+                            nested_rules.push(rule);
+                        }
+                        RuleOrRules::Rules(mut rules) => {
+                            // Nested @media or other at-rules (add media condition to all)
+                            for rule in &mut rules {
+                                // Combine conditions with AND if rule already has one
+                                if let Some(existing) = &rule.media_condition {
+                                    rule.media_condition = Some(MediaCondition::And(vec![
+                                        prelude.condition.clone(),
+                                        existing.clone(),
+                                    ]));
+                                } else {
+                                    rule.media_condition = Some(prelude.condition.clone());
+                                }
+                            }
+                            nested_rules.extend(rules);
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Skip invalid rules
+                }
+            }
+        }
+
+        Ok(RuleOrRules::Rules(nested_rules))
+    }
+
+    fn rule_without_block(
+        &mut self,
+        _prelude: Self::Prelude,
+        _start: &ParserState,
+    ) -> Result<Self::AtRule, ()> {
+        // @media rules must have a block
+        Err(())
+    }
+}
+
+/// Media query prelude containing the parsed condition
+#[derive(Clone)]
+struct MediaQueryPrelude {
+    condition: crate::theme::media_query::MediaCondition,
 }
 
 /// Implementation of RuleBodyItemParser
@@ -1467,4 +1593,677 @@ fn parse_rgb_with_origin<'i, 't>(
             }
         }
     })
+}
+
+/// Parse a media query condition string using token-based parsing
+///
+/// Supports:
+/// - Modern range syntax: (width >= 600px), (width > 400px and width < 1200px)
+/// - Legacy syntax: (min-width: 600px), (max-width: 1200px)
+/// - Logical operators with proper precedence: not > and > or
+/// - Parenthesized groups: ((a or b) and c)
+///
+/// Returns a MediaCondition that can be evaluated against params.
+fn parse_media_condition(
+    condition_str: &str,
+) -> Result<crate::theme::media_query::MediaCondition, String> {
+    use cssparser::{Parser, ParserInput};
+
+    let mut input = ParserInput::new(condition_str);
+    let mut parser = Parser::new(&mut input);
+
+    parse_media_condition_tokens(&mut parser)
+        .map_err(|e| format!("Failed to parse media condition: {:?}", e))
+}
+
+/// Parse media condition using cssparser tokens with proper operator precedence
+///
+/// Precedence (highest to lowest):
+/// 1. not
+/// 2. and
+/// 3. or
+fn parse_media_condition_tokens<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<crate::theme::media_query::MediaCondition, ParseError<'i, ()>> {
+    parser.skip_whitespace();
+
+    // Parse "or" level (lowest precedence)
+    parse_media_or(parser)
+}
+
+/// Parse "or" expressions (lowest precedence)
+fn parse_media_or<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<crate::theme::media_query::MediaCondition, ParseError<'i, ()>> {
+    use crate::theme::media_query::MediaCondition;
+
+    let mut left = parse_media_and(parser)?;
+
+    loop {
+        parser.skip_whitespace();
+
+        // Try to parse "or"
+        if parser.try_parse(|p| p.expect_ident_matching("or")).is_err() {
+            break;
+        }
+
+        parser.skip_whitespace();
+        let right = parse_media_and(parser)?;
+
+        // Combine with existing or chain
+        left = match left {
+            MediaCondition::Or(mut items) => {
+                items.push(right);
+                MediaCondition::Or(items)
+            }
+            _ => MediaCondition::Or(vec![left, right]),
+        };
+    }
+
+    Ok(left)
+}
+
+/// Parse "and" expressions (medium precedence)
+fn parse_media_and<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<crate::theme::media_query::MediaCondition, ParseError<'i, ()>> {
+    use crate::theme::media_query::MediaCondition;
+
+    let mut left = parse_media_not(parser)?;
+
+    loop {
+        parser.skip_whitespace();
+
+        // Try to parse "and"
+        if parser
+            .try_parse(|p| p.expect_ident_matching("and"))
+            .is_err()
+        {
+            break;
+        }
+
+        parser.skip_whitespace();
+        let right = parse_media_not(parser)?;
+
+        // Combine with existing and chain
+        left = match left {
+            MediaCondition::And(mut items) => {
+                items.push(right);
+                MediaCondition::And(items)
+            }
+            _ => MediaCondition::And(vec![left, right]),
+        };
+    }
+
+    Ok(left)
+}
+
+/// Parse "not" expressions (highest precedence)
+fn parse_media_not<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<crate::theme::media_query::MediaCondition, ParseError<'i, ()>> {
+    use crate::theme::media_query::MediaCondition;
+
+    parser.skip_whitespace();
+
+    // Check for "not"
+    if parser.try_parse(|p| p.expect_ident_matching("not")).is_ok() {
+        parser.skip_whitespace();
+        let inner = parse_media_primary(parser)?;
+        return Ok(MediaCondition::Not(Box::new(inner)));
+    }
+
+    parse_media_primary(parser)
+}
+
+/// Parse primary expression (feature or parenthesized group)
+fn parse_media_primary<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<crate::theme::media_query::MediaCondition, ParseError<'i, ()>> {
+    parser.skip_whitespace();
+
+    // Check for parenthesized group
+    if parser.try_parse(|p| p.expect_parenthesis_block()).is_ok() {
+        return parser.parse_nested_block(parse_media_condition_tokens);
+    }
+
+    // Parse feature expression
+    parse_media_feature_tokens(parser)
+}
+
+/// Parse a media feature expression using tokens
+///
+/// Supports:
+/// - Modern range syntax: width >= 600px
+/// - Multi-range syntax: 600px <= width < 1200px
+/// - Legacy syntax: min-width: 600px
+fn parse_media_feature_tokens<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<crate::theme::media_query::MediaCondition, ParseError<'i, ()>> {
+    use crate::theme::media_query::{MediaCondition, MediaFeature, MediaOperator};
+    use cssparser::Token;
+
+    parser.skip_whitespace();
+
+    // Try to parse as multi-range first: VALUE OP NAME OP VALUE
+    // Example: 600px <= width < 1200px
+    let location = parser.current_source_location();
+
+    // Try to parse left value + operator (for multi-range)
+    if let Ok((left_value, left_op)) = parser.try_parse::<_, _, ParseError<()>>(|p| {
+        let val = parse_dimension_value_tokens(p)?;
+        p.skip_whitespace();
+        let op = parse_operator_tokens(p)?;
+        p.skip_whitespace();
+        Ok((val, op))
+    }) {
+        // We have left_value and left_op, now parse the feature name
+        let name_token = parser.next()?;
+        let name_str = match name_token {
+            Token::Ident(name) => name.as_ref().to_string(),
+            _ => return Err(location.new_unexpected_token_error(name_token.clone())),
+        };
+
+        parser.skip_whitespace();
+
+        // Parse right operator and value
+        let right_op = parse_operator_tokens(parser)?;
+        parser.skip_whitespace();
+        let right_value = parse_dimension_value_tokens(parser)?;
+
+        // Validate operator compatibility
+        if !left_op.is_compatible_with(right_op) {
+            return Err(location.new_custom_error(()));
+        }
+
+        return Ok(MediaCondition::Feature(MediaFeature::Range {
+            name: name_str,
+            left_value,
+            left_op,
+            right_op,
+            right_value,
+        }));
+    }
+
+    // Not a multi-range, try single comparison or legacy syntax
+    let token = parser.next()?;
+
+    match token {
+        Token::Ident(name) => {
+            // Clone the name to owned string so we can use parser again
+            let name_str = name.as_ref().to_string();
+            parser.skip_whitespace();
+
+            // Check for colon (legacy syntax: min-width: 600px)
+            if parser.try_parse(|p| p.expect_colon()).is_ok() {
+                parser.skip_whitespace();
+                let value = parse_dimension_value_tokens(parser)?;
+
+                // Convert legacy min-/max- prefix to modern operators
+                if let Some(base_name) = name_str.strip_prefix("min-") {
+                    return Ok(MediaCondition::Feature(MediaFeature::Single {
+                        name: base_name.to_string(),
+                        op: MediaOperator::GreaterEqual,
+                        value,
+                    }));
+                }
+
+                if let Some(base_name) = name_str.strip_prefix("max-") {
+                    return Ok(MediaCondition::Feature(MediaFeature::Single {
+                        name: base_name.to_string(),
+                        op: MediaOperator::LessEqual,
+                        value,
+                    }));
+                }
+
+                // Plain feature (e.g., width: 800px) - treat as equality
+                return Ok(MediaCondition::Feature(MediaFeature::Single {
+                    name: name_str.clone(),
+                    op: MediaOperator::Equal,
+                    value,
+                }));
+            }
+
+            // Modern range syntax: width >= 600px
+            // Parse operator
+            let op = parse_operator_tokens(parser)?;
+            parser.skip_whitespace();
+
+            // Parse value
+            let value = parse_dimension_value_tokens(parser)?;
+
+            Ok(MediaCondition::Feature(MediaFeature::Single {
+                name: name_str,
+                op,
+                value,
+            }))
+        }
+        _ => Err(location.new_unexpected_token_error(token.clone())),
+    }
+}
+
+/// Parse an operator from tokens (>=, <=, >, <, =)
+fn parse_operator_tokens<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<crate::theme::media_query::MediaOperator, ParseError<'i, ()>> {
+    use crate::theme::media_query::MediaOperator;
+    use cssparser::Token;
+
+    let location = parser.current_source_location();
+    let token = parser.next()?;
+
+    match token {
+        Token::Delim('=') => Ok(MediaOperator::Equal),
+        Token::Delim('>') => {
+            // Check for >= (no whitespace allowed between > and =)
+            if parser
+                .try_parse(|p| match p.next_including_whitespace() {
+                    Ok(Token::Delim('=')) => Ok(()),
+                    _ => Err(()),
+                })
+                .is_ok()
+            {
+                Ok(MediaOperator::GreaterEqual)
+            } else {
+                Ok(MediaOperator::GreaterThan)
+            }
+        }
+        Token::Delim('<') => {
+            // Check for <= (no whitespace allowed between < and =)
+            if parser
+                .try_parse(|p| match p.next_including_whitespace() {
+                    Ok(Token::Delim('=')) => Ok(()),
+                    _ => Err(()),
+                })
+                .is_ok()
+            {
+                Ok(MediaOperator::LessEqual)
+            } else {
+                Ok(MediaOperator::LessThan)
+            }
+        }
+        _ => Err(location.new_unexpected_token_error(token.clone())),
+    }
+}
+
+/// Parse a dimension value from tokens (e.g., 600px, 30rem, 800)
+fn parse_dimension_value_tokens<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+) -> Result<crate::theme::media_query::DimensionValue, ParseError<'i, ()>> {
+    use crate::theme::media_query::DimensionValue;
+    use cssparser::Token;
+
+    let location = parser.current_source_location();
+    let token = parser.next()?;
+
+    match token {
+        Token::Number { value, .. } => {
+            let num_value = *value as f32;
+            // Check if there's a unit following
+            let unit_result: Result<String, _> = parser.try_parse(|p| match p.next() {
+                Ok(Token::Ident(unit)) => Ok(unit.as_ref().to_string()),
+                _ => Err(()),
+            });
+
+            if let Ok(unit) = unit_result {
+                match unit.as_str() {
+                    "px" => Ok(DimensionValue::Pixels(num_value)),
+                    "rem" => Ok(DimensionValue::Rem(num_value)),
+                    _ => Err(location.new_custom_error(())),
+                }
+            } else {
+                // Plain number treated as pixels
+                Ok(DimensionValue::Pixels(num_value))
+            }
+        }
+        Token::Dimension { value, unit, .. } => match unit.as_ref() {
+            "px" => Ok(DimensionValue::Pixels(*value as f32)),
+            "rem" => Ok(DimensionValue::Rem(*value as f32)),
+            _ => Err(location.new_custom_error(())),
+        },
+        _ => Err(location.new_unexpected_token_error(token.clone())),
+    }
+}
+
+// Old string-based parser functions removed - now using token-based parser
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::media_query::DimensionValue;
+
+    #[test]
+    fn test_parse_media_query_modern_syntax() {
+        let css = r#"
+            @media (width >= 600px) {
+                mark { fill: red; }
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS");
+        assert_eq!(rules.len(), 1);
+
+        let rule = &rules[0];
+        assert!(rule.media_condition.is_some());
+
+        // Check that the condition is correct
+        if let Some(crate::theme::media_query::MediaCondition::Feature(
+            crate::theme::media_query::MediaFeature::Single { name, op, value },
+        )) = &rule.media_condition
+        {
+            assert_eq!(name, "width");
+            assert_eq!(*op, crate::theme::media_query::MediaOperator::GreaterEqual);
+            assert_eq!(*value, DimensionValue::Pixels(600.0));
+        } else {
+            panic!("Expected feature condition");
+        }
+
+        // Check that the declaration was parsed
+        assert!(rule.declarations.contains_key("fill"));
+    }
+
+    #[test]
+    fn test_parse_media_query_legacy_syntax() {
+        let css = r#"
+            @media (min-width: 600px) {
+                mark { fill: blue; }
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS");
+        assert_eq!(rules.len(), 1);
+
+        let rule = &rules[0];
+        assert!(rule.media_condition.is_some());
+
+        // Check that legacy min-width was converted to width >=
+        if let Some(crate::theme::media_query::MediaCondition::Feature(
+            crate::theme::media_query::MediaFeature::Single { name, op, value },
+        )) = &rule.media_condition
+        {
+            assert_eq!(name, "width");
+            assert_eq!(*op, crate::theme::media_query::MediaOperator::GreaterEqual);
+            assert_eq!(*value, DimensionValue::Pixels(600.0));
+        } else {
+            panic!("Expected feature condition");
+        }
+    }
+
+    #[test]
+    fn test_parse_media_query_and_condition() {
+        let css = r#"
+            @media (width >= 600px) and (height >= 400px) {
+                mark { stroke-width: 2px; }
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS");
+        assert_eq!(rules.len(), 1);
+
+        let rule = &rules[0];
+        assert!(rule.media_condition.is_some());
+
+        // Check that it's an AND condition
+        if let Some(crate::theme::media_query::MediaCondition::And(conditions)) =
+            &rule.media_condition
+        {
+            assert_eq!(conditions.len(), 2);
+        } else {
+            panic!("Expected AND condition");
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_rules_in_media_query() {
+        let css = r#"
+            @media (width >= 600px) {
+                mark { fill: red; }
+                guide { background-color: blue; }
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS");
+        assert_eq!(rules.len(), 2);
+
+        // Both rules should have the same media condition
+        assert!(rules[0].media_condition.is_some());
+        assert!(rules[1].media_condition.is_some());
+    }
+
+    #[test]
+    fn test_parse_mixed_regular_and_media_rules() {
+        let css = r#"
+            mark { fill: green; }
+
+            @media (width >= 600px) {
+                mark { fill: red; }
+            }
+
+            guide { background-color: white; }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS");
+        assert_eq!(rules.len(), 3);
+
+        // First and third rules should NOT have media conditions
+        assert!(rules[0].media_condition.is_none());
+        assert!(rules[2].media_condition.is_none());
+
+        // Second rule should have a media condition
+        assert!(rules[1].media_condition.is_some());
+    }
+
+    #[test]
+    fn test_media_query_end_to_end() {
+        use crate::theme::{Theme, ThemeContext};
+        use datafusion_common::ScalarValue;
+        use indexmap::IndexMap;
+
+        let css = r#"
+            mark { fill: blue; }
+
+            @media (width >= 600px) {
+                mark { fill: red; }
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+
+        // Without width param - should get blue
+        let ctx = ThemeContext::new("mark");
+        let fill = theme.fill_color(&ctx).expect("Should have fill");
+        assert_eq!(fill[2], 1.0, "Should be blue without width param");
+        assert_eq!(fill[0], 0.0, "Should not be red");
+
+        // With width < 600 - should get blue
+        let mut params_small = IndexMap::new();
+        params_small.insert("width".to_string(), ScalarValue::Float32(Some(400.0)));
+        let ctx_small = ThemeContext::new("mark").with_params(params_small);
+        let fill_small = theme.fill_color(&ctx_small).expect("Should have fill");
+        assert_eq!(fill_small[2], 1.0, "Should be blue with width < 600");
+
+        // With width >= 600 - should get red
+        let mut params_large = IndexMap::new();
+        params_large.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
+        let ctx_large = ThemeContext::new("mark").with_params(params_large);
+        let fill_large = theme.fill_color(&ctx_large).expect("Should have fill");
+        assert_eq!(fill_large[0], 1.0, "Should be red with width >= 600");
+        assert_eq!(fill_large[2], 0.0, "Should not be blue");
+    }
+
+    #[test]
+    fn test_parse_media_query_with_parenthesized_or() {
+        let css = r#"
+            @media (width >= 600px) and ((height >= 400px) or (height <= 200px)) {
+                guide { background-color: blue; }
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS with parenthesized or");
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].media_condition.is_some());
+    }
+
+    #[test]
+    fn test_parse_media_query_complex_nested() {
+        let css = r#"
+            @media ((width >= 600px) and (height >= 400px)) or (width >= 1200px) {
+                guide { background-color: green; }
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse complex nested media query");
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].media_condition.is_some());
+    }
+
+    #[test]
+    fn test_parse_media_query_operator_precedence() {
+        use crate::theme::{Theme, ThemeContext};
+        use datafusion_common::ScalarValue;
+        use indexmap::IndexMap;
+
+        // Test: a or b and c should parse as a or (b and c)
+        // (width < 400px) or (width >= 600px) and (height >= 400px)
+        // Should match:
+        // - width < 400px (regardless of height)
+        // - width >= 600px AND height >= 400px
+        let css = r#"
+            guide { background-color: white; }
+
+            @media (width < 400px) or (width >= 600px) and (height >= 400px) {
+                guide { background-color: blue; }
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+
+        // Case 1: width = 300px, height = 100px → should match (width < 400)
+        let mut params1 = IndexMap::new();
+        params1.insert("width".to_string(), ScalarValue::Float32(Some(300.0)));
+        params1.insert("height".to_string(), ScalarValue::Float32(Some(100.0)));
+        let ctx1 = ThemeContext::new("guide").with_params(params1);
+        let color1 = theme.query(&ctx1, "background-color");
+        assert!(color1.is_some(), "Should match when width < 400");
+
+        // Case 2: width = 500px, height = 500px → should NOT match
+        let mut params2 = IndexMap::new();
+        params2.insert("width".to_string(), ScalarValue::Float32(Some(500.0)));
+        params2.insert("height".to_string(), ScalarValue::Float32(Some(500.0)));
+        let ctx2 = ThemeContext::new("guide").with_params(params2);
+        let _color2 = theme.query(&ctx2, "background-color");
+        // This should NOT match because width is not < 400 and not (>= 600 AND >= 400)
+        // With correct precedence, should be white (default)
+
+        // Case 3: width = 700px, height = 500px → should match (width >= 600 AND height >= 400)
+        let mut params3 = IndexMap::new();
+        params3.insert("width".to_string(), ScalarValue::Float32(Some(700.0)));
+        params3.insert("height".to_string(), ScalarValue::Float32(Some(500.0)));
+        let ctx3 = ThemeContext::new("guide").with_params(params3);
+        let color3 = theme.query(&ctx3, "background-color");
+        assert!(
+            color3.is_some(),
+            "Should match when width >= 600 and height >= 400"
+        );
+    }
+
+    #[test]
+    fn test_parse_multi_range_syntax() {
+        let css = r#"
+            @media (600px <= width < 1200px) {
+                guide { background-color: green; }
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse multi-range syntax");
+        assert_eq!(rules.len(), 1);
+
+        let rule = &rules[0];
+        assert!(rule.media_condition.is_some());
+
+        // Check that it parsed as a Range variant
+        if let Some(crate::theme::media_query::MediaCondition::Feature(
+            crate::theme::media_query::MediaFeature::Range {
+                name,
+                left_value,
+                left_op,
+                right_op,
+                right_value,
+            },
+        )) = &rule.media_condition
+        {
+            assert_eq!(name, "width");
+            assert_eq!(*left_value, DimensionValue::Pixels(600.0));
+            assert_eq!(
+                *left_op,
+                crate::theme::media_query::MediaOperator::LessEqual
+            );
+            assert_eq!(
+                *right_op,
+                crate::theme::media_query::MediaOperator::LessThan
+            );
+            assert_eq!(*right_value, DimensionValue::Pixels(1200.0));
+        } else {
+            panic!("Expected Range feature condition");
+        }
+    }
+
+    #[test]
+    fn test_parse_multi_range_with_spaces() {
+        let css = r#"
+            @media ( 600px  <=  width  <  1200px ) {
+                guide { background-color: blue; }
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse multi-range with spaces");
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].media_condition.is_some());
+    }
+
+    #[test]
+    fn test_multi_range_evaluation() {
+        use crate::theme::{Theme, ThemeContext, ThemeValue};
+        use datafusion_common::ScalarValue;
+        use indexmap::IndexMap;
+
+        let css = r#"
+            guide { background-color: white; }
+
+            @media (600px <= width < 1200px) {
+                guide { background-color: green; }
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+
+        // Width 800px - should match (in range)
+        let mut params_in = IndexMap::new();
+        params_in.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
+        let ctx_in = ThemeContext::new("guide").with_params(params_in);
+        let bg_in = theme.query(&ctx_in, "background-color");
+        assert!(bg_in.is_some(), "Should match when in range");
+
+        // Width 400px - should not match (below range)
+        let mut params_below = IndexMap::new();
+        params_below.insert("width".to_string(), ScalarValue::Float32(Some(400.0)));
+        let ctx_below = ThemeContext::new("guide").with_params(params_below);
+        let bg_below = theme.query(&ctx_below, "background-color");
+        // Should get white (default), not green
+        if let Some(ThemeValue::Color(color)) = bg_below {
+            assert_eq!(color.red, 255, "Should be white (below range)");
+            assert_eq!(color.green, 255, "Should be white (below range)");
+        }
+
+        // Width 1200px - should not match (at exclusive boundary)
+        let mut params_boundary = IndexMap::new();
+        params_boundary.insert("width".to_string(), ScalarValue::Float32(Some(1200.0)));
+        let ctx_boundary = ThemeContext::new("guide").with_params(params_boundary);
+        let bg_boundary = theme.query(&ctx_boundary, "background-color");
+        // Should get white (default), not green
+        if let Some(ThemeValue::Color(color)) = bg_boundary {
+            assert_eq!(color.red, 255, "Should be white (at exclusive boundary)");
+            assert_eq!(color.green, 255, "Should be white (at exclusive boundary)");
+        }
+    }
 }

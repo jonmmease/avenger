@@ -354,7 +354,10 @@ impl LegendRenderer for CompiledSymbolLegend {
                                     scalars
                                         .iter()
                                         .filter_map(|s| {
-                                            if let datafusion_common::ScalarValue::Utf8(Some(string)) = &s.0 {
+                                            if let datafusion_common::ScalarValue::Utf8(Some(
+                                                string,
+                                            )) = &s.0
+                                            {
                                                 Some(string.clone())
                                             } else {
                                                 None

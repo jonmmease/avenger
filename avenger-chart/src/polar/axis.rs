@@ -71,9 +71,14 @@ impl PolarAxis {
     }
 
     /// Get theme context for label styling
-    fn get_label_theme_values(theme: &Theme, axis_ctx: &crate::theme::ThemeContext) -> (String, f32, f32, [f32; 4]) {
+    fn get_label_theme_values(
+        theme: &Theme,
+        axis_ctx: &crate::theme::ThemeContext,
+    ) -> (String, f32, f32, [f32; 4]) {
         let ctx = axis_ctx.child("label");
-        let font_family = theme.font_family(&ctx).unwrap_or_else(|| "sans-serif".to_string());
+        let font_family = theme
+            .font_family(&ctx)
+            .unwrap_or_else(|| "sans-serif".to_string());
         let font_size = theme.font_size(&ctx).unwrap_or(12.0);
         let font_weight = theme.font_weight(&ctx).unwrap_or(400.0);
         let color = theme.text_color(&ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
@@ -184,7 +189,12 @@ impl PolarAxis {
         let center_y = plot_bounds.y + plot_height / 2.0;
         let radius = plot_width.min(plot_height) / 2.0;
 
-        match self.axis_type.as_option().copied().unwrap_or(PolarAxisType::Radial) {
+        match self
+            .axis_type
+            .as_option()
+            .copied()
+            .unwrap_or(PolarAxisType::Radial)
+        {
             PolarAxisType::Radial => {
                 // Render radial axis (circles from center)
                 self.render_radial_axis(scale, center_x, center_y, radius, theme, &axis_ctx)
@@ -216,7 +226,10 @@ impl PolarAxis {
         // Create concentric circles for the grid using actual scale ticks
         if self.grid.as_option().copied().unwrap_or(false) {
             // Get tick values from the scale
-            let tick_count = self.tick_count.as_option().and_then(|opt| opt.map(|c| c as f32));
+            let tick_count = self
+                .tick_count
+                .as_option()
+                .and_then(|opt| opt.map(|c| c as f32));
             let ticks = scale.ticks(tick_count.or(Some(RADIAL_DEFAULT_TICK_COUNT)))?;
 
             let mut radii = Vec::new();
@@ -239,9 +252,10 @@ impl PolarAxis {
                             radii.push(radius);
                         }
                     }
-                } else if let Some(scaled_array) =
-                    scaled_values.as_any().downcast_ref::<datafusion::arrow::array::Float32Array>()
-                {
+                } else if let Some(scaled_array) = scaled_values
+                    .as_any()
+                    .downcast_ref::<datafusion::arrow::array::Float32Array>(
+                ) {
                     if !scaled_array.is_empty() {
                         let radius = scaled_array.value(0);
                         if radius.is_finite() && radius > 0.0 {
@@ -295,7 +309,10 @@ impl PolarAxis {
             use std::sync::Arc;
 
             // Get tick values from scale - use same as grid
-            let tick_count = self.tick_count.as_option().and_then(|opt| opt.map(|c| c as f32));
+            let tick_count = self
+                .tick_count
+                .as_option()
+                .and_then(|opt| opt.map(|c| c as f32));
             let ticks = scale.ticks(tick_count.or(Some(RADIAL_DEFAULT_TICK_COUNT)))?;
 
             // Format tick values as strings
@@ -323,9 +340,10 @@ impl PolarAxis {
                     scaled_values.as_any().downcast_ref::<Float64Array>()
                 {
                     scaled_array.value(0) as f32
-                } else if let Some(scaled_array) =
-                    scaled_values.as_any().downcast_ref::<datafusion::arrow::array::Float32Array>()
-                {
+                } else if let Some(scaled_array) = scaled_values
+                    .as_any()
+                    .downcast_ref::<datafusion::arrow::array::Float32Array>(
+                ) {
                     scaled_array.value(0)
                 } else {
                     continue;
@@ -412,7 +430,10 @@ impl PolarAxis {
         // Render angular grid (radial lines) based on scale ticks
         if self.grid.as_option().copied().unwrap_or(false) {
             // Get tick values from the scale
-            let tick_count = self.tick_count.as_option().and_then(|opt| opt.map(|c| c as f32));
+            let tick_count = self
+                .tick_count
+                .as_option()
+                .and_then(|opt| opt.map(|c| c as f32));
             let ticks = scale.ticks(tick_count.or(Some(ANGULAR_DEFAULT_TICK_COUNT)))?;
 
             let mut x_values = Vec::new();
@@ -483,25 +504,34 @@ impl PolarAxis {
             use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
 
             // Get tick values from scale
-            let tick_values: Vec<f32> = if let Ok(ticks_array) = scale.ticks(Some(ANGULAR_DEFAULT_TICK_COUNT)) {
-                // Convert arrow array to vec of f32
-                use datafusion::arrow::array::Float32Array;
-                if let Some(arr) = ticks_array.as_any().downcast_ref::<Float32Array>() {
-                    (0..arr.len()).map(|i| arr.value(i)).collect()
+            let tick_values: Vec<f32> =
+                if let Ok(ticks_array) = scale.ticks(Some(ANGULAR_DEFAULT_TICK_COUNT)) {
+                    // Convert arrow array to vec of f32
+                    use datafusion::arrow::array::Float32Array;
+                    if let Some(arr) = ticks_array.as_any().downcast_ref::<Float32Array>() {
+                        (0..arr.len()).map(|i| arr.value(i)).collect()
+                    } else {
+                        // Fallback if not float32
+                        let num_ticks = self
+                            .tick_count
+                            .as_option()
+                            .and_then(|opt| *opt)
+                            .unwrap_or(8);
+                        (0..num_ticks)
+                            .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
+                            .collect()
+                    }
                 } else {
-                    // Fallback if not float32
-                    let num_ticks = self.tick_count.as_option().and_then(|opt| *opt).unwrap_or(8);
+                    // Fallback to uniform distribution
+                    let num_ticks = self
+                        .tick_count
+                        .as_option()
+                        .and_then(|opt| *opt)
+                        .unwrap_or(8);
                     (0..num_ticks)
                         .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
                         .collect()
-                }
-            } else {
-                // Fallback to uniform distribution
-                let num_ticks = self.tick_count.as_option().and_then(|opt| *opt).unwrap_or(8);
-                (0..num_ticks)
-                    .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
-                    .collect()
-            };
+                };
 
             let mut x_vals = Vec::new();
             let mut y_vals = Vec::new();
