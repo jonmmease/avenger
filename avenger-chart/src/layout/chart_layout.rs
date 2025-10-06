@@ -87,13 +87,14 @@ pub struct ChartLayout {
 impl ChartLayout {
     /// Create a new ChartLayout with overflow space requirements
     /// This is the unified layout method for all coordinate systems
-    pub(crate) fn new(
+    pub(crate) async fn new(
         overflow: &OverflowSpaceRequirement,
         layout_spec: &EvaluatedLayoutSpec,
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         theme: &Theme,
         legend_measurements: &LegendMeasurements,
+        ctx: &datafusion::prelude::SessionContext,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Self, AvengerChartError> {
         let mut builder = GridBuilder::new();
@@ -128,8 +129,9 @@ impl ChartLayout {
             theme,
             layout_spec,
             &legend_sizes,
+            ctx,
             params,
-        )?;
+        ).await?;
 
         // Extract flexible flags and positions for taffy tree building
         let legend_flexible: HashMap<String, bool> = legend_measurements

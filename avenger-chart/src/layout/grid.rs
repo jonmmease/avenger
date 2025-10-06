@@ -5,8 +5,10 @@ use super::types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide};
 use crate::error::AvengerChartError;
 use crate::legend::LegendPosition;
 use crate::plot::{PlotSubtitle, PlotTitle};
+use crate::serialization::LogicalExprNodeExt;
 use avenger_text::measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer};
 use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec};
+use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use taffy::Size;
@@ -199,7 +201,7 @@ impl GridBuilder {
     /// Build the final grid template based on collected components and overflow requirements.
     ///
     /// Returns a `GridLayout` containing both the track sizing functions and component positions
-    pub fn build_with_overflow(
+    pub async fn build_with_overflow(
         &self,
         overflow: &crate::coords::OverflowSpaceRequirement,
         title: Option<&PlotTitle>,
@@ -207,6 +209,7 @@ impl GridBuilder {
         theme: &Theme,
         layout_spec: &crate::layout::sizing::EvaluatedLayoutSpec,
         legend_sizes: &HashMap<String, Size<f32>>,
+        ctx: &datafusion::prelude::SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<GridLayout, AvengerChartError> {
         // Use margins from layout spec
@@ -308,10 +311,15 @@ impl GridBuilder {
                     .unwrap_or_else(|| "sans-serif".to_string());
                 let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
 
+                // Evaluate the title text expression to get the actual text
+                let text_node: LogicalExprNode = t.text.clone().into();
+                let text_expr = text_node.to_expr(ctx)?;
+                let text_value = crate::plot::compiled::rendering::evaluate_string_expr(&text_expr, ctx, params).await?;
+
                 // Measure text for layout (using Normal weight/style as approximation)
                 let measurer = default_text_measurer();
                 let config = TextMeasurementConfig {
-                    text: &t.text,
+                    text: &text_value,
                     font: font_family,
                     font_size,
                     font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
@@ -341,10 +349,15 @@ impl GridBuilder {
                     .unwrap_or_else(|| "sans-serif".to_string());
                 let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
 
+                // Evaluate the subtitle text expression to get the actual text
+                let text_node: LogicalExprNode = s.text.clone().into();
+                let text_expr = text_node.to_expr(ctx)?;
+                let text_value = crate::plot::compiled::rendering::evaluate_string_expr(&text_expr, ctx, params).await?;
+
                 // Measure text for layout (using Normal weight/style as approximation)
                 let measurer = default_text_measurer();
                 let config = TextMeasurementConfig {
-                    text: &s.text,
+                    text: &text_value,
                     font: font_family,
                     font_size,
                     font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),

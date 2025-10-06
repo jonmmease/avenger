@@ -43,6 +43,18 @@ impl IntoExpr for i64 {
     }
 }
 
+impl IntoExpr for String {
+    fn into_expr(self) -> Expr {
+        lit(self)
+    }
+}
+
+impl IntoExpr for &str {
+    fn into_expr(self) -> Expr {
+        lit(self)
+    }
+}
+
 use super::compiled::CompiledPlot;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};

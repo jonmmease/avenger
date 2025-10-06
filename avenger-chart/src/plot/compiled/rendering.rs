@@ -168,6 +168,129 @@ async fn evaluate_dimension_expr(
     Ok(value)
 }
 
+/// Helper function to evaluate a string expression to a concrete String value
+pub(crate) async fn evaluate_string_expr(
+    expr: &datafusion::prelude::Expr,
+    _ctx: &SessionContext,
+    params: &IndexMap<String, datafusion::common::ScalarValue>,
+) -> Result<String, AvengerChartError> {
+    use datafusion::common::ScalarValue;
+
+    // Check if it's a literal first (most common case - literal strings)
+    if let datafusion::prelude::Expr::Literal(scalar, _) = expr {
+        return match scalar {
+            ScalarValue::Utf8(Some(s)) => Ok(s.clone()),
+            ScalarValue::LargeUtf8(Some(s)) => Ok(s.clone()),
+            _ => Err(AvengerChartError::InternalError(format!(
+                "String expression literal is not a string type: {:?}",
+                scalar
+            ))),
+        };
+    }
+
+    // Check if it's a column reference (parameter)
+    if let datafusion::prelude::Expr::Column(c) = expr {
+        if let Some(value) = params.get(c.name.as_str()) {
+            return match value {
+                ScalarValue::Utf8(Some(s)) => Ok(s.clone()),
+                ScalarValue::LargeUtf8(Some(s)) => Ok(s.clone()),
+                _ => Err(AvengerChartError::InternalError(format!(
+                    "String parameter '{}' is not a string type: {:?}",
+                    c.name, value
+                ))),
+            };
+        } else {
+            return Err(AvengerChartError::InternalError(format!(
+                "String references param '{}' which was not provided",
+                c.name
+            )));
+        }
+    }
+
+    // For complex expressions (like CASE), we need to evaluate using datafusion
+    // Create a dataframe with a single row containing all the params
+    use datafusion::arrow::array::{
+        ArrayRef, Float32Array, Float64Array, Int32Array, Int64Array, RecordBatch, StringArray,
+    };
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+
+    // Build schema from params
+    let mut fields = Vec::new();
+    let mut arrays: Vec<ArrayRef> = Vec::new();
+
+    for (name, value) in params.iter() {
+        match value {
+            ScalarValue::Float32(Some(v)) => {
+                fields.push(Field::new(name, DataType::Float32, false));
+                arrays.push(Arc::new(Float32Array::from(vec![*v])));
+            }
+            ScalarValue::Float64(Some(v)) => {
+                fields.push(Field::new(name, DataType::Float64, false));
+                arrays.push(Arc::new(Float64Array::from(vec![*v])));
+            }
+            ScalarValue::Int32(Some(v)) => {
+                fields.push(Field::new(name, DataType::Int32, false));
+                arrays.push(Arc::new(Int32Array::from(vec![*v])));
+            }
+            ScalarValue::Int64(Some(v)) => {
+                fields.push(Field::new(name, DataType::Int64, false));
+                arrays.push(Arc::new(Int64Array::from(vec![*v])));
+            }
+            ScalarValue::Utf8(Some(v)) => {
+                fields.push(Field::new(name, DataType::Utf8, false));
+                arrays.push(Arc::new(StringArray::from(vec![v.as_str()])));
+            }
+            ScalarValue::LargeUtf8(Some(v)) => {
+                fields.push(Field::new(name, DataType::LargeUtf8, false));
+                arrays.push(Arc::new(StringArray::from(vec![v.as_str()])));
+            }
+            _ => {
+                // Skip unsupported types
+                continue;
+            }
+        }
+    }
+
+    // If no params, create a dummy row
+    if fields.is_empty() {
+        fields.push(Field::new("dummy", DataType::Utf8, false));
+        arrays.push(Arc::new(StringArray::from(vec!["dummy"])));
+    }
+
+    let schema = Arc::new(Schema::new(fields));
+    let batch = RecordBatch::try_new(schema, arrays)?;
+
+    // Create a fresh SessionContext to avoid any potential conflicts
+    let eval_ctx = SessionContext::new();
+    let df = eval_ctx.read_batch(batch)?;
+    let result_df = df.select(vec![expr.clone().alias("result")])?;
+    let batches = result_df.collect().await?;
+
+    if batches.is_empty() || batches[0].num_rows() == 0 {
+        return Err(AvengerChartError::InternalError(
+            "Failed to evaluate string expression: no rows returned".to_string(),
+        ));
+    }
+
+    let array = batches[0].column(0);
+
+    // Try to get string value
+    use datafusion::arrow::array::AsArray;
+
+    let value = if let Some(arr) = array.as_string_opt::<i32>() {
+        arr.value(0).to_string()
+    } else if let Some(arr) = array.as_string_opt::<i64>() {
+        arr.value(0).to_string()
+    } else {
+        return Err(AvengerChartError::InternalError(format!(
+            "String expression evaluated to non-string type: {:?}",
+            array.data_type()
+        )));
+    };
+
+    Ok(value)
+}
+
 impl CompiledPlot {
     /// Apply scaling transformation to a channel expression
     fn apply_channel_scale(
@@ -621,8 +744,9 @@ impl CompiledPlot {
             self.get_subtitle(),
             self.get_theme().as_ref(),
             &legend_measurements,
+            ctx,
             params,
-        )?;
+        ).await?;
 
         // Compute layout using the evaluated layout spec and return it directly
         layout.compute(&evaluated_spec)
@@ -770,14 +894,14 @@ impl CompiledPlot {
 
         // Create title
         let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
-            self.create_title(Some(*title_bounds), params)?
+            self.create_title(Some(*title_bounds), ctx, params).await?
         } else {
             Vec::new()
         };
 
         // Create subtitle
         let subtitle_marks = if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
-            self.create_subtitle(Some(*subtitle_bounds), params)?
+            self.create_subtitle(Some(*subtitle_bounds), ctx, params).await?
         } else {
             Vec::new()
         };
