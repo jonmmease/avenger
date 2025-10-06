@@ -16,6 +16,7 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::scalar::ScalarValue;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -212,6 +213,7 @@ impl avenger_chart::guide::CompiledGuide for CompiledIsometricGuide {
         _plot_width: f32,
         _plot_height: f32,
         _theme: &avenger_chart::theme::Theme,
+        _params: &IndexMap<String, ScalarValue>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement {
             top: 0.0,
@@ -228,6 +230,7 @@ impl avenger_chart::guide::CompiledGuide for CompiledIsometricGuide {
         _plot_height: f32,
         _plot_bounds: &avenger_chart::layout::LayoutBounds,
         _theme: &avenger_chart::theme::Theme,
+        _params: &IndexMap<String, ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(vec![])
     }
