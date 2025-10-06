@@ -37,9 +37,47 @@ pub struct PolarAxis {
     pub direction: Maybe<PolarDirection>,
 }
 
+// Default tick counts for polar axes
+const RADIAL_DEFAULT_TICK_COUNT: f32 = 5.0;
+const ANGULAR_DEFAULT_TICK_COUNT: f32 = 8.0;
+
 impl PolarAxis {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Extract tick values from an Arrow array as Vec<f64>
+    fn extract_tick_values(ticks: &datafusion::arrow::array::ArrayRef) -> Vec<f64> {
+        use datafusion::arrow::array::{Float32Array, Float64Array};
+        use datafusion::arrow::datatypes::DataType;
+
+        match ticks.data_type() {
+            DataType::Float64 => ticks
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap()
+                .iter()
+                .flatten()
+                .collect(),
+            DataType::Float32 => ticks
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .unwrap()
+                .iter()
+                .filter_map(|v| v.map(|f| f as f64))
+                .collect(),
+            _ => vec![],
+        }
+    }
+
+    /// Get theme context for label styling
+    fn get_label_theme_values(theme: &Theme, axis_ctx: &crate::theme::ThemeContext) -> (String, f32, f32, [f32; 4]) {
+        let ctx = axis_ctx.child("label");
+        let font_family = theme.font_family(&ctx).unwrap_or_else(|| "sans-serif".to_string());
+        let font_size = theme.font_size(&ctx).unwrap_or(12.0);
+        let font_weight = theme.font_weight(&ctx).unwrap_or(400.0);
+        let color = theme.text_color(&ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+        (font_family, font_size, font_weight, color)
     }
 
     pub fn visible(mut self, visible: bool) -> Self {
@@ -129,20 +167,15 @@ impl PolarAxis {
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
         theme: &Theme,
-        _plot_background_color: Option<[f32; 4]>,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Use coordinate system type and channel for CSS selector support
-        // e.g., guide[type="polar"] axis[type="theta"]
-        let coord_type = Some("polar");
-        let axis_type = Some(channel);
-
         // Create context for theme queries with params
         let axis_ctx = theme
-            .axis_context(coord_type, axis_type)
+            .axis_context(Some("polar"), Some(channel))
             .with_params(params.clone());
+
         // Skip if invisible (default to visible if not set)
-        if !self.visible.clone().unwrap_or(true) {
+        if !self.visible.as_option().copied().unwrap_or(true) {
             return Ok(vec![]);
         }
 
@@ -151,7 +184,7 @@ impl PolarAxis {
         let center_y = plot_bounds.y + plot_height / 2.0;
         let radius = plot_width.min(plot_height) / 2.0;
 
-        match self.axis_type.clone().unwrap_or(PolarAxisType::Radial) {
+        match self.axis_type.as_option().copied().unwrap_or(PolarAxisType::Radial) {
             PolarAxisType::Radial => {
                 // Render radial axis (circles from center)
                 self.render_radial_axis(scale, center_x, center_y, radius, theme, &axis_ctx)
@@ -167,58 +200,38 @@ impl PolarAxis {
 
     fn render_radial_axis(
         &self,
-        _scale: &avenger_scales::scales::ConfiguredScale,
+        scale: &avenger_scales::scales::ConfiguredScale,
         center_x: f32,
         center_y: f32,
         _max_radius: f32,
         theme: &Theme,
         axis_ctx: &crate::theme::ThemeContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let _coord_type = Some("polar");
-        let _axis_type = axis_ctx.subtype.as_deref();
         use avenger_common::types::ColorOrGradient;
         use avenger_common::value::ScalarOrArray;
         use avenger_scenegraph::marks::arc::SceneArcMark;
 
         let mut marks = Vec::new();
-        let _num_circles = self.grid_levels.clone().flatten().unwrap_or(6);
 
         // Create concentric circles for the grid using actual scale ticks
-        if self.grid.clone().unwrap_or(false) {
+        if self.grid.as_option().copied().unwrap_or(false) {
             // Get tick values from the scale
-            let tick_count = self.tick_count.clone().flatten().map(|c| c as f32);
-            let ticks = _scale.ticks(tick_count.or(Some(5.0)))?;
+            let tick_count = self.tick_count.as_option().and_then(|opt| opt.map(|c| c as f32));
+            let ticks = scale.ticks(tick_count.or(Some(RADIAL_DEFAULT_TICK_COUNT)))?;
 
             let mut radii = Vec::new();
 
             // Convert ticks to radii through scale transformation
-            use datafusion::arrow::array::{Float32Array, Float64Array};
-            use datafusion::arrow::datatypes::DataType;
+            use datafusion::arrow::array::Float64Array;
             use std::sync::Arc;
 
-            let tick_values: Vec<f64> = match ticks.data_type() {
-                DataType::Float64 => ticks
-                    .as_any()
-                    .downcast_ref::<Float64Array>()
-                    .unwrap()
-                    .iter()
-                    .flatten()
-                    .collect(),
-                DataType::Float32 => ticks
-                    .as_any()
-                    .downcast_ref::<Float32Array>()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|v| v.map(|f| f as f64))
-                    .collect(),
-                _ => vec![],
-            };
+            let tick_values = Self::extract_tick_values(&ticks);
 
             for value in tick_values {
                 // Transform tick value through scale to get radius
                 let tick_array =
                     Arc::new(Float64Array::from(vec![value])) as datafusion::arrow::array::ArrayRef;
-                let scaled_values = _scale.scale(&tick_array)?;
+                let scaled_values = scale.scale(&tick_array)?;
                 if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float64Array>() {
                     if !scaled_array.is_empty() {
                         let radius = scaled_array.value(0) as f32;
@@ -227,7 +240,7 @@ impl PolarAxis {
                         }
                     }
                 } else if let Some(scaled_array) =
-                    scaled_values.as_any().downcast_ref::<Float32Array>()
+                    scaled_values.as_any().downcast_ref::<datafusion::arrow::array::Float32Array>()
                 {
                     if !scaled_array.is_empty() {
                         let radius = scaled_array.value(0);
@@ -275,42 +288,24 @@ impl PolarAxis {
         }
 
         // Add radial tick labels
-        if self.visible.clone().unwrap_or(true) {
+        if self.visible.as_option().copied().unwrap_or(true) {
             use avenger_scenegraph::marks::text::SceneTextMark;
             use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
+            use datafusion::arrow::array::Float64Array;
+            use std::sync::Arc;
 
             // Get tick values from scale - use same as grid
-            let tick_count = self.tick_count.clone().flatten().map(|c| c as f32);
-            let ticks = _scale.ticks(tick_count.or(Some(5.0)))?;
+            let tick_count = self.tick_count.as_option().and_then(|opt| opt.map(|c| c as f32));
+            let ticks = scale.ticks(tick_count.or(Some(RADIAL_DEFAULT_TICK_COUNT)))?;
 
             // Format tick values as strings
-            let formatted_ticks = _scale.format(&ticks)?;
+            let formatted_ticks = scale.format(&ticks)?;
 
             let mut x_vals = Vec::new();
             let mut y_vals = Vec::new();
             let mut text_vals = Vec::new();
 
-            use datafusion::arrow::array::{Float32Array, Float64Array};
-            use datafusion::arrow::datatypes::DataType;
-            use std::sync::Arc;
-
-            let tick_values: Vec<f64> = match ticks.data_type() {
-                DataType::Float64 => ticks
-                    .as_any()
-                    .downcast_ref::<Float64Array>()
-                    .unwrap()
-                    .iter()
-                    .flatten()
-                    .collect(),
-                DataType::Float32 => ticks
-                    .as_any()
-                    .downcast_ref::<Float32Array>()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|v| v.map(|f| f as f64))
-                    .collect(),
-                _ => vec![],
-            };
+            let tick_values = Self::extract_tick_values(&ticks);
 
             // Get formatted strings and positions
             for (i, value) in tick_values.iter().enumerate() {
@@ -322,14 +317,14 @@ impl PolarAxis {
                 // Transform tick value through scale to get radius (same as grid circles)
                 let tick_array = Arc::new(Float64Array::from(vec![*value]))
                     as datafusion::arrow::array::ArrayRef;
-                let scaled_values = _scale.scale(&tick_array)?;
+                let scaled_values = scale.scale(&tick_array)?;
 
                 let radius = if let Some(scaled_array) =
                     scaled_values.as_any().downcast_ref::<Float64Array>()
                 {
                     scaled_array.value(0) as f32
                 } else if let Some(scaled_array) =
-                    scaled_values.as_any().downcast_ref::<Float32Array>()
+                    scaled_values.as_any().downcast_ref::<datafusion::arrow::array::Float32Array>()
                 {
                     scaled_array.value(0)
                 } else {
@@ -356,6 +351,9 @@ impl PolarAxis {
             }
 
             if !text_vals.is_empty() {
+                let (font_family, font_size, font_weight, color) =
+                    Self::get_label_theme_values(theme, axis_ctx);
+
                 let text_mark = SceneTextMark {
                     name: "polar-r-labels".to_string(),
                     clip: false,
@@ -363,27 +361,13 @@ impl PolarAxis {
                     x: ScalarOrArray::new_array(x_vals),
                     y: ScalarOrArray::new_array(y_vals),
                     text: ScalarOrArray::new_array(text_vals),
-                    font: ScalarOrArray::new_scalar({
-                        let ctx = axis_ctx.child("label");
-                        theme
-                            .font_family(&ctx)
-                            .unwrap_or_else(|| "sans-serif".to_string())
-                    }),
+                    font: ScalarOrArray::new_scalar(font_family),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number({
-                            let ctx = axis_ctx.child("label");
-                            theme.font_weight(&ctx).unwrap_or(400.0)
-                        }),
+                        avenger_text::types::FontWeight::Number(font_weight),
                     ),
-                    font_size: ScalarOrArray::new_scalar({
-                        let ctx = axis_ctx.child("label");
-                        theme.font_size(&ctx).unwrap_or(12.0)
-                    }),
+                    font_size: ScalarOrArray::new_scalar(font_size),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color({
-                        let ctx = axis_ctx.child("label");
-                        theme.text_color(&ctx).unwrap_or([0.0, 0.0, 0.0, 1.0])
-                    })),
+                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color(color)),
                     align: ScalarOrArray::new_scalar(TextAlign::Center),
                     baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
                     angle: ScalarOrArray::new_scalar(0.0),
@@ -402,7 +386,7 @@ impl PolarAxis {
 
     fn render_angular_axis(
         &self,
-        _scale: &avenger_scales::scales::ConfiguredScale,
+        scale: &avenger_scales::scales::ConfiguredScale,
         center_x: f32,
         center_y: f32,
         radius: f32,
@@ -410,8 +394,6 @@ impl PolarAxis {
         theme: &Theme,
         axis_ctx: &crate::theme::ThemeContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let _coord_type = Some("polar");
-        let _axis_type = axis_ctx.subtype.as_deref();
         use avenger_common::types::ColorOrGradient;
         use avenger_common::types::StrokeCap;
         use avenger_common::value::ScalarOrArray;
@@ -428,36 +410,17 @@ impl PolarAxis {
         };
 
         // Render angular grid (radial lines) based on scale ticks
-        if self.grid.clone().unwrap_or(false) {
+        if self.grid.as_option().copied().unwrap_or(false) {
             // Get tick values from the scale
-            let tick_count = self.tick_count.clone().flatten().map(|c| c as f32);
-            let ticks = _scale.ticks(tick_count.or(Some(8.0)))?;
+            let tick_count = self.tick_count.as_option().and_then(|opt| opt.map(|c| c as f32));
+            let ticks = scale.ticks(tick_count.or(Some(ANGULAR_DEFAULT_TICK_COUNT)))?;
 
             let mut x_values = Vec::new();
             let mut y_values = Vec::new();
             let mut x2_values = Vec::new();
             let mut y2_values = Vec::new();
 
-            use datafusion::arrow::array::{Float32Array, Float64Array};
-            use datafusion::arrow::datatypes::DataType;
-
-            let angle_values: Vec<f64> = match ticks.data_type() {
-                DataType::Float64 => ticks
-                    .as_any()
-                    .downcast_ref::<Float64Array>()
-                    .unwrap()
-                    .iter()
-                    .flatten()
-                    .collect(),
-                DataType::Float32 => ticks
-                    .as_any()
-                    .downcast_ref::<Float32Array>()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|v| v.map(|f| f as f64))
-                    .collect(),
-                _ => vec![],
-            };
+            let angle_values = Self::extract_tick_values(&ticks);
 
             // Get the outermost circle radius from the r scale if available
             let outer_radius = if let Some(r_scale) = scales.get("r") {
@@ -515,26 +478,26 @@ impl PolarAxis {
         }
 
         // Add angular tick labels
-        if self.visible.clone().unwrap_or(true) {
+        if self.visible.as_option().copied().unwrap_or(true) {
             use avenger_scenegraph::marks::text::SceneTextMark;
             use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
 
             // Get tick values from scale
-            let tick_values: Vec<f32> = if let Ok(ticks_array) = _scale.ticks(Some(8.0)) {
+            let tick_values: Vec<f32> = if let Ok(ticks_array) = scale.ticks(Some(ANGULAR_DEFAULT_TICK_COUNT)) {
                 // Convert arrow array to vec of f32
                 use datafusion::arrow::array::Float32Array;
                 if let Some(arr) = ticks_array.as_any().downcast_ref::<Float32Array>() {
                     (0..arr.len()).map(|i| arr.value(i)).collect()
                 } else {
                     // Fallback if not float32
-                    let num_ticks = self.tick_count.clone().flatten().unwrap_or(8);
+                    let num_ticks = self.tick_count.as_option().and_then(|opt| *opt).unwrap_or(8);
                     (0..num_ticks)
                         .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
                         .collect()
                 }
             } else {
                 // Fallback to uniform distribution
-                let num_ticks = self.tick_count.clone().flatten().unwrap_or(8);
+                let num_ticks = self.tick_count.as_option().and_then(|opt| *opt).unwrap_or(8);
                 (0..num_ticks)
                     .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
                     .collect()
@@ -586,6 +549,9 @@ impl PolarAxis {
             }
 
             if !text_vals.is_empty() {
+                let (font_family, font_size, font_weight, color) =
+                    Self::get_label_theme_values(theme, axis_ctx);
+
                 let text_mark = SceneTextMark {
                     name: "polar-theta-labels".to_string(),
                     clip: false,
@@ -595,27 +561,13 @@ impl PolarAxis {
                     text: ScalarOrArray::new_array(text_vals),
                     align: ScalarOrArray::new_array(label_aligns),
                     baseline: ScalarOrArray::new_array(label_baselines),
-                    font: ScalarOrArray::new_scalar({
-                        let ctx = axis_ctx.child("label");
-                        theme
-                            .font_family(&ctx)
-                            .unwrap_or_else(|| "sans-serif".to_string())
-                    }),
+                    font: ScalarOrArray::new_scalar(font_family),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number({
-                            let ctx = axis_ctx.child("label");
-                            theme.font_weight(&ctx).unwrap_or(400.0)
-                        }),
+                        avenger_text::types::FontWeight::Number(font_weight),
                     ),
-                    font_size: ScalarOrArray::new_scalar({
-                        let ctx = axis_ctx.child("label");
-                        theme.font_size(&ctx).unwrap_or(12.0)
-                    }),
+                    font_size: ScalarOrArray::new_scalar(font_size),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color({
-                        let ctx = axis_ctx.child("label");
-                        theme.text_color(&ctx).unwrap_or([0.0, 0.0, 0.0, 1.0])
-                    })),
+                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color(color)),
                     angle: ScalarOrArray::new_scalar(0.0),
                     limit: ScalarOrArray::new_scalar(200.0),
                     indices: None,
@@ -632,9 +584,9 @@ impl PolarAxis {
 #[typetag::serde]
 impl Axis for PolarAxis {
     fn update(&mut self, other: &dyn Axis) {
-        other.as_any().downcast_ref::<PolarAxis>().map(|o| {
-            *self = self.clone().update(o.clone());
-        });
+        if let Some(o) = other.as_any().downcast_ref::<PolarAxis>() {
+            *self = std::mem::take(self).update(o.clone());
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -7,7 +7,7 @@ use avenger_chart::{
     coords::{CoordinateSystem, OverflowSpaceRequirement, PlotGeometry, PointGeometry},
     define_common_mark_channels, define_position_channels,
     error::AvengerChartError,
-    guide::CoordinateGuideBuilder,
+    guide::CoordinateGuide,
     impl_mark_base, impl_mark_trait_common,
     marks::{ChannelValue, CompiledMark, DataContext, Mark, MarkState},
     scales::{Auto, Scale},
@@ -250,16 +250,16 @@ impl avenger_chart::guide::CompiledGuide for CompiledIsometricGuide {
     }
 }
 
-impl CoordinateGuideBuilder for IsometricGuide {
+impl CoordinateGuide for IsometricGuide {
     type Axis = IsometricAxis;
 
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {
         self.axes = axes;
     }
 
-    fn set_mark_renderers(
+    fn set_compiled_marks(
         &mut self,
-        _mark_renderers: Vec<std::sync::Arc<dyn CompiledMark>>,
+        _compiled_marks: Vec<std::sync::Arc<dyn CompiledMark>>,
         _session_context: &datafusion::prelude::SessionContext,
     ) {
         // Store mark renderers if needed for axis titles

@@ -12,7 +12,7 @@ use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::CoordinateGuideBuilder;
+use crate::guide::CoordinateGuide;
 use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
 use crate::marks::{CompiledMark, Mark};
@@ -132,7 +132,7 @@ impl<C: CoordinateSystem> Plot<C> {
             // This is safe because the axis type matches the coordinate system
             if let Some(typed_axis) = axis_config
                 .as_any()
-                .downcast_ref::<<C::Guide as CoordinateGuideBuilder>::Axis>()
+                .downcast_ref::<<C::Guide as CoordinateGuide>::Axis>()
             {
                 guide_axes.insert(channel.clone(), typed_axis.clone());
             }
@@ -142,7 +142,7 @@ impl<C: CoordinateSystem> Plot<C> {
         guide.set_axes(guide_axes);
 
         // Pass compiled marks to the guide so it can extract titles at render time
-        guide.set_mark_renderers(compiled_marks.clone(), session_context);
+        guide.set_compiled_marks(compiled_marks.clone(), session_context);
 
         let compiled_guide = Arc::from(guide.build());
 

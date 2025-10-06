@@ -86,7 +86,7 @@
 //!     ├── stroke
 //!     ├── stroke-width
 //!     ├── opacity
-//!     └── ...
+//!     └── ...                                                             *
 //! ```
 //!
 //! ## CSS Selector Examples

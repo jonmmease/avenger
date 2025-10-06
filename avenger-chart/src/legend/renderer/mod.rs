@@ -218,8 +218,11 @@ pub struct LegendGroup {
 }
 
 /// Utility to normalize expressions for comparison
+///
+/// Uses Debug format for exact matching - legends only merge if expressions are identical.
+/// This conservative approach ensures that only truly identical user-specified expressions
+/// result in merged legends.
 pub fn normalize_expression(expr: &Expr) -> String {
-    // Simple normalization - in practice would want more sophisticated comparison
     format!("{:?}", expr)
 }
 
