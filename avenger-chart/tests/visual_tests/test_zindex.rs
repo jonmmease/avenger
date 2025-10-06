@@ -64,7 +64,8 @@ async fn test_zindex_ordering() {
                 .zindex(1),
         );
 
-    assert_visual_match_default(plot, "zindex", "zindex_ordering").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "zindex", "zindex_ordering").await;
 }
 
 #[tokio::test]
@@ -122,5 +123,6 @@ async fn test_zindex_default_order() {
                 .opacity(0.8),
         );
 
-    assert_visual_match_default(plot, "zindex", "zindex_default_order").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "zindex", "zindex_default_order").await;
 }

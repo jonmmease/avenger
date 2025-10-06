@@ -39,7 +39,8 @@ async fn test_discrete_color_legend() {
             .size_with(lit(100.0), |c| c.no_scale()),
     );
 
-    assert_visual_match_default(plot, "legend", "discrete_color_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "discrete_color_legend").await;
 }
 
 #[tokio::test]
@@ -75,7 +76,15 @@ async fn test_legend_visibility() {
             .size(100.0),
     );
 
-    assert_visual_match_default(plot, "legend", "legend_visibility_disabled").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "legend_visibility_disabled",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -116,7 +125,8 @@ async fn test_continuous_color_legend() {
             .size(100.0),
     );
 
-    assert_visual_match_default(plot, "legend", "continuous_color_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "continuous_color_legend").await;
 }
 
 // #[tokio::test]
@@ -154,7 +164,8 @@ async fn test_continuous_color_legend() {
 //                 .fill("#4682b4")
 //         );
 //
-//     assert_visual_match_default(plot, "legend", "size_legend").await;
+//     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+//     assert_visual_match_default(&compiled, &ctx, None, "legend", "size_legend").await;
 // }
 
 #[tokio::test]
@@ -195,7 +206,8 @@ async fn test_shape_legend() {
             .fill("#4682b4"),
     );
 
-    assert_visual_match_default(plot, "legend", "shape_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "shape_legend").await;
 }
 
 #[tokio::test]
@@ -231,7 +243,15 @@ async fn test_combined_fill_and_shape_legend() {
             .size_with(lit(100.0), |c| c.no_scale()),
     );
 
-    assert_visual_match_default(plot, "legend", "combined_fill_and_shape_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "combined_fill_and_shape_legend",
+    )
+    .await;
 }
 
 // TODO: Re-enable when size scales support discrete domains with numeric ranges
@@ -273,5 +293,6 @@ async fn test_combined_fill_and_shape_legend() {
 //                     .legend(|legend| legend.title("Size")))
 //         );
 //
-//     assert_visual_match_default(plot, "legend", "multiple_legends").await;
+//     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+//     assert_visual_match_default(&compiled, &ctx, None, "legend", "multiple_legends").await;
 // }

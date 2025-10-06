@@ -54,6 +54,7 @@ fn make_df_for_line() -> DataFrame {
 
 #[tokio::test]
 async fn right_axis_no_legend_symbol_mark() {
+    let ctx = SessionContext::new();
     let df = make_df_for_symbol();
 
     let plot = Plot::<Cartesian>::new()
@@ -70,11 +71,20 @@ async fn right_axis_no_legend_symbol_mark() {
                 .fill_with("#2ca25f", |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "layout", "right_axis_no_legend_symbol").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "right_axis_no_legend_symbol",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn right_axis_with_symbol_legend() {
+    let ctx = SessionContext::new();
     let df = make_df_for_symbol();
 
     let plot = Plot::<Cartesian>::new()
@@ -93,11 +103,20 @@ async fn right_axis_with_symbol_legend() {
                 .fill_with(col("category"), |c| c),
         );
 
-    assert_visual_match_default(plot, "layout", "right_axis_with_symbol_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "right_axis_with_symbol_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn right_axis_with_line_legend() {
+    let ctx = SessionContext::new();
     let df = make_df_for_line();
 
     let plot = Plot::<Cartesian>::new()
@@ -116,11 +135,20 @@ async fn right_axis_with_line_legend() {
                 .stroke_width(2.0),
         );
 
-    assert_visual_match_default(plot, "layout", "right_axis_with_line_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "right_axis_with_line_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn right_axis_with_colorbar_legend() {
+    let ctx = SessionContext::new();
     let df = make_df_for_symbol();
 
     let plot = Plot::<Cartesian>::new()
@@ -137,11 +165,20 @@ async fn right_axis_with_colorbar_legend() {
                 .fill_with(lit(42.0), |c| c.scale(|s| s.domain((0.0, 100.0)))),
         );
 
-    assert_visual_match_default(plot, "layout", "right_axis_with_colorbar_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "right_axis_with_colorbar_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn top_x_axis_with_right_y_no_legend() {
+    let ctx = SessionContext::new();
     let df = make_df_for_symbol();
 
     let plot = Plot::<Cartesian>::new()
@@ -161,5 +198,13 @@ async fn top_x_axis_with_right_y_no_legend() {
                 .fill_with("#2ca25f", |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "layout", "top_x_axis_with_right_y_no_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "top_x_axis_with_right_y_no_legend",
+    )
+    .await;
 }

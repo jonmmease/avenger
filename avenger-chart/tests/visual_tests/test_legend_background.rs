@@ -48,6 +48,8 @@ fn make_df_xyc(x: &[f64], y: &[f64], c: &[f64]) -> DataFrame {
 
 #[tokio::test]
 async fn symbol_legend_with_background() {
+    let ctx = SessionContext::new();
+
     // Create data with categories for discrete legend
     let df = make_df_xy_category(
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
@@ -71,7 +73,8 @@ async fn symbol_legend_with_background() {
             }),
     );
 
-    assert_visual_match_default(plot, "layout", "legend_symbol_background").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "legend_symbol_background").await;
 }
 
 #[tokio::test]
@@ -118,11 +121,14 @@ async fn line_legend_with_background() {
             }),
     );
 
-    assert_visual_match_default(plot, "layout", "legend_line_background").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "legend_line_background").await;
 }
 
 #[tokio::test]
 async fn symbol_legend_without_visible_background() {
+    let ctx = SessionContext::new();
+
     // Test that layout is consistent even without visible background
     let df = make_df_xy_category(
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
@@ -141,11 +147,21 @@ async fn symbol_legend_without_visible_background() {
             }),
     );
 
-    assert_visual_match_default(plot, "layout", "legend_symbol_no_background").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "legend_symbol_no_background",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn colorbar_legend_with_background() {
+    let ctx = SessionContext::new();
+
     // Create data with continuous values for colorbar legend
     let df = make_df_xyc(
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
@@ -169,5 +185,13 @@ async fn colorbar_legend_with_background() {
             }),
     );
 
-    assert_visual_match_default(plot, "layout", "legend_colorbar_background").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "legend_colorbar_background",
+    )
+    .await;
 }

@@ -1,4 +1,4 @@
-use super::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
+use super::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use avenger_chart::theme::Theme;
 
@@ -31,6 +31,7 @@ fn create_scatter_data() -> DataFrame {
 
 #[tokio::test]
 async fn test_simple_scatter_plot() {
+    let ctx = SessionContext::new();
     let df = create_scatter_data();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -47,14 +48,16 @@ async fn test_simple_scatter_plot() {
             .stroke_width(1.0),
     );
 
-    assert_visual_match_default(plot, "symbol", "simple_scatter_plot").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "symbol", "simple_scatter_plot").await;
 }
 
 #[tokio::test]
 async fn test_simple_scatter_plot_dark() {
+    let ctx = SessionContext::new();
     let df = create_scatter_data();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Plot::<Cartesian>::new().data(df).theme(Theme::dark()).mark(
         Symbol::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
@@ -66,14 +69,8 @@ async fn test_simple_scatter_plot_dark() {
             .fill("#4C9ED9"), // Use a color from the dark theme palette
     );
 
-    assert_visual_match_with_theme(
-        plot,
-        Theme::dark(),
-        "symbol",
-        "simple_scatter_plot_dark",
-        0.9999,
-    )
-    .await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "symbol", "simple_scatter_plot_dark").await;
 }
 
 #[tokio::test]
@@ -144,7 +141,8 @@ async fn test_scatter_with_shapes() {
             .stroke_width(1.5),
     );
 
-    assert_visual_match_default(plot, "symbol", "scatter_with_shapes").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "symbol", "scatter_with_shapes").await;
 }
 
 #[tokio::test]
@@ -195,7 +193,8 @@ async fn test_scatter_with_size_encoding() {
                 .stroke_width(2.0),
         );
 
-    assert_visual_match_default(plot, "symbol", "scatter_with_size").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "symbol", "scatter_with_size").await;
 }
 
 #[tokio::test]
@@ -247,7 +246,8 @@ async fn test_scatter_with_size_encoding_legend() {
                 .stroke_width(2.0),
         );
 
-    assert_visual_match_default(plot, "symbol", "scatter_with_size_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "symbol", "scatter_with_size_legend").await;
 }
 
 #[tokio::test]
@@ -292,7 +292,8 @@ async fn test_scatter_with_angle() {
             .stroke_width(2.0),
     );
 
-    assert_visual_match_default(plot, "symbol", "scatter_with_angle").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "symbol", "scatter_with_angle").await;
 }
 
 #[tokio::test]
@@ -336,7 +337,8 @@ async fn test_scatter_with_angle_scale() {
             .stroke_width(2.0),
     );
 
-    assert_visual_match_default(plot, "symbol", "scatter_with_angle_scale").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "symbol", "scatter_with_angle_scale").await;
 }
 
 #[tokio::test]
@@ -383,7 +385,15 @@ async fn test_scatter_with_default_shape_scale() {
             .stroke_width(2.0),
     );
 
-    assert_visual_match_default(plot, "symbol", "scatter_with_default_shapes").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "symbol",
+        "scatter_with_default_shapes",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -451,5 +461,13 @@ async fn test_scatter_with_threshold_shape() {
                 .stroke_width(2.0),
         );
 
-    assert_visual_match_default(plot, "symbol", "scatter_with_threshold_shape").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "symbol",
+        "scatter_with_threshold_shape",
+    )
+    .await;
 }

@@ -28,6 +28,7 @@ async fn create_simple_scatter_data() -> DataFrame {
 
 #[tokio::test]
 async fn test_symbol_padding_no_nice() {
+    let ctx = SessionContext::new();
     let df = create_simple_scatter_data().await;
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -42,11 +43,20 @@ async fn test_symbol_padding_no_nice() {
             .shape(lit("circle")),
     );
 
-    assert_visual_match_default(plot, "symbol", "test_symbol_padding_no_nice").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "symbol",
+        "test_symbol_padding_no_nice",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_symbol_padding_with_nice() {
+    let ctx = SessionContext::new();
     let df = create_simple_scatter_data().await;
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -61,7 +71,15 @@ async fn test_symbol_padding_with_nice() {
             .shape(lit("circle")),
     );
 
-    assert_visual_match_default(plot, "symbol", "test_symbol_padding_with_nice").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "symbol",
+        "test_symbol_padding_with_nice",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -100,7 +118,15 @@ async fn test_arrow_symbol_asymmetric_padding() {
     // The triangle-up at (95, 95) should require more padding at upper bounds
     // The diamond at (50, 50) demonstrates rotation handling
     // Note: Currently using symmetric padding, so this test documents current behavior
-    assert_visual_match_default(plot, "symbol", "test_arrow_symbol_asymmetric_padding").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "symbol",
+        "test_arrow_symbol_asymmetric_padding",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -136,5 +162,13 @@ async fn test_exact_geometry_containment() {
 
     // Verify that the rendered image contains exactly the diamond geometry
     // with no clipping and minimal padding
-    assert_visual_match_default(plot, "symbol", "test_exact_geometry_containment").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "symbol",
+        "test_exact_geometry_containment",
+    )
+    .await;
 }

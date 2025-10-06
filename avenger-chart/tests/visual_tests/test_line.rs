@@ -1,4 +1,4 @@
-use super::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
+use super::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use avenger_chart::theme::Theme;
 use datafusion::arrow::array::{Float64Array, Int32Array};
@@ -30,6 +30,7 @@ fn create_line_data() -> DataFrame {
 
 #[tokio::test]
 async fn test_simple_line_chart() {
+    let ctx = SessionContext::new();
     let df = create_line_data();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -44,14 +45,16 @@ async fn test_simple_line_chart() {
             .stroke_width(2.0),
     );
 
-    assert_visual_match_default(plot, "line", "simple_line_chart").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "simple_line_chart").await;
 }
 
 #[tokio::test]
 async fn test_simple_line_chart_dark() {
+    let ctx = SessionContext::new();
     let df = create_line_data();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Plot::<Cartesian>::new().data(df).theme(Theme::dark()).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
@@ -63,18 +66,13 @@ async fn test_simple_line_chart_dark() {
             .stroke_width(2.5),
     );
 
-    assert_visual_match_with_theme(
-        plot,
-        Theme::dark(),
-        "line",
-        "simple_line_chart_dark",
-        0.9999,
-    )
-    .await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "simple_line_chart_dark").await;
 }
 
 #[tokio::test]
 async fn test_line_with_dashed_stroke() {
+    let ctx = SessionContext::new();
     let df = create_line_data();
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -90,7 +88,8 @@ async fn test_line_with_dashed_stroke() {
             .stroke_dash("dashed"),
     );
 
-    assert_visual_match_default(plot, "line", "line_dashed_stroke").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "line_dashed_stroke").await;
 }
 
 #[tokio::test]
@@ -137,7 +136,8 @@ async fn test_line_with_gaps() {
             .stroke_width(2.5),
     );
 
-    assert_visual_match_default(plot, "line", "line_with_gaps").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "line_with_gaps").await;
 }
 
 #[tokio::test]
@@ -218,11 +218,13 @@ async fn test_multiple_lines() {
                 .stroke_width(2.0),
         );
 
-    assert_visual_match_default(plot, "line", "multiple_lines").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "multiple_lines").await;
 }
 
 #[tokio::test]
 async fn test_line_dash_patterns() {
+    let ctx = SessionContext::new();
     let df = create_line_data();
 
     let plot = Plot::<Cartesian>::new()
@@ -273,7 +275,8 @@ async fn test_line_dash_patterns() {
                 .stroke_dash("dashdot"),
         );
 
-    assert_visual_match_default(plot, "line", "line_dash_patterns").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "line", "line_dash_patterns").await;
 }
 
 #[tokio::test]
@@ -312,5 +315,13 @@ async fn test_line_vertical_padding_no_nice() {
             .stroke_width(10.0), // Large stroke width to make the effect visible
     );
 
-    assert_visual_match_default(plot, "line", "line_vertical_padding_no_nice").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "line",
+        "line_vertical_padding_no_nice",
+    )
+    .await;
 }

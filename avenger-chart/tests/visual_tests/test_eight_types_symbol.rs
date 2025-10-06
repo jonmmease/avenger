@@ -1,4 +1,4 @@
-use crate::visual_tests::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
+use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use avenger_chart::theme::Theme;
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
@@ -83,7 +83,8 @@ async fn test_eight_types_fill_shape() {
                 .size(100.0), // Fixed size as number, not literal
         );
 
-    assert_visual_match_default(plot, "symbol", "eight_types_fill_shape").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "symbol", "eight_types_fill_shape").await;
 }
 
 #[tokio::test]
@@ -143,6 +144,7 @@ async fn test_eight_types_fill_shape_dark() {
     // This will use the dark theme's colors and default shapes
     let plot = Plot::<Cartesian>::new()
         .data(df)
+        .theme(Theme::dark())
         .title("Eight Category Scatter Plot - Dark Mode")
         .subtitle("Dark theme with vibrant colors")
         .legend("fill", |legend| legend.title("Category"))
@@ -161,12 +163,13 @@ async fn test_eight_types_fill_shape_dark() {
                 .size(100.0), // Fixed size as number, not literal
         );
 
-    assert_visual_match_with_theme(
-        plot,
-        Theme::dark(),
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
         "symbol",
         "eight_types_fill_shape_dark",
-        0.9999,
     )
     .await;
 }

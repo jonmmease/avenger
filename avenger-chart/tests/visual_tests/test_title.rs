@@ -51,6 +51,7 @@ fn make_df_numeric() -> DataFrame {
 
 #[tokio::test]
 async fn title_basic_symbol() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new().title("Basic Title").data(df).mark(
         Symbol::new()
@@ -60,11 +61,13 @@ async fn title_basic_symbol() {
             .fill_with("#2ca25f", |c| c.no_legend()),
     );
 
-    assert_visual_match_default(plot, "layout", "title_basic_symbol").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "title_basic_symbol").await;
 }
 
 #[tokio::test]
 async fn title_with_symbol_legend() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
         .title("Title With Legend")
@@ -79,11 +82,13 @@ async fn title_with_symbol_legend() {
                 }),
         );
 
-    assert_visual_match_default(plot, "layout", "title_with_symbol_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "title_with_symbol_legend").await;
 }
 
 #[tokio::test]
 async fn title_top_x_right_y() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
         .title("Top X & Right Y")
@@ -102,11 +107,13 @@ async fn title_top_x_right_y() {
                 .fill_with("#2ca25f", |c| c.no_legend()),
         );
 
-    assert_visual_match_default(plot, "layout", "title_top_x_right_y").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "title_top_x_right_y").await;
 }
 
 #[tokio::test]
 async fn title_with_colorbar_legend() {
+    let ctx = SessionContext::new();
     let df = make_df_numeric();
     let plot = Plot::<Cartesian>::new()
         .title("Title With Colorbar")
@@ -122,11 +129,20 @@ async fn title_with_colorbar_legend() {
                 }),
         );
 
-    assert_visual_match_default(plot, "layout", "title_with_colorbar_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "title_with_colorbar_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn subtitle_basic_symbol() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
         .title("Main Title")
@@ -140,11 +156,13 @@ async fn subtitle_basic_symbol() {
                 .fill_with("#2ca25f", |c| c.no_legend()),
         );
 
-    assert_visual_match_default(plot, "layout", "subtitle_basic_symbol").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "subtitle_basic_symbol").await;
 }
 
 #[tokio::test]
 async fn subtitle_with_legend() {
+    let ctx = SessionContext::new();
     let df = make_df_numeric();
     let plot = Plot::<Cartesian>::new()
         .title("Main Title")
@@ -161,7 +179,8 @@ async fn subtitle_with_legend() {
                 }),
         );
 
-    assert_visual_match_default(plot, "layout", "subtitle_with_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "subtitle_with_legend").await;
 }
 
 // Note: The current API doesn't support custom title properties like color, font_size, or align
@@ -169,6 +188,7 @@ async fn subtitle_with_legend() {
 
 #[tokio::test]
 async fn title_with_axes_positions() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
         .title("Title With Different Axes Positions")
@@ -188,11 +208,13 @@ async fn title_with_axes_positions() {
                 .fill_with("#c0392b", |c| c.no_legend()),
         );
 
-    assert_visual_match_default(plot, "layout", "title_with_axes_positions").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "title_with_axes_positions").await;
 }
 
 #[tokio::test]
 async fn multiline_title_subtitle() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
         .title("This is a Very Long Title That Should\nSpan Multiple Lines")
@@ -206,11 +228,13 @@ async fn multiline_title_subtitle() {
                 .fill_with("#34495e", |c| c.no_legend()),
         );
 
-    assert_visual_match_default(plot, "layout", "multiline_title_subtitle").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "multiline_title_subtitle").await;
 }
 
 #[tokio::test]
 async fn subtitle_with_symbol_legend() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
         .title("Main Title")
@@ -226,11 +250,20 @@ async fn subtitle_with_symbol_legend() {
                 }),
         );
 
-    assert_visual_match_default(plot, "layout", "subtitle_with_symbol_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "subtitle_with_symbol_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn subtitle_with_colorbar() {
+    let ctx = SessionContext::new();
     let df = make_df_numeric();
     let plot = Plot::<Cartesian>::new()
         .title("Temperature Distribution")
@@ -247,11 +280,13 @@ async fn subtitle_with_colorbar() {
                 }),
         );
 
-    assert_visual_match_default(plot, "layout", "subtitle_with_colorbar").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "subtitle_with_colorbar").await;
 }
 
 #[tokio::test]
 async fn subtitle_only() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
         .subtitle("Only a subtitle, no title")
@@ -264,11 +299,13 @@ async fn subtitle_only() {
                 .fill_with("#2ca25f", |c| c.no_legend()),
         );
 
-    assert_visual_match_default(plot, "layout", "subtitle_only").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "subtitle_only").await;
 }
 
 #[tokio::test]
 async fn title_plot_area_only() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
         .configure_title("Plot Area Only Title", |t| PlotTitle {
@@ -288,11 +325,13 @@ async fn title_plot_area_only() {
                 .fill_with("#2ca25f", |c| c.no_legend()),
         );
 
-    assert_visual_match_default(plot, "layout", "title_plot_area_only").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "title_plot_area_only").await;
 }
 
 #[tokio::test]
 async fn title_plot_area_only_with_legend() {
+    let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
         .configure_title("Plot Area Title", |t| PlotTitle {
@@ -314,5 +353,13 @@ async fn title_plot_area_only_with_legend() {
                 }),
         );
 
-    assert_visual_match_default(plot, "layout", "title_plot_area_only_with_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "title_plot_area_only_with_legend",
+    )
+    .await;
 }

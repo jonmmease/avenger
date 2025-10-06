@@ -1,4 +1,4 @@
-use crate::visual_tests::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
+use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use avenger_chart::theme::Theme;
 
@@ -46,7 +46,8 @@ async fn test_symbol_legend_with_scalar_expressions() {
                 .angle_with(lit(45.0), |c| c.no_scale()), // Scalar expression - should use 45 degrees
         );
 
-    assert_visual_match_default(plot, "legend", "symbol_scalar_expressions").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "symbol_scalar_expressions").await;
 }
 
 #[tokio::test]
@@ -90,7 +91,15 @@ async fn test_symbol_legend_with_column_dependencies() {
                 .size(col("size_col")), // Depends on column but not legend channel - should use default
         );
 
-    assert_visual_match_default(plot, "legend", "symbol_column_dependencies").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "symbol_column_dependencies",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -137,7 +146,8 @@ async fn test_ordinal_size_legend() {
                 .shape_with(lit("circle"), |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "legend", "ordinal_size_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "ordinal_size_legend").await;
 }
 
 #[tokio::test]
@@ -189,7 +199,15 @@ async fn test_combined_size_color_shape_legend() {
                 .stroke_width_with(lit(1.0), |c| c.no_scale()),
         );
 
-    assert_visual_match_default(plot, "legend", "combined_size_color_shape_legend").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "combined_size_color_shape_legend",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -230,6 +248,7 @@ async fn test_combined_size_color_shape_legend_dark() {
     // Create plot without custom colors - let the dark theme provide them
     let plot = Plot::<Cartesian>::new()
         .data(df)
+        .theme(Theme::dark())
         .legend("fill", |legend| legend.title("Type"))
         .mark(
             Symbol::new()
@@ -243,12 +262,13 @@ async fn test_combined_size_color_shape_legend_dark() {
                 .shape(col("category")),
         );
 
-    assert_visual_match_with_theme(
-        plot,
-        Theme::dark(),
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
         "legend",
         "combined_size_color_shape_legend_dark",
-        0.9999,
     )
     .await;
 }

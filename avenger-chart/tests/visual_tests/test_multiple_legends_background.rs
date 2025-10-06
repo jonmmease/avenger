@@ -90,7 +90,15 @@ async fn test_multiple_legends_with_backgrounds() {
                 .shape_with(col("shape_type"), |c| c.scale_with::<Ordinal>(|s| s)),
         );
 
-    assert_visual_match_default(plot, "layout", "multiple_legends_with_backgrounds").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "multiple_legends_with_backgrounds",
+    )
+    .await;
 }
 
 /// Test mixed legend types with backgrounds (colorbar + symbols)
@@ -178,7 +186,15 @@ async fn test_colorbar_with_symbols_backgrounds() {
                 .size(100.0),
         );
 
-    assert_visual_match_default(plot, "layout", "colorbar_with_symbols_backgrounds").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "colorbar_with_symbols_backgrounds",
+    )
+    .await;
 }
 
 /// Test legends at different positions with backgrounds
@@ -260,5 +276,13 @@ async fn test_legends_different_positions_backgrounds() {
                 .stroke_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s)),
         );
 
-    assert_visual_match_default(plot, "layout", "legends_different_positions_backgrounds").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "legends_different_positions_backgrounds",
+    )
+    .await;
 }

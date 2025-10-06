@@ -39,6 +39,7 @@ fn make_df_xyv(x: &[f64], y: &[f64], v: &[f64]) -> DataFrame {
 
 #[tokio::test]
 async fn axis_y_currency_fixed() {
+    let ctx = SessionContext::new();
     let df = make_df_xy(
         &[1.0, 2.0, 3.0, 4.0, 5.0],
         &[1200.0, 3400.0, 5600.0, 12345.0, 98765.0],
@@ -55,11 +56,20 @@ async fn axis_y_currency_fixed() {
             .fill_with("#2ca25f", |c| c.no_legend()),
     );
 
-    assert_visual_match_default(plot, "layout", "format_axis_y_currency_fixed").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "format_axis_y_currency_fixed",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn axis_y_percent() {
+    let ctx = SessionContext::new();
     let df = make_df_xy(&[1.0, 2.0, 3.0, 4.0, 5.0], &[0.1, 0.25, 0.5, 0.75, 0.95]);
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
@@ -73,11 +83,13 @@ async fn axis_y_percent() {
             .fill_with("#3182bd", |c| c.no_legend()),
     );
 
-    assert_visual_match_default(plot, "layout", "format_axis_y_percent").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "format_axis_y_percent").await;
 }
 
 #[tokio::test]
 async fn axis_y_si_prefix() {
+    let ctx = SessionContext::new();
     let df = make_df_xy(
         &[1.0, 2.0, 3.0, 4.0, 5.0],
         &[1.2e3, 4.5e4, 7.8e5, 2.3e6, 9.9e7],
@@ -94,11 +106,13 @@ async fn axis_y_si_prefix() {
             .fill_with("#e6550d", |c| c.no_legend()),
     );
 
-    assert_visual_match_default(plot, "layout", "format_axis_y_si_prefix").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "format_axis_y_si_prefix").await;
 }
 
 #[tokio::test]
 async fn colorbar_percent() {
+    let ctx = SessionContext::new();
     let df = make_df_xyv(
         &[1.0, 2.0, 3.0, 4.0, 5.0],
         &[2.0, 4.0, 6.0, 8.0, 10.0],
@@ -116,11 +130,13 @@ async fn colorbar_percent() {
             }),
     );
 
-    assert_visual_match_default(plot, "layout", "format_colorbar_percent").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "format_colorbar_percent").await;
 }
 
 #[tokio::test]
 async fn colorbar_currency_fixed() {
+    let ctx = SessionContext::new();
     let df = make_df_xyv(
         &[1.0, 2.0, 3.0, 4.0, 5.0],
         &[2.0, 4.0, 6.0, 8.0, 10.0],
@@ -138,11 +154,20 @@ async fn colorbar_currency_fixed() {
             }),
     );
 
-    assert_visual_match_default(plot, "layout", "format_colorbar_currency_fixed").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "format_colorbar_currency_fixed",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn colorbar_si_prefix() {
+    let ctx = SessionContext::new();
     let df = make_df_xyv(
         &[1.0, 2.0, 3.0, 4.0, 5.0],
         &[2.0, 4.0, 6.0, 8.0, 10.0],
@@ -160,5 +185,6 @@ async fn colorbar_si_prefix() {
             }),
     );
 
-    assert_visual_match_default(plot, "layout", "format_colorbar_si_prefix").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "format_colorbar_si_prefix").await;
 }

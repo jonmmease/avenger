@@ -25,6 +25,7 @@ fn create_test_data() -> DataFrame {
 
 #[tokio::test]
 async fn test_fixed_canvas_500x400_fixed_plot_200x150() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot with:
@@ -45,11 +46,20 @@ async fn test_fixed_canvas_500x400_fixed_plot_200x150() {
                 .fill("#3498db"),
         );
 
-    assert_visual_match_default(plot, "fixed_canvas_and_plot", "canvas_500x400_plot_200x150").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "fixed_canvas_and_plot",
+        "canvas_500x400_plot_200x150",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_canvas_width_400_plot_width_250() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot with:
@@ -70,8 +80,11 @@ async fn test_canvas_width_400_plot_width_250() {
                 .fill("#e74c3c"),
         );
 
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(
-        plot,
+        &compiled,
+        &ctx,
+        None,
         "fixed_canvas_and_plot",
         "canvas_width_400_plot_width_250",
     )
@@ -80,6 +93,7 @@ async fn test_canvas_width_400_plot_width_250() {
 
 #[tokio::test]
 async fn test_canvas_height_350_plot_height_200() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot with:
@@ -100,8 +114,11 @@ async fn test_canvas_height_350_plot_height_200() {
                 .fill("#2ecc71"),
         );
 
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(
-        plot,
+        &compiled,
+        &ctx,
+        None,
         "fixed_canvas_and_plot",
         "canvas_height_350_plot_height_200",
     )

@@ -63,7 +63,15 @@ async fn test_symbol_automatic_shape_scale() {
             .stroke_width(1.5),
     );
 
-    assert_visual_match_default(plot, "symbol_ordinal", "automatic_shape_scale").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "symbol_ordinal",
+        "automatic_shape_scale",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -114,5 +122,13 @@ async fn test_symbol_custom_enumeration() {
             .stroke_width(2.0),
     );
 
-    assert_visual_match_default(plot, "symbol_ordinal", "custom_enumeration").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "symbol_ordinal",
+        "custom_enumeration",
+    )
+    .await;
 }

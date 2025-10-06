@@ -79,7 +79,8 @@ async fn test_scatter_multiple_legends() {
                 .shape_with(col("shape_type"), |c| c.scale_with::<Ordinal>(|s| s)),
         );
 
-    assert_visual_match_default(plot, "layout", "scatter_multiple_legends").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "scatter_multiple_legends").await;
 }
 
 /// Test mixed legend types (symbol, line, colorbar) in same position
@@ -168,7 +169,8 @@ async fn test_mixed_legend_types() {
                 }),
         );
 
-    assert_visual_match_default(plot, "layout", "mixed_legend_types").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "mixed_legend_types").await;
 }
 
 /// Test legends at different positions
@@ -225,7 +227,15 @@ async fn test_legends_different_positions() {
                 }),
         );
 
-    assert_visual_match_default(plot, "layout", "legends_different_positions").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "legends_different_positions",
+    )
+    .await;
 }
 
 /// Test colorbar legend with symbol legends
@@ -291,7 +301,8 @@ async fn test_colorbar_with_symbols() {
                 .size(100.0),
         );
 
-    assert_visual_match_default(plot, "layout", "colorbar_with_symbols").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "colorbar_with_symbols").await;
 }
 
 /// Test legend ordering with explicit order values
@@ -363,5 +374,6 @@ async fn test_legend_ordering() {
                 .stroke_with(col("b"), |c| c.scale_with::<Ordinal>(|s| s)),
         );
 
-    assert_visual_match_default(plot, "layout", "legend_ordering").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "legend_ordering").await;
 }

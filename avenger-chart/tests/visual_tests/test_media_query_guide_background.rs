@@ -9,9 +9,8 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
-#[tokio::test]
-async fn test_media_query_guide_background_small() {
-    // Define a CSS theme with media queries for responsive guide backgrounds
+/// Shared CSS theme for media query tests
+fn create_media_query_theme() -> Theme {
     let css = r#"
         /* Canvas background */
         canvas {
@@ -76,9 +75,11 @@ async fn test_media_query_guide_background_small() {
         }
     "#;
 
-    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
+    Theme::from_css(css).expect("Failed to parse CSS theme")
+}
 
-    // Create test data
+/// Create test data for media query tests
+fn create_test_data(ctx: &SessionContext) -> DataFrame {
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
     let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 4.5]);
 
@@ -90,8 +91,14 @@ async fn test_media_query_guide_background_small() {
     let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)])
         .expect("Failed to create RecordBatch");
 
+    ctx.read_batch(batch).expect("Failed to read batch")
+}
+
+#[tokio::test]
+async fn test_media_query_guide_background_small() {
     let ctx = SessionContext::new();
-    let df = ctx.read_batch(batch).expect("Failed to read batch");
+    let df = create_test_data(&ctx);
+    let theme = create_media_query_theme();
 
     // Create a SMALL plot (400px width - should trigger width < 600px media query)
     // This should have a LIGHT BLUE background
@@ -107,83 +114,23 @@ async fn test_media_query_guide_background_small() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "media_query", "guide_background_small_400px", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "media_query",
+        "guide_background_small_400px",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_media_query_guide_background_medium() {
-    let css = r#"
-        canvas {
-            background-color: #ffffff;
-        }
-
-        guide {
-            background-color: transparent;
-        }
-
-        @media (width < 600px) {
-            guide {
-                background-color: rgba(33, 150, 243, 0.12);
-            }
-        }
-
-        @media (width >= 600px) and (width < 1200px) {
-            guide {
-                background-color: rgba(76, 175, 80, 0.12);
-            }
-        }
-
-        @media (width >= 1200px) {
-            guide {
-                background-color: rgba(244, 67, 54, 0.12);
-            }
-        }
-
-        mark[type="symbol"] {
-            size: 100px;
-            fill: #2196f3;
-            stroke: #1565c0;
-            stroke-width: 2px;
-        }
-
-        axis title {
-            font-size: 14px;
-            font-weight: 600;
-            color: #424242;
-        }
-
-        axis label {
-            font-size: 11px;
-            color: #616161;
-        }
-
-        axis grid {
-            stroke: #e0e0e0;
-            stroke-width: 1px;
-            opacity: 0.5;
-        }
-
-        axis domain {
-            stroke: #9e9e9e;
-            stroke-width: 1.5px;
-        }
-    "#;
-
-    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
-
-    let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
-    let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 4.5]);
-
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("x", DataType::Float64, false),
-        Field::new("y", DataType::Float64, false),
-    ]));
-
-    let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)])
-        .expect("Failed to create RecordBatch");
-
     let ctx = SessionContext::new();
-    let df = ctx.read_batch(batch).expect("Failed to read batch");
+    let df = create_test_data(&ctx);
+    let theme = create_media_query_theme();
 
     // Create a MEDIUM plot (800px width - should trigger width >= 600px and < 1200px media query)
     // This should have a LIGHT GREEN background
@@ -199,83 +146,23 @@ async fn test_media_query_guide_background_medium() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "media_query", "guide_background_medium_800px", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "media_query",
+        "guide_background_medium_800px",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_media_query_guide_background_large() {
-    let css = r#"
-        canvas {
-            background-color: #ffffff;
-        }
-
-        guide {
-            background-color: transparent;
-        }
-
-        @media (width < 600px) {
-            guide {
-                background-color: rgba(33, 150, 243, 0.12);
-            }
-        }
-
-        @media (width >= 600px) and (width < 1200px) {
-            guide {
-                background-color: rgba(76, 175, 80, 0.12);
-            }
-        }
-
-        @media (width >= 1200px) {
-            guide {
-                background-color: rgba(244, 67, 54, 0.12);
-            }
-        }
-
-        mark[type="symbol"] {
-            size: 100px;
-            fill: #2196f3;
-            stroke: #1565c0;
-            stroke-width: 2px;
-        }
-
-        axis title {
-            font-size: 14px;
-            font-weight: 600;
-            color: #424242;
-        }
-
-        axis label {
-            font-size: 11px;
-            color: #616161;
-        }
-
-        axis grid {
-            stroke: #e0e0e0;
-            stroke-width: 1px;
-            opacity: 0.5;
-        }
-
-        axis domain {
-            stroke: #9e9e9e;
-            stroke-width: 1.5px;
-        }
-    "#;
-
-    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
-
-    let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
-    let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 4.5]);
-
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("x", DataType::Float64, false),
-        Field::new("y", DataType::Float64, false),
-    ]));
-
-    let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)])
-        .expect("Failed to create RecordBatch");
-
     let ctx = SessionContext::new();
-    let df = ctx.read_batch(batch).expect("Failed to read batch");
+    let df = create_test_data(&ctx);
+    let theme = create_media_query_theme();
 
     // Create a LARGE plot (1400px width - should trigger width >= 1200px media query)
     // This should have a LIGHT RED background
@@ -291,7 +178,16 @@ async fn test_media_query_guide_background_large() {
         )
         .theme(theme);
 
-    assert_visual_match(plot, "media_query", "guide_background_large_1400px", 0.9999).await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "media_query",
+        "guide_background_large_1400px",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -343,24 +239,12 @@ async fn test_media_query_multi_range_syntax() {
         }
     "#;
 
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx);
     let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
-    let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
-    let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 4.5]);
-
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("x", DataType::Float64, false),
-        Field::new("y", DataType::Float64, false),
-    ]));
-
-    let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)])
-        .expect("Failed to create RecordBatch");
-
-    let ctx = SessionContext::new();
-    let df = ctx.read_batch(batch).expect("Failed to read batch");
-
     // Test 1: 800px width - should match the multi-range (in range)
-    let plot = Plot::<Cartesian>::new()
+    let plot1 = Plot::<Cartesian>::new()
         .canvas_size(800.0, 300.0)
         .title("Multi-Range Match (800px)")
         .subtitle("Media Query: 600px ≤ width < 1200px → Light Purple Background")
@@ -371,11 +255,19 @@ async fn test_media_query_multi_range_syntax() {
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
         .theme(theme.clone());
-
-    assert_visual_match(plot, "media_query", "multi_range_match_800px", 0.9999).await;
+    let compiled1 = plot1.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled1,
+        &ctx,
+        None,
+        "media_query",
+        "multi_range_match_800px",
+        0.9999,
+    )
+    .await;
 
     // Test 2: 400px width - should NOT match (below range)
-    let plot = Plot::<Cartesian>::new()
+    let plot2 = Plot::<Cartesian>::new()
         .canvas_size(400.0, 300.0)
         .title("Multi-Range No Match (400px)")
         .subtitle("Media Query: 600px ≤ width < 1200px → No Match (Transparent)")
@@ -386,11 +278,19 @@ async fn test_media_query_multi_range_syntax() {
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
         .theme(theme.clone());
-
-    assert_visual_match(plot, "media_query", "multi_range_no_match_400px", 0.9999).await;
+    let compiled2 = plot2.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled2,
+        &ctx,
+        None,
+        "media_query",
+        "multi_range_no_match_400px",
+        0.9999,
+    )
+    .await;
 
     // Test 3: 1200px width - should NOT match (at exclusive boundary)
-    let plot = Plot::<Cartesian>::new()
+    let plot3 = Plot::<Cartesian>::new()
         .canvas_size(1200.0, 300.0)
         .title("Multi-Range Boundary (1200px)")
         .subtitle("Media Query: 600px ≤ width < 1200px → No Match (Exclusive)")
@@ -401,6 +301,14 @@ async fn test_media_query_multi_range_syntax() {
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
         .theme(theme);
-
-    assert_visual_match(plot, "media_query", "multi_range_boundary_1200px", 0.9999).await;
+    let compiled3 = plot3.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled3,
+        &ctx,
+        None,
+        "media_query",
+        "multi_range_boundary_1200px",
+        0.9999,
+    )
+    .await;
 }

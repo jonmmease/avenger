@@ -32,6 +32,7 @@ fn create_test_data() -> DataFrame {
 
 #[tokio::test]
 async fn test_default_axes_numeric_with_grid() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot without explicit axes
@@ -46,11 +47,13 @@ async fn test_default_axes_numeric_with_grid() {
     // Should create default axes with:
     // - x axis titled "x_val" with grid enabled
     // - y axis titled "y_val" with grid enabled
-    assert_visual_match_default(plot, "default_axes", "numeric_with_grid").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "default_axes", "numeric_with_grid").await;
 }
 
 #[tokio::test]
 async fn test_default_axes_band_without_grid() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot with band scale on x
@@ -66,11 +69,13 @@ async fn test_default_axes_band_without_grid() {
     // Should create default axes with:
     // - x axis titled "category" with grid disabled (band scale)
     // - y axis titled "y_val" with grid enabled (numeric scale)
-    assert_visual_match_default(plot, "default_axes", "band_without_grid").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "default_axes", "band_without_grid").await;
 }
 
 #[tokio::test]
 async fn test_default_axes_disabled() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot and explicitly disable x axis
@@ -83,11 +88,13 @@ async fn test_default_axes_disabled() {
     );
 
     // X axis should be invisible, Y axis should be created with defaults
-    assert_visual_match_default(plot, "default_axes", "x_axis_disabled").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "default_axes", "x_axis_disabled").await;
 }
 
 #[tokio::test]
 async fn test_default_axes_custom_title() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot and override some default axis properties
@@ -104,5 +111,6 @@ async fn test_default_axes_custom_title() {
 
     // X axis should have custom title and no grid
     // Y axis should be created with defaults
-    assert_visual_match_default(plot, "default_axes", "custom_title").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "default_axes", "custom_title").await;
 }

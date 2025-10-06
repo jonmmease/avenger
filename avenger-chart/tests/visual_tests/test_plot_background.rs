@@ -26,6 +26,7 @@ fn create_test_data() -> DataFrame {
 
 #[tokio::test]
 async fn test_cartesian_plot_background() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a plot with light blue background
@@ -40,11 +41,20 @@ async fn test_cartesian_plot_background() {
                 .stroke_width(3.0),
         );
 
-    assert_visual_match_default(plot, "plot_background", "cartesian_background").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "plot_background",
+        "cartesian_background",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_cartesian_background_with_grid() {
+    let ctx = SessionContext::new();
     let df = create_test_data();
 
     // Create a scatter plot with dark background to show grid lines clearly
@@ -61,7 +71,15 @@ async fn test_cartesian_background_with_grid() {
                 .stroke_width(2.0),
         );
 
-    assert_visual_match_default(plot, "plot_background", "cartesian_dark_with_grid").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "plot_background",
+        "cartesian_dark_with_grid",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -106,7 +124,8 @@ async fn test_polar_plot_background() {
                 .stroke_width(2.0),
         );
 
-    assert_visual_match_default(plot, "plot_background", "polar_background").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "plot_background", "polar_background").await;
 }
 
 #[tokio::test]
@@ -152,5 +171,13 @@ async fn test_polar_background_with_grid() {
                 .stroke_width(1.0),
         );
 
-    assert_visual_match_default(plot, "plot_background", "polar_dark_with_grid").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "plot_background",
+        "polar_dark_with_grid",
+    )
+    .await;
 }

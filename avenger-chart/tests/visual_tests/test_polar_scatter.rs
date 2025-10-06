@@ -52,6 +52,7 @@ fn create_polar_data() -> DataFrame {
 
 #[tokio::test]
 async fn test_polar_scatter_plot() {
+    let ctx = SessionContext::new();
     let df = create_polar_data();
 
     let plot = Plot::<Polar>::new()
@@ -74,7 +75,8 @@ async fn test_polar_scatter_plot() {
                 .stroke_width(1.0),
         );
 
-    assert_visual_match_default(plot, "polar", "scatter_plot").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "polar", "scatter_plot").await;
 }
 
 #[tokio::test]
@@ -145,7 +147,8 @@ async fn test_polar_scatter_with_clipping() {
                 .shape("circle"),
         );
 
-    assert_visual_match_default(plot, "polar", "scatter_with_clipping").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "polar", "scatter_with_clipping").await;
 }
 
 #[tokio::test]
@@ -237,5 +240,6 @@ async fn test_polar_scatter_with_size_color() {
                 .stroke_width(0.5),
         );
 
-    assert_visual_match_default(plot, "polar", "scatter_size_color").await;
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "polar", "scatter_size_color").await;
 }
