@@ -123,7 +123,7 @@ impl ScaleImpl for SmoothLogScale {
 
 /// Custom ScaleSpec marker type for SmoothLog scale
 /// This demonstrates that external crates can define their own scale spec types
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct SmoothLog;
 
 #[typetag::serde]
@@ -140,25 +140,6 @@ impl ScaleSpec for SmoothLog {
         Arc::new(SmoothLogScale::new())
     }
 }
-
-// IMPORTANT DISCOVERY: Rust does NOT allow inherent impls on external types,
-// even when parameterized with local types!
-//
-// The following does NOT work:
-// ```
-// impl Scale<SmoothLog> {  // Error E0116
-//     pub fn smoothing(self, value: f32) -> Self { ... }
-// }
-// ```
-//
-// This is because Rust considers `Scale<T>` to be the external type `Scale`,
-// regardless of T being local. The orphan rule for inherent impls is stricter
-// than for trait impls.
-//
-// WORKAROUNDS for external crates:
-// 1. Use an extension trait (recommended)
-// 2. Use the _option method directly
-// 3. Create a newtype wrapper
 
 /// Extension trait for Scale<SmoothLog> to add typed methods
 pub trait SmoothLogExt {
