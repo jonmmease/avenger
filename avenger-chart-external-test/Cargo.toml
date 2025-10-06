@@ -13,6 +13,7 @@ avenger-common = { path = "../avenger-common" }
 
 datafusion = { workspace = true }
 async-trait = { workspace = true }
+indexmap = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }
 typetag = "0.2"

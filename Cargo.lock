@@ -503,6 +503,7 @@ dependencies = [
  "avenger-scales",
  "avenger-scenegraph",
  "datafusion",
+ "indexmap 2.9.0",
  "paste",
  "serde",
  "tokio",
