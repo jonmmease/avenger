@@ -95,28 +95,27 @@ fn create_test_data(ctx: &SessionContext) -> DataFrame {
 }
 
 #[tokio::test]
-async fn test_media_query_guide_background_small() {
+async fn test_media_query_guide_background_responsive() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx);
     let theme = create_media_query_theme();
 
-    // Create a SMALL plot (400px width - should trigger width < 600px media query)
-    // This should have a LIGHT BLUE background
-    let plot = Plot::<Cartesian>::new()
+    // Test 1: Small width (400px) - should trigger width < 600px media query (Light Blue)
+    let plot_small = Plot::<Cartesian>::new()
         .canvas_size(400.0, 300.0)
         .title("Small Screen (400px)")
         .subtitle("Media Query: width < 600px → Light Blue Background")
-        .data(df)
+        .data(df.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
-        .theme(theme);
+        .theme(theme.clone());
 
-    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    let compiled_small = plot_small.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match(
-        &compiled,
+        &compiled_small,
         &ctx,
         None,
         "media_query",
@@ -124,31 +123,23 @@ async fn test_media_query_guide_background_small() {
         0.9999,
     )
     .await;
-}
 
-#[tokio::test]
-async fn test_media_query_guide_background_medium() {
-    let ctx = SessionContext::new();
-    let df = create_test_data(&ctx);
-    let theme = create_media_query_theme();
-
-    // Create a MEDIUM plot (800px width - should trigger width >= 600px and < 1200px media query)
-    // This should have a LIGHT GREEN background
-    let plot = Plot::<Cartesian>::new()
+    // Test 2: Medium width (800px) - should trigger 600px <= width < 1200px media query (Light Green)
+    let plot_medium = Plot::<Cartesian>::new()
         .canvas_size(800.0, 300.0)
         .title("Medium Screen (800px)")
         .subtitle("Media Query: 600px ≤ width < 1200px → Light Green Background")
-        .data(df)
+        .data(df.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
-        .theme(theme);
+        .theme(theme.clone());
 
-    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    let compiled_medium = plot_medium.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match(
-        &compiled,
+        &compiled_medium,
         &ctx,
         None,
         "media_query",
@@ -156,31 +147,23 @@ async fn test_media_query_guide_background_medium() {
         0.9999,
     )
     .await;
-}
 
-#[tokio::test]
-async fn test_media_query_guide_background_large() {
-    let ctx = SessionContext::new();
-    let df = create_test_data(&ctx);
-    let theme = create_media_query_theme();
-
-    // Create a LARGE plot (1400px width - should trigger width >= 1200px media query)
-    // This should have a LIGHT RED background
-    let plot = Plot::<Cartesian>::new()
+    // Test 3: Large width (1400px) - should trigger width >= 1200px media query (Light Red)
+    let plot_large = Plot::<Cartesian>::new()
         .canvas_size(1400.0, 300.0)
         .title("Large Screen (1400px)")
         .subtitle("Media Query: width ≥ 1200px → Light Red Background")
-        .data(df)
+        .data(df.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
-        .theme(theme);
+        .theme(theme.clone());
 
-    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    let compiled_large = plot_large.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match(
-        &compiled,
+        &compiled_large,
         &ctx,
         None,
         "media_query",
@@ -243,8 +226,8 @@ async fn test_media_query_multi_range_syntax() {
     let df = create_test_data(&ctx);
     let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
-    // Test 1: 800px width - should match the multi-range (in range)
-    let plot1 = Plot::<Cartesian>::new()
+    // Test 1: 800px width - should match the multi-range (in range) - Light Purple
+    let plot_match = Plot::<Cartesian>::new()
         .canvas_size(800.0, 300.0)
         .title("Multi-Range Match (800px)")
         .subtitle("Media Query: 600px ≤ width < 1200px → Light Purple Background")
@@ -255,9 +238,10 @@ async fn test_media_query_multi_range_syntax() {
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
         .theme(theme.clone());
-    let compiled1 = plot1.compile(&ctx).await.expect("Failed to compile plot");
+
+    let compiled_match = plot_match.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match(
-        &compiled1,
+        &compiled_match,
         &ctx,
         None,
         "media_query",
@@ -266,8 +250,8 @@ async fn test_media_query_multi_range_syntax() {
     )
     .await;
 
-    // Test 2: 400px width - should NOT match (below range)
-    let plot2 = Plot::<Cartesian>::new()
+    // Test 2: 400px width - should NOT match (below range) - Transparent
+    let plot_no_match = Plot::<Cartesian>::new()
         .canvas_size(400.0, 300.0)
         .title("Multi-Range No Match (400px)")
         .subtitle("Media Query: 600px ≤ width < 1200px → No Match (Transparent)")
@@ -278,9 +262,10 @@ async fn test_media_query_multi_range_syntax() {
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
         .theme(theme.clone());
-    let compiled2 = plot2.compile(&ctx).await.expect("Failed to compile plot");
+
+    let compiled_no_match = plot_no_match.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match(
-        &compiled2,
+        &compiled_no_match,
         &ctx,
         None,
         "media_query",
@@ -289,21 +274,22 @@ async fn test_media_query_multi_range_syntax() {
     )
     .await;
 
-    // Test 3: 1200px width - should NOT match (at exclusive boundary)
-    let plot3 = Plot::<Cartesian>::new()
+    // Test 3: 1200px width - should NOT match (at exclusive boundary) - Transparent
+    let plot_boundary = Plot::<Cartesian>::new()
         .canvas_size(1200.0, 300.0)
         .title("Multi-Range Boundary (1200px)")
         .subtitle("Media Query: 600px ≤ width < 1200px → No Match (Exclusive)")
-        .data(df)
+        .data(df.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
                 .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis"))),
         )
-        .theme(theme);
-    let compiled3 = plot3.compile(&ctx).await.expect("Failed to compile plot");
+        .theme(theme.clone());
+
+    let compiled_boundary = plot_boundary.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match(
-        &compiled3,
+        &compiled_boundary,
         &ctx,
         None,
         "media_query",
