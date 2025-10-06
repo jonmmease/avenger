@@ -22,7 +22,7 @@ fn test_custom_scale_with_typed_methods() {
         .range_interval(lit(0.0), lit(500.0));
 
     // Verify it has the correct type
-    assert_eq!(scale.get_scale_type(), "smooth_log");
+    assert_eq!(scale.get_scale_type(), Some("smooth_log"));
 
     // Verify options were set
     assert!(scale.get_options().contains_key("smoothing"));
@@ -84,13 +84,13 @@ fn test_scale_transformation() {
 
 #[test]
 fn test_auto_scale_with_custom_impl() {
-    // Can also use Scale<Auto>::from_impl for dynamic construction
-    let scale = Scale::<Auto>::from_impl(Arc::new(SmoothLogScale::new()))
+    // Can also use Scale<Auto>::from_spec for dynamic construction
+    let scale = Scale::<Auto>::from_spec(Box::new(SmoothLog))
         .option("smoothing", lit(0.5))
         .option("clamp", lit(true))
         .domain((0.1_f32, 100.0_f32));
 
-    assert_eq!(scale.get_scale_type(), "smooth_log");
+    assert_eq!(scale.get_scale_type(), Some("smooth_log"));
 }
 
 #[test]
@@ -103,5 +103,5 @@ fn test_using_scale_without_extension_trait() {
         .domain((0.1_f32, 100.0_f32))
         .range_interval(lit(0.0), lit(500.0));
 
-    assert_eq!(scale.get_scale_type(), "smooth_log");
+    assert_eq!(scale.get_scale_type(), Some("smooth_log"));
 }

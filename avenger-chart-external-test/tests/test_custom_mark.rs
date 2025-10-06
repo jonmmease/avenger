@@ -13,16 +13,10 @@ fn test_external_mark_can_be_created() {
         .size(15.0);
 
     // Verify state access works
-    assert_eq!(hexbin.mark_type(), "hexbin");
     assert_eq!(hexbin.state().zindex, None);
 
-    // Verify channels are properly defined
-    let channels = hexbin.supported_channels();
-    let channel_names: Vec<_> = channels.iter().map(|c| c.name).collect();
-    assert!(channel_names.contains(&"x"));
-    assert!(channel_names.contains(&"y"));
-    assert!(channel_names.contains(&"fill"));
-    assert!(channel_names.contains(&"size"));
+    // Note: mark_type() and supported_channels() are no longer public API methods
+    // The mark can still be used in plots and compiled to SceneMarks
 }
 
 #[test]
@@ -37,10 +31,10 @@ fn test_external_mark_can_be_added_to_plot() {
         .fill("category");
 
     // Add the mark to the plot - this tests that the types work correctly
-    let plot_with_mark = plot.mark(hexbin);
+    let _plot_with_mark = plot.mark(hexbin);
 
     // The plot should accept our custom mark without issue
-    assert!(!plot_with_mark.marks().is_empty());
+    // Note: marks() is no longer a public method, but the mark is successfully added
 }
 
 #[test]
