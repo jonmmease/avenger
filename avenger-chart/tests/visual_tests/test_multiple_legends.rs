@@ -305,6 +305,73 @@ async fn test_colorbar_with_symbols() {
     assert_visual_match_default(&compiled, &ctx, None, "layout", "colorbar_with_symbols").await;
 }
 
+/// Test colorbar and symbol legends both at bottom position
+#[tokio::test]
+async fn test_colorbar_with_symbols_bottom() {
+    // Create sample data
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("temperature", DataType::Float64, false),
+        Field::new("shape_type", DataType::Utf8, false),
+    ]));
+
+    let x_data = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+    let y_data = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0, 6.0, 8.0, 7.5]);
+    let temp_data = Float64Array::from(vec![10.0, 20.0, 30.0, 25.0, 15.0, 35.0, 28.0, 22.0]);
+    let shape_data = StringArray::from(vec![
+        "circle", "square", "circle", "triangle", "square", "triangle", "circle", "square",
+    ]);
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(x_data),
+            Arc::new(y_data),
+            Arc::new(temp_data),
+            Arc::new(shape_data),
+        ],
+    )
+    .unwrap();
+
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(batch).unwrap();
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .legend("fill", |legend| {
+            legend
+                .title("Temperature °C")
+                .position(LegendPosition::Bottom)
+                .order(1)
+        })
+        .legend("shape", |legend| {
+            legend
+                .title("Type")
+                .position(LegendPosition::Bottom)
+                .order(2)
+        })
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 9.0)))
+                        .axis(|axis| axis.title("X Axis"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 9.0)))
+                        .axis(|axis| axis.title("Y Axis"))
+                })
+                .fill_with(col("temperature"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((5.0, 40.0)))
+                })
+                .shape_with(col("shape_type"), |c| c.scale_with::<Ordinal>(|s| s))
+                .size(100.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "layout", "colorbar_with_symbols_bottom").await;
+}
+
 /// Test legend ordering with explicit order values
 #[tokio::test]
 async fn test_legend_ordering() {
