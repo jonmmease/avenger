@@ -1,10 +1,66 @@
 use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use crate::maybe::Maybe;
+use crate::serialization::SerializableExpr;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DeserializeAs, SerializeAs};
 use std::any::Any;
+
+/// Wrapper for Maybe<Option<LogicalExprNode>> that serializes via SerializableExpr
+#[derive(Clone, Debug)]
+pub struct MaybeOptionalExpr(pub Maybe<Option<LogicalExprNode>>);
+
+impl From<Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn from(value: Maybe<Option<LogicalExprNode>>) -> Self {
+        MaybeOptionalExpr(value)
+    }
+}
+
+impl From<MaybeOptionalExpr> for Maybe<Option<LogicalExprNode>> {
+    fn from(wrapper: MaybeOptionalExpr) -> Self {
+        wrapper.0
+    }
+}
+
+impl SerializeAs<Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn serialize_as<S>(
+        source: &Maybe<Option<LogicalExprNode>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Convert Maybe<Option<LogicalExprNode>> to Maybe<Option<SerializableExpr>>
+        let as_serializable = source.as_ref().map(|opt| {
+            opt.as_ref().map(|node| {
+                let ser: SerializableExpr = node.clone().into();
+                ser
+            })
+        });
+        as_serializable.serialize(serializer)
+    }
+}
+
+impl<'de> DeserializeAs<'de, Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn deserialize_as<D>(deserializer: D) -> Result<Maybe<Option<LogicalExprNode>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as Maybe<Option<SerializableExpr>>
+        let as_serializable = Maybe::<Option<SerializableExpr>>::deserialize(deserializer)?;
+
+        // Convert to Maybe<Option<LogicalExprNode>>
+        Ok(as_serializable.map(|opt| {
+            opt.map(|ser| {
+                let node: LogicalExprNode = ser.into();
+                node
+            })
+        }))
+    }
+}
 
 /// Type of polar axis
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -24,17 +80,27 @@ pub enum PolarDirection {
 
 /// Concrete struct for Polar axes
 /// Using a struct instead of a trait enables type inference in closure parameters
+#[serde_as]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolarAxis {
-    pub visible: Maybe<bool>,
-    pub axis_type: Maybe<PolarAxisType>,
-    pub title: Maybe<Option<String>>,
-    pub grid: Maybe<bool>,
-    pub tick_count: Maybe<Option<usize>>,
-    pub format_number: Maybe<Option<String>>,
-    pub grid_levels: Maybe<Option<usize>>,
-    pub start_angle: Maybe<f32>,
-    pub direction: Maybe<PolarDirection>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub visible: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub axis_type: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub title: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub grid: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub tick_count: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub format_number: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub grid_levels: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub start_angle: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub direction: Maybe<Option<LogicalExprNode>>,
 }
 
 // Default tick counts for polar axes
@@ -85,48 +151,84 @@ impl PolarAxis {
         (font_family, font_size, font_weight, color)
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = visible.into_expr();
+        self.visible = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize visible expr"),
+        ));
         self
     }
 
-    pub fn axis_type(mut self, axis_type: PolarAxisType) -> Self {
-        self.axis_type = Maybe::Set(axis_type);
+    pub fn axis_type(mut self, axis_type: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = axis_type.into_expr();
+        self.axis_type = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize axis_type expr"),
+        ));
         self
     }
 
-    pub fn title<S: Into<String>>(mut self, title: S) -> Self {
-        self.title = Maybe::Set(Some(title.into()));
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = title.into_expr();
+        self.title = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
+        ));
         self
     }
 
-    pub fn grid(mut self, grid: bool) -> Self {
-        self.grid = Maybe::Set(grid);
+    pub fn grid(mut self, grid: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = grid.into_expr();
+        self.grid = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize grid expr"),
+        ));
         self
     }
 
-    pub fn tick_count(mut self, count: usize) -> Self {
-        self.tick_count = Maybe::Set(Some(count));
+    pub fn tick_count(mut self, count: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = count.into_expr();
+        self.tick_count = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_count expr"),
+        ));
         self
     }
 
-    pub fn format(mut self, format: impl Into<String>) -> Self {
-        self.format_number = Maybe::Set(Some(format.into()));
+    pub fn format(mut self, format: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = format.into_expr();
+        self.format_number = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize format expr"),
+        ));
         self
     }
 
-    pub fn grid_levels(mut self, levels: usize) -> Self {
-        self.grid_levels = Maybe::Set(Some(levels));
+    pub fn grid_levels(mut self, levels: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = levels.into_expr();
+        self.grid_levels = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize grid_levels expr"),
+        ));
         self
     }
 
-    pub fn start_angle(mut self, angle: f32) -> Self {
-        self.start_angle = Maybe::Set(angle);
+    pub fn start_angle(mut self, angle: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = angle.into_expr();
+        self.start_angle = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize start_angle expr"),
+        ));
         self
     }
 
-    pub fn direction(mut self, direction: PolarDirection) -> Self {
-        self.direction = Maybe::Set(direction);
+    pub fn direction(mut self, direction: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = direction.into_expr();
+        self.direction = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize direction expr"),
+        ));
         self
     }
 
@@ -163,7 +265,7 @@ impl PolarAxis {
     }
 
     /// Render this axis to scene marks
-    pub fn render(
+    pub async fn render(
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
@@ -173,14 +275,25 @@ impl PolarAxis {
         plot_bounds: &crate::layout::LayoutBounds,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        use crate::plot::compiled::expr_eval::{evaluate_bool_expr, evaluate_string_expr};
+        use crate::serialization::LogicalExprNodeExt;
         // Create context for theme queries with params
         let axis_ctx = theme
             .axis_context(Some("polar"), Some(channel))
             .with_params(params.clone());
 
-        // Skip if invisible (default to visible if not set)
-        if !self.visible.as_option().copied().unwrap_or(true) {
+        // Evaluate visible expression (default to true if not set)
+        let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref()) {
+            let visible_expr = visible_node.to_expr(ctx)?;
+            evaluate_bool_expr(&visible_expr, ctx, params).await?
+        } else {
+            true
+        };
+
+        // Skip if invisible
+        if !visible {
             return Ok(vec![]);
         }
 
@@ -189,26 +302,34 @@ impl PolarAxis {
         let center_y = plot_bounds.y + plot_height / 2.0;
         let radius = plot_width.min(plot_height) / 2.0;
 
-        match self
-            .axis_type
-            .as_option()
-            .copied()
-            .unwrap_or(PolarAxisType::Radial)
-        {
+        // Evaluate axis_type expression (default to Radial)
+        let axis_type_str = if let Some(axis_type_node) = self.axis_type.as_option().and_then(|o| o.as_ref()) {
+            let axis_type_expr = axis_type_node.to_expr(ctx)?;
+            evaluate_string_expr(&axis_type_expr, ctx, params).await?
+        } else {
+            "radial".to_string()
+        };
+
+        let axis_type = match axis_type_str.to_lowercase().as_str() {
+            "angular" => PolarAxisType::Angular,
+            _ => PolarAxisType::Radial,
+        };
+
+        match axis_type {
             PolarAxisType::Radial => {
                 // Render radial axis (circles from center)
-                self.render_radial_axis(scale, center_x, center_y, radius, theme, &axis_ctx)
+                self.render_radial_axis(scale, center_x, center_y, radius, theme, &axis_ctx, params, ctx).await
             }
             PolarAxisType::Angular => {
                 // Render angular axis (lines from center)
                 self.render_angular_axis(
-                    scale, center_x, center_y, radius, scales, theme, &axis_ctx,
-                )
+                    scale, center_x, center_y, radius, scales, theme, &axis_ctx, params, ctx,
+                ).await
             }
         }
     }
 
-    fn render_radial_axis(
+    async fn render_radial_axis(
         &self,
         scale: &avenger_scales::scales::ConfiguredScale,
         center_x: f32,
@@ -216,20 +337,47 @@ impl PolarAxis {
         _max_radius: f32,
         theme: &Theme,
         axis_ctx: &crate::theme::ThemeContext,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        use crate::plot::compiled::expr_eval::evaluate_bool_expr;
+        use crate::serialization::LogicalExprNodeExt;
         use avenger_common::types::ColorOrGradient;
         use avenger_common::value::ScalarOrArray;
         use avenger_scenegraph::marks::arc::SceneArcMark;
 
         let mut marks = Vec::new();
 
+        // Evaluate grid expression (default to false)
+        let grid = if let Some(grid_node) = self.grid.as_option().and_then(|o| o.as_ref()) {
+            let grid_expr = grid_node.to_expr(ctx)?;
+            evaluate_bool_expr(&grid_expr, ctx, params).await?
+        } else {
+            false
+        };
+
         // Create concentric circles for the grid using actual scale ticks
-        if self.grid.as_option().copied().unwrap_or(false) {
-            // Get tick values from the scale
-            let tick_count = self
-                .tick_count
-                .as_option()
-                .and_then(|opt| opt.map(|c| c as f32));
+        if grid {
+            // Evaluate tick_count expression
+            let tick_count = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
+                let tick_count_expr = tick_count_node.to_expr(ctx)?;
+                use crate::utils::ScalarValueHelpers;
+                let scalars = crate::utils::eval_to_scalars(
+                    vec![tick_count_expr],
+                    Some(ctx),
+                    crate::utils::params_to_datafusion(params).as_ref(),
+                ).await.map_err(|e| {
+                    AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
+                })?;
+                let scalar = scalars.first().ok_or_else(|| {
+                    AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
+                })?;
+                Some(scalar.as_i32().map_err(|e| {
+                    AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
+                })? as f32)
+            } else {
+                None
+            };
             let ticks = scale.ticks(tick_count.or(Some(RADIAL_DEFAULT_TICK_COUNT)))?;
 
             let mut radii = Vec::new();
@@ -301,18 +449,33 @@ impl PolarAxis {
             }
         }
 
-        // Add radial tick labels
-        if self.visible.as_option().copied().unwrap_or(true) {
-            use avenger_scenegraph::marks::text::SceneTextMark;
-            use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
-            use datafusion::arrow::array::Float64Array;
-            use std::sync::Arc;
+        // Add radial tick labels (visible check already done at start of render)
+        use avenger_scenegraph::marks::text::SceneTextMark;
+        use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
+        use datafusion::arrow::array::Float64Array;
+        use std::sync::Arc;
 
-            // Get tick values from scale - use same as grid
-            let tick_count = self
-                .tick_count
-                .as_option()
-                .and_then(|opt| opt.map(|c| c as f32));
+        // Get tick values from scale - use same as grid
+        // Evaluate tick_count expression
+        let tick_count = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
+            let tick_count_expr = tick_count_node.to_expr(ctx)?;
+            use crate::utils::ScalarValueHelpers;
+            let scalars = crate::utils::eval_to_scalars(
+                vec![tick_count_expr],
+                Some(ctx),
+                crate::utils::params_to_datafusion(params).as_ref(),
+            ).await.map_err(|e| {
+                AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
+            })?;
+            let scalar = scalars.first().ok_or_else(|| {
+                AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
+            })?;
+            Some(scalar.as_i32().map_err(|e| {
+                AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
+            })? as f32)
+        } else {
+            None
+        };
             let ticks = scale.ticks(tick_count.or(Some(RADIAL_DEFAULT_TICK_COUNT)))?;
 
             // Format tick values as strings
@@ -395,14 +558,13 @@ impl PolarAxis {
                 };
                 marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
             }
-        }
 
         // Note: Axis title rendering removed - placement needs design work
 
         Ok(marks)
     }
 
-    fn render_angular_axis(
+    async fn render_angular_axis(
         &self,
         scale: &avenger_scales::scales::ConfiguredScale,
         center_x: f32,
@@ -411,7 +573,11 @@ impl PolarAxis {
         scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
         theme: &Theme,
         axis_ctx: &crate::theme::ThemeContext,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        use crate::plot::compiled::expr_eval::evaluate_bool_expr;
+        use crate::serialization::LogicalExprNodeExt;
         use avenger_common::types::ColorOrGradient;
         use avenger_common::types::StrokeCap;
         use avenger_common::value::ScalarOrArray;
@@ -427,13 +593,36 @@ impl PolarAxis {
             radius
         };
 
+        // Evaluate grid expression (default to false)
+        let grid = if let Some(grid_node) = self.grid.as_option().and_then(|o| o.as_ref()) {
+            let grid_expr = grid_node.to_expr(ctx)?;
+            evaluate_bool_expr(&grid_expr, ctx, params).await?
+        } else {
+            false
+        };
+
         // Render angular grid (radial lines) based on scale ticks
-        if self.grid.as_option().copied().unwrap_or(false) {
-            // Get tick values from the scale
-            let tick_count = self
-                .tick_count
-                .as_option()
-                .and_then(|opt| opt.map(|c| c as f32));
+        if grid {
+            // Evaluate tick_count expression
+            let tick_count = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
+                let tick_count_expr = tick_count_node.to_expr(ctx)?;
+                use crate::utils::ScalarValueHelpers;
+                let scalars = crate::utils::eval_to_scalars(
+                    vec![tick_count_expr],
+                    Some(ctx),
+                    crate::utils::params_to_datafusion(params).as_ref(),
+                ).await.map_err(|e| {
+                    AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
+                })?;
+                let scalar = scalars.first().ok_or_else(|| {
+                    AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
+                })?;
+                Some(scalar.as_i32().map_err(|e| {
+                    AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
+                })? as f32)
+            } else {
+                None
+            };
             let ticks = scale.ticks(tick_count.or(Some(ANGULAR_DEFAULT_TICK_COUNT)))?;
 
             let mut x_values = Vec::new();
@@ -498,36 +687,65 @@ impl PolarAxis {
             marks.push(SceneMark::Rule(grid_rule));
         }
 
-        // Add angular tick labels
-        if self.visible.as_option().copied().unwrap_or(true) {
-            use avenger_scenegraph::marks::text::SceneTextMark;
-            use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
+        // Add angular tick labels (visible check already done at start of render)
+        use avenger_scenegraph::marks::text::SceneTextMark;
+        use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
 
-            // Get tick values from scale
-            let tick_values: Vec<f32> =
-                if let Ok(ticks_array) = scale.ticks(Some(ANGULAR_DEFAULT_TICK_COUNT)) {
-                    // Convert arrow array to vec of f32
-                    use datafusion::arrow::array::Float32Array;
-                    if let Some(arr) = ticks_array.as_any().downcast_ref::<Float32Array>() {
-                        (0..arr.len()).map(|i| arr.value(i)).collect()
+        // Get tick values from scale
+        let tick_values: Vec<f32> =
+            if let Ok(ticks_array) = scale.ticks(Some(ANGULAR_DEFAULT_TICK_COUNT)) {
+                // Convert arrow array to vec of f32
+                use datafusion::arrow::array::Float32Array;
+                if let Some(arr) = ticks_array.as_any().downcast_ref::<Float32Array>() {
+                    (0..arr.len()).map(|i| arr.value(i)).collect()
+                } else {
+                    // Fallback if not float32
+                    // Evaluate tick_count expression for fallback
+                    let num_ticks = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
+                        let tick_count_expr = tick_count_node.to_expr(ctx)?;
+                        use crate::utils::ScalarValueHelpers;
+                        let scalars = crate::utils::eval_to_scalars(
+                            vec![tick_count_expr],
+                            Some(ctx),
+                            crate::utils::params_to_datafusion(params).as_ref(),
+                        ).await.map_err(|e| {
+                            AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
+                        })?;
+                        let scalar = scalars.first().ok_or_else(|| {
+                            AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
+                        })?;
+                        scalar.as_i32().map_err(|e| {
+                            AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
+                        })? as usize
                     } else {
-                        // Fallback if not float32
-                        let num_ticks = self
-                            .tick_count
-                            .as_option()
-                            .and_then(|opt| *opt)
-                            .unwrap_or(8);
+                        8
+                    };
                         (0..num_ticks)
                             .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
                             .collect()
                     }
                 } else {
                     // Fallback to uniform distribution
-                    let num_ticks = self
-                        .tick_count
-                        .as_option()
-                        .and_then(|opt| *opt)
-                        .unwrap_or(8);
+                    // Evaluate tick_count expression for fallback
+                    let num_ticks = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
+                        let tick_count_expr = tick_count_node.to_expr(ctx)?;
+                        use crate::utils::ScalarValueHelpers;
+                        let scalars = crate::utils::eval_to_scalars(
+                            vec![tick_count_expr],
+                            Some(ctx),
+                            crate::utils::params_to_datafusion(params).as_ref(),
+                        ).await.map_err(|e| {
+                            AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
+                        })?;
+                        let scalar = scalars.first().ok_or_else(|| {
+                            AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
+                        })?;
+                        scalar.as_i32().map_err(|e| {
+                            AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
+                        })? as usize
+                    } else {
+                        8
+                    };
                     (0..num_ticks)
                         .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
                         .collect()
@@ -605,7 +823,6 @@ impl PolarAxis {
                 };
                 marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
             }
-        }
 
         Ok(marks)
     }

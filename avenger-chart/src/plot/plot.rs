@@ -92,6 +92,28 @@ impl IntoExpr for &crate::param::Param {
     }
 }
 
+impl IntoExpr for crate::polar::axis::PolarAxisType {
+    fn into_expr(self) -> Expr {
+        use crate::polar::axis::PolarAxisType;
+        let s = match self {
+            PolarAxisType::Radial => "radial",
+            PolarAxisType::Angular => "angular",
+        };
+        lit(s)
+    }
+}
+
+impl IntoExpr for crate::polar::axis::PolarDirection {
+    fn into_expr(self) -> Expr {
+        use crate::polar::axis::PolarDirection;
+        let s = match self {
+            PolarDirection::Clockwise => "clockwise",
+            PolarDirection::CounterClockwise => "counterclockwise",
+        };
+        lit(s)
+    }
+}
+
 use super::compiled::CompiledPlot;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
