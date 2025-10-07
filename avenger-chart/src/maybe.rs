@@ -7,7 +7,11 @@
 //! This allows configuration objects to act as "patches" that can be
 //! applied to computed defaults during rendering.
 
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeAs, SerializeAs};
+
+use crate::serialization::SerializableExpr;
 
 /// Three-state enum for tracking configuration values
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -144,6 +148,63 @@ impl<T> Maybe<Option<T>> {
             Maybe::Set(opt) => opt,
             Maybe::Unset => None,
         }
+    }
+}
+
+/// Wrapper for Maybe<Option<LogicalExprNode>> that serializes via SerializableExpr
+///
+/// This wrapper enables serde_with's `#[serde_as]` attribute to properly serialize
+/// and deserialize `Maybe<Option<LogicalExprNode>>` by converting to/from
+/// `SerializableExpr` which handles the protobuf bytes.
+#[derive(Clone, Debug)]
+pub struct MaybeOptionalExpr(pub Maybe<Option<LogicalExprNode>>);
+
+impl From<Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn from(value: Maybe<Option<LogicalExprNode>>) -> Self {
+        MaybeOptionalExpr(value)
+    }
+}
+
+impl From<MaybeOptionalExpr> for Maybe<Option<LogicalExprNode>> {
+    fn from(wrapper: MaybeOptionalExpr) -> Self {
+        wrapper.0
+    }
+}
+
+impl SerializeAs<Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn serialize_as<S>(
+        source: &Maybe<Option<LogicalExprNode>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Convert Maybe<Option<LogicalExprNode>> to Maybe<Option<SerializableExpr>>
+        let as_serializable = source.as_ref().map(|opt| {
+            opt.as_ref().map(|node| {
+                let ser: SerializableExpr = node.clone().into();
+                ser
+            })
+        });
+        as_serializable.serialize(serializer)
+    }
+}
+
+impl<'de> DeserializeAs<'de, Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn deserialize_as<D>(deserializer: D) -> Result<Maybe<Option<LogicalExprNode>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as Maybe<Option<SerializableExpr>>
+        let as_serializable = Maybe::<Option<SerializableExpr>>::deserialize(deserializer)?;
+
+        // Convert to Maybe<Option<LogicalExprNode>>
+        Ok(as_serializable.map(|opt| {
+            opt.map(|ser| {
+                let node: LogicalExprNode = ser.into();
+                node
+            })
+        }))
     }
 }
 
