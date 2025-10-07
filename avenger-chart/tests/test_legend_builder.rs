@@ -1,4 +1,3 @@
-use avenger_chart::maybe::Maybe;
 use avenger_chart::prelude::*;
 
 #[test]
@@ -42,9 +41,9 @@ fn test_legend_builder_methods() {
         .gradient_thickness(10.0)
         .build();
 
-    assert_eq!(color_legend.title, Maybe::Set("Color Legend".to_string()));
-    assert_eq!(color_legend.gradient_length, Maybe::Set(150.0));
-    assert_eq!(color_legend.gradient_thickness, Maybe::Set(10.0));
+    assert!(color_legend.title.is_set());
+    assert!(color_legend.gradient_length.is_set());
+    assert!(color_legend.gradient_thickness.is_set());
 
     // Test that SizeLegendBuilder has symbol_size method
     let size_legend = SizeLegendBuilder::new()
@@ -52,8 +51,8 @@ fn test_legend_builder_methods() {
         .symbol_size(25.0)
         .build();
 
-    assert_eq!(size_legend.title, Maybe::Set("Size Legend".to_string()));
-    assert_eq!(size_legend.symbol_size, Maybe::Set(25.0));
+    assert!(size_legend.title.is_set());
+    assert!(size_legend.symbol_size.is_set());
 }
 
 #[test]

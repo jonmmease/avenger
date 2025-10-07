@@ -26,6 +26,7 @@ impl CompiledRectLegend {
     }
 }
 
+#[async_trait::async_trait]
 #[typetag::serde]
 impl LegendRenderer for CompiledRectLegend {
     fn name(&self) -> &'static str {
@@ -48,7 +49,7 @@ impl LegendRenderer for CompiledRectLegend {
             .collect()
     }
 
-    fn render(
+    async fn render(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
@@ -58,6 +59,7 @@ impl LegendRenderer for CompiledRectLegend {
         _height: f32,
         theme: &crate::theme::Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
@@ -100,19 +102,28 @@ impl LegendRenderer for CompiledRectLegend {
         );
 
         // Get size value - use constant from mark if available
-        // Create a temporary SessionContext for helper functions
-        let session_context = datafusion::prelude::SessionContext::new();
         let size_value = helpers::get_constant_f32(
             "size",
             &primary_channel.related_channels,
             &self.mark_encodings,
-            &session_context,
+            ctx,
         )
         .unwrap_or(default_size as f32);
 
+        // Evaluate title expression
+        use crate::plot::compiled::expr_eval::*;
+        use crate::serialization::LogicalExprNodeExt;
+
+        let title = if let Some(node) = config.title.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            Some(evaluate_string_expr(&expr, ctx, params).await?)
+        } else {
+            None
+        };
+
         // Create legend configuration
         let mut legend_config = SymbolLegendConfig {
-            title: config.title.clone().into_option(),
+            title,
             text: ScalarOrArray::new_scalar("".to_string()), // Will be set later
             shape: ScalarOrArray::new_scalar(
                 SymbolShape::from_vega_str("square").unwrap_or_default(),
@@ -130,46 +141,12 @@ impl LegendRenderer for CompiledRectLegend {
             inner_height: 100.0,
             outer_margin: 0.0,
             text_padding: 2.0,
-            background_fill: match config.background_fill.as_option() {
-                Some(f) => Some(crate::utils::parse_color_string_strict(f)?),
-                None => None,
-            },
-            background_stroke: match config.background_stroke.as_option() {
-                Some(s) => Some(crate::utils::parse_color_string_strict(s)?),
-                None => None,
-            },
-            background_corner_radius: config.background_corner_radius.clone().into_option(),
-            background_padding: config.background_padding.clone().into_option(),
-            title_color: match config.title_color.as_option() {
-                Some(c) => {
-                    let color = crate::utils::parse_color_string_strict(c)?;
-                    match color {
-                        ColorOrGradient::Color(color) => Some(color),
-                        _ => {
-                            return Err(AvengerChartError::InternalError(format!(
-                                "Legend title color '{}' parsed to gradient, expected solid color",
-                                c
-                            )));
-                        }
-                    }
-                }
-                None => None,
-            },
-            label_color: match config.label_color.as_option() {
-                Some(c) => {
-                    let color = crate::utils::parse_color_string_strict(c)?;
-                    match color {
-                        ColorOrGradient::Color(color) => Some(color),
-                        _ => {
-                            return Err(AvengerChartError::InternalError(format!(
-                                "Legend label color '{}' parsed to gradient, expected solid color",
-                                c
-                            )));
-                        }
-                    }
-                }
-                None => None,
-            },
+            background_fill: None,
+            background_stroke: None,
+            background_corner_radius: None,
+            background_padding: None,
+            title_color: None,
+            label_color: None,
             title_font_family: None,
             title_font_size: None,
             title_font_weight: None,
@@ -178,12 +155,64 @@ impl LegendRenderer for CompiledRectLegend {
             label_font_weight: None,
         };
 
-        // Set typography from legend config
-        if let Some(family) = config.title_font_family.as_option() {
-            legend_config.title_font_family = Some(family.clone());
+        // Evaluate and apply legend background styling if provided
+        if let Some(node) = config.background_padding.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.background_padding = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
         }
-        if let Some(size) = config.title_font_size.as_option() {
-            legend_config.title_font_size = Some(*size);
+        if let Some(node) = config.background_corner_radius.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.background_corner_radius = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
+        }
+        if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
+            legend_config.background_fill = Some(crate::utils::parse_color_string_strict(&fill_str)?);
+        }
+        if let Some(node) = config.background_stroke.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
+            legend_config.background_stroke = Some(crate::utils::parse_color_string_strict(&stroke_str)?);
+        }
+
+        // Evaluate and apply legend colors
+        if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let title_color = evaluate_string_expr(&expr, ctx, params).await?;
+            let color = crate::utils::parse_color_string_strict(&title_color)?;
+            legend_config.title_color = Some(match color {
+                ColorOrGradient::Color(c) => c,
+                _ => {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Legend title color '{}' parsed to gradient, expected solid color",
+                        title_color
+                    )));
+                }
+            });
+        }
+        if let Some(node) = config.label_color.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let label_color = evaluate_string_expr(&expr, ctx, params).await?;
+            let color = crate::utils::parse_color_string_strict(&label_color)?;
+            legend_config.label_color = Some(match color {
+                ColorOrGradient::Color(c) => c,
+                _ => {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Legend label color '{}' parsed to gradient, expected solid color",
+                        label_color
+                    )));
+                }
+            });
+        }
+
+        // Set typography from legend config
+        if let Some(node) = config.title_font_family.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.title_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
+        }
+        if let Some(node) = config.title_font_size.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.title_font_size = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
         }
         // Override font sizes with params
         let legend_ctx = theme
@@ -198,53 +227,52 @@ impl LegendRenderer for CompiledRectLegend {
         if let Some(size) = theme.font_size(&label_ctx) {
             legend_config.label_font_size = Some(size);
         }
-        if let Some(weight) = config.title_font_weight.as_option() {
+        if let Some(node) = config.title_font_weight.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
             legend_config.title_font_weight =
-                Some(avenger_text::types::FontWeight::Number(*weight));
+                Some(avenger_text::types::FontWeight::Number(weight));
         }
-        if let Some(family) = config.label_font_family.as_option() {
-            legend_config.label_font_family = Some(family.clone());
+        if let Some(node) = config.label_font_family.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.label_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
-        if let Some(weight) = config.label_font_weight.as_option() {
+        if let Some(node) = config.label_font_weight.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
             legend_config.label_font_weight =
-                Some(avenger_text::types::FontWeight::Number(*weight));
+                Some(avenger_text::types::FontWeight::Number(weight));
         }
 
         // Use constant values from mark if available (and not the legend channel itself)
         if channel_name != "fill" && channel_name != "color" {
-            // Create a temporary SessionContext for get_constant_color
-            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(color) = helpers::get_constant_color(
                 "fill",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 legend_config.fill = ScalarOrArray::new_scalar(color);
             }
         }
 
         if channel_name != "stroke" {
-            // Create a temporary SessionContext for get_constant_color
-            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(color) = helpers::get_constant_color(
                 "stroke",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 legend_config.stroke = ScalarOrArray::new_scalar(color);
             }
         }
 
         if channel_name != "stroke_width" {
-            // Create a temporary SessionContext for get_constant_f32
-            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(width) = helpers::get_constant_f32(
                 "stroke_width",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 legend_config.stroke_width = Some(width);
             }
