@@ -4,26 +4,23 @@ use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
 use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
+use crate::maybe::{Maybe, MaybeOptionalExpr};
 use crate::polar::{PolarAxis, PolarAxisType};
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Options for polar coordinate system
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde_as]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolarOptions {
     /// Background color for the plot area
-    pub plot_background_color: Option<[f32; 4]>,
-}
-
-impl Default for PolarOptions {
-    fn default() -> Self {
-        Self {
-            plot_background_color: None,
-        }
-    }
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub plot_background_color: Maybe<Option<LogicalExprNode>>,
 }
 
 /// Guide for Polar coordinate system
@@ -67,8 +64,12 @@ impl PolarGuide {
     }
 
     /// Set the plot background color
-    pub fn plot_background_color(mut self, color: [f32; 4]) -> Self {
-        self.options.plot_background_color = Some(color);
+    pub fn plot_background_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = color.into_expr();
+        self.options.plot_background_color = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize plot_background_color expr"),
+        ));
         self
     }
 }
@@ -98,7 +99,7 @@ impl PolarGuide {
         }
 
         // Update options - other's options take precedence when set
-        if other.options.plot_background_color.is_some() {
+        if other.options.plot_background_color.is_set() {
             self.options.plot_background_color = other.options.plot_background_color;
         }
 
@@ -239,16 +240,30 @@ impl CompiledGuide for PolarGuide {
         let mut marks = Vec::new();
 
         // Render background circle if specified (behind everything else)
-        // First check explicit option, then fall back to theme
-        let bg_color = self.options.plot_background_color.or_else(|| {
-            // Theme already returns color in normalized [f32; 4] format
+        // First try to evaluate expression if set
+        use crate::serialization::LogicalExprNodeExt;
+
+        let bg_color = if let Some(color_node) = self.options.plot_background_color.as_option().and_then(|o| o.as_ref()) {
+            if let Ok(color_expr) = color_node.to_expr(_ctx) {
+                // Evaluate the expression to get color string
+                if let Ok(color_str) = crate::plot::compiled::expr_eval::evaluate_string_expr(&color_expr, _ctx, params).await {
+                    // Parse the color string
+                    crate::utils::parse_color_to_array_strict(&color_str).ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            // Fallback to theme
             let guide_ctx = crate::theme::ThemeContext::new("guide")
                 .with_subtype("polar")
                 .with_params(params.clone());
             theme
                 .query(&guide_ctx, "background-color")
                 .and_then(|v| v.as_color_array())
-        });
+        };
 
         if let Some(bg_color) = bg_color {
             use avenger_common::types::ColorOrGradient;

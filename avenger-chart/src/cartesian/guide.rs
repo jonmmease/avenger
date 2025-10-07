@@ -6,16 +6,21 @@ use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
 use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
+use crate::maybe::{Maybe, MaybeOptionalExpr};
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Options for Cartesian coordinate system (beyond axes)
+#[serde_as]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CartesianOptions {
     /// Background color for the plot area
-    pub plot_background_color: Option<[f32; 4]>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub plot_background_color: Maybe<Option<LogicalExprNode>>,
 }
 
 /// Guide for Cartesian coordinate system
@@ -59,8 +64,12 @@ impl CartesianGuide {
     }
 
     /// Set the plot background color
-    pub fn plot_background_color(mut self, color: [f32; 4]) -> Self {
-        self.options.plot_background_color = Some(color);
+    pub fn plot_background_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = color.into_expr();
+        self.options.plot_background_color = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize plot_background_color expr"),
+        ));
         self
     }
 }
@@ -73,19 +82,34 @@ impl Default for CartesianGuide {
 
 impl CartesianGuide {
     /// Get plot background color from options or theme
-    fn get_background_color(
+    async fn get_background_color(
         &self,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Option<[f32; 4]> {
-        self.options.plot_background_color.or_else(|| {
-            let guide_ctx = crate::theme::ThemeContext::new("guide")
-                .with_subtype("cartesian")
-                .with_params(params.clone());
-            theme
-                .query(&guide_ctx, "background-color")
-                .and_then(|v| v.as_color_array())
-        })
+        use crate::serialization::LogicalExprNodeExt;
+
+        // Try to evaluate expression if set
+        if let Some(color_node) = self.options.plot_background_color.as_option().and_then(|o| o.as_ref()) {
+            if let Ok(color_expr) = color_node.to_expr(ctx) {
+                // Evaluate the expression to get color string
+                if let Ok(color_str) = crate::plot::compiled::expr_eval::evaluate_string_expr(&color_expr, ctx, params).await {
+                    // Parse the color string
+                    if let Ok(color) = crate::utils::parse_color_to_array_strict(&color_str) {
+                        return Some(color);
+                    }
+                }
+            }
+        }
+
+        // Fallback to theme
+        let guide_ctx = crate::theme::ThemeContext::new("guide")
+            .with_subtype("cartesian")
+            .with_params(params.clone());
+        theme
+            .query(&guide_ctx, "background-color")
+            .and_then(|v| v.as_color_array())
     }
 
     /// Update this guide with values from another guide
@@ -106,7 +130,7 @@ impl CartesianGuide {
         }
 
         // Update options - other's options take precedence when set
-        if other.options.plot_background_color.is_some() {
+        if other.options.plot_background_color.is_set() {
             self.options.plot_background_color = other.options.plot_background_color;
         }
 
@@ -256,7 +280,7 @@ impl CompiledGuide for CartesianGuide {
         let mut marks = Vec::new();
 
         // Render background if specified (behind everything else)
-        if let Some(bg_color) = self.get_background_color(theme, params) {
+        if let Some(bg_color) = self.get_background_color(theme, params, ctx).await {
             use avenger_common::types::ColorOrGradient;
             use avenger_common::value::ScalarOrArray;
             use avenger_scenegraph::marks::rect::SceneRectMark;
