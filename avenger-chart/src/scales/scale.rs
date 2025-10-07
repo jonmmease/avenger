@@ -223,23 +223,57 @@ impl<S: ScaleSpec> Scale<S> {
         self
     }
 
-    /// Set domain from data fields with radius expressions
-    pub fn domain_data_fields_with_radius(
+    /// Set domain from data fields with radius expressions (accepts pre-serialized LogicalPlanNode)
+    ///
+    /// This method accepts pre-serialized LogicalPlanNodes to avoid repeated serialization
+    /// which can cause hangs due to DataFusion Issue #2659 (circular Arc references).
+    pub fn domain_data_fields_with_radius_preserialized(
         mut self,
-        fields: Vec<(Arc<DataFrame>, Expr, Option<crate::marks::RadiusExpression>)>,
+        fields: Vec<(
+            Arc<LogicalPlanNode>,
+            Expr,
+            Option<crate::marks::RadiusExpression>,
+        )>,
     ) -> Self {
-        use crate::serialization::LogicalPlanNodeExt;
         let exprs = fields
             .into_iter()
-            .map(|(df, expr, radius)| {
-                let plan = df.logical_plan().clone();
+            .map(|(serialized_plan, expr, radius)| {
+                let serialized_expr =
+                    LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
+
                 DomainExpr {
-                    dataframe: Arc::new(
-                        LogicalPlanNode::from_logical_plan(&plan)
-                            .expect("Failed to serialize logical plan"),
-                    ),
-                    expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expr"),
+                    dataframe: serialized_plan,
+                    expr: serialized_expr,
                     radius,
+                }
+            })
+            .collect();
+        let mut domain = self
+            .domain
+            .unwrap_or(ScaleDomain::new_interval(lit(0.0), lit(1.0)));
+        domain.default_domain = ScaleDefaultDomain::DomainExprs(exprs);
+        self.domain = Maybe::Set(domain);
+        self
+    }
+
+    /// Set domain from data fields (accepts pre-serialized LogicalPlanNode, no radius)
+    ///
+    /// This method accepts pre-serialized LogicalPlanNodes to avoid repeated serialization
+    /// which can cause hangs due to DataFusion Issue #2659 (circular Arc references).
+    pub fn domain_data_fields_preserialized(
+        mut self,
+        fields: Vec<(Arc<LogicalPlanNode>, Expr)>,
+    ) -> Self {
+        let exprs = fields
+            .into_iter()
+            .map(|(serialized_plan, expr)| {
+                let serialized_expr =
+                    LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
+
+                DomainExpr {
+                    dataframe: serialized_plan,
+                    expr: serialized_expr,
+                    radius: None,
                 }
             })
             .collect();

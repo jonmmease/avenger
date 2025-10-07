@@ -171,7 +171,7 @@ async fn evaluate_dimension_expr(
 /// Helper function to evaluate a string expression to a concrete String value
 pub(crate) async fn evaluate_string_expr(
     expr: &datafusion::prelude::Expr,
-    _ctx: &SessionContext,
+    ctx: &SessionContext,
     params: &IndexMap<String, datafusion::common::ScalarValue>,
 ) -> Result<String, AvengerChartError> {
     use datafusion::common::ScalarValue;
@@ -260,9 +260,8 @@ pub(crate) async fn evaluate_string_expr(
     let schema = Arc::new(Schema::new(fields));
     let batch = RecordBatch::try_new(schema, arrays)?;
 
-    // Create a fresh SessionContext to avoid any potential conflicts
-    let eval_ctx = SessionContext::new();
-    let df = eval_ctx.read_batch(batch)?;
+    // Use the passed-in SessionContext (reuse from rendering)
+    let df = ctx.read_batch(batch)?;
     let result_df = df.select(vec![expr.clone().alias("result")])?;
     let batches = result_df.collect().await?;
 
@@ -746,10 +745,12 @@ impl CompiledPlot {
             &legend_measurements,
             ctx,
             params,
-        ).await?;
+        )
+        .await?;
 
         // Compute layout using the evaluated layout spec and return it directly
-        layout.compute(&evaluated_spec)
+        let result = layout.compute(&evaluated_spec)?;
+        Ok(result)
     }
 
     /// Create legends positioned according to layout
@@ -901,7 +902,8 @@ impl CompiledPlot {
 
         // Create subtitle
         let subtitle_marks = if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
-            self.create_subtitle(Some(*subtitle_bounds), ctx, params).await?
+            self.create_subtitle(Some(*subtitle_bounds), ctx, params)
+                .await?
         } else {
             Vec::new()
         };

@@ -224,7 +224,7 @@ impl CompiledPlot {
         context: &crate::render::RenderContext,
     ) -> Result<
         Vec<(
-            Arc<DataFrame>,
+            Arc<datafusion_proto::protobuf::LogicalPlanNode>,
             datafusion::logical_expr::Expr,
             Option<crate::marks::RadiusExpression>,
         )>,
@@ -273,25 +273,19 @@ impl CompiledPlot {
                         }
                     });
 
-            // Determine DataFrame for this mark using context from RenderContext
-            let mark_df = mark
-                .data_context()
-                .dataframe_with_context(&context.session_context);
-            let plot_df = self.data.as_ref().and_then(|node| {
-                node.to_logical_plan(&context.session_context)
-                    .ok()
-                    .map(|plan| DataFrame::new(context.session_context.state().clone(), plan))
-            });
+            // Determine LogicalPlanNode for this mark (avoids deserialization → re-serialization)
+            let mark_plan_node = mark.data_context().logical_plan_node();
+            let plot_plan_node = self.data.as_ref();
 
-            let df = if let Some(mark_df) = mark_df {
+            let plan_node = if let Some(mark_node) = mark_plan_node {
                 // Mark has explicit data
-                Arc::new(mark_df)
+                Arc::new(mark_node.clone())
             } else if !references_columns {
                 // No column references - skip domain inference for unit marks
                 continue;
-            } else if let Some(plot_df) = plot_df {
+            } else if let Some(plot_node) = plot_plan_node {
                 // Inherit from plot
-                Arc::new(plot_df)
+                Arc::new(plot_node.clone())
             } else {
                 // No data available - skip this mark
                 continue;
@@ -387,7 +381,11 @@ impl CompiledPlot {
                             ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
                                 // Convert SerializableExpr to Expr
                                 if let Ok(expr_df) = expr.to_expr(&context.session_context) {
-                                    data_expressions.push((df.clone(), expr_df, radius_expr));
+                                    data_expressions.push((
+                                        plan_node.clone(),
+                                        expr_df,
+                                        radius_expr,
+                                    ));
                                 }
                             }
                             ChannelValue::Conditional {
@@ -404,14 +402,18 @@ impl CompiledPlot {
                                 for (_, value) in conditions {
                                     if let Ok(expr) = value.expr(&context.session_context) {
                                         data_expressions.push((
-                                            df.clone(),
+                                            plan_node.clone(),
                                             expr,
                                             radius_expr_cond.clone(),
                                         ));
                                     }
                                 }
                                 if let Ok(expr) = otherwise.expr(&context.session_context) {
-                                    data_expressions.push((df.clone(), expr, radius_expr_cond));
+                                    data_expressions.push((
+                                        plan_node.clone(),
+                                        expr,
+                                        radius_expr_cond,
+                                    ));
                                 }
                             }
                         }
@@ -580,18 +582,20 @@ impl CompiledPlot {
                         .any(|(_, _, radius)| radius.is_some());
 
                     if !data_expressions_with_radius.is_empty() && has_radius {
-                        // Use the method that accepts radius
-                        scale = scale.domain_data_fields_with_radius(data_expressions_with_radius);
+                        // Use the preserialized method to avoid re-serialization hang (DataFusion Issue #2659)
+                        scale = scale.domain_data_fields_with_radius_preserialized(
+                            data_expressions_with_radius,
+                        );
                     } else if !data_expressions_with_radius.is_empty() {
-                        // Convert to standard expressions (without radius)
+                        // Convert to standard expressions (without radius) - still using preserialized LogicalPlanNodes
                         let data_expressions: Vec<(
-                            Arc<DataFrame>,
+                            Arc<datafusion_proto::protobuf::LogicalPlanNode>,
                             datafusion::logical_expr::Expr,
                         )> = data_expressions_with_radius
                             .into_iter()
-                            .map(|(df, expr, _)| (df, expr))
+                            .map(|(plan_node, expr, _)| (plan_node, expr))
                             .collect();
-                        scale = scale.domain_data_fields(data_expressions);
+                        scale = scale.domain_data_fields_preserialized(data_expressions);
                     }
                 } else {
                     // Use standard domain gathering for non-linear scales

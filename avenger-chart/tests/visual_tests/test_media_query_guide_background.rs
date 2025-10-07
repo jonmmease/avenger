@@ -249,7 +249,10 @@ async fn test_media_query_multi_range_syntax() {
         col("width").gt_eq(lit(600)).and(col("width").lt(lit(1200))),
         lit("Multi-Range Match (800px)"),
     )
-    .when(col("width").lt(lit(600)), lit("Multi-Range No Match (400px)"))
+    .when(
+        col("width").lt(lit(600)),
+        lit("Multi-Range No Match (400px)"),
+    )
     .otherwise(lit("Multi-Range Boundary (1200px)"))
     .unwrap();
 
@@ -261,7 +264,9 @@ async fn test_media_query_multi_range_syntax() {
         col("width").lt(lit(600)),
         lit("Media Query: 600px ≤ width < 1200px → No Match (Transparent)"),
     )
-    .otherwise(lit("Media Query: 600px ≤ width < 1200px → No Match (Exclusive)"))
+    .otherwise(lit(
+        "Media Query: 600px ≤ width < 1200px → No Match (Exclusive)",
+    ))
     .unwrap();
 
     // Create a SINGLE plot with responsive title/subtitle based on width parameter

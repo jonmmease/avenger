@@ -26,6 +26,11 @@ impl DataContext {
         }
     }
 
+    /// Get the serialized LogicalPlanNode directly without deserialization
+    pub fn logical_plan_node(&self) -> Option<&LogicalPlanNode> {
+        self.dataframe.as_ref()
+    }
+
     /// Get the DataFrame using the provided SessionContext
     pub fn dataframe_with_context(&self, ctx: &SessionContext) -> Option<DataFrame> {
         self.dataframe.as_ref().and_then(|node| {

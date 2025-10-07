@@ -122,16 +122,18 @@ impl ChartLayout {
             .collect();
 
         // Generate grid template with overflow measurements
-        let grid_layout = builder.build_with_overflow(
-            overflow,
-            title,
-            subtitle,
-            theme,
-            layout_spec,
-            &legend_sizes,
-            ctx,
-            params,
-        ).await?;
+        let grid_layout = builder
+            .build_with_overflow(
+                overflow,
+                title,
+                subtitle,
+                theme,
+                layout_spec,
+                &legend_sizes,
+                ctx,
+                params,
+            )
+            .await?;
 
         // Extract flexible flags and positions for taffy tree building
         let legend_flexible: HashMap<String, bool> = legend_measurements
