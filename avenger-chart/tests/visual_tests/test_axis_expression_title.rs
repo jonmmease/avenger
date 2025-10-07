@@ -40,16 +40,10 @@ async fn test_axis_title_with_parameter_expression() {
     let unit_param = Param::new("unit", ScalarValue::Utf8(Some("meters".to_string())));
 
     // Create CASE expression for dynamic x-axis title based on unit parameter
-    let x_axis_title = when(
-        col("unit").eq(lit("meters")),
-        lit("Distance (m)"),
-    )
-    .when(
-        col("unit").eq(lit("feet")),
-        lit("Distance (ft)"),
-    )
-    .otherwise(lit("Distance"))
-    .unwrap();
+    let x_axis_title = when(unit_param.expr().eq(lit("meters")), lit("Distance (m)"))
+        .when(unit_param.expr().eq(lit("feet")), lit("Distance (ft)"))
+        .otherwise(lit("Distance"))
+        .unwrap();
 
     // Create plot with expression-based axis title
     let plot = Plot::<Cartesian>::new()
@@ -59,9 +53,7 @@ async fn test_axis_title_with_parameter_expression() {
         .add_param(unit_param)
         .mark(
             Symbol::new()
-                .x_with(col("x"), |c| {
-                    c.axis(|a| a.grid(true).title(x_axis_title))
-                })
+                .x_with(col("x"), |c| c.axis(|a| a.grid(true).title(x_axis_title)))
                 .y_with(col("y"), |c| {
                     c.axis(|a| a.grid(true).title("Value (units)"))
                 }),
@@ -72,7 +64,10 @@ async fn test_axis_title_with_parameter_expression() {
 
     // Test 1: Render with unit="meters"
     let mut params_meters = IndexMap::new();
-    params_meters.insert("unit".to_string(), ScalarValue::Utf8(Some("meters".to_string())));
+    params_meters.insert(
+        "unit".to_string(),
+        ScalarValue::Utf8(Some("meters".to_string())),
+    );
     assert_visual_match_default(
         &compiled,
         &ctx,
@@ -84,7 +79,10 @@ async fn test_axis_title_with_parameter_expression() {
 
     // Test 2: Render with unit="feet"
     let mut params_feet = IndexMap::new();
-    params_feet.insert("unit".to_string(), ScalarValue::Utf8(Some("feet".to_string())));
+    params_feet.insert(
+        "unit".to_string(),
+        ScalarValue::Utf8(Some("feet".to_string())),
+    );
     assert_visual_match_default(
         &compiled,
         &ctx,
@@ -96,7 +94,10 @@ async fn test_axis_title_with_parameter_expression() {
 
     // Test 3: Render with unit="unknown" (should use otherwise clause)
     let mut params_other = IndexMap::new();
-    params_other.insert("unit".to_string(), ScalarValue::Utf8(Some("km".to_string())));
+    params_other.insert(
+        "unit".to_string(),
+        ScalarValue::Utf8(Some("km".to_string())),
+    );
     assert_visual_match_default(
         &compiled,
         &ctx,

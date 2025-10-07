@@ -327,16 +327,18 @@ impl CompiledGuide for CartesianGuide {
         // Render each axis
         for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
-                let axis_mark = axis.render(
-                    channel,
-                    scale,
-                    plot_width,
-                    plot_height,
-                    plot_bounds,
-                    theme,
-                    params,
-                    ctx,
-                ).await?;
+                let axis_mark = axis
+                    .render(
+                        channel,
+                        scale,
+                        plot_width,
+                        plot_height,
+                        plot_bounds,
+                        theme,
+                        params,
+                        ctx,
+                    )
+                    .await?;
                 marks.push(axis_mark);
             }
         }

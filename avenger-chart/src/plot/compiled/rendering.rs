@@ -81,91 +81,30 @@ async fn evaluate_dimension_expr(
     ctx: &SessionContext,
     params: &IndexMap<String, datafusion::common::ScalarValue>,
 ) -> Result<f32, AvengerChartError> {
-    use datafusion::common::ScalarValue;
+    use crate::utils::{ScalarValueHelpers, eval_to_scalars, params_to_datafusion};
 
-    // Check if it's a literal first (most common case - literal dimensions)
-    if let datafusion::prelude::Expr::Literal(scalar, _) = expr {
-        return match scalar {
-            ScalarValue::Float32(Some(v)) => Ok(*v),
-            ScalarValue::Float64(Some(v)) => Ok(*v as f32),
-            ScalarValue::Int32(Some(v)) => Ok(*v as f32),
-            ScalarValue::Int64(Some(v)) => Ok(*v as f32),
-            ScalarValue::UInt32(Some(v)) => Ok(*v as f32),
-            ScalarValue::UInt64(Some(v)) => Ok(*v as f32),
-            _ => Err(AvengerChartError::InternalError(format!(
-                "Cannot convert scalar {:?} to f32 for dimension",
-                scalar
-            ))),
-        };
-    }
+    // Use the existing eval_to_scalars utility which handles parameters via with_param_values()
+    let scalars = eval_to_scalars(
+        vec![expr.clone()],
+        Some(ctx),
+        params_to_datafusion(params).as_ref(),
+    )
+    .await
+    .map_err(|e| {
+        AvengerChartError::InternalError(format!("Failed to evaluate dimension expression: {}", e))
+    })?;
 
-    // If it's a column reference, look it up in params
-    if let datafusion::prelude::Expr::Column(c) = expr {
-        if let Some(param_value) = params.get(&c.name) {
-            return match param_value {
-                ScalarValue::Float32(Some(v)) => Ok(*v),
-                ScalarValue::Float64(Some(v)) => Ok(*v as f32),
-                ScalarValue::Int32(Some(v)) => Ok(*v as f32),
-                ScalarValue::Int64(Some(v)) => Ok(*v as f32),
-                ScalarValue::UInt32(Some(v)) => Ok(*v as f32),
-                ScalarValue::UInt64(Some(v)) => Ok(*v as f32),
-                _ => Err(AvengerChartError::InternalError(format!(
-                    "Cannot convert param '{}' value {:?} to f32 for dimension",
-                    c.name, param_value
-                ))),
-            };
-        } else {
-            return Err(AvengerChartError::InternalError(format!(
-                "Dimension references param '{}' which was not provided",
-                c.name
-            )));
-        }
-    }
+    let scalar = scalars.first().ok_or_else(|| {
+        AvengerChartError::InternalError("No value returned from dimension expression".to_string())
+    })?;
 
-    // For complex expressions, we need to evaluate using datafusion
-    // Create a dataframe with params as columns
-    use datafusion::arrow::array::{Float32Array, RecordBatch};
-    use datafusion::arrow::datatypes::{DataType, Field, Schema};
-
-    let schema = Arc::new(Schema::new(vec![Field::new(
-        "dummy",
-        DataType::Float32,
-        false,
-    )]));
-    let batch = RecordBatch::try_new(schema, vec![Arc::new(Float32Array::from(vec![1.0]))])?;
-
-    let df = ctx.read_batch(batch)?;
-    let result_df = df.select(vec![expr.clone().alias("result")])?;
-    let batches = result_df.collect().await?;
-
-    if batches.is_empty() || batches[0].num_rows() == 0 {
-        return Err(AvengerChartError::InternalError(
-            "Failed to evaluate dimension expression: no rows returned".to_string(),
-        ));
-    }
-
-    let array = batches[0].column(0);
-
-    // Try various numeric types
-    use datafusion::arrow::array::AsArray;
-    use datafusion::arrow::datatypes::{Float32Type, Float64Type, Int32Type, Int64Type};
-
-    let value = if let Some(arr) = array.as_primitive_opt::<Float32Type>() {
-        arr.value(0)
-    } else if let Some(arr) = array.as_primitive_opt::<Float64Type>() {
-        arr.value(0) as f32
-    } else if let Some(arr) = array.as_primitive_opt::<Int32Type>() {
-        arr.value(0) as f32
-    } else if let Some(arr) = array.as_primitive_opt::<Int64Type>() {
-        arr.value(0) as f32
-    } else {
-        return Err(AvengerChartError::InternalError(format!(
-            "Dimension expression evaluated to non-numeric type: {:?}",
-            array.data_type()
-        )));
-    };
-
-    Ok(value)
+    // Convert to f32 using the ScalarValueHelpers trait
+    scalar.as_f32().map_err(|e| {
+        AvengerChartError::InternalError(format!(
+            "Cannot convert dimension expression result to f32: {}",
+            e
+        ))
+    })
 }
 
 /// Helper function to evaluate a string expression to a concrete String value
@@ -174,120 +113,30 @@ pub(crate) async fn evaluate_string_expr(
     ctx: &SessionContext,
     params: &IndexMap<String, datafusion::common::ScalarValue>,
 ) -> Result<String, AvengerChartError> {
-    use datafusion::common::ScalarValue;
+    use crate::utils::{ScalarValueHelpers, eval_to_scalars, params_to_datafusion};
 
-    // Check if it's a literal first (most common case - literal strings)
-    if let datafusion::prelude::Expr::Literal(scalar, _) = expr {
-        return match scalar {
-            ScalarValue::Utf8(Some(s)) => Ok(s.clone()),
-            ScalarValue::LargeUtf8(Some(s)) => Ok(s.clone()),
-            _ => Err(AvengerChartError::InternalError(format!(
-                "String expression literal is not a string type: {:?}",
-                scalar
-            ))),
-        };
-    }
+    // Use the existing eval_to_scalars utility which handles parameters via with_param_values()
+    let scalars = eval_to_scalars(
+        vec![expr.clone()],
+        Some(ctx),
+        params_to_datafusion(params).as_ref(),
+    )
+    .await
+    .map_err(|e| {
+        AvengerChartError::InternalError(format!("Failed to evaluate string expression: {}", e))
+    })?;
 
-    // Check if it's a column reference (parameter)
-    if let datafusion::prelude::Expr::Column(c) = expr {
-        if let Some(value) = params.get(c.name.as_str()) {
-            return match value {
-                ScalarValue::Utf8(Some(s)) => Ok(s.clone()),
-                ScalarValue::LargeUtf8(Some(s)) => Ok(s.clone()),
-                _ => Err(AvengerChartError::InternalError(format!(
-                    "String parameter '{}' is not a string type: {:?}",
-                    c.name, value
-                ))),
-            };
-        } else {
-            return Err(AvengerChartError::InternalError(format!(
-                "String references param '{}' which was not provided",
-                c.name
-            )));
-        }
-    }
+    let scalar = scalars.first().ok_or_else(|| {
+        AvengerChartError::InternalError("No value returned from string expression".to_string())
+    })?;
 
-    // For complex expressions (like CASE), we need to evaluate using datafusion
-    // Create a dataframe with a single row containing all the params
-    use datafusion::arrow::array::{
-        ArrayRef, Float32Array, Float64Array, Int32Array, Int64Array, RecordBatch, StringArray,
-    };
-    use datafusion::arrow::datatypes::{DataType, Field, Schema};
-
-    // Build schema from params
-    let mut fields = Vec::new();
-    let mut arrays: Vec<ArrayRef> = Vec::new();
-
-    for (name, value) in params.iter() {
-        match value {
-            ScalarValue::Float32(Some(v)) => {
-                fields.push(Field::new(name, DataType::Float32, false));
-                arrays.push(Arc::new(Float32Array::from(vec![*v])));
-            }
-            ScalarValue::Float64(Some(v)) => {
-                fields.push(Field::new(name, DataType::Float64, false));
-                arrays.push(Arc::new(Float64Array::from(vec![*v])));
-            }
-            ScalarValue::Int32(Some(v)) => {
-                fields.push(Field::new(name, DataType::Int32, false));
-                arrays.push(Arc::new(Int32Array::from(vec![*v])));
-            }
-            ScalarValue::Int64(Some(v)) => {
-                fields.push(Field::new(name, DataType::Int64, false));
-                arrays.push(Arc::new(Int64Array::from(vec![*v])));
-            }
-            ScalarValue::Utf8(Some(v)) => {
-                fields.push(Field::new(name, DataType::Utf8, false));
-                arrays.push(Arc::new(StringArray::from(vec![v.as_str()])));
-            }
-            ScalarValue::LargeUtf8(Some(v)) => {
-                fields.push(Field::new(name, DataType::LargeUtf8, false));
-                arrays.push(Arc::new(StringArray::from(vec![v.as_str()])));
-            }
-            _ => {
-                // Skip unsupported types
-                continue;
-            }
-        }
-    }
-
-    // If no params, create a dummy row
-    if fields.is_empty() {
-        fields.push(Field::new("dummy", DataType::Utf8, false));
-        arrays.push(Arc::new(StringArray::from(vec!["dummy"])));
-    }
-
-    let schema = Arc::new(Schema::new(fields));
-    let batch = RecordBatch::try_new(schema, arrays)?;
-
-    // Use the passed-in SessionContext (reuse from rendering)
-    let df = ctx.read_batch(batch)?;
-    let result_df = df.select(vec![expr.clone().alias("result")])?;
-    let batches = result_df.collect().await?;
-
-    if batches.is_empty() || batches[0].num_rows() == 0 {
-        return Err(AvengerChartError::InternalError(
-            "Failed to evaluate string expression: no rows returned".to_string(),
-        ));
-    }
-
-    let array = batches[0].column(0);
-
-    // Try to get string value
-    use datafusion::arrow::array::AsArray;
-
-    let value = if let Some(arr) = array.as_string_opt::<i32>() {
-        arr.value(0).to_string()
-    } else if let Some(arr) = array.as_string_opt::<i64>() {
-        arr.value(0).to_string()
-    } else {
-        return Err(AvengerChartError::InternalError(format!(
-            "String expression evaluated to non-string type: {:?}",
-            array.data_type()
-        )));
-    };
-
-    Ok(value)
+    // Convert to string using the ScalarValueHelpers trait
+    scalar.as_scalar_string().map_err(|e| {
+        AvengerChartError::InternalError(format!(
+            "Cannot convert string expression result to string: {}",
+            e
+        ))
+    })
 }
 
 impl CompiledPlot {
