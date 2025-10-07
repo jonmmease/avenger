@@ -314,7 +314,9 @@ impl GridBuilder {
                 // Evaluate the title text expression to get the actual text
                 let text_node: LogicalExprNode = t.text.clone().into();
                 let text_expr = text_node.to_expr(ctx)?;
-                let text_value = crate::plot::compiled::rendering::evaluate_string_expr(&text_expr, ctx, params).await?;
+                let text_value =
+                    crate::plot::compiled::rendering::evaluate_string_expr(&text_expr, ctx, params)
+                        .await?;
 
                 // Measure text for layout (using Normal weight/style as approximation)
                 let measurer = default_text_measurer();
@@ -352,7 +354,9 @@ impl GridBuilder {
                 // Evaluate the subtitle text expression to get the actual text
                 let text_node: LogicalExprNode = s.text.clone().into();
                 let text_expr = text_node.to_expr(ctx)?;
-                let text_value = crate::plot::compiled::rendering::evaluate_string_expr(&text_expr, ctx, params).await?;
+                let text_value =
+                    crate::plot::compiled::rendering::evaluate_string_expr(&text_expr, ctx, params)
+                        .await?;
 
                 // Measure text for layout (using Normal weight/style as approximation)
                 let measurer = default_text_measurer();

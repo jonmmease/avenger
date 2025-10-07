@@ -23,9 +23,9 @@ impl CompiledPlot {
         let theme = self.get_theme();
         let title_ctx = crate::theme::ThemeContext::new("chart-title").with_params(params.clone());
 
+        use crate::serialization::LogicalExprNodeExt;
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
-        use crate::serialization::LogicalExprNodeExt;
         use datafusion_proto::protobuf::LogicalExprNode;
 
         // Evaluate the title text expression
@@ -87,9 +87,9 @@ impl CompiledPlot {
         let subtitle_ctx =
             crate::theme::ThemeContext::new("chart-subtitle").with_params(params.clone());
 
+        use crate::serialization::LogicalExprNodeExt;
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
-        use crate::serialization::LogicalExprNodeExt;
         use datafusion_proto::protobuf::LogicalExprNode;
 
         // Evaluate the subtitle text expression
