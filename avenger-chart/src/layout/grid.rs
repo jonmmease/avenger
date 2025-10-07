@@ -198,20 +198,20 @@ impl GridBuilder {
         max_width
     }
 
-    /// Measure the total height needed for a legend container
-    /// For horizontal legends (Top/Bottom), legends stack vertically
+    /// Measure the height needed for a legend container
+    /// For horizontal legends (Top/Bottom), legends stack horizontally so use max height
     pub fn measure_legend_container_height(
         &self,
         channels: &[String],
         legend_sizes: &HashMap<String, Size<f32>>,
     ) -> f32 {
-        let mut total_height: f32 = 0.0;
+        let mut max_height: f32 = 0.0;
         for channel in channels {
             if let Some(size) = legend_sizes.get(channel) {
-                total_height += size.height;
+                max_height = max_height.max(size.height);
             }
         }
-        total_height
+        max_height
     }
 
     /// Build the final grid template based on collected components and overflow requirements.
