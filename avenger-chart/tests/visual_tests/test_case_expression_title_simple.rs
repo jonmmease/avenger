@@ -35,17 +35,20 @@ async fn test_case_expression_title_no_media_query() {
     let width_param = Param::new("width", ScalarValue::Float32(Some(400.0)));
 
     // CASE expression for title (same as media query test)
-    let title_expr = when(col("width").lt(lit(600)), lit("Small Screen (400px)"))
-        .when(col("width").lt(lit(1200)), lit("Medium Screen (800px)"))
+    let title_expr = when(width_param.expr().lt(lit(600)), lit("Small Screen (400px)"))
+        .when(
+            width_param.expr().lt(lit(1200)),
+            lit("Medium Screen (800px)"),
+        )
         .otherwise(lit("Large Screen (1400px)"))
         .unwrap();
 
     let subtitle_expr = when(
-        col("width").lt(lit(600)),
+        width_param.expr().lt(lit(600)),
         lit("Testing CASE expression without media queries (Small)"),
     )
     .when(
-        col("width").lt(lit(1200)),
+        width_param.expr().lt(lit(1200)),
         lit("Testing CASE expression without media queries (Medium)"),
     )
     .otherwise(lit("Testing CASE expression without media queries (Large)"))

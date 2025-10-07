@@ -109,17 +109,20 @@ async fn test_media_query_guide_background_responsive() {
     let height_param = Param::new("height", ScalarValue::Float32(Some(300.0)));
 
     // Create CASE expressions for title and subtitle that match media query boundaries
-    let title_expr = when(col("width").lt(lit(600)), lit("Small Screen (400px)"))
-        .when(col("width").lt(lit(1200)), lit("Medium Screen (800px)"))
+    let title_expr = when(width_param.expr().lt(lit(600)), lit("Small Screen (400px)"))
+        .when(
+            width_param.expr().lt(lit(1200)),
+            lit("Medium Screen (800px)"),
+        )
         .otherwise(lit("Large Screen (1400px)"))
         .unwrap();
 
     let subtitle_expr = when(
-        col("width").lt(lit(600)),
+        width_param.expr().lt(lit(600)),
         lit("Media Query: width < 600px → Light Blue Background"),
     )
     .when(
-        col("width").lt(lit(1200)),
+        width_param.expr().lt(lit(1200)),
         lit("Media Query: 600px ≤ width < 1200px → Light Green Background"),
     )
     .otherwise(lit("Media Query: width ≥ 1200px → Light Red Background"))
@@ -127,7 +130,7 @@ async fn test_media_query_guide_background_responsive() {
 
     // Create a SINGLE plot with responsive title/subtitle based on width parameter
     let plot = Plot::<Cartesian>::new()
-        .canvas_size(col("width"), col("height"))
+        .canvas_size(width_param.expr(), height_param.expr())
         .title(title_expr)
         .subtitle(subtitle_expr)
         .data(df)
@@ -246,22 +249,28 @@ async fn test_media_query_multi_range_syntax() {
     // Create CASE expressions for title and subtitle that match the multi-range boundaries
     // 600px <= width < 1200px
     let title_expr = when(
-        col("width").gt_eq(lit(600)).and(col("width").lt(lit(1200))),
+        width_param
+            .expr()
+            .gt_eq(lit(600))
+            .and(width_param.expr().lt(lit(1200))),
         lit("Multi-Range Match (800px)"),
     )
     .when(
-        col("width").lt(lit(600)),
+        width_param.expr().lt(lit(600)),
         lit("Multi-Range No Match (400px)"),
     )
     .otherwise(lit("Multi-Range Boundary (1200px)"))
     .unwrap();
 
     let subtitle_expr = when(
-        col("width").gt_eq(lit(600)).and(col("width").lt(lit(1200))),
+        width_param
+            .expr()
+            .gt_eq(lit(600))
+            .and(width_param.expr().lt(lit(1200))),
         lit("Media Query: 600px ≤ width < 1200px → Light Purple Background"),
     )
     .when(
-        col("width").lt(lit(600)),
+        width_param.expr().lt(lit(600)),
         lit("Media Query: 600px ≤ width < 1200px → No Match (Transparent)"),
     )
     .otherwise(lit(
@@ -271,7 +280,7 @@ async fn test_media_query_multi_range_syntax() {
 
     // Create a SINGLE plot with responsive title/subtitle based on width parameter
     let plot = Plot::<Cartesian>::new()
-        .canvas_size(col("width"), col("height"))
+        .canvas_size(width_param.expr(), height_param.expr())
         .title(title_expr)
         .subtitle(subtitle_expr)
         .data(df)
