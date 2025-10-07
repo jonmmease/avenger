@@ -55,6 +55,43 @@ impl IntoExpr for &str {
     }
 }
 
+impl IntoExpr for bool {
+    fn into_expr(self) -> Expr {
+        lit(self)
+    }
+}
+
+impl IntoExpr for usize {
+    fn into_expr(self) -> Expr {
+        lit(self as i64)
+    }
+}
+
+impl IntoExpr for crate::cartesian::axis::AxisPosition {
+    fn into_expr(self) -> Expr {
+        use crate::cartesian::axis::AxisPosition;
+        let s = match self {
+            AxisPosition::Top => "top",
+            AxisPosition::Bottom => "bottom",
+            AxisPosition::Left => "left",
+            AxisPosition::Right => "right",
+        };
+        lit(s)
+    }
+}
+
+impl IntoExpr for crate::param::Param {
+    fn into_expr(self) -> Expr {
+        self.expr()
+    }
+}
+
+impl IntoExpr for &crate::param::Param {
+    fn into_expr(self) -> Expr {
+        self.expr()
+    }
+}
+
 use super::compiled::CompiledPlot;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};

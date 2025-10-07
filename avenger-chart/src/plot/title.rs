@@ -3,7 +3,9 @@
 use crate::coords::CoordinateSystem;
 use crate::plot::Plot;
 use crate::serialization::SerializableExpr;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, FromInto};
 
 /// Alignment options for title and subtitle
 #[derive(Clone, Debug, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -16,18 +18,22 @@ pub enum TitleAlign {
 }
 
 /// Minimal plot title configuration
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlotTitle {
-    pub text: SerializableExpr,
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub text: LogicalExprNode,
     pub font_size: Option<f32>,
     pub font_family: Option<String>,
     pub align: TitleAlign,
 }
 
 /// Minimal plot subtitle configuration
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlotSubtitle {
-    pub text: SerializableExpr,
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub text: LogicalExprNode,
     pub font_size: Option<f32>,
     pub font_family: Option<String>,
     pub align: TitleAlign,
@@ -38,8 +44,10 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set a simple plot title. For advanced styling, a richer API can be added later.
     /// Accepts string literals, expressions, or column references.
     pub fn title(mut self, text: impl super::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = text.into_expr();
         self.title = Some(PlotTitle {
-            text: text.into_expr().into(),
+            text: LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
             font_size: None,
             font_family: None,
             align: TitleAlign::default(),
@@ -52,8 +60,10 @@ impl<C: CoordinateSystem> Plot<C> {
     where
         F: FnOnce(PlotTitle) -> PlotTitle,
     {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = text.into_expr();
         let title = PlotTitle {
-            text: text.into_expr().into(),
+            text: LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
             font_size: None,
             font_family: None,
             align: TitleAlign::default(),
@@ -65,8 +75,10 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set a simple plot subtitle. For advanced styling, a richer API can be added later.
     /// Accepts string literals, expressions, or column references.
     pub fn subtitle(mut self, text: impl super::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = text.into_expr();
         self.subtitle = Some(PlotSubtitle {
-            text: text.into_expr().into(),
+            text: LogicalExprNode::from_expr(expr).expect("Failed to serialize subtitle expr"),
             font_size: None,
             font_family: None,
             align: TitleAlign::default(),
@@ -79,8 +91,10 @@ impl<C: CoordinateSystem> Plot<C> {
     where
         F: FnOnce(PlotSubtitle) -> PlotSubtitle,
     {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = text.into_expr();
         let subtitle = PlotSubtitle {
-            text: text.into_expr().into(),
+            text: LogicalExprNode::from_expr(expr).expect("Failed to serialize subtitle expr"),
             font_size: None,
             font_family: None,
             align: TitleAlign::default(),

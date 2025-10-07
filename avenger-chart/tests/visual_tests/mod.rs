@@ -2,6 +2,7 @@
 
 pub mod datasets;
 pub mod helpers;
+pub mod test_axis_conditional_config;
 pub mod test_axis_expression_title;
 pub mod test_bar;
 pub mod test_bar_defaults;

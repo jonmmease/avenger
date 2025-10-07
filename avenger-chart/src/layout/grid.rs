@@ -315,7 +315,7 @@ impl GridBuilder {
                 let text_node: LogicalExprNode = t.text.clone().into();
                 let text_expr = text_node.to_expr(ctx)?;
                 let text_value =
-                    crate::plot::compiled::rendering::evaluate_string_expr(&text_expr, ctx, params)
+                    crate::plot::compiled::expr_eval::evaluate_string_expr(&text_expr, ctx, params)
                         .await?;
 
                 // Measure text for layout (using Normal weight/style as approximation)
@@ -355,7 +355,7 @@ impl GridBuilder {
                 let text_node: LogicalExprNode = s.text.clone().into();
                 let text_expr = text_node.to_expr(ctx)?;
                 let text_value =
-                    crate::plot::compiled::rendering::evaluate_string_expr(&text_expr, ctx, params)
+                    crate::plot::compiled::expr_eval::evaluate_string_expr(&text_expr, ctx, params)
                         .await?;
 
                 // Measure text for layout (using Normal weight/style as approximation)

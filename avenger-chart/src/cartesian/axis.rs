@@ -4,8 +4,63 @@ use crate::maybe::Maybe;
 use crate::serialization::SerializableExpr;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DeserializeAs, SerializeAs};
 use std::any::Any;
+
+/// Wrapper for Maybe<Option<LogicalExprNode>> that serializes via SerializableExpr
+#[derive(Clone, Debug)]
+pub struct MaybeOptionalExpr(pub Maybe<Option<LogicalExprNode>>);
+
+impl From<Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn from(value: Maybe<Option<LogicalExprNode>>) -> Self {
+        MaybeOptionalExpr(value)
+    }
+}
+
+impl From<MaybeOptionalExpr> for Maybe<Option<LogicalExprNode>> {
+    fn from(wrapper: MaybeOptionalExpr) -> Self {
+        wrapper.0
+    }
+}
+
+impl SerializeAs<Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn serialize_as<S>(
+        source: &Maybe<Option<LogicalExprNode>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Convert Maybe<Option<LogicalExprNode>> to Maybe<Option<SerializableExpr>>
+        let as_serializable = source.as_ref().map(|opt| {
+            opt.as_ref().map(|node| {
+                let ser: SerializableExpr = node.clone().into();
+                ser
+            })
+        });
+        as_serializable.serialize(serializer)
+    }
+}
+
+impl<'de> DeserializeAs<'de, Maybe<Option<LogicalExprNode>>> for MaybeOptionalExpr {
+    fn deserialize_as<D>(deserializer: D) -> Result<Maybe<Option<LogicalExprNode>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as Maybe<Option<SerializableExpr>>
+        let as_serializable = Maybe::<Option<SerializableExpr>>::deserialize(deserializer)?;
+
+        // Convert to Maybe<Option<LogicalExprNode>>
+        Ok(as_serializable.map(|opt| {
+            opt.map(|ser| {
+                let node: LogicalExprNode = ser.into();
+                node
+            })
+        }))
+    }
+}
 
 /// Position for Cartesian axes
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -18,17 +73,27 @@ pub enum AxisPosition {
 
 /// Concrete struct for Cartesian axes
 /// Using a struct instead of a trait enables type inference in closure parameters
+#[serde_as]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CartesianAxis {
-    pub visible: Maybe<bool>,
-    pub position: Maybe<AxisPosition>,
-    pub title: Maybe<Option<SerializableExpr>>,
-    pub grid: Maybe<bool>,
-    pub tick_count: Maybe<Option<usize>>,
-    pub label_angle: Maybe<f32>,
-    pub format_number: Maybe<Option<String>>,
-    pub title_font_family: Maybe<Option<String>>,
-    pub label_font_family: Maybe<Option<String>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub visible: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub position: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub title: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub grid: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub tick_count: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub label_angle: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub format_number: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub title_font_family: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub label_font_family: Maybe<Option<LogicalExprNode>>,
 }
 
 impl CartesianAxis {
@@ -36,48 +101,84 @@ impl CartesianAxis {
         Self::default()
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = visible.into_expr();
+        self.visible = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize visible expr"),
+        ));
         self
     }
 
-    pub fn position(mut self, position: AxisPosition) -> Self {
-        self.position = Maybe::Set(position);
+    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = position.into_expr();
+        self.position = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize position expr"),
+        ));
         self
     }
 
     pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
-        self.title = Maybe::Set(Some(title.into_expr().into()));
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = title.into_expr();
+        self.title = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
+        ));
         self
     }
 
-    pub fn grid(mut self, grid: bool) -> Self {
-        self.grid = Maybe::Set(grid);
+    pub fn grid(mut self, grid: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = grid.into_expr();
+        self.grid = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize grid expr"),
+        ));
         self
     }
 
-    pub fn tick_count(mut self, count: usize) -> Self {
-        self.tick_count = Maybe::Set(Some(count));
+    pub fn tick_count(mut self, count: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = count.into_expr();
+        self.tick_count = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_count expr"),
+        ));
         self
     }
 
-    pub fn label_angle(mut self, angle: f32) -> Self {
-        self.label_angle = Maybe::Set(angle);
+    pub fn label_angle(mut self, angle: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = angle.into_expr();
+        self.label_angle = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize label_angle expr"),
+        ));
         self
     }
 
-    pub fn format(mut self, format: impl Into<String>) -> Self {
-        self.format_number = Maybe::Set(Some(format.into()));
+    pub fn format(mut self, format: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = format.into_expr();
+        self.format_number = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize format expr"),
+        ));
         self
     }
 
-    pub fn title_font_family(mut self, font: impl Into<String>) -> Self {
-        self.title_font_family = Maybe::Set(Some(font.into()));
+    pub fn title_font_family(mut self, font: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = font.into_expr();
+        self.title_font_family = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize title_font_family expr"),
+        ));
         self
     }
 
-    pub fn label_font_family(mut self, font: impl Into<String>) -> Self {
-        self.label_font_family = Maybe::Set(Some(font.into()));
+    pub fn label_font_family(mut self, font: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = font.into_expr();
+        self.label_font_family = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize label_font_family expr"),
+        ));
         self
     }
 
@@ -131,9 +232,21 @@ impl CartesianAxis {
             opts::{AxisConfig, AxisOrientation},
             point::make_point_axis_marks,
         };
+        use crate::plot::compiled::expr_eval::{
+            evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
+        };
+        use crate::serialization::LogicalExprNodeExt;
 
-        // Skip if invisible (default to visible if not set)
-        if !self.visible.as_option().copied().unwrap_or(true) {
+        // Evaluate visible expression (default to true if not set)
+        let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref()) {
+            let visible_expr = visible_node.to_expr(ctx)?;
+            evaluate_bool_expr(&visible_expr, ctx, params).await?
+        } else {
+            true
+        };
+
+        // Skip if invisible
+        if !visible {
             return Ok(SceneMark::Group(
                 avenger_scenegraph::marks::group::SceneGroup {
                     marks: vec![],
@@ -142,15 +255,18 @@ impl CartesianAxis {
             ));
         }
 
-        // Determine axis position
-        let position = self.position.clone().unwrap_or_else(|| {
+        // Evaluate position expression
+        let position = if let Some(position_node) = self.position.as_option().and_then(|o| o.as_ref()) {
+            let position_expr = position_node.to_expr(ctx)?;
+            evaluate_axis_position_expr(&position_expr, ctx, params).await?
+        } else {
             // Default positions based on channel name
             match channel {
                 "x" => AxisPosition::Bottom,
                 "y" => AxisPosition::Left,
                 _ => AxisPosition::Bottom,
             }
-        });
+        };
 
         // Convert position to orientation
         let orientation = match position {
@@ -181,12 +297,48 @@ impl CartesianAxis {
         let domain_color = theme.stroke_color(&axis_ctx.child("domain"));
         let tick_color = theme.stroke_color(&axis_ctx.child("tick"));
 
+        // Evaluate grid expression (default to false)
+        let grid = if let Some(grid_node) = self.grid.as_option().and_then(|o| o.as_ref()) {
+            let grid_expr = grid_node.to_expr(ctx)?;
+            evaluate_bool_expr(&grid_expr, ctx, params).await?
+        } else {
+            false
+        };
+
+        // Evaluate format_number expression
+        let format_number = if let Some(format_node) = self.format_number.as_option().and_then(|o| o.as_ref()) {
+            let format_expr = format_node.to_expr(ctx)?;
+            Some(evaluate_string_expr(&format_expr, ctx, params).await?)
+        } else {
+            None
+        };
+
+        // Evaluate label_font_family expression
+        let label_font_family = if let Some(label_font_node) =
+            self.label_font_family.as_option().and_then(|o| o.as_ref())
+        {
+            let label_font_expr = label_font_node.to_expr(ctx)?;
+            Some(evaluate_string_expr(&label_font_expr, ctx, params).await?)
+        } else {
+            theme.font_family(&label_ctx)
+        };
+
+        // Evaluate title_font_family expression
+        let title_font_family = if let Some(title_font_node) =
+            self.title_font_family.as_option().and_then(|o| o.as_ref())
+        {
+            let title_font_expr = title_font_node.to_expr(ctx)?;
+            Some(evaluate_string_expr(&title_font_expr, ctx, params).await?)
+        } else {
+            theme.font_family(&title_ctx)
+        };
+
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {
             orientation,
             dimensions: [plot_width, plot_height],
-            grid: self.grid.clone().unwrap_or(false),
-            format_number: self.format_number.clone().flatten(),
+            grid,
+            format_number,
             title_font_size: theme.font_size(&title_ctx),
             // Pass colors (potentially overridden for dark backgrounds)
             domain_color,
@@ -206,27 +358,14 @@ impl CartesianAxis {
             label_font_size: theme.font_size(&label_ctx),
             label_font_weight: theme.font_weight(&label_ctx),
             title_font_weight: theme.font_weight(&title_ctx),
-            label_font_family: self
-                .label_font_family
-                .clone()
-                .flatten()
-                .or_else(|| theme.font_family(&label_ctx)),
-            title_font_family: self
-                .title_font_family
-                .clone()
-                .flatten()
-                .or_else(|| theme.font_family(&title_ctx)),
+            label_font_family,
+            title_font_family,
         };
 
         // Evaluate title expression if present
-        use crate::plot::compiled::rendering::evaluate_string_expr;
-        use crate::serialization::LogicalExprNodeExt;
-        use datafusion_proto::protobuf::LogicalExprNode;
-
-        let title = if let Some(title_expr) = self.title.clone().flatten() {
-            let title_node: LogicalExprNode = title_expr.into();
-            let title_datafusion_expr = title_node.to_expr(ctx)?;
-            evaluate_string_expr(&title_datafusion_expr, ctx, params).await?
+        let title = if let Some(title_node) = self.title.as_option().and_then(|o| o.as_ref()) {
+            let title_expr = title_node.to_expr(ctx)?;
+            evaluate_string_expr(&title_expr, ctx, params).await?
         } else {
             String::new()
         };
