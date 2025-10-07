@@ -328,7 +328,8 @@ impl CompiledGuide for PolarGuide {
                     plot_bounds,
                     theme,
                     params,
-                )?;
+                    _ctx,
+                ).await?;
                 marks.extend(axis_marks);
             }
         }
