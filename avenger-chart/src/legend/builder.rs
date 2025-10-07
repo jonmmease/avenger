@@ -1,6 +1,5 @@
 use super::LegendRenderer;
-use crate::legend::{Legend, LegendOrientation, LegendPosition};
-use crate::maybe::Maybe;
+use crate::legend::Legend;
 use std::sync::Arc;
 
 /// Base trait for legend builders - just for common functionality
@@ -13,8 +12,9 @@ pub trait LegendBuilder: Sized {
     fn build(self) -> Legend;
 
     /// Set visibility - available on all legend builders
-    fn visible(mut self, visible: bool) -> Self {
-        self.legend_mut().visible = Maybe::Set(visible);
+    fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        let legend = self.legend_mut().clone();
+        *self.legend_mut() = legend.visible(visible);
         self
     }
 }
@@ -33,79 +33,79 @@ impl ColorLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Maybe::Set(title.into());
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Maybe::Set(position);
+    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Maybe::Set(orientation);
+    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Maybe::Set(order);
+    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.order(order);
         self
     }
 
     // Color-specific methods
-    pub fn gradient_length(mut self, length: f64) -> Self {
-        self.legend.gradient_length = Maybe::Set(length);
+    pub fn gradient_length(mut self, length: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.gradient_length(length);
         self
     }
 
-    pub fn gradient_thickness(mut self, thickness: f64) -> Self {
-        self.legend.gradient_thickness = Maybe::Set(thickness);
+    pub fn gradient_thickness(mut self, thickness: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.gradient_thickness(thickness);
         self
     }
 
-    pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Maybe::Set(columns);
+    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Maybe::Set(size);
+    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Maybe::Set(limit);
+    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.label_limit(limit);
         self
     }
 
-    pub fn format_number(mut self, format: impl Into<String>) -> Self {
-        self.legend.format_number = Maybe::Set(format.into());
+    pub fn format_number(mut self, format: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.format_number(format);
         self
     }
 
-    pub fn background_fill(mut self, fill: impl Into<String>) -> Self {
-        self.legend.background_fill = Maybe::Set(fill.into());
+    pub fn background_fill(mut self, fill: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.background_fill(fill);
         self
     }
 
-    pub fn background_stroke(mut self, stroke: impl Into<String>) -> Self {
-        self.legend.background_stroke = Maybe::Set(stroke.into());
+    pub fn background_stroke(mut self, stroke: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.background_stroke(stroke);
         self
     }
 
-    pub fn background_corner_radius(mut self, radius: f32) -> Self {
-        self.legend.background_corner_radius = Maybe::Set(radius);
+    pub fn background_corner_radius(mut self, radius: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.background_corner_radius(radius);
         self
     }
 
-    pub fn background_padding(mut self, padding: f32) -> Self {
-        self.legend.background_padding = Maybe::Set(padding);
+    pub fn background_padding(mut self, padding: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.background_padding(padding);
         self
     }
 
@@ -139,49 +139,49 @@ impl SizeLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Maybe::Set(title.into());
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Maybe::Set(position);
+    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Maybe::Set(orientation);
+    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Maybe::Set(order);
+    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.order(order);
         self
     }
 
     // Size-specific methods
-    pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Maybe::Set(size);
+    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Maybe::Set(columns);
+    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Maybe::Set(limit);
+    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.label_limit(limit);
         self
     }
 
-    pub fn format_number(mut self, format: impl Into<String>) -> Self {
-        self.legend.format_number = Maybe::Set(format.into());
+    pub fn format_number(mut self, format: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.format_number(format);
         self
     }
 
@@ -215,44 +215,44 @@ impl ShapeLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Maybe::Set(title.into());
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Maybe::Set(position);
+    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Maybe::Set(orientation);
+    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Maybe::Set(order);
+    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.order(order);
         self
     }
 
     // Shape-specific methods
-    pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Maybe::Set(columns);
+    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Maybe::Set(size);
+    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Maybe::Set(limit);
+    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.label_limit(limit);
         self
     }
 
@@ -286,49 +286,49 @@ impl OpacityLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Maybe::Set(title.into());
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Maybe::Set(position);
+    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Maybe::Set(orientation);
+    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Maybe::Set(order);
+    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.order(order);
         self
     }
 
     // Opacity-specific methods
-    pub fn gradient_length(mut self, length: f64) -> Self {
-        self.legend.gradient_length = Maybe::Set(length);
+    pub fn gradient_length(mut self, length: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.gradient_length(length);
         self
     }
 
-    pub fn gradient_thickness(mut self, thickness: f64) -> Self {
-        self.legend.gradient_thickness = Maybe::Set(thickness);
+    pub fn gradient_thickness(mut self, thickness: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.gradient_thickness(thickness);
         self
     }
 
-    pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Maybe::Set(size);
+    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Maybe::Set(limit);
+    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.label_limit(limit);
         self
     }
 
@@ -362,44 +362,44 @@ impl AngleLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Maybe::Set(title.into());
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Maybe::Set(position);
+    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Maybe::Set(orientation);
+    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Maybe::Set(order);
+    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.order(order);
         self
     }
 
     // Angle-specific methods
-    pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Maybe::Set(size);
+    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Maybe::Set(columns);
+    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Maybe::Set(limit);
+    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.label_limit(limit);
         self
     }
 
@@ -433,44 +433,44 @@ impl StrokeWidthLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Maybe::Set(title.into());
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Maybe::Set(position);
+    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Maybe::Set(orientation);
+    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Maybe::Set(order);
+    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.order(order);
         self
     }
 
     // Stroke width-specific methods
-    pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Maybe::Set(size);
+    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Maybe::Set(columns);
+    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Maybe::Set(limit);
+    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.label_limit(limit);
         self
     }
 
@@ -504,44 +504,44 @@ impl StrokeDashLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.legend.title = Maybe::Set(title.into());
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.legend.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: LegendPosition) -> Self {
-        self.legend.position = Maybe::Set(position);
+    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.legend.orientation = Maybe::Set(orientation);
+    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: i32) -> Self {
-        self.legend.order = Maybe::Set(order);
+    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.order(order);
         self
     }
 
     // Stroke dash-specific methods
-    pub fn symbol_size(mut self, size: f64) -> Self {
-        self.legend.symbol_size = Maybe::Set(size);
+    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn columns(mut self, columns: usize) -> Self {
-        self.legend.columns = Maybe::Set(columns);
+    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn label_limit(mut self, limit: f64) -> Self {
-        self.legend.label_limit = Maybe::Set(limit);
+    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+        self.legend = self.legend.label_limit(limit);
         self
     }
 

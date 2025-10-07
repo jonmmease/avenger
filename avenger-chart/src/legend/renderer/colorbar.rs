@@ -18,6 +18,7 @@ impl CompiledColorbar {
     }
 }
 
+#[async_trait::async_trait]
 #[typetag::serde]
 impl LegendRenderer for CompiledColorbar {
     fn name(&self) -> &'static str {
@@ -42,7 +43,7 @@ impl LegendRenderer for CompiledColorbar {
         })
     }
 
-    fn render(
+    async fn render(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
@@ -52,6 +53,7 @@ impl LegendRenderer for CompiledColorbar {
         height: f32,
         theme: &crate::theme::Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         use avenger_guides::legend::colorbar::make_colorbar_marks;
 
@@ -80,11 +82,22 @@ impl LegendRenderer for CompiledColorbar {
             }
         }
 
+        // Evaluate gradient_thickness expression (default 15.0 if not set)
+        use crate::plot::compiled::expr_eval::*;
+        use crate::serialization::LogicalExprNodeExt;
+
+        let gradient_thickness = if let Some(node) = config.gradient_thickness.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            evaluate_f64_expr(&expr, ctx, params).await?
+        } else {
+            15.0
+        };
+
         // Determine colorbar dimensions
         // When using Taffy layout, height is the allocated height
         // We should use this directly as the total colorbar height
         let colorbar_height = height;
-        let colorbar_width = config.gradient_thickness.clone().unwrap_or(15.0) as f32;
+        let colorbar_width = gradient_thickness as f32;
 
         let mut legend_config = ColorbarConfig {
             orientation: ColorbarOrientation::Right,
@@ -92,7 +105,7 @@ impl LegendRenderer for CompiledColorbar {
             colorbar_width: Some(colorbar_width),
             colorbar_height: Some(colorbar_height),
             colorbar_margin: Some(0.0), // No margin - align exactly with axis
-            format_number: config.format_number.clone().into_option(),
+            format_number: None, // Will be set below after evaluating expression
             background_fill: None,
             background_stroke: None,
             background_corner_radius: None,
@@ -109,29 +122,41 @@ impl LegendRenderer for CompiledColorbar {
             tick_color: None,
         };
 
-        // Apply legend colors and typography from config
-        if let Some(title_color) = config.title_color.as_option() {
+        // Evaluate format_number expression
+        if let Some(node) = config.format_number.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.format_number = Some(evaluate_string_expr(&expr, ctx, params).await?);
+        }
+
+        // Evaluate and apply legend colors from config
+        if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let title_color_str = evaluate_string_expr(&expr, ctx, params).await?;
             if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
-                crate::utils::parse_color_string_strict(title_color)
+                crate::utils::parse_color_string_strict(&title_color_str)
             {
                 legend_config.title_color = Some(c);
             }
         }
         // Use tick_color for colorbar axis labels (not label_color which is for discrete legends)
-        if let Some(tick_color) = config.tick_color.as_option() {
+        if let Some(node) = config.tick_color.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let tick_color_str = evaluate_string_expr(&expr, ctx, params).await?;
             if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
-                crate::utils::parse_color_string_strict(tick_color)
+                crate::utils::parse_color_string_strict(&tick_color_str)
             {
                 legend_config.label_color = Some(c);
             }
         }
 
-        // Set typography from legend config
-        if let Some(family) = config.title_font_family.as_option() {
-            legend_config.title_font_family = Some(family.clone());
+        // Evaluate and set typography from legend config
+        if let Some(node) = config.title_font_family.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.title_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
-        if let Some(size) = config.title_font_size.as_option() {
-            legend_config.title_font_size = Some(*size);
+        if let Some(node) = config.title_font_size.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.title_font_size = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
         }
         // Override font sizes with params
         let legend_ctx = theme
@@ -146,43 +171,59 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(size) = theme.font_size(&tick_ctx) {
             legend_config.label_font_size = Some(size);
         }
-        if let Some(weight) = config.title_font_weight.as_option() {
-            legend_config.title_font_weight =
-                Some(avenger_text::types::FontWeight::Number(*weight));
+        if let Some(node) = config.title_font_weight.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
+            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
         // Use tick typography for colorbar axis labels
-        if let Some(family) = config.tick_font_family.as_option() {
-            legend_config.label_font_family = Some(family.clone());
+        if let Some(node) = config.tick_font_family.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.label_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
-        if let Some(weight) = config.tick_font_weight.as_option() {
-            legend_config.label_font_weight =
-                Some(avenger_text::types::FontWeight::Number(*weight));
+        if let Some(node) = config.tick_font_weight.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
+            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
 
-        // Apply legend background styling if provided
-        if let Some(pad) = config.background_padding.as_option() {
-            legend_config.background_padding = Some(*pad);
+        // Evaluate and apply legend background styling if provided
+        if let Some(node) = config.background_padding.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.background_padding = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
         }
-        if let Some(r) = config.background_corner_radius.as_option() {
-            legend_config.background_corner_radius = Some(*r);
+        if let Some(node) = config.background_corner_radius.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.background_corner_radius = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
         }
-        if let Some(fill_str) = config.background_fill.as_option() {
-            if let Some(color) = crate::utils::parse_color_string(fill_str) {
+        if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
+            if let Some(color) = crate::utils::parse_color_string(&fill_str) {
                 legend_config.background_fill = Some(color);
             }
         }
-        if let Some(stroke_str) = config.background_stroke.as_option() {
-            if let Some(color) = crate::utils::parse_color_string(stroke_str) {
+        if let Some(node) = config.background_stroke.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
+            if let Some(color) = crate::utils::parse_color_string(&stroke_str) {
                 legend_config.background_stroke = Some(color);
             }
         }
 
+        // Evaluate title expression
+        let title = if let Some(node) = config.title.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            evaluate_string_expr(&expr, ctx, params).await?
+        } else {
+            String::new()
+        };
+
         // Create the colorbar marks at origin [0, 0] (will be positioned by group origin)
         let plot_origin = [0.0, 0.0];
-        let title = config.title.as_option().map(|s| s.as_str()).unwrap_or("");
 
         let mut colorbar_group =
-            make_colorbar_marks(configured_scale, title, plot_origin, &legend_config)?;
+            make_colorbar_marks(configured_scale, &title, plot_origin, &legend_config)?;
 
         // Position the colorbar group
         colorbar_group.origin = [x, y];

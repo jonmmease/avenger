@@ -147,40 +147,40 @@ impl CompiledPlot {
 
             // Set text colors and typography from theme (using defaults if theme doesn't specify)
             if let Some(color) = theme.text_color(&legend_ctx.child("title")) {
-                legend.title_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+                legend = legend.title_color(color_array_to_hex(color));
             }
             if let Some(color) = theme.text_color(&legend_ctx.child("label")) {
-                legend.label_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+                legend = legend.label_color(color_array_to_hex(color));
             }
             if let Some(font_family) = theme.font_family(&legend_ctx.child("title")) {
-                legend.title_font_family = crate::maybe::Maybe::Set(font_family);
+                legend = legend.title_font_family(font_family);
             }
             if let Some(size) = theme.font_size(&legend_ctx.child("title")) {
-                legend.title_font_size = crate::maybe::Maybe::Set(size);
+                legend = legend.title_font_size(size);
             }
             if let Some(weight) = theme.font_weight(&legend_ctx.child("title")) {
-                legend.title_font_weight = crate::maybe::Maybe::Set(weight);
+                legend = legend.title_font_weight(weight);
             }
             if let Some(font_family) = theme.font_family(&legend_ctx.child("label")) {
-                legend.label_font_family = crate::maybe::Maybe::Set(font_family);
+                legend = legend.label_font_family(font_family);
             }
             if let Some(size) = theme.font_size(&legend_ctx.child("label")) {
-                legend.label_font_size = crate::maybe::Maybe::Set(size);
+                legend = legend.label_font_size(size);
             }
             if let Some(weight) = theme.font_weight(&legend_ctx.child("label")) {
-                legend.label_font_weight = crate::maybe::Maybe::Set(weight);
+                legend = legend.label_font_weight(weight);
             }
             if let Some(font_family) = theme.font_family(&legend_ctx.child("tick")) {
-                legend.tick_font_family = crate::maybe::Maybe::Set(font_family);
+                legend = legend.tick_font_family(font_family);
             }
             if let Some(size) = theme.font_size(&legend_ctx.child("tick")) {
-                legend.tick_font_size = crate::maybe::Maybe::Set(size);
+                legend = legend.tick_font_size(size);
             }
             if let Some(weight) = theme.font_weight(&legend_ctx.child("tick")) {
-                legend.tick_font_weight = crate::maybe::Maybe::Set(weight);
+                legend = legend.tick_font_weight(weight);
             }
             if let Some(color) = theme.text_color(&legend_ctx.child("tick")) {
-                legend.tick_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+                legend = legend.tick_color(color_array_to_hex(color));
             }
 
             default_legends.insert(channel.clone(), legend);
@@ -271,62 +271,62 @@ impl CompiledPlot {
             // Apply theme fonts if not explicitly set
             if matches!(legend.title_color, crate::maybe::Maybe::Unset) {
                 if let Some(color) = theme.text_color(&legend_ctx.child("title")) {
-                    legend.title_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+                    *legend = legend.clone().title_color(color_array_to_hex(color));
                 }
             }
             if matches!(legend.label_color, crate::maybe::Maybe::Unset) {
                 if let Some(color) = theme.text_color(&legend_ctx.child("label")) {
-                    legend.label_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+                    *legend = legend.clone().label_color(color_array_to_hex(color));
                 }
             }
             if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
                 if let Some(font_family) = theme.font_family(&legend_ctx.child("title")) {
-                    legend.title_font_family = crate::maybe::Maybe::Set(font_family);
+                    *legend = legend.clone().title_font_family(font_family);
                 }
             }
             if matches!(legend.title_font_size, crate::maybe::Maybe::Unset) {
                 if let Some(size) = theme.font_size(&legend_ctx.child("title")) {
-                    legend.title_font_size = crate::maybe::Maybe::Set(size);
+                    *legend = legend.clone().title_font_size(size);
                 }
             }
             if matches!(legend.title_font_weight, crate::maybe::Maybe::Unset) {
                 if let Some(weight) = theme.font_weight(&legend_ctx.child("title")) {
-                    legend.title_font_weight = crate::maybe::Maybe::Set(weight);
+                    *legend = legend.clone().title_font_weight(weight);
                 }
             }
             if matches!(legend.label_font_family, crate::maybe::Maybe::Unset) {
                 if let Some(font_family) = theme.font_family(&legend_ctx.child("label")) {
-                    legend.label_font_family = crate::maybe::Maybe::Set(font_family);
+                    *legend = legend.clone().label_font_family(font_family);
                 }
             }
             if matches!(legend.label_font_size, crate::maybe::Maybe::Unset) {
                 if let Some(size) = theme.font_size(&legend_ctx.child("label")) {
-                    legend.label_font_size = crate::maybe::Maybe::Set(size);
+                    *legend = legend.clone().label_font_size(size);
                 }
             }
             if matches!(legend.label_font_weight, crate::maybe::Maybe::Unset) {
                 if let Some(weight) = theme.font_weight(&legend_ctx.child("label")) {
-                    legend.label_font_weight = crate::maybe::Maybe::Set(weight);
+                    *legend = legend.clone().label_font_weight(weight);
                 }
             }
             if matches!(legend.tick_font_family, crate::maybe::Maybe::Unset) {
                 if let Some(font_family) = theme.font_family(&legend_ctx.child("tick")) {
-                    legend.tick_font_family = crate::maybe::Maybe::Set(font_family);
+                    *legend = legend.clone().tick_font_family(font_family);
                 }
             }
             if matches!(legend.tick_font_size, crate::maybe::Maybe::Unset) {
                 if let Some(size) = theme.font_size(&legend_ctx.child("tick")) {
-                    legend.tick_font_size = crate::maybe::Maybe::Set(size);
+                    *legend = legend.clone().tick_font_size(size);
                 }
             }
             if matches!(legend.tick_font_weight, crate::maybe::Maybe::Unset) {
                 if let Some(weight) = theme.font_weight(&legend_ctx.child("tick")) {
-                    legend.tick_font_weight = crate::maybe::Maybe::Set(weight);
+                    *legend = legend.clone().tick_font_weight(weight);
                 }
             }
             if matches!(legend.tick_color, crate::maybe::Maybe::Unset) {
                 if let Some(color) = theme.text_color(&legend_ctx.child("tick")) {
-                    legend.tick_color = crate::maybe::Maybe::Set(color_array_to_hex(color));
+                    *legend = legend.clone().tick_color(color_array_to_hex(color));
                 }
             }
             // Note: Don't apply theme background settings - they're only for default legends
@@ -413,16 +413,16 @@ impl CompiledPlot {
     }
 
     /// Merge legend channels based on merge keys
-    pub(super) fn merge_legend_channels(
+    pub(super) async fn merge_legend_channels(
         &self,
         all_legends: &IndexMap<String, Legend>,
         configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> (
+    ) -> Result<(
         Vec<Vec<crate::legend::LegendChannel>>,
         IndexMap<String, Legend>,
-    ) {
+    ), AvengerChartError> {
         use crate::legend::MergeKey;
 
         // Collect all channels that need legends from all marks
@@ -437,10 +437,8 @@ impl CompiledPlot {
                     continue;
                 }
 
-                let legend_config = &all_legends[channel_name];
-                if matches!(legend_config.visible, crate::maybe::Maybe::Set(false)) {
-                    continue;
-                }
+                // Note: Visibility is evaluated and filtered in merge_legend_channels
+                let _legend_config = &all_legends[channel_name];
 
                 let scale = &configured_scales[channel_name];
 
@@ -493,11 +491,20 @@ impl CompiledPlot {
         // Sort channel groups by their legend order
         let mut groups_with_order: Vec<(Vec<crate::legend::LegendChannel>, i32)> = Vec::new();
 
+        // Evaluate order expressions
+        use crate::plot::compiled::expr_eval::*;
+        use crate::serialization::LogicalExprNodeExt;
+
         for channels in channel_groups {
             if !channels.is_empty() {
                 let primary_channel = &channels[0];
                 if let Some(legend_config) = all_legends.get(&primary_channel.name) {
-                    let order = legend_config.order.clone().unwrap_or(i32::MAX);
+                    let order = if let Some(node) = legend_config.order.as_option().and_then(|o| o.as_ref()) {
+                        let expr = node.to_expr(ctx)?;
+                        evaluate_i32_expr(&expr, ctx, params).await?
+                    } else {
+                        i32::MAX
+                    };
                     groups_with_order.push((channels, order));
                 }
             }
@@ -518,7 +525,14 @@ impl CompiledPlot {
             if !channels.is_empty() {
                 let primary_channel = &channels[0];
                 if let Some(legend_config) = all_legends.get(&primary_channel.name) {
-                    if !matches!(legend_config.visible, crate::maybe::Maybe::Set(false)) {
+                    // Evaluate visibility expression
+                    let visible = if let Some(node) = legend_config.visible.as_option().and_then(|o| o.as_ref()) {
+                        let expr = node.to_expr(ctx)?;
+                        evaluate_bool_expr(&expr, ctx, params).await?
+                    } else {
+                        true // Default to visible
+                    };
+                    if visible {
                         // Clone the legend config and add merged channel information
                         let mut legend_with_merged = legend_config.clone();
                         // Populate merged_channels with all channel types in this group
@@ -530,13 +544,13 @@ impl CompiledPlot {
             }
         }
 
-        (sorted_channel_groups, legends_map)
+        Ok((sorted_channel_groups, legends_map))
     }
 
     /// Prepare legend measurements for layout computation
     /// Note: This should be called with the legends_map from merge_legend_channels
     /// to ensure measurements match rendering
-    pub(super) fn prepare_legend_measurements(
+    pub(super) async fn prepare_legend_measurements(
         &self,
         legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -556,7 +570,7 @@ impl CompiledPlot {
         // Merge channels to get the same groups that will be used for rendering
         // Use the passed-in legends parameter which is already sorted
         let (sorted_channel_groups, _) =
-            self.merge_legend_channels(&all_legends, scales, ctx, params);
+            self.merge_legend_channels(&all_legends, scales, ctx, params).await?;
 
         for channels in sorted_channel_groups {
             if channels.is_empty() {
@@ -615,11 +629,17 @@ impl CompiledPlot {
                     available_space,
                     theme.as_ref(),
                     params,
-                )?;
-                let position = legend
-                    .position
-                    .clone()
-                    .unwrap_or(crate::legend::LegendPosition::Right);
+                    ctx,
+                ).await?;
+                // Evaluate position expression
+                use crate::plot::compiled::expr_eval::*;
+                use crate::serialization::LogicalExprNodeExt;
+                let position = if let Some(node) = legend.position.as_option().and_then(|o| o.as_ref()) {
+                    let expr = node.to_expr(ctx)?;
+                    evaluate_legend_position_expr(&expr, ctx, params).await?
+                } else {
+                    crate::legend::LegendPosition::Right
+                };
                 legend_measurements.insert(
                     primary_channel.name.clone(),
                     LegendMeasurement {

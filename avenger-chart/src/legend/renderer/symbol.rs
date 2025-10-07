@@ -56,6 +56,7 @@ impl CompiledSymbolLegend {
     }
 }
 
+#[async_trait::async_trait]
 #[typetag::serde]
 impl LegendRenderer for CompiledSymbolLegend {
     fn name(&self) -> &'static str {
@@ -86,7 +87,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         .collect()
     }
 
-    fn render(
+    async fn render(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
@@ -96,6 +97,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         _height: f32,
         theme: &crate::theme::Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         // Determine if this is a measure call (x=0, y=0) or actual render
         let is_measure = x == 0.0 && y == 0.0;
@@ -226,8 +228,19 @@ impl LegendRenderer for CompiledSymbolLegend {
             "Creating symbol legend with inner_width: 0.0, inner_height: 100.0, outer_margin: 0.0, text_padding: 2.0"
         );
 
+        // Evaluate title expression
+        use crate::plot::compiled::expr_eval::*;
+        use crate::serialization::LogicalExprNodeExt;
+
+        let title = if let Some(node) = config.title.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            Some(evaluate_string_expr(&expr, ctx, params).await?)
+        } else {
+            None
+        };
+
         let mut legend_config = SymbolLegendConfig {
-            title: config.title.clone().into_option(),
+            title,
             text: ScalarOrArray::new_array(text_values.clone()),
             inner_width: 0.0, // Don't offset internally, we'll position the whole group
             inner_height: 100.0, // Will be calculated by legend
@@ -236,9 +249,11 @@ impl LegendRenderer for CompiledSymbolLegend {
             ..Default::default()
         };
 
-        // Set text colors from legend config - fail if colors cannot be parsed
-        if let Some(title_color) = config.title_color.as_option() {
-            let color = crate::utils::parse_color_string_strict(title_color)?;
+        // Evaluate and set text colors from legend config
+        if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let title_color = evaluate_string_expr(&expr, ctx, params).await?;
+            let color = crate::utils::parse_color_string_strict(&title_color)?;
             legend_config.title_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
                 _ => {
@@ -249,8 +264,10 @@ impl LegendRenderer for CompiledSymbolLegend {
                 }
             });
         }
-        if let Some(label_color) = config.label_color.as_option() {
-            let color = crate::utils::parse_color_string_strict(label_color)?;
+        if let Some(node) = config.label_color.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let label_color = evaluate_string_expr(&expr, ctx, params).await?;
+            let color = crate::utils::parse_color_string_strict(&label_color)?;
             legend_config.label_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
                 _ => {
@@ -262,12 +279,14 @@ impl LegendRenderer for CompiledSymbolLegend {
             });
         }
 
-        // Set typography from legend config
-        if let Some(family) = config.title_font_family.as_option() {
-            legend_config.title_font_family = Some(family.clone());
+        // Evaluate and set typography from legend config
+        if let Some(node) = config.title_font_family.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.title_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
-        if let Some(size) = config.title_font_size.as_option() {
-            legend_config.title_font_size = Some(*size);
+        if let Some(node) = config.title_font_size.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.title_font_size = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
         }
         // Override font sizes with params
         let legend_type = if self.has_rect_mark {
@@ -287,35 +306,45 @@ impl LegendRenderer for CompiledSymbolLegend {
         if let Some(size) = theme.font_size(&label_ctx) {
             legend_config.label_font_size = Some(size);
         }
-        if let Some(weight) = config.title_font_weight.as_option() {
-            legend_config.title_font_weight =
-                Some(avenger_text::types::FontWeight::Number(*weight));
+        if let Some(node) = config.title_font_weight.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
+            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
-        if let Some(family) = config.label_font_family.as_option() {
-            legend_config.label_font_family = Some(family.clone());
+        if let Some(node) = config.label_font_family.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.label_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
-        if let Some(weight) = config.label_font_weight.as_option() {
-            legend_config.label_font_weight =
-                Some(avenger_text::types::FontWeight::Number(*weight));
+        if let Some(node) = config.label_font_weight.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
+            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
 
-        // Apply legend background styling if provided
-        if let Some(pad) = config.background_padding.as_option() {
-            legend_config.background_padding = Some(*pad);
+        // Evaluate and apply legend background styling if provided
+        if let Some(node) = config.background_padding.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let pad = evaluate_dimension_expr(&expr, ctx, params).await?;
+            legend_config.background_padding = Some(pad);
             tracing::trace!(padding = pad, "Symbol legend padding set");
         } else {
             tracing::trace!("Symbol legend padding: None (will use default)");
         }
-        if let Some(r) = config.background_corner_radius.as_option() {
-            legend_config.background_corner_radius = Some(*r);
+        if let Some(node) = config.background_corner_radius.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            legend_config.background_corner_radius = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
         }
-        if let Some(fill_str) = config.background_fill.as_option() {
+        if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
             legend_config.background_fill =
-                Some(crate::utils::parse_color_string_strict(fill_str)?);
+                Some(crate::utils::parse_color_string_strict(&fill_str)?);
         }
-        if let Some(stroke_str) = config.background_stroke.as_option() {
+        if let Some(node) = config.background_stroke.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
             legend_config.background_stroke =
-                Some(crate::utils::parse_color_string_strict(stroke_str)?);
+                Some(crate::utils::parse_color_string_strict(&stroke_str)?);
         }
 
         // Apply each channel's mapping

@@ -19,6 +19,7 @@ use datafusion_common::ScalarValue;
 use std::sync::Arc;
 
 /// Trait for implementing custom legend renderers
+#[async_trait::async_trait]
 #[typetag::serde(tag = "type")]
 pub trait LegendRenderer: Send + Sync + 'static {
     /// Get the name of this renderer for debugging
@@ -59,7 +60,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
     }
 
     /// Render the legend to scene marks
-    fn render(
+    async fn render(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
@@ -69,16 +70,18 @@ pub trait LegendRenderer: Send + Sync + 'static {
         height: f32,
         theme: &crate::theme::Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Option<SceneGroup>, AvengerChartError>;
 
     /// Measure the size this legend will require by rendering it
-    fn measure(
+    async fn measure(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
         available_space: taffy::Size<f32>,
         theme: &crate::theme::Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<taffy::Size<f32>, AvengerChartError> {
         // Default implementation: render at origin and measure bounds
         use avenger_geometry::marks::MarkGeometryUtils;
@@ -94,7 +97,8 @@ pub trait LegendRenderer: Send + Sync + 'static {
             available_space.height,
             theme,
             params,
-        )? {
+            ctx,
+        ).await? {
             let bounds = group.bounding_box();
 
             // Account for stroke width on background if present

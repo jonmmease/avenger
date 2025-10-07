@@ -509,7 +509,7 @@ impl CompiledPlot {
 
         // Use the helper to merge legend channels
         let (_channel_groups, legends_map) =
-            self.merge_legend_channels(&all_legends, scales, ctx, params);
+            self.merge_legend_channels(&all_legends, scales, ctx, params).await?;
 
         // Prepare legend measurements
         let available_size = taffy::Size {
@@ -517,7 +517,7 @@ impl CompiledPlot {
             height: height * INITIAL_PLOT_AREA_RATIO,
         };
         let legend_measurements =
-            self.prepare_legend_measurements(&legends_map, scales, available_size, ctx, params)?;
+            self.prepare_legend_measurements(&legends_map, scales, available_size, ctx, params).await?;
 
         // Create ChartLayout with overflow directly
         let layout_spec = self.get_layout_spec();
@@ -543,7 +543,7 @@ impl CompiledPlot {
     }
 
     /// Create legends positioned according to layout
-    fn create_legends_with_layout(
+    async fn create_legends_with_layout(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         layout: &crate::layout::LayoutResult,
@@ -557,7 +557,7 @@ impl CompiledPlot {
 
         // Use the helper to merge legend channels
         let (sorted_channel_groups, _legends_map) =
-            self.merge_legend_channels(&all_legend_configs, scales, ctx, params);
+            self.merge_legend_channels(&all_legend_configs, scales, ctx, params).await?;
 
         // Create legend marks positioned according to layout
         let mut legend_marks = Vec::new();
@@ -596,24 +596,38 @@ impl CompiledPlot {
                     })
                 };
 
-                // Skip this legend group if no renderer is available
-                if let Some(renderer) = renderer_opt {
-                    // Render the legend with the determined renderer
-                    let theme = self.get_theme();
-                    let group_opt = renderer.render(
-                        &channels,
-                        legend,
-                        bounds.x,
-                        bounds.y,
-                        bounds.width,
-                        bounds.height,
-                        theme.as_ref(),
-                        params,
-                    )?;
+                // Check visibility before rendering
+                use crate::plot::compiled::expr_eval::*;
+                use crate::serialization::LogicalExprNodeExt;
 
-                    // Add the legend group mark if it was rendered
-                    if let Some(group) = group_opt {
-                        legend_marks.push(SceneMark::Group(group));
+                let visible = if let Some(node) = legend.visible.as_option().and_then(|o| o.as_ref()) {
+                    let expr = node.to_expr(ctx)?;
+                    evaluate_bool_expr(&expr, ctx, params).await?
+                } else {
+                    true // Default to visible
+                };
+
+                // Skip this legend group if no renderer is available or if not visible
+                if visible {
+                    if let Some(renderer) = renderer_opt {
+                        // Render the legend with the determined renderer
+                        let theme = self.get_theme();
+                        let group_opt = renderer.render(
+                            &channels,
+                            legend,
+                            bounds.x,
+                            bounds.y,
+                            bounds.width,
+                            bounds.height,
+                            theme.as_ref(),
+                            params,
+                            ctx,
+                        ).await?;
+
+                        // Add the legend group mark if it was rendered
+                        if let Some(group) = group_opt {
+                            legend_marks.push(SceneMark::Group(group));
+                        }
                     }
                 }
             }
@@ -681,7 +695,7 @@ impl CompiledPlot {
             plot_area_height,
             ctx,
             params,
-        )?;
+        ).await?;
 
         // Create title
         let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {

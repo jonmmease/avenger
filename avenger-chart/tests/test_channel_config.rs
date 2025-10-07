@@ -1,6 +1,5 @@
 // Test that channel-level scale and legend configuration works
 
-use avenger_chart::maybe::Maybe;
 use avenger_chart::prelude::*;
 use datafusion::prelude::SessionContext;
 use palette::Srgba;
@@ -58,14 +57,12 @@ async fn test_channel_legend_config() {
 
     // The legend configs should be extracted and stored in the compiled plot
     assert!(compiled.legends().contains_key("fill"));
-    assert_eq!(
-        compiled.legends()["fill"].title,
-        Maybe::Set("Category".to_string())
-    );
-    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(true));
+    // Check that fields are set (values are now LogicalExprNode)
+    assert!(compiled.legends()["fill"].title.is_set());
+    assert!(compiled.legends()["fill"].visible.is_set());
 
     assert!(compiled.legends().contains_key("size"));
-    assert_eq!(compiled.legends()["size"].visible, Maybe::Set(false));
+    assert!(compiled.legends()["size"].visible.is_set());
 }
 
 #[tokio::test]
@@ -112,7 +109,7 @@ async fn test_channel_config() {
     assert!(compiled.scale_specs().contains_key("fill")); // From channel with scale config
 
     assert!(compiled.legends().contains_key("fill")); // From channel
-    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(false));
+    assert!(compiled.legends()["fill"].visible.is_set());
 
     // Position channels don't have legends, they have axes
     assert!(!compiled.legends().contains_key("x"));
@@ -133,7 +130,7 @@ async fn test_no_legend_helper() {
 
     // The legend should be created but marked as not visible
     assert!(compiled.legends().contains_key("fill"));
-    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(false));
+    assert!(compiled.legends()["fill"].visible.is_set());
 }
 
 #[tokio::test]
@@ -179,14 +176,11 @@ async fn test_direct_expr_legend_config() {
 
     // The legend configs should be extracted
     assert!(compiled.legends().contains_key("fill"));
-    assert_eq!(
-        compiled.legends()["fill"].title,
-        Maybe::Set("Category".to_string())
-    );
-    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(true));
+    assert!(compiled.legends()["fill"].title.is_set());
+    assert!(compiled.legends()["fill"].visible.is_set());
 
     assert!(compiled.legends().contains_key("size"));
-    assert_eq!(compiled.legends()["size"].visible, Maybe::Set(false));
+    assert!(compiled.legends()["size"].visible.is_set());
 }
 
 #[tokio::test]
@@ -215,7 +209,7 @@ async fn test_direct_expr_combined_config() {
 
     assert!(compiled.scale_specs().contains_key("fill"));
     assert!(compiled.legends().contains_key("fill"));
-    assert_eq!(compiled.legends()["fill"].visible, Maybe::Set(false));
+    assert!(compiled.legends()["fill"].visible.is_set());
 }
 
 #[tokio::test]

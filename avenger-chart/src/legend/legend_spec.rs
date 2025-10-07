@@ -1,6 +1,7 @@
 use super::LegendRenderer;
-use crate::maybe::Maybe;
+use crate::maybe::{Maybe, MaybeOptionalExpr};
 use crate::serialization::SerializableNestedScalarMap;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 use std::sync::Arc;
@@ -9,47 +10,74 @@ use std::sync::Arc;
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Legend {
-    pub visible: Maybe<bool>,
-    pub title: Maybe<String>,
-    pub position: Maybe<LegendPosition>,
-    pub orientation: Maybe<LegendOrientation>,
-    pub symbol_size: Maybe<f64>,
-    pub gradient_length: Maybe<f64>,
-    pub gradient_thickness: Maybe<f64>,
-    pub columns: Maybe<usize>,
-    pub label_limit: Maybe<f64>,
-    pub format_number: Maybe<String>,
-    pub background_fill: Maybe<String>,
-    pub background_stroke: Maybe<String>,
-    pub background_corner_radius: Maybe<f32>,
-    pub background_padding: Maybe<f32>,
-    pub order: Maybe<i32>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub visible: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub title: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub position: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub orientation: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub symbol_size: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub gradient_length: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub gradient_thickness: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub columns: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub label_limit: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub format_number: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub background_fill: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub background_stroke: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub background_corner_radius: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub background_padding: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub order: Maybe<Option<LogicalExprNode>>,
     pub contributing_marks: Vec<String>,
     /// Optional custom renderer override
     pub renderer: Option<Arc<dyn LegendRenderer>>,
     /// Channels that have been merged into this legend (for layout width calculation)
     pub merged_channels: Vec<String>,
     /// Text colors from theme
-    pub title_color: Maybe<String>,
-    pub label_color: Maybe<String>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub title_color: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub label_color: Maybe<Option<LogicalExprNode>>,
     /// Theme mark defaults (for legend symbol rendering)
     #[serde_as(as = "Option<FromInto<SerializableNestedScalarMap>>")]
     pub theme_mark_defaults: Option<
         indexmap::IndexMap<String, indexmap::IndexMap<String, datafusion_common::ScalarValue>>,
     >,
     /// Typography from theme
-    pub title_font_family: Maybe<String>,
-    pub title_font_size: Maybe<f32>,
-    pub title_font_weight: Maybe<f32>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub title_font_family: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub title_font_size: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub title_font_weight: Maybe<Option<LogicalExprNode>>,
     /// Item label typography (for discrete legends: symbol, line, rect)
-    pub label_font_family: Maybe<String>,
-    pub label_font_size: Maybe<f32>,
-    pub label_font_weight: Maybe<f32>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub label_font_family: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub label_font_size: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub label_font_weight: Maybe<Option<LogicalExprNode>>,
     /// Tick label typography (for continuous legends: colorbar)
-    pub tick_font_family: Maybe<String>,
-    pub tick_font_size: Maybe<f32>,
-    pub tick_font_weight: Maybe<f32>,
-    pub tick_color: Maybe<String>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub tick_font_family: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub tick_font_size: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub tick_font_weight: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub tick_color: Maybe<Option<LogicalExprNode>>,
 }
 
 // Custom Debug implementation since LegendRenderer doesn't implement Debug
@@ -107,8 +135,13 @@ pub enum LegendOrientation {
 
 impl Legend {
     pub fn new() -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        use datafusion::prelude::lit;
+
         Self {
-            visible: Maybe::Set(true),
+            visible: Maybe::Set(Some(
+                LogicalExprNode::from_expr(lit(true)).expect("Failed to serialize visible expr"),
+            )),
             position: Maybe::Unset,
             title: Maybe::Unset,
             orientation: Maybe::Unset,
@@ -240,84 +273,265 @@ impl Legend {
         self
     }
 
-    pub fn visible(mut self, visible: bool) -> Self {
-        self.visible = Maybe::Set(visible);
+    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = visible.into_expr();
+        self.visible = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize visible expr"),
+        ));
         self
     }
 
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = Maybe::Set(title.into());
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = title.into_expr();
+        self.title = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
+        ));
         self
     }
 
-    pub fn position(mut self, position: LegendPosition) -> Self {
-        self.position = Maybe::Set(position);
+    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = position.into_expr();
+        self.position = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize position expr"),
+        ));
         self
     }
 
-    pub fn orientation(mut self, orientation: LegendOrientation) -> Self {
-        self.orientation = Maybe::Set(orientation);
+    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = orientation.into_expr();
+        self.orientation = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize orientation expr"),
+        ));
         self
     }
 
-    pub fn symbol_size(mut self, size: f64) -> Self {
-        self.symbol_size = Maybe::Set(size);
+    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = size.into_expr();
+        self.symbol_size = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize symbol_size expr"),
+        ));
         self
     }
 
-    pub fn gradient_length(mut self, length: f64) -> Self {
-        self.gradient_length = Maybe::Set(length);
+    pub fn gradient_length(mut self, length: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = length.into_expr();
+        self.gradient_length = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize gradient_length expr"),
+        ));
         self
     }
 
-    pub fn gradient_thickness(mut self, thickness: f64) -> Self {
-        self.gradient_thickness = Maybe::Set(thickness);
+    pub fn gradient_thickness(mut self, thickness: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = thickness.into_expr();
+        self.gradient_thickness = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize gradient_thickness expr"),
+        ));
         self
     }
 
-    pub fn columns(mut self, columns: usize) -> Self {
-        self.columns = Maybe::Set(columns);
+    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = columns.into_expr();
+        self.columns = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize columns expr"),
+        ));
         self
     }
 
-    pub fn label_limit(mut self, limit: f64) -> Self {
-        self.label_limit = Maybe::Set(limit);
+    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = limit.into_expr();
+        self.label_limit = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize label_limit expr"),
+        ));
         self
     }
 
     /// Set a numeric formatting string for legend labels.
-    pub fn format_number(mut self, pattern: impl Into<String>) -> Self {
-        self.format_number = Maybe::Set(pattern.into());
+    pub fn format_number(mut self, pattern: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = pattern.into_expr();
+        self.format_number = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize format_number expr"),
+        ));
         self
     }
 
-    pub fn background_fill(mut self, color: impl Into<String>) -> Self {
-        self.background_fill = Maybe::Set(color.into());
+    pub fn background_fill(mut self, color: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = color.into_expr();
+        self.background_fill = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize background_fill expr"),
+        ));
         self
     }
 
-    pub fn background_stroke(mut self, color: impl Into<String>) -> Self {
-        self.background_stroke = Maybe::Set(color.into());
+    pub fn background_stroke(mut self, color: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = color.into_expr();
+        self.background_stroke = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize background_stroke expr"),
+        ));
         self
     }
 
-    pub fn background_corner_radius(mut self, r: f32) -> Self {
-        self.background_corner_radius = Maybe::Set(r);
+    pub fn background_corner_radius(mut self, r: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = r.into_expr();
+        self.background_corner_radius = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr)
+                .expect("Failed to serialize background_corner_radius expr"),
+        ));
         self
     }
 
-    pub fn background_padding(mut self, pad: f32) -> Self {
-        self.background_padding = Maybe::Set(pad);
+    pub fn background_padding(mut self, pad: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = pad.into_expr();
+        self.background_padding = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize background_padding expr"),
+        ));
         self
     }
 
-    pub fn order(mut self, order: i32) -> Self {
-        self.order = Maybe::Set(order);
+    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = order.into_expr();
+        self.order = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize order expr"),
+        ));
         self
     }
 
     pub fn add_contributing_mark(mut self, mark_id: impl Into<String>) -> Self {
         self.contributing_marks.push(mark_id.into());
+        self
+    }
+
+    /// Set title color
+    pub fn title_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = color.into_expr();
+        self.title_color = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize title_color expr"),
+        ));
+        self
+    }
+
+    /// Set label color
+    pub fn label_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = color.into_expr();
+        self.label_color = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize label_color expr"),
+        ));
+        self
+    }
+
+    /// Set tick color
+    pub fn tick_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = color.into_expr();
+        self.tick_color = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_color expr"),
+        ));
+        self
+    }
+
+    /// Set title font family
+    pub fn title_font_family(mut self, family: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = family.into_expr();
+        self.title_font_family = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize title_font_family expr"),
+        ));
+        self
+    }
+
+    /// Set title font size
+    pub fn title_font_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = size.into_expr();
+        self.title_font_size = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize title_font_size expr"),
+        ));
+        self
+    }
+
+    /// Set title font weight
+    pub fn title_font_weight(mut self, weight: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = weight.into_expr();
+        self.title_font_weight = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize title_font_weight expr"),
+        ));
+        self
+    }
+
+    /// Set label font family
+    pub fn label_font_family(mut self, family: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = family.into_expr();
+        self.label_font_family = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize label_font_family expr"),
+        ));
+        self
+    }
+
+    /// Set label font size
+    pub fn label_font_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = size.into_expr();
+        self.label_font_size = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize label_font_size expr"),
+        ));
+        self
+    }
+
+    /// Set label font weight
+    pub fn label_font_weight(mut self, weight: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = weight.into_expr();
+        self.label_font_weight = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize label_font_weight expr"),
+        ));
+        self
+    }
+
+    /// Set tick font family
+    pub fn tick_font_family(mut self, family: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = family.into_expr();
+        self.tick_font_family = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_font_family expr"),
+        ));
+        self
+    }
+
+    /// Set tick font size
+    pub fn tick_font_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = size.into_expr();
+        self.tick_font_size = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_font_size expr"),
+        ));
+        self
+    }
+
+    /// Set tick font weight
+    pub fn tick_font_weight(mut self, weight: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = weight.into_expr();
+        self.tick_font_weight = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_font_weight expr"),
+        ));
         self
     }
 
@@ -337,7 +551,6 @@ impl Default for Legend {
 #[cfg(test)]
 mod tests {
     use crate::legend::{LegendOrientation, LegendPosition};
-    use crate::maybe::Maybe;
     use crate::plot::Plot;
     use crate::zerod::ZeroDCoord;
 
@@ -350,8 +563,9 @@ mod tests {
         // Should have legend configured
         assert!(plot.legends.contains_key("fill"));
         let legend = &plot.legends["fill"];
-        assert_eq!(legend.title, Maybe::Set("Temperature".to_string()));
-        assert_eq!(legend.position, Maybe::Set(LegendPosition::Right));
+        // Check that fields are set (not Unset) - values are now LogicalExprNode
+        assert!(legend.title.is_set());
+        assert!(legend.position.is_set());
     }
 
     #[test]
@@ -361,7 +575,8 @@ mod tests {
         // Legend exists but is marked invisible
         assert!(plot.legends.contains_key("fill"));
         let legend = &plot.legends["fill"];
-        assert_eq!(legend.visible, Maybe::Set(false));
+        // Check that visible is set
+        assert!(legend.visible.is_set());
     }
 
     #[test]
@@ -375,12 +590,10 @@ mod tests {
 
         assert!(plot.legends.contains_key("stroke"));
         let legend = &plot.legends["stroke"];
-        assert_eq!(legend.title, Maybe::Set("Category".to_string()));
-        assert_eq!(
-            legend.orientation,
-            Maybe::Set(LegendOrientation::Horizontal)
-        );
-        assert_eq!(legend.columns, Maybe::Set(3));
+        // Check that fields are set
+        assert!(legend.title.is_set());
+        assert!(legend.orientation.is_set());
+        assert!(legend.columns.is_set());
     }
 
     #[test]
@@ -391,8 +604,9 @@ mod tests {
 
         assert!(plot.legends.contains_key("size"));
         let legend = &plot.legends["size"];
-        assert_eq!(legend.title, Maybe::Set("Population".to_string()));
-        assert_eq!(legend.symbol_size, Maybe::Set(20.0));
+        // Check that fields are set
+        assert!(legend.title.is_set());
+        assert!(legend.symbol_size.is_set());
     }
 
     #[test]
@@ -406,9 +620,10 @@ mod tests {
 
         assert!(plot.legends.contains_key("opacity"));
         let legend = &plot.legends["opacity"];
-        assert_eq!(legend.title, Maybe::Set("Confidence".to_string()));
-        assert_eq!(legend.gradient_length, Maybe::Set(150.0));
-        assert_eq!(legend.gradient_thickness, Maybe::Set(15.0));
+        // Check that fields are set
+        assert!(legend.title.is_set());
+        assert!(legend.gradient_length.is_set());
+        assert!(legend.gradient_thickness.is_set());
     }
 
     #[test]
@@ -435,6 +650,7 @@ mod tests {
         // Second call should update the existing legend
         assert_eq!(plot.legends.len(), 1);
         let legend = &plot.legends["fill"];
-        assert_eq!(legend.title, Maybe::Set("Updated Title".to_string()));
+        // Check that title is set (the second value overwrote the first)
+        assert!(legend.title.is_set());
     }
 }

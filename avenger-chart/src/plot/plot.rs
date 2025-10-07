@@ -114,6 +114,30 @@ impl IntoExpr for crate::polar::axis::PolarDirection {
     }
 }
 
+impl IntoExpr for crate::legend::LegendPosition {
+    fn into_expr(self) -> Expr {
+        use crate::legend::LegendPosition;
+        let s = match self {
+            LegendPosition::Top => "top",
+            LegendPosition::Right => "right",
+            LegendPosition::Bottom => "bottom",
+            LegendPosition::Left => "left",
+        };
+        lit(s)
+    }
+}
+
+impl IntoExpr for crate::legend::LegendOrientation {
+    fn into_expr(self) -> Expr {
+        use crate::legend::LegendOrientation;
+        let s = match self {
+            LegendOrientation::Horizontal => "horizontal",
+            LegendOrientation::Vertical => "vertical",
+        };
+        lit(s)
+    }
+}
+
 use super::compiled::CompiledPlot;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
