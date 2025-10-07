@@ -40,7 +40,12 @@ async fn test_colorbar_right_position() {
                 .y(col("y"))
                 .fill_with(col("temperature"), |c| {
                     c.scale(|s| s)
-                        .legend(|l| l.title("Temperature (°C)").position(LegendPosition::Right))
+                        .legend(|l| {
+                            l.title("Temperature (°C)")
+                                .position(LegendPosition::Right)
+                                .background_fill("#e8e8e8")
+                                .background_stroke("#999999")
+                        })
                 })
                 .size(100.0),
         );
@@ -70,7 +75,12 @@ async fn test_colorbar_left_position() {
                 .y(col("y"))
                 .fill_with(col("temperature"), |c| {
                     c.scale(|s| s)
-                        .legend(|l| l.title("Temperature (°C)").position(LegendPosition::Left))
+                        .legend(|l| {
+                            l.title("Temperature (°C)")
+                                .position(LegendPosition::Left)
+                                .background_fill("#e8e8e8")
+                                .background_stroke("#999999")
+                        })
                 })
                 .size(100.0),
         );
@@ -100,7 +110,12 @@ async fn test_colorbar_top_position() {
                 .y(col("y"))
                 .fill_with(col("temperature"), |c| {
                     c.scale(|s| s)
-                        .legend(|l| l.title("Temperature (°C)").position(LegendPosition::Top))
+                        .legend(|l| {
+                            l.title("Temperature (°C)")
+                                .position(LegendPosition::Top)
+                                .background_fill("#e8e8e8")
+                                .background_stroke("#999999")
+                        })
                 })
                 .size(100.0),
         );
@@ -130,7 +145,12 @@ async fn test_colorbar_bottom_position() {
                 .y(col("y"))
                 .fill_with(col("temperature"), |c| {
                     c.scale(|s| s)
-                        .legend(|l| l.title("Temperature (°C)").position(LegendPosition::Bottom))
+                        .legend(|l| {
+                            l.title("Temperature (°C)")
+                                .position(LegendPosition::Bottom)
+                                .background_fill("#e8e8e8")
+                                .background_stroke("#999999")
+                        })
                 })
                 .size(100.0),
         );
