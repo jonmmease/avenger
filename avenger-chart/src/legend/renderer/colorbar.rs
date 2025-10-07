@@ -93,17 +93,41 @@ impl LegendRenderer for CompiledColorbar {
             15.0
         };
 
-        // Determine colorbar dimensions
-        // When using Taffy layout, height is the allocated height
-        // We should use this directly as the total colorbar height
-        let colorbar_height = height;
-        let colorbar_width = gradient_thickness as f32;
+        // Evaluate position to determine orientation
+        let position = if let Some(node) = config.position.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            evaluate_legend_position_expr(&expr, ctx, params).await?
+        } else {
+            crate::legend::LegendPosition::Right // default
+        };
+
+        // Map position to ColorbarOrientation
+        let orientation = match position {
+            crate::legend::LegendPosition::Top => ColorbarOrientation::Top,
+            crate::legend::LegendPosition::Bottom => ColorbarOrientation::Bottom,
+            crate::legend::LegendPosition::Left => ColorbarOrientation::Left,
+            crate::legend::LegendPosition::Right => ColorbarOrientation::Right,
+        };
+
+        // Determine colorbar dimensions based on orientation
+        // For vertical orientations (Left/Right): use height for gradient length
+        // For horizontal orientations (Top/Bottom): use width for gradient length
+        let (colorbar_height_param, colorbar_width_param) = match orientation {
+            ColorbarOrientation::Left | ColorbarOrientation::Right => {
+                // Vertical: height is the gradient length, width is the thickness
+                (Some(height), Some(gradient_thickness as f32))
+            }
+            ColorbarOrientation::Top | ColorbarOrientation::Bottom => {
+                // Horizontal: width is the gradient length, height is the thickness
+                (Some(width), Some(gradient_thickness as f32))
+            }
+        };
 
         let mut legend_config = ColorbarConfig {
-            orientation: ColorbarOrientation::Right,
+            orientation,
             dimensions: [width, height], // Available space for the colorbar
-            colorbar_width: Some(colorbar_width),
-            colorbar_height: Some(colorbar_height),
+            colorbar_width: colorbar_width_param,
+            colorbar_height: colorbar_height_param,
             colorbar_margin: Some(0.0), // No margin - align exactly with axis
             format_number: None, // Will be set below after evaluating expression
             background_fill: None,

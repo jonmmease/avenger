@@ -198,6 +198,22 @@ impl GridBuilder {
         max_width
     }
 
+    /// Measure the total height needed for a legend container
+    /// For horizontal legends (Top/Bottom), legends stack vertically
+    pub fn measure_legend_container_height(
+        &self,
+        channels: &[String],
+        legend_sizes: &HashMap<String, Size<f32>>,
+    ) -> f32 {
+        let mut total_height: f32 = 0.0;
+        for channel in channels {
+            if let Some(size) = legend_sizes.get(channel) {
+                total_height += size.height;
+            }
+        }
+        total_height
+    }
+
     /// Build the final grid template based on collected components and overflow requirements.
     ///
     /// Returns a `GridLayout` containing both the track sizing functions and component positions
@@ -234,7 +250,16 @@ impl GridBuilder {
         }
         let mut col_index = 1;
 
-        // 2. Add left overflow column if needed for guide overflow (e.g., axis labels extending left)
+        // 2. Add columns for left-positioned legend containers
+        let mut left_legend_cols = Vec::new();
+        if let Some(channels) = self.legends_by_position.get(&LegendPosition::Left) {
+            let width = self.measure_legend_container_width(channels, legend_sizes);
+            grid.cols.push(length(width));
+            left_legend_cols.push(col_index);
+            col_index += 1;
+        }
+
+        // 3. Add left overflow column if needed for guide overflow (e.g., axis labels extending left)
         let left_overflow_col = if overflow.left > MIN_GUIDE_OVERFLOW_SIZE {
             grid.cols.push(length(overflow.left)); // Exact overflow size
             let idx = col_index;
@@ -244,7 +269,7 @@ impl GridBuilder {
             None
         };
 
-        // 3. Add plot area column
+        // 4. Add plot area column
         // Use fixed width if plot width is specified, otherwise flexible (fr)
         let plot_col_index = col_index;
         let plot_col_size = match &layout_spec.plot_area {
@@ -255,7 +280,7 @@ impl GridBuilder {
         grid.cols.push(plot_col_size);
         col_index += 1;
 
-        // 4. Add right overflow column if needed for guide overflow (e.g., axis labels extending right)
+        // 5. Add right overflow column if needed for guide overflow (e.g., axis labels extending right)
         let right_overflow_col = if overflow.right > MIN_GUIDE_OVERFLOW_SIZE {
             grid.cols.push(length(overflow.right)); // Exact overflow size
             let idx = col_index;
@@ -265,18 +290,17 @@ impl GridBuilder {
             None
         };
 
-        // 5. Add columns for right-positioned legend containers
+        // 6. Add columns for right-positioned legend containers
         // Each container gets its own column with measured width
         let mut right_legend_cols = Vec::new();
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Right) {
             let width = self.measure_legend_container_width(channels, legend_sizes);
             grid.cols.push(length(width));
             right_legend_cols.push(col_index);
-            // col_index would be incremented here if we had more legend positions
-            let _ = col_index + 1;
+            let _ = col_index + 1; // Would be incremented for more columns
         }
 
-        // 6. End with right margin
+        // 7. End with right margin
         // Use fr(1.0) if margins should expand horizontally, otherwise use fixed length
         if expand_horizontal {
             grid.cols.push(fr(1.0));
@@ -377,7 +401,20 @@ impl GridBuilder {
             }
         }
 
-        // 4. Add top overflow row if needed for guide overflow (e.g., axis labels extending upward)
+        // 4. Add rows for top-positioned legends
+        if let Some(channels) = self.legends_by_position.get(&LegendPosition::Top) {
+            let height = self.measure_legend_container_height(channels, legend_sizes);
+            grid.rows.push(length(height));
+            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+            grid.add_component(
+                ComponentType::LegendContainer(LegendPosition::Top),
+                row_index,
+                start_col,
+            );
+            row_index += 1;
+        }
+
+        // 5. Add top overflow row if needed for guide overflow (e.g., axis labels extending upward)
         if overflow.top > MIN_GUIDE_OVERFLOW_SIZE {
             grid.rows.push(length(overflow.top)); // Exact overflow size
             grid.add_component(
@@ -388,7 +425,7 @@ impl GridBuilder {
             row_index += 1;
         }
 
-        // 5. Add plot area row
+        // 6. Add plot area row
         // Use fixed height if plot height is specified, otherwise flexible (fr)
         let plot_row_index = row_index;
         let plot_row_size = match &layout_spec.plot_area {
@@ -399,7 +436,7 @@ impl GridBuilder {
         grid.rows.push(plot_row_size);
         grid.add_component(ComponentType::PlotArea, plot_row_index, plot_col_index);
 
-        // 6. Position left/right guide overflows in their columns at the plot row
+        // 7. Position left/right guide overflows in their columns at the plot row
         if let Some(col) = left_overflow_col {
             grid.add_component(
                 ComponentType::GuideOverflow(OverflowSide::Left),
@@ -416,7 +453,20 @@ impl GridBuilder {
             );
         }
 
-        // 7. Position right legend containers at the plot row
+        // 8. Position left legend containers at the plot row
+        if self
+            .legends_by_position
+            .contains_key(&LegendPosition::Left)
+            && !left_legend_cols.is_empty()
+        {
+            grid.add_component(
+                ComponentType::LegendContainer(LegendPosition::Left),
+                plot_row_index,
+                left_legend_cols[0],
+            );
+        }
+
+        // 9. Position right legend containers at the plot row
         if self
             .legends_by_position
             .contains_key(&LegendPosition::Right)
@@ -431,7 +481,7 @@ impl GridBuilder {
 
         row_index += 1;
 
-        // 8. Add bottom overflow row if needed for guide overflow (e.g., axis labels extending downward)
+        // 10. Add bottom overflow row if needed for guide overflow (e.g., axis labels extending downward)
         if overflow.bottom > MIN_GUIDE_OVERFLOW_SIZE {
             grid.rows.push(length(overflow.bottom));
             grid.add_component(
@@ -439,9 +489,24 @@ impl GridBuilder {
                 row_index,
                 plot_col_index,
             );
+            row_index += 1;
         }
 
-        // 9. End with bottom margin
+        // 11. Add rows for bottom-positioned legends
+        if let Some(channels) = self.legends_by_position.get(&LegendPosition::Bottom) {
+            let height = self.measure_legend_container_height(channels, legend_sizes);
+            grid.rows.push(length(height));
+            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+            grid.add_component(
+                ComponentType::LegendContainer(LegendPosition::Bottom),
+                row_index,
+                start_col,
+            );
+            // row_index would be incremented here if we had more rows
+            let _ = row_index + 1;
+        }
+
+        // 12. End with bottom margin
         // Use fr(1.0) if margins should expand vertically, otherwise use fixed length
         if expand_vertical {
             grid.rows.push(fr(1.0));

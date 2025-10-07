@@ -5,6 +5,7 @@ pub mod helpers;
 pub mod test_axis_conditional_config;
 pub mod test_axis_expression_title;
 pub mod test_bar;
+pub mod test_colorbar_positions;
 pub mod test_bar_defaults;
 pub mod test_bar_scale_color;
 pub mod test_case_expression_title_simple;

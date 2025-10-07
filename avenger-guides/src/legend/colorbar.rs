@@ -19,9 +19,382 @@ pub fn make_colorbar_marks(
     config: &ColorbarConfig,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     match config.orientation {
-        ColorbarOrientation::Top => todo!(),
-        ColorbarOrientation::Bottom => todo!(),
-        ColorbarOrientation::Left => todo!(),
+        ColorbarOrientation::Top => {
+            // Horizontal gradient going left-to-right with axis above
+            let available_width = config.dimensions[0];
+            let _available_height = config.dimensions[1];
+
+            let total_width = config
+                .colorbar_height
+                .unwrap_or(available_width.min(200.0));
+            let bg_padding = config.background_padding.unwrap_or(4.0);
+
+            let gradient_width = ((total_width - 2.0 * bg_padding).max(10.0)).round();
+            let colorbar_height = config.colorbar_width.unwrap_or(15.0).round();
+            let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
+
+            // Create horizontal gradient (left to right)
+            let gradient = Gradient::LinearGradient(LinearGradient {
+                x0: 0.0,
+                y0: 0.0,
+                x1: gradient_width,
+                y1: 0.0,
+                stops: scale.color_range_as_gradient_stops(10)?,
+            });
+
+            // Create axis configuration for top orientation
+            let axis_config = AxisConfig {
+                orientation: AxisOrientation::Top,
+                dimensions: [gradient_width, 0.0],
+                grid: false,
+                format_number: config.format_number.clone(),
+                title_font_size: config.title_font_size,
+                title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
+                    FontWeight::Number(n) => *n,
+                    FontWeight::Name(FontWeightNameSpec::Normal) => 400.0,
+                    FontWeight::Name(FontWeightNameSpec::Bold) => 700.0,
+                }),
+                title_font_family: config.title_font_family.clone(),
+                title_color: config.title_color,
+                label_font_size: config.label_font_size,
+                label_font_weight: config.label_font_weight.as_ref().map(|w| match w {
+                    FontWeight::Number(n) => *n,
+                    FontWeight::Name(FontWeightNameSpec::Normal) => 400.0,
+                    FontWeight::Name(FontWeightNameSpec::Bold) => 700.0,
+                }),
+                label_font_family: config.label_font_family.clone(),
+                label_color: config.label_color,
+                domain_color: config.domain_color,
+                tick_color: config.tick_color,
+                grid_color: None,
+                grid_width: None,
+                tick_length: None,
+            };
+
+            let numeric_scale = scale.clone().with_range_interval((0.0, gradient_width));
+
+            // Create axis to measure its height
+            let axis_temp = make_numeric_axis_marks(&numeric_scale, title, [0.0, 0.0], &axis_config)?;
+            let axis_height = axis_temp.bounding_box().height();
+
+            // Position axis above the colorbar
+            let axis_origin = [0.0, 0.0];
+            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
+
+            // Position colorbar rect below the axis
+            let rect_y = axis_height + colorbar_margin;
+            let rect = SceneRectMark {
+                len: 1,
+                gradients: vec![gradient],
+                x: 0.0.into(),
+                x2: Some(gradient_width.into()),
+                y: rect_y.into(),
+                y2: Some((rect_y + colorbar_height).into()),
+                fill: ColorOrGradient::GradientIndex(0).into(),
+                ..Default::default()
+            };
+
+            // Content marks
+            let content_marks = vec![axis.clone().into(), rect.clone().into()];
+            let content_group = SceneGroup {
+                marks: content_marks.clone(),
+                ..Default::default()
+            };
+            let content_bbox = content_group.bounding_box();
+
+            let bg_width = total_width.round();
+            let bg_height = (content_bbox.height() + bg_padding * 2.0).round();
+
+            let bg_rect = SceneRectMark {
+                x: 0.0.into(),
+                y: 0.0.into(),
+                width: Some(bg_width.into()),
+                height: Some(bg_height.into()),
+                fill: config
+                    .background_fill
+                    .clone()
+                    .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]))
+                    .into(),
+                stroke: config
+                    .background_stroke
+                    .clone()
+                    .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]))
+                    .into(),
+                stroke_width: if config.background_stroke.is_some() {
+                    1.0.into()
+                } else {
+                    0.0.into()
+                },
+                corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
+                zindex: Some(0),
+                ..Default::default()
+            };
+
+            let colorbar_axis_group = SceneGroup {
+                origin: [bg_padding, bg_padding],
+                marks: vec![axis.into(), rect.into()],
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                ..Default::default()
+            };
+
+            let marks = vec![bg_rect.into(), colorbar_axis_group.into()];
+
+            Ok(SceneGroup {
+                origin: [0.0, 0.0],
+                marks,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                ..Default::default()
+            })
+        }
+        ColorbarOrientation::Bottom => {
+            // Horizontal gradient going left-to-right with axis below
+            let available_width = config.dimensions[0];
+            let _available_height = config.dimensions[1];
+
+            // For horizontal colorbars, width is the length and colorbar_width becomes the thickness
+            let total_width = config
+                .colorbar_height // Using colorbar_height for the length dimension
+                .unwrap_or(available_width.min(200.0));
+            let bg_padding = config.background_padding.unwrap_or(4.0);
+
+            let gradient_width = ((total_width - 2.0 * bg_padding).max(10.0)).round();
+            let colorbar_height = config.colorbar_width.unwrap_or(15.0).round(); // thickness
+            let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
+
+            // Create horizontal gradient (left to right)
+            let gradient = Gradient::LinearGradient(LinearGradient {
+                x0: 0.0,
+                y0: 0.0,
+                x1: gradient_width,
+                y1: 0.0,
+                stops: scale.color_range_as_gradient_stops(10)?,
+            });
+
+            // Make colorbar rect
+            let rect = SceneRectMark {
+                len: 1,
+                gradients: vec![gradient],
+                x: 0.0.into(),
+                x2: Some(gradient_width.into()),
+                y: 0.0.into(),
+                y2: Some(colorbar_height.into()),
+                fill: ColorOrGradient::GradientIndex(0).into(),
+                ..Default::default()
+            };
+
+            // Create axis configuration for bottom orientation
+            let axis_config = AxisConfig {
+                orientation: AxisOrientation::Bottom,
+                dimensions: [gradient_width, 0.0],
+                grid: false,
+                format_number: config.format_number.clone(),
+                title_font_size: config.title_font_size,
+                title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
+                    FontWeight::Number(n) => *n,
+                    FontWeight::Name(FontWeightNameSpec::Normal) => 400.0,
+                    FontWeight::Name(FontWeightNameSpec::Bold) => 700.0,
+                }),
+                title_font_family: config.title_font_family.clone(),
+                title_color: config.title_color,
+                label_font_size: config.label_font_size,
+                label_font_weight: config.label_font_weight.as_ref().map(|w| match w {
+                    FontWeight::Number(n) => *n,
+                    FontWeight::Name(FontWeightNameSpec::Normal) => 400.0,
+                    FontWeight::Name(FontWeightNameSpec::Bold) => 700.0,
+                }),
+                label_font_family: config.label_font_family.clone(),
+                label_color: config.label_color,
+                domain_color: config.domain_color,
+                tick_color: config.tick_color,
+                grid_color: None,
+                grid_width: None,
+                tick_length: None,
+            };
+
+            // Create scale with horizontal range
+            let numeric_scale = scale.clone().with_range_interval((0.0, gradient_width));
+
+            // Position axis below the colorbar
+            let axis_origin = [0.0, colorbar_height + colorbar_margin];
+            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
+
+            // Content marks
+            let content_marks = vec![rect.clone().into(), axis.clone().into()];
+            let content_group = SceneGroup {
+                marks: content_marks.clone(),
+                ..Default::default()
+            };
+            let content_bbox = content_group.bounding_box();
+
+            let bg_width = total_width.round();
+            let bg_height = (content_bbox.height() + bg_padding * 2.0).round();
+
+            let bg_rect = SceneRectMark {
+                x: 0.0.into(),
+                y: 0.0.into(),
+                width: Some(bg_width.into()),
+                height: Some(bg_height.into()),
+                fill: config
+                    .background_fill
+                    .clone()
+                    .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]))
+                    .into(),
+                stroke: config
+                    .background_stroke
+                    .clone()
+                    .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]))
+                    .into(),
+                stroke_width: if config.background_stroke.is_some() {
+                    1.0.into()
+                } else {
+                    0.0.into()
+                },
+                corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
+                zindex: Some(0),
+                ..Default::default()
+            };
+
+            let colorbar_axis_group = SceneGroup {
+                origin: [bg_padding, bg_padding],
+                marks: vec![rect.into(), axis.into()],
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                ..Default::default()
+            };
+
+            let marks = vec![bg_rect.into(), colorbar_axis_group.into()];
+
+            Ok(SceneGroup {
+                origin: [0.0, 0.0],
+                marks,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                ..Default::default()
+            })
+        }
+        ColorbarOrientation::Left => {
+            // Similar to Right but axis is positioned to the left of the gradient
+            let _available_width = config.dimensions[0];
+            let available_height = config.dimensions[1];
+
+            let total_height = config
+                .colorbar_height
+                .unwrap_or(available_height.min(200.0));
+            let bg_padding = config.background_padding.unwrap_or(4.0);
+
+            let gradient_height = ((total_height - 2.0 * bg_padding).max(10.0)).round();
+            let colorbar_width = config.colorbar_width.unwrap_or(15.0).round();
+            let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
+
+            // Create a gradient for the colorbar rect (same as Right - vertical bottom-to-top)
+            let gradient = Gradient::LinearGradient(LinearGradient {
+                x0: 0.0,
+                y0: gradient_height,
+                x1: 0.0,
+                y1: 0.0,
+                stops: scale.color_range_as_gradient_stops(10)?,
+            });
+
+            // First, create the axis with Left orientation to measure its width
+            let axis_config = AxisConfig {
+                orientation: AxisOrientation::Left,
+                dimensions: [0.0, gradient_height],
+                grid: false,
+                format_number: config.format_number.clone(),
+                title_font_size: config.title_font_size,
+                title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
+                    FontWeight::Number(n) => *n,
+                    FontWeight::Name(FontWeightNameSpec::Normal) => 400.0,
+                    FontWeight::Name(FontWeightNameSpec::Bold) => 700.0,
+                }),
+                title_font_family: config.title_font_family.clone(),
+                title_color: config.title_color,
+                label_font_size: config.label_font_size,
+                label_font_weight: config.label_font_weight.as_ref().map(|w| match w {
+                    FontWeight::Number(n) => *n,
+                    FontWeight::Name(FontWeightNameSpec::Normal) => 400.0,
+                    FontWeight::Name(FontWeightNameSpec::Bold) => 700.0,
+                }),
+                label_font_family: config.label_font_family.clone(),
+                label_color: config.label_color,
+                domain_color: config.domain_color,
+                tick_color: config.tick_color,
+                grid_color: None,
+                grid_width: None,
+                tick_length: None,
+            };
+
+            let numeric_scale = scale.clone().with_range_interval((gradient_height, 0.0));
+            let axis_temp = make_numeric_axis_marks(&numeric_scale, title, [0.0, 0.0], &axis_config)?;
+            let axis_width = axis_temp.bounding_box().width();
+
+            // Position axis to the left of the gradient
+            let axis_origin = [0.0, 0.0];
+            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
+
+            // Position colorbar rect to the right of the axis
+            let rect_x = axis_width + colorbar_margin;
+            let rect = SceneRectMark {
+                len: 1,
+                gradients: vec![gradient],
+                x: rect_x.into(),
+                x2: Some((rect_x + colorbar_width).into()),
+                y: 0.0.into(),
+                y2: Some(gradient_height.into()),
+                fill: ColorOrGradient::GradientIndex(0).into(),
+                ..Default::default()
+            };
+
+            // Content marks
+            let content_marks = vec![axis.clone().into(), rect.clone().into()];
+            let content_group = SceneGroup {
+                marks: content_marks.clone(),
+                ..Default::default()
+            };
+            let content_bbox = content_group.bounding_box();
+
+            let bg_width = (content_bbox.width() + bg_padding * 2.0).round();
+            let bg_height = total_height.round();
+
+            let bg_rect = SceneRectMark {
+                x: 0.0.into(),
+                y: 0.0.into(),
+                width: Some(bg_width.into()),
+                height: Some(bg_height.into()),
+                fill: config
+                    .background_fill
+                    .clone()
+                    .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]))
+                    .into(),
+                stroke: config
+                    .background_stroke
+                    .clone()
+                    .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]))
+                    .into(),
+                stroke_width: if config.background_stroke.is_some() {
+                    1.0.into()
+                } else {
+                    0.0.into()
+                },
+                corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
+                zindex: Some(0),
+                ..Default::default()
+            };
+
+            let colorbar_axis_group = SceneGroup {
+                origin: [bg_padding, bg_padding],
+                marks: vec![axis.into(), rect.into()],
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                ..Default::default()
+            };
+
+            let marks = vec![bg_rect.into(), colorbar_axis_group.into()];
+
+            Ok(SceneGroup {
+                origin: [0.0, 0.0],
+                marks,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                ..Default::default()
+            })
+        }
         ColorbarOrientation::Right => {
             // config.dimensions represents available space for the colorbar
             let _available_width = config.dimensions[0];
