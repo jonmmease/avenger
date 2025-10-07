@@ -1,8 +1,9 @@
 use avenger_common::types::{ColorOrGradient, Gradient, LinearGradient};
-use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
+use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
-use avenger_text::types::{FontWeight, FontWeightNameSpec};
+use avenger_text::measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer};
+use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec};
 
 use crate::{
     axis::{
@@ -29,7 +30,55 @@ pub fn make_colorbar_marks(
                 .unwrap_or(available_width.min(200.0));
             let bg_padding = config.background_padding.unwrap_or(4.0);
 
-            let gradient_width = ((total_width - 2.0 * bg_padding).max(10.0)).round();
+            // For horizontal colorbars (Top/Bottom), measure tick label widths to reserve horizontal space
+            // This ensures tick labels at left/right don't run into the background edge
+            let measurer = default_text_measurer();
+            let label_font_size = config.label_font_size.unwrap_or(10.0);
+            let label_font_weight = config.label_font_weight.as_ref().unwrap_or(&FontWeight::Number(400.0));
+            let label_font_family = config.label_font_family.as_ref().map(|s| s.as_str()).unwrap_or("sans-serif");
+
+            // Get the domain min and max values to measure their formatted width
+            let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
+
+            // Format the min and max values using the format spec if provided
+            let formatter = avenger_scales::format_num::NumberFormat::new();
+            let min_label = if let Some(format_spec) = &config.format_number {
+                formatter.format(format_spec, domain_min as f64)
+            } else {
+                domain_min.to_string()
+            };
+            let max_label = if let Some(format_spec) = &config.format_number {
+                formatter.format(format_spec, domain_max as f64)
+            } else {
+                domain_max.to_string()
+            };
+
+            // Measure both labels and take the maximum width
+            let min_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+                text: &min_label,
+                font: label_font_family,
+                font_size: label_font_size,
+                font_weight: label_font_weight,
+                font_style: &FontStyle::Normal,
+            });
+            let max_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+                text: &max_label,
+                font: label_font_family,
+                font_size: label_font_size,
+                font_weight: label_font_weight,
+                font_style: &FontStyle::Normal,
+            });
+
+            // Calculate how much the labels might overflow beyond gradient edges
+            let text_overflow = (min_bounds.width.max(max_bounds.width) / 2.0).round();
+
+            // Only reduce gradient if text overflow exceeds available padding
+            // Keep a minimum margin between text and background edge
+            let min_margin = 2.0;
+            let horizontal_text_padding = ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
+
+            // Calculate the actual gradient width by subtracting padding and text padding
+            let gradient_width = ((total_width - 2.0 * bg_padding - 2.0 * horizontal_text_padding).max(10.0)).round();
             let colorbar_height = config.colorbar_width.unwrap_or(15.0).round();
             let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
 
@@ -73,26 +122,23 @@ pub fn make_colorbar_marks(
 
             let numeric_scale = scale.clone().with_range_interval((0.0, gradient_width));
 
-            // Create axis to measure its height
-            let axis_temp = make_numeric_axis_marks(&numeric_scale, title, [0.0, 0.0], &axis_config)?;
-            let axis_height = axis_temp.bounding_box().height();
-
-            // Position axis above the colorbar
-            let axis_origin = [0.0, 0.0];
-            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
-
-            // Position colorbar rect below the axis
-            let rect_y = axis_height + colorbar_margin;
+            // Position colorbar rect at y=0
             let rect = SceneRectMark {
                 len: 1,
                 gradients: vec![gradient],
                 x: 0.0.into(),
                 x2: Some(gradient_width.into()),
-                y: rect_y.into(),
-                y2: Some((rect_y + colorbar_height).into()),
+                y: 0.0.into(),
+                y2: Some(colorbar_height.into()),
                 fill: ColorOrGradient::GradientIndex(0).into(),
                 ..Default::default()
             };
+
+            // Position axis above the colorbar
+            // For Top orientation, the axis renders upward from its origin
+            // Place the axis origin at the top of the rect, minus margin
+            let axis_origin = [0.0, -colorbar_margin];
+            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
 
             // Content marks
             let content_marks = vec![axis.clone().into(), rect.clone().into()];
@@ -102,8 +148,18 @@ pub fn make_colorbar_marks(
             };
             let content_bbox = content_group.bounding_box();
 
+            // For Top axis, the content may extend into negative y if axis is above
+            // Use the actual bounding box to determine height, but shift everything if needed
+            let min_y = content_bbox.lower()[1];
+            let max_y = content_bbox.upper()[1];
+            let content_height = max_y - min_y;
+
+            // If min_y is negative, we need to shift all content down by that amount
+            let y_shift = if min_y < 0.0 { -min_y } else { 0.0 };
+
+            // Background dimensions (horizontal_text_padding already accounted for in gradient_width)
             let bg_width = total_width.round();
-            let bg_height = (content_bbox.height() + bg_padding * 2.0).round();
+            let bg_height = (content_height + bg_padding * 2.0).round();
 
             let bg_rect = SceneRectMark {
                 x: 0.0.into(),
@@ -130,8 +186,10 @@ pub fn make_colorbar_marks(
                 ..Default::default()
             };
 
+            // Shift content to account for any negative y overhang, then add bg_padding
+            // Add horizontal_text_padding to ensure equal spacing for tick labels on left/right
             let colorbar_axis_group = SceneGroup {
-                origin: [bg_padding, bg_padding],
+                origin: [horizontal_text_padding + bg_padding, y_shift + bg_padding],
                 marks: vec![axis.into(), rect.into()],
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
@@ -157,7 +215,55 @@ pub fn make_colorbar_marks(
                 .unwrap_or(available_width.min(200.0));
             let bg_padding = config.background_padding.unwrap_or(4.0);
 
-            let gradient_width = ((total_width - 2.0 * bg_padding).max(10.0)).round();
+            // For horizontal colorbars (Top/Bottom), measure tick label widths to reserve horizontal space
+            // This ensures tick labels at left/right don't run into the background edge
+            let measurer = default_text_measurer();
+            let label_font_size = config.label_font_size.unwrap_or(10.0);
+            let label_font_weight = config.label_font_weight.as_ref().unwrap_or(&FontWeight::Number(400.0));
+            let label_font_family = config.label_font_family.as_ref().map(|s| s.as_str()).unwrap_or("sans-serif");
+
+            // Get the domain min and max values to measure their formatted width
+            let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
+
+            // Format the min and max values using the format spec if provided
+            let formatter = avenger_scales::format_num::NumberFormat::new();
+            let min_label = if let Some(format_spec) = &config.format_number {
+                formatter.format(format_spec, domain_min as f64)
+            } else {
+                domain_min.to_string()
+            };
+            let max_label = if let Some(format_spec) = &config.format_number {
+                formatter.format(format_spec, domain_max as f64)
+            } else {
+                domain_max.to_string()
+            };
+
+            // Measure both labels and take the maximum width
+            let min_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+                text: &min_label,
+                font: label_font_family,
+                font_size: label_font_size,
+                font_weight: label_font_weight,
+                font_style: &FontStyle::Normal,
+            });
+            let max_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+                text: &max_label,
+                font: label_font_family,
+                font_size: label_font_size,
+                font_weight: label_font_weight,
+                font_style: &FontStyle::Normal,
+            });
+
+            // Calculate how much the labels might overflow beyond gradient edges
+            let text_overflow = (min_bounds.width.max(max_bounds.width) / 2.0).round();
+
+            // Only reduce gradient if text overflow exceeds available padding
+            // Keep a minimum margin between text and background edge
+            let min_margin = 2.0;
+            let horizontal_text_padding = ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
+
+            // Calculate the actual gradient width by subtracting padding and text padding
+            let gradient_width = ((total_width - 2.0 * bg_padding - 2.0 * horizontal_text_padding).max(10.0)).round();
             let colorbar_height = config.colorbar_width.unwrap_or(15.0).round(); // thickness
             let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
 
@@ -226,8 +332,16 @@ pub fn make_colorbar_marks(
             };
             let content_bbox = content_group.bounding_box();
 
+            // Calculate background dimensions to ensure equal padding on all sides
+            let min_y = content_bbox.lower()[1];
+            let max_y = content_bbox.upper()[1];
+            let content_height = max_y - min_y;
+
+            // If content extends into negative y, shift everything down
+            let y_shift = if min_y < 0.0 { -min_y } else { 0.0 };
+
             let bg_width = total_width.round();
-            let bg_height = (content_bbox.height() + bg_padding * 2.0).round();
+            let bg_height = (content_height + bg_padding * 2.0).round();
 
             let bg_rect = SceneRectMark {
                 x: 0.0.into(),
@@ -254,8 +368,10 @@ pub fn make_colorbar_marks(
                 ..Default::default()
             };
 
+            // Shift content down if there's negative y overhang, then add bg_padding
+            // Add horizontal_text_padding to ensure equal spacing for tick labels on left/right
             let colorbar_axis_group = SceneGroup {
-                origin: [bg_padding, bg_padding],
+                origin: [horizontal_text_padding + bg_padding, y_shift + bg_padding],
                 marks: vec![rect.into(), axis.into()],
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
@@ -280,7 +396,31 @@ pub fn make_colorbar_marks(
                 .unwrap_or(available_height.min(200.0));
             let bg_padding = config.background_padding.unwrap_or(4.0);
 
-            let gradient_height = ((total_height - 2.0 * bg_padding).max(10.0)).round();
+            // For vertical colorbars (Left/Right), measure tick label line height to reserve vertical space
+            // This ensures tick labels at top/bottom don't run into the background edge
+            let measurer = default_text_measurer();
+            let label_font_size = config.label_font_size.unwrap_or(10.0);
+            let label_font_weight = config.label_font_weight.as_ref().unwrap_or(&FontWeight::Number(400.0));
+            let label_font_family = config.label_font_family.as_ref().map(|s| s.as_str()).unwrap_or("sans-serif");
+
+            let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+                text: "0",
+                font: label_font_family,
+                font_size: label_font_size,
+                font_weight: label_font_weight,
+                font_style: &FontStyle::Normal,
+            });
+
+            // Calculate how much the labels might overflow beyond gradient edges
+            let text_overflow = (text_bounds.line_height / 2.0).round();
+
+            // Only reduce gradient if text overflow exceeds available padding
+            // Keep a minimum margin between text and background edge
+            let min_margin = 2.0;
+            let vertical_text_padding = ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
+
+            // Calculate the actual gradient height by subtracting padding and text padding
+            let gradient_height = ((total_height - 2.0 * bg_padding - 2.0 * vertical_text_padding).max(10.0)).round();
             let colorbar_width = config.colorbar_width.unwrap_or(15.0).round();
             let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
 
@@ -374,6 +514,7 @@ pub fn make_colorbar_marks(
             // If min_x is negative, we need to shift all content to the right by that amount
             let x_shift = if min_x < 0.0 { -min_x } else { 0.0 };
 
+            // Background dimensions (vertical_text_padding already accounted for in gradient_height)
             let bg_width = (content_width + bg_padding * 2.0).round();
             let bg_height = total_height.round();
 
@@ -403,8 +544,9 @@ pub fn make_colorbar_marks(
             };
 
             // Shift content to account for any negative x overhang, then add bg_padding
+            // Add vertical_text_padding to ensure equal spacing for tick labels
             let colorbar_axis_group = SceneGroup {
-                origin: [x_shift + bg_padding, bg_padding],
+                origin: [x_shift + bg_padding, vertical_text_padding + bg_padding],
                 marks: vec![axis.into(), rect.into()],
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
@@ -431,9 +573,32 @@ pub fn make_colorbar_marks(
                 .unwrap_or(available_height.min(200.0));
             let bg_padding = config.background_padding.unwrap_or(4.0);
 
-            // Calculate the actual gradient height by subtracting padding
+            // For vertical colorbars (Left/Right), measure tick label line height to reserve vertical space
+            // This ensures tick labels at top/bottom don't run into the background edge
+            let measurer = default_text_measurer();
+            let label_font_size = config.label_font_size.unwrap_or(10.0);
+            let label_font_weight = config.label_font_weight.as_ref().unwrap_or(&FontWeight::Number(400.0));
+            let label_font_family = config.label_font_family.as_ref().map(|s| s.as_str()).unwrap_or("sans-serif");
+
+            let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+                text: "0",
+                font: label_font_family,
+                font_size: label_font_size,
+                font_weight: label_font_weight,
+                font_style: &FontStyle::Normal,
+            });
+
+            // Calculate how much the labels might overflow beyond gradient edges
+            let text_overflow = (text_bounds.line_height / 2.0).round();
+
+            // Only reduce gradient if text overflow exceeds available padding
+            // Keep a minimum margin between text and background edge
+            let min_margin = 2.0;
+            let vertical_text_padding = ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
+
+            // Calculate the actual gradient height by subtracting padding and text padding
             // Round dimensions to pixel boundaries
-            let gradient_height = ((total_height - 2.0 * bg_padding).max(10.0)).round();
+            let gradient_height = ((total_height - 2.0 * bg_padding - 2.0 * vertical_text_padding).max(10.0)).round();
 
             let colorbar_width = config.colorbar_width.unwrap_or(15.0).round();
             let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
@@ -501,10 +666,18 @@ pub fn make_colorbar_marks(
             };
             let content_bbox = content_group.bounding_box();
 
-            // Calculate total dimensions including padding
-            // The background rect always exists and defines our coordinate system
-            // total_height already includes the padding, round to pixel boundaries
-            let bg_width = (content_bbox.width() + bg_padding * 2.0).round();
+            // Calculate background dimensions to ensure equal padding on all sides
+            // Content will be shifted by bg_padding, so we need to account for this
+            let min_x = content_bbox.lower()[0];
+            let max_x = content_bbox.upper()[0];
+            let content_width = max_x - min_x;
+
+            // If content extends into negative x, shift everything right
+            let x_shift = if min_x < 0.0 { -min_x } else { 0.0 };
+
+            // Background width includes the content width plus padding on both sides
+            // Background height is total_height (vertical_text_padding already accounted for in gradient_height)
+            let bg_width = (content_width + bg_padding * 2.0).round();
             let bg_height = total_height.round();
 
             // Always create a background rect at origin (0, 0)
@@ -534,9 +707,11 @@ pub fn make_colorbar_marks(
                 ..Default::default()
             };
 
-            // Create a group for colorbar and axis that places them centered vertically
+            // Create a group for colorbar and axis with proper padding
+            // Shift content right if there's negative x overhang, then add bg_padding
+            // Add vertical_text_padding to ensure equal spacing for tick labels
             let colorbar_axis_group = SceneGroup {
-                origin: [bg_padding, bg_padding],
+                origin: [x_shift + bg_padding, vertical_text_padding + bg_padding],
                 marks: vec![rect.into(), axis.into()],
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
