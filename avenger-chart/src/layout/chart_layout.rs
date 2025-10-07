@@ -674,9 +674,17 @@ fn create_legend_nodes(
                 if *pos == legend_position {
                     // Create container node if it doesn't exist
                     if !nodes.legend_container_nodes.contains_key(pos) {
+                        // Determine flex direction based on position
+                        // Top/Bottom: horizontal stacking (Row)
+                        // Left/Right: vertical stacking (Column)
+                        let flex_direction = match pos {
+                            LegendPosition::Top | LegendPosition::Bottom => FlexDirection::Row,
+                            LegendPosition::Left | LegendPosition::Right => FlexDirection::Column,
+                        };
+
                         let container_style = Style {
                             display: Display::Flex,
-                            flex_direction: FlexDirection::Column,
+                            flex_direction,
                             grid_row: line((*row + 1) as i16),
                             grid_column: line((*col + 1) as i16),
                             ..Default::default()
@@ -690,19 +698,38 @@ fn create_legend_nodes(
                         let is_flexible = legend_flexible.get(channel).copied().unwrap_or(false);
 
                         let legend_style = if is_flexible {
-                            Style {
-                                display: Display::Block,
-                                size: Size {
-                                    width: length(size.width),
-                                    height: auto(),
+                            // Flexible sizing depends on position:
+                            // - Top/Bottom: fixed height, flexible width (grows horizontally)
+                            // - Left/Right: fixed width, flexible height (grows vertically)
+                            match legend_position {
+                                LegendPosition::Top | LegendPosition::Bottom => Style {
+                                    display: Display::Block,
+                                    size: Size {
+                                        width: auto(),
+                                        height: length(size.height),
+                                    },
+                                    flex_grow: 1.0,
+                                    flex_shrink: 1.0,
+                                    min_size: Size {
+                                        width: length(50.0),
+                                        height: length(size.height),
+                                    },
+                                    ..Default::default()
                                 },
-                                flex_grow: 1.0,
-                                flex_shrink: 1.0,
-                                min_size: Size {
-                                    width: length(size.width),
-                                    height: length(50.0),
+                                LegendPosition::Left | LegendPosition::Right => Style {
+                                    display: Display::Block,
+                                    size: Size {
+                                        width: length(size.width),
+                                        height: auto(),
+                                    },
+                                    flex_grow: 1.0,
+                                    flex_shrink: 1.0,
+                                    min_size: Size {
+                                        width: length(size.width),
+                                        height: length(50.0),
+                                    },
+                                    ..Default::default()
                                 },
-                                ..Default::default()
                             }
                         } else {
                             Style {

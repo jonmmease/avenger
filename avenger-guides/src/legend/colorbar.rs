@@ -323,25 +323,39 @@ pub fn make_colorbar_marks(
             };
 
             let numeric_scale = scale.clone().with_range_interval((gradient_height, 0.0));
-            let axis_temp = make_numeric_axis_marks(&numeric_scale, title, [0.0, 0.0], &axis_config)?;
-            let axis_width = axis_temp.bounding_box().width();
 
-            // Position axis to the left of the gradient
-            let axis_origin = [0.0, 0.0];
-            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
+            // For Left axis: The axis renders to the LEFT of its origin point
+            // We want: [axis content] [margin] [rect at 0]
+            // So we need to find where to place the axis origin
 
-            // Position colorbar rect to the right of the axis
-            let rect_x = axis_width + colorbar_margin;
+            // First measure the axis to see its extent
+            let _axis_temp = make_numeric_axis_marks(&numeric_scale, title, [0.0, 0.0], &axis_config)?;
+
+            // The axis origin should be positioned so the axis ends at -colorbar_margin
+            // (i.e., margin distance to the left of the rect at x=0)
+            // Since the axis extends leftward from its origin, if we want it to end at x = -margin,
+            // and it has width W, we need to position origin at: -margin + 0 = -margin
+            // But actually, the axis renders from its origin to the left, so:
+            // Origin at x = axis_width means the axis spans from 0 to axis_width (to the left)
+            // We want the rect at 0, so axis origin should be at -colorbar_margin
+            // But that would make the axis go from -colorbar_margin leftward...
+
+            // Position rect at x=0 (it will be shifted by bg_padding + x_shift later for proper spacing)
             let rect = SceneRectMark {
                 len: 1,
                 gradients: vec![gradient],
-                x: rect_x.into(),
-                x2: Some((rect_x + colorbar_width).into()),
+                x: 0.0.into(),
+                x2: Some(colorbar_width.into()),
                 y: 0.0.into(),
                 y2: Some(gradient_height.into()),
                 fill: ColorOrGradient::GradientIndex(0).into(),
                 ..Default::default()
             };
+
+            // Position axis to the left of rect with margin
+            // Axis renders leftward from origin, so place origin at -margin (to the left of rect at x=0)
+            let axis_origin = [-(colorbar_margin), 0.0];
+            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
 
             // Content marks
             let content_marks = vec![axis.clone().into(), rect.clone().into()];
@@ -351,7 +365,16 @@ pub fn make_colorbar_marks(
             };
             let content_bbox = content_group.bounding_box();
 
-            let bg_width = (content_bbox.width() + bg_padding * 2.0).round();
+            // For Left axis, the content may extend into negative x if tick marks overhang
+            // Use the actual bounding box to determine width, but shift everything if needed
+            let min_x = content_bbox.lower()[0];
+            let max_x = content_bbox.upper()[0];
+            let content_width = max_x - min_x;
+
+            // If min_x is negative, we need to shift all content to the right by that amount
+            let x_shift = if min_x < 0.0 { -min_x } else { 0.0 };
+
+            let bg_width = (content_width + bg_padding * 2.0).round();
             let bg_height = total_height.round();
 
             let bg_rect = SceneRectMark {
@@ -379,8 +402,9 @@ pub fn make_colorbar_marks(
                 ..Default::default()
             };
 
+            // Shift content to account for any negative x overhang, then add bg_padding
             let colorbar_axis_group = SceneGroup {
-                origin: [bg_padding, bg_padding],
+                origin: [x_shift + bg_padding, bg_padding],
                 marks: vec![axis.into(), rect.into()],
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()

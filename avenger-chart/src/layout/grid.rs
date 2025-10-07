@@ -405,11 +405,11 @@ impl GridBuilder {
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Top) {
             let height = self.measure_legend_container_height(channels, legend_sizes);
             grid.rows.push(length(height));
-            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+            // Top legends should align with plot area, not include left overflow
             grid.add_component(
                 ComponentType::LegendContainer(LegendPosition::Top),
                 row_index,
-                start_col,
+                plot_col_index,
             );
             row_index += 1;
         }
@@ -496,11 +496,11 @@ impl GridBuilder {
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Bottom) {
             let height = self.measure_legend_container_height(channels, legend_sizes);
             grid.rows.push(length(height));
-            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+            // Bottom legends should align with plot area, not include left overflow
             grid.add_component(
                 ComponentType::LegendContainer(LegendPosition::Bottom),
                 row_index,
-                start_col,
+                plot_col_index,
             );
             // row_index would be incremented here if we had more rows
             let _ = row_index + 1;
