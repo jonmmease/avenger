@@ -12,7 +12,7 @@ mod title;
 
 // Re-export core plot types
 pub use compiled::CompiledPlot;
-pub use plot::Plot;
+pub use plot::{IntoExpr, Plot};
 
 // Re-export title types
 pub use title::{PlotSubtitle, PlotTitle, TitleAlign};

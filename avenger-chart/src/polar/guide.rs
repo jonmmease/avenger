@@ -153,6 +153,7 @@ impl CompiledGuide for PolarGuide {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
 
@@ -173,6 +174,7 @@ impl CompiledGuide for PolarGuide {
                 &initial_bounds,
                 theme,
                 params,
+                ctx,
             )
             .await?;
 
@@ -232,6 +234,7 @@ impl CompiledGuide for PolarGuide {
         plot_bounds: &LayoutBounds,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        _ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

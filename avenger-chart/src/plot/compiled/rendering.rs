@@ -650,6 +650,7 @@ impl CompiledPlot {
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use the pre-built guide renderer if available
         if let Some(compiled_guide) = &self.compiled_guide {
@@ -667,6 +668,7 @@ impl CompiledPlot {
                     plot_bounds,
                     theme.as_ref(),
                     params,
+                    ctx,
                 )
                 .await
         } else {
@@ -708,6 +710,7 @@ impl CompiledPlot {
                     height_estimate,
                     theme.as_ref(),
                     params,
+                    ctx,
                 )
                 .await?
         } else {
@@ -880,6 +883,7 @@ impl CompiledPlot {
                 plot_area_height,
                 plot_bounds,
                 params,
+                ctx,
             )
             .await?;
 
