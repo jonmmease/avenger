@@ -31,7 +31,7 @@ impl CompiledPlot {
         // Evaluate the title text expression
         let text_node: LogicalExprNode = title.text.clone().into();
         let text_expr = text_node.to_expr(ctx)?;
-        let text_value = super::rendering::evaluate_string_expr(&text_expr, ctx, params).await?;
+        let text_value = super::expr_eval::evaluate_string_expr(&text_expr, ctx, params).await?;
 
         // Position title within its layout bounds or use fallback
         let (x, y) = if let Some(bounds) = layout_bounds {
@@ -95,7 +95,7 @@ impl CompiledPlot {
         // Evaluate the subtitle text expression
         let text_node: LogicalExprNode = subtitle.text.clone().into();
         let text_expr = text_node.to_expr(ctx)?;
-        let text_value = super::rendering::evaluate_string_expr(&text_expr, ctx, params).await?;
+        let text_value = super::expr_eval::evaluate_string_expr(&text_expr, ctx, params).await?;
 
         // Position subtitle within its layout bounds or use fallback
         let (x, y) = if let Some(bounds) = layout_bounds {

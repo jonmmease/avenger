@@ -1,5 +1,6 @@
 //! CompiledPlot - Immutable, serializable plot ready for rendering
 
+pub(crate) mod expr_eval;
 mod legends;
 pub(crate) mod rendering;
 mod scales;

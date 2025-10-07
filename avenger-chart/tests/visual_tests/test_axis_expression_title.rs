@@ -40,6 +40,7 @@ async fn test_axis_title_with_parameter_expression() {
     let unit_param = Param::new("unit", ScalarValue::Utf8(Some("meters".to_string())));
 
     // Create CASE expression for dynamic x-axis title based on unit parameter
+    // Note: Must use .expr() for CASE expressions since .eq() is an Expr method
     let x_axis_title = when(unit_param.expr().eq(lit("meters")), lit("Distance (m)"))
         .when(unit_param.expr().eq(lit("feet")), lit("Distance (ft)"))
         .otherwise(lit("Distance"))
@@ -50,7 +51,7 @@ async fn test_axis_title_with_parameter_expression() {
         .canvas_size(400.0, 300.0)
         .title("Axis Titles with Expressions")
         .data(df)
-        .add_param(unit_param)
+        .add_param(unit_param.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title(x_axis_title)))
