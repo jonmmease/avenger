@@ -1,6 +1,7 @@
 use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use crate::maybe::Maybe;
+use crate::serialization::SerializableExpr;
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,7 @@ pub enum AxisPosition {
 pub struct CartesianAxis {
     pub visible: Maybe<bool>,
     pub position: Maybe<AxisPosition>,
-    pub title: Maybe<Option<String>>,
+    pub title: Maybe<Option<SerializableExpr>>,
     pub grid: Maybe<bool>,
     pub tick_count: Maybe<Option<usize>>,
     pub label_angle: Maybe<f32>,
@@ -45,8 +46,8 @@ impl CartesianAxis {
         self
     }
 
-    pub fn title<S: Into<String>>(mut self, title: S) -> Self {
-        self.title = Maybe::Set(Some(title.into()));
+    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+        self.title = Maybe::Set(Some(title.into_expr().into()));
         self
     }
 
@@ -113,7 +114,7 @@ impl CartesianAxis {
     }
 
     /// Render this axis to scene marks
-    pub fn render(
+    pub async fn render(
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
@@ -122,6 +123,7 @@ impl CartesianAxis {
         plot_bounds: &crate::layout::LayoutBounds,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<SceneMark, AvengerChartError> {
         use avenger_guides::axis::{
             band::make_band_axis_marks,
@@ -216,9 +218,19 @@ impl CartesianAxis {
                 .or_else(|| theme.font_family(&title_ctx)),
         };
 
-        // Extract title once to avoid repeated cloning
-        let title_string = self.title.clone().flatten();
-        let title = title_string.as_deref().unwrap_or("");
+        // Evaluate title expression if present
+        use crate::plot::compiled::rendering::evaluate_string_expr;
+        use crate::serialization::LogicalExprNodeExt;
+        use datafusion_proto::protobuf::LogicalExprNode;
+
+        let title = if let Some(title_expr) = self.title.clone().flatten() {
+            let title_node: LogicalExprNode = title_expr.into();
+            let title_datafusion_expr = title_node.to_expr(ctx)?;
+            evaluate_string_expr(&title_datafusion_expr, ctx, params).await?
+        } else {
+            String::new()
+        };
+        let title = title.as_str();
 
         // Generate axis marks based on scale characteristics
         // Use domain and range kinds to determine which axis maker to use

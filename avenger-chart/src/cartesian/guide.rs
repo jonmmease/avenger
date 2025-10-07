@@ -162,6 +162,7 @@ impl CompiledGuide for CartesianGuide {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
 
@@ -182,6 +183,7 @@ impl CompiledGuide for CartesianGuide {
                 &initial_bounds,
                 theme,
                 params,
+                ctx,
             )
             .await?;
 
@@ -249,6 +251,7 @@ impl CompiledGuide for CartesianGuide {
         plot_bounds: &LayoutBounds,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 
@@ -332,7 +335,8 @@ impl CompiledGuide for CartesianGuide {
                     plot_bounds,
                     theme,
                     params,
-                )?;
+                    ctx,
+                ).await?;
                 marks.push(axis_mark);
             }
         }

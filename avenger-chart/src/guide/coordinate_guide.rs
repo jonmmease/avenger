@@ -48,6 +48,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
     /// Render this guide to scene marks
@@ -59,6 +60,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_bounds: &LayoutBounds,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Get the clipping region for the coordinate system
