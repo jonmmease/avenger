@@ -602,7 +602,8 @@ impl Theme {
                     // Resolve variables in the font-size value (params override CSS variables)
                     let resolved = self.resolve_theme_value(font_size_value.clone(), params, 0);
                     // Use DEFAULT_BASE_FONT_SIZE for bootstrap to avoid circular dependency
-                    if let Some(size) = resolved.as_font_size(DEFAULT_BASE_FONT_SIZE) {
+                    // Pass params here even though they're empty during construction
+                    if let Some(size) = resolved.as_font_size(params, DEFAULT_BASE_FONT_SIZE) {
                         return size;
                     }
                 }
@@ -683,7 +684,7 @@ impl Theme {
         let base_font_size = self.get_base_font_size(&context.params);
 
         self.query(context, "font-size")
-            .and_then(|v| v.as_font_size_with_params(&context.params, base_font_size))
+            .and_then(|v| v.as_font_size(&context.params, base_font_size))
     }
 
     /// Get font weight for a context
@@ -774,7 +775,7 @@ impl Theme {
     /// Get stroke width for a context
     pub fn stroke_width(&self, context: &ThemeContext) -> Option<f32> {
         self.query(context, "stroke-width")
-            .and_then(|v| v.as_font_size(self.get_base_font_size(&context.params)))
+            .and_then(|v| v.as_font_size(&context.params, self.get_base_font_size(&context.params)))
     }
 
     /// Get opacity for a context
@@ -804,7 +805,7 @@ impl Theme {
     pub fn axis_tick_length(&self, axis_ctx: &ThemeContext) -> Option<f32> {
         let ctx = axis_ctx.child("tick");
         self.query(&ctx, "size")
-            .and_then(|v| v.as_font_size(self.get_base_font_size(&ctx.params)))
+            .and_then(|v| v.as_font_size(&ctx.params, self.get_base_font_size(&ctx.params)))
     }
 
     /// Get range for a specific channel based on mark type and range kind

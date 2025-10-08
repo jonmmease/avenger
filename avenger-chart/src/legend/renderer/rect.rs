@@ -122,7 +122,7 @@ impl LegendRenderer for CompiledRectLegend {
             // Query from theme legend context
             let legend_ctx = theme.legend_context(Some("rect")).with_params(params.clone());
             theme.query(&legend_ctx, "symbol-size")
-                .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+                .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
                 .unwrap_or(default_size_value)
         };
 
