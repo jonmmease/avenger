@@ -182,7 +182,7 @@ impl Theme {
             }
 
             legend[type="symbol"] {
-                symbol-size: 100;
+                symbol-size: 64;
             }
 
             legend[type="colorbar"] {
