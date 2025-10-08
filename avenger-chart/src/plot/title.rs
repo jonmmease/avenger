@@ -22,9 +22,9 @@ pub enum TitleSpan {
 #[derive(Clone, Debug, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum TitleAlign {
     /// Text aligned to the left
+    #[default]
     Left,
     /// Text aligned to the center
-    #[default]
     Center,
     /// Text aligned to the right
     Right,
