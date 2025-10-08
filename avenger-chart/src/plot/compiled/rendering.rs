@@ -17,7 +17,7 @@ use crate::scales::ConfiguredScaleWithSpec;
 use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
 
 use super::CompiledPlot;
-use super::expr_eval::evaluate_dimension_expr;
+use super::expr_eval::evaluate_f32_expr;
 
 /// Evaluate a SizeMode to get an EvaluatedSizeMode with concrete f32 values
 async fn evaluate_size_mode(
@@ -35,8 +35,8 @@ async fn evaluate_size_mode(
             let height_node: LogicalExprNode = height.clone().into();
             let width_expr = width_node.to_expr(ctx)?;
             let height_expr = height_node.to_expr(ctx)?;
-            let w = evaluate_dimension_expr(&width_expr, ctx, params).await?;
-            let h = evaluate_dimension_expr(&height_expr, ctx, params).await?;
+            let w = evaluate_f32_expr(&width_expr, ctx, params).await?;
+            let h = evaluate_f32_expr(&height_expr, ctx, params).await?;
             Ok(EvaluatedSizeMode::Fixed {
                 width: w,
                 height: h,
@@ -45,17 +45,67 @@ async fn evaluate_size_mode(
         SizeMode::Width(width) => {
             let width_node: LogicalExprNode = width.clone().into();
             let width_expr = width_node.to_expr(ctx)?;
-            let w = evaluate_dimension_expr(&width_expr, ctx, params).await?;
+            let w = evaluate_f32_expr(&width_expr, ctx, params).await?;
             Ok(EvaluatedSizeMode::Width(w))
         }
         SizeMode::Height(height) => {
             let height_node: LogicalExprNode = height.clone().into();
             let height_expr = height_node.to_expr(ctx)?;
-            let h = evaluate_dimension_expr(&height_expr, ctx, params).await?;
+            let h = evaluate_f32_expr(&height_expr, ctx, params).await?;
             Ok(EvaluatedSizeMode::Height(h))
         }
         SizeMode::Auto => Ok(EvaluatedSizeMode::Auto),
     }
+}
+
+/// Evaluate Margins to get concrete f32 values
+async fn evaluate_margins(
+    margins: &crate::layout::Margins,
+    ctx: &SessionContext,
+    params: &IndexMap<String, datafusion::common::ScalarValue>,
+) -> Result<crate::layout::EvaluatedMargins, AvengerChartError> {
+    use crate::layout::EvaluatedMargins;
+    use crate::serialization::LogicalExprNodeExt;
+
+    // Evaluate each margin field, using 10.0 as default if unset
+    let top = match margins.top.as_ref() {
+        crate::maybe::Maybe::Set(Some(node)) => {
+            let expr = node.to_expr(ctx)?;
+            evaluate_f32_expr(&expr, ctx, params).await?
+        }
+        _ => 10.0,
+    };
+
+    let right = match margins.right.as_ref() {
+        crate::maybe::Maybe::Set(Some(node)) => {
+            let expr = node.to_expr(ctx)?;
+            evaluate_f32_expr(&expr, ctx, params).await?
+        }
+        _ => 10.0,
+    };
+
+    let bottom = match margins.bottom.as_ref() {
+        crate::maybe::Maybe::Set(Some(node)) => {
+            let expr = node.to_expr(ctx)?;
+            evaluate_f32_expr(&expr, ctx, params).await?
+        }
+        _ => 10.0,
+    };
+
+    let left = match margins.left.as_ref() {
+        crate::maybe::Maybe::Set(Some(node)) => {
+            let expr = node.to_expr(ctx)?;
+            evaluate_f32_expr(&expr, ctx, params).await?
+        }
+        _ => 10.0,
+    };
+
+    Ok(EvaluatedMargins {
+        top,
+        right,
+        bottom,
+        left,
+    })
 }
 
 /// Evaluate a LayoutSpec to get an EvaluatedLayoutSpec with concrete f32 values
@@ -68,11 +118,12 @@ async fn evaluate_layout_spec(
 
     let canvas = evaluate_size_mode(&layout_spec.canvas, ctx, params).await?;
     let plot_area = evaluate_size_mode(&layout_spec.plot_area, ctx, params).await?;
+    let margins = evaluate_margins(&layout_spec.margins, ctx, params).await?;
 
     Ok(EvaluatedLayoutSpec {
         canvas,
         plot_area,
-        margins: layout_spec.margins.clone(),
+        margins,
     })
 }
 
@@ -755,20 +806,20 @@ impl CompiledPlot {
                 let height_node: LogicalExprNode = height.clone().into();
                 let width_expr = width_node.to_expr(ctx)?;
                 let height_expr = height_node.to_expr(ctx)?;
-                let w = evaluate_dimension_expr(&width_expr, ctx, &merged_params).await?;
-                let h = evaluate_dimension_expr(&height_expr, ctx, &merged_params).await?;
+                let w = evaluate_f32_expr(&width_expr, ctx, &merged_params).await?;
+                let h = evaluate_f32_expr(&height_expr, ctx, &merged_params).await?;
                 (Some(w), Some(h))
             }
             crate::layout::SizeMode::Width(width) => {
                 let width_node: LogicalExprNode = width.clone().into();
                 let width_expr = width_node.to_expr(ctx)?;
-                let w = evaluate_dimension_expr(&width_expr, ctx, &merged_params).await?;
+                let w = evaluate_f32_expr(&width_expr, ctx, &merged_params).await?;
                 (Some(w), None)
             }
             crate::layout::SizeMode::Height(height) => {
                 let height_node: LogicalExprNode = height.clone().into();
                 let height_expr = height_node.to_expr(ctx)?;
-                let h = evaluate_dimension_expr(&height_expr, ctx, &merged_params).await?;
+                let h = evaluate_f32_expr(&height_expr, ctx, &merged_params).await?;
                 (None, Some(h))
             }
             _ => (None, None), // No dimensions specified

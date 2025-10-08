@@ -10,8 +10,10 @@ use crate::cartesian::axis::AxisPosition;
 use crate::error::AvengerChartError;
 use crate::guide::OverflowSpaceRequirement;
 use crate::legend::LegendPosition;
-use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};
+use crate::plot::compiled::expr_eval::evaluate_string_expr;
+use crate::plot::{PlotSubtitle, PlotTitle, TitleSpan};
 use crate::render::{LayoutSolution, LegendMeasurements};
+use crate::serialization::LogicalExprNodeExt;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use taffy::prelude::*;
@@ -146,6 +148,42 @@ impl ChartLayout {
             .map(|(k, m)| (k.clone(), m.position))
             .collect();
 
+        // Evaluate title span expression
+        let title_span = if let Some(t) = title {
+            match t.span.as_ref() {
+                crate::maybe::Maybe::Set(Some(node)) => {
+                    let expr = node.to_expr(ctx)?;
+                    let span_str = evaluate_string_expr(&expr, ctx, params).await?;
+                    match span_str.as_str() {
+                        "canvas" => TitleSpan::Canvas,
+                        "plot_area" => TitleSpan::PlotArea,
+                        _ => TitleSpan::default(),
+                    }
+                }
+                _ => TitleSpan::default(),
+            }
+        } else {
+            TitleSpan::default()
+        };
+
+        // Evaluate subtitle span expression
+        let subtitle_span = if let Some(s) = subtitle {
+            match s.span.as_ref() {
+                crate::maybe::Maybe::Set(Some(node)) => {
+                    let expr = node.to_expr(ctx)?;
+                    let span_str = evaluate_string_expr(&expr, ctx, params).await?;
+                    match span_str.as_str() {
+                        "canvas" => TitleSpan::Canvas,
+                        "plot_area" => TitleSpan::PlotArea,
+                        _ => TitleSpan::default(),
+                    }
+                }
+                _ => TitleSpan::default(),
+            }
+        } else {
+            TitleSpan::default()
+        };
+
         // Build the TaffyTree and get all the nodes using the pure function
         let (taffy, nodes) = build_taffy_tree(
             &grid_layout,
@@ -155,6 +193,8 @@ impl ChartLayout {
             &legend_flexible,
             title,
             subtitle,
+            title_span,
+            subtitle_span,
         )?;
 
         // Create the ChartLayout with the built tree and nodes
@@ -452,6 +492,8 @@ fn build_taffy_tree(
     legend_flexible: &HashMap<String, bool>,
     title: Option<&PlotTitle>,
     subtitle: Option<&PlotSubtitle>,
+    title_span: TitleSpan,
+    subtitle_span: TitleSpan,
 ) -> Result<(TaffyTree, TaffyNodes), AvengerChartError> {
     let mut taffy = TaffyTree::new();
 
@@ -508,7 +550,7 @@ fn build_taffy_tree(
     create_overflow_nodes(&mut taffy, &mut nodes, grid_layout, overflow)?;
 
     // Create title and subtitle nodes
-    create_title_nodes(&mut taffy, &mut nodes, grid_layout, title, subtitle)?;
+    create_title_nodes(&mut taffy, &mut nodes, grid_layout, title, subtitle, title_span, subtitle_span)?;
 
     // Create legend nodes
     create_legend_nodes(
@@ -586,11 +628,13 @@ fn create_title_nodes(
     grid_layout: &GridLayout,
     title: Option<&PlotTitle>,
     subtitle: Option<&PlotSubtitle>,
+    title_span: TitleSpan,
+    subtitle_span: TitleSpan,
 ) -> Result<(), AvengerChartError> {
-    // Helper function to calculate grid column based on TitleAlign
+    // Helper function to calculate grid column based on TitleSpan
     let calculate_grid_column =
-        |col: usize, align: TitleAlign, grid_layout: &GridLayout| match align {
-            TitleAlign::PlotAreaOnly => {
+        |col: usize, span: TitleSpan, grid_layout: &GridLayout| match span {
+            TitleSpan::PlotArea => {
                 let mut plot_col = col;
                 for ((_, c), comp) in &grid_layout.component_cells {
                     if matches!(comp, ComponentType::PlotArea) {
@@ -600,7 +644,7 @@ fn create_title_nodes(
                 }
                 line((plot_col + 1) as i16)
             }
-            TitleAlign::FullWidth => {
+            TitleSpan::Canvas => {
                 let mut end_col = col;
                 for ((_, c), _comp) in &grid_layout.component_cells {
                     if *c > end_col {
@@ -622,8 +666,8 @@ fn create_title_nodes(
 
     // Create title node
     if let Some((row, col)) = grid_layout.find_component_position(&ComponentType::Title) {
-        let grid_col = if let Some(t) = title {
-            calculate_grid_column(col, t.align, grid_layout)
+        let grid_col = if title.is_some() {
+            calculate_grid_column(col, title_span, grid_layout)
         } else {
             line((col + 1) as i16)
         };
@@ -639,8 +683,8 @@ fn create_title_nodes(
 
     // Create subtitle node
     if let Some((row, col)) = grid_layout.find_component_position(&ComponentType::Subtitle) {
-        let grid_col = if let Some(s) = subtitle {
-            calculate_grid_column(col, s.align, grid_layout)
+        let grid_col = if subtitle.is_some() {
+            calculate_grid_column(col, subtitle_span, grid_layout)
         } else {
             line((col + 1) as i16)
         };

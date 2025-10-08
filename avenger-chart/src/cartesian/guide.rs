@@ -1,5 +1,6 @@
 //! Cartesian coordinate system guide implementation
 use crate::theme::Theme;
+use crate::plot::compiled::expr_eval::evaluate_string_expr;
 
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::extract_channel_title_from_marks;
@@ -94,7 +95,7 @@ impl CartesianGuide {
         if let Some(color_node) = self.options.plot_background_color.as_option().and_then(|o| o.as_ref()) {
             if let Ok(color_expr) = color_node.to_expr(ctx) {
                 // Evaluate the expression to get color string
-                if let Ok(color_str) = crate::plot::compiled::expr_eval::evaluate_string_expr(&color_expr, ctx, params).await {
+                if let Ok(color_str) = evaluate_string_expr(&color_expr, ctx, params).await {
                     // Parse the color string
                     if let Ok(color) = crate::utils::parse_color_to_array_strict(&color_str) {
                         return Some(color);

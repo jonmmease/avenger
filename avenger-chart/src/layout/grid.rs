@@ -4,6 +4,7 @@ use crate::theme::Theme;
 use super::types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide};
 use crate::error::AvengerChartError;
 use crate::legend::LegendPosition;
+use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr};
 use crate::plot::{PlotSubtitle, PlotTitle};
 use crate::serialization::LogicalExprNodeExt;
 use avenger_text::measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer};
@@ -326,27 +327,37 @@ impl GridBuilder {
             if let Some(t) = title {
                 // Create theme context with params for querying font size
                 let title_ctx = theme.title_context().with_params(params.clone());
-                let font_size = t
-                    .font_size
-                    .or_else(|| theme.font_size(&title_ctx))
-                    .unwrap_or(16.0);
-                let title_font_family = theme
-                    .font_family(&title_ctx)
-                    .unwrap_or_else(|| "sans-serif".to_string());
-                let font_family = t.font_family.as_deref().unwrap_or(&title_font_family);
+
+                // Evaluate font_size
+                let font_size = match t.font_size.as_ref() {
+                    crate::maybe::Maybe::Set(Some(node)) => {
+                        let expr = node.to_expr(ctx)?;
+                        evaluate_f32_expr(&expr, ctx, params).await?
+                    }
+                    _ => theme.font_size(&title_ctx).unwrap_or(16.0),
+                };
+
+                // Evaluate font_family
+                let font_family = match t.font_family.as_ref() {
+                    crate::maybe::Maybe::Set(Some(node)) => {
+                        let expr = node.to_expr(ctx)?;
+                        evaluate_string_expr(&expr, ctx, params).await?
+                    }
+                    _ => theme.font_family(&title_ctx).unwrap_or_else(|| "sans-serif".to_string()),
+                };
 
                 // Evaluate the title text expression to get the actual text
                 let text_node: LogicalExprNode = t.text.clone().into();
                 let text_expr = text_node.to_expr(ctx)?;
                 let text_value =
-                    crate::plot::compiled::expr_eval::evaluate_string_expr(&text_expr, ctx, params)
+                    evaluate_string_expr(&text_expr, ctx, params)
                         .await?;
 
                 // Measure text for layout (using Normal weight/style as approximation)
                 let measurer = default_text_measurer();
                 let config = TextMeasurementConfig {
                     text: &text_value,
-                    font: font_family,
+                    font: &font_family,
                     font_size,
                     font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
                     font_style: &FontStyle::Normal,
@@ -366,27 +377,37 @@ impl GridBuilder {
             if let Some(s) = subtitle {
                 // Create theme context with params for querying font size
                 let subtitle_ctx = theme.subtitle_context().with_params(params.clone());
-                let font_size = s
-                    .font_size
-                    .or_else(|| theme.font_size(&subtitle_ctx))
-                    .unwrap_or(14.0);
-                let subtitle_font_family = theme
-                    .font_family(&subtitle_ctx)
-                    .unwrap_or_else(|| "sans-serif".to_string());
-                let font_family = s.font_family.as_deref().unwrap_or(&subtitle_font_family);
+
+                // Evaluate font_size
+                let font_size = match s.font_size.as_ref() {
+                    crate::maybe::Maybe::Set(Some(node)) => {
+                        let expr = node.to_expr(ctx)?;
+                        evaluate_f32_expr(&expr, ctx, params).await?
+                    }
+                    _ => theme.font_size(&subtitle_ctx).unwrap_or(14.0),
+                };
+
+                // Evaluate font_family
+                let font_family = match s.font_family.as_ref() {
+                    crate::maybe::Maybe::Set(Some(node)) => {
+                        let expr = node.to_expr(ctx)?;
+                        evaluate_string_expr(&expr, ctx, params).await?
+                    }
+                    _ => theme.font_family(&subtitle_ctx).unwrap_or_else(|| "sans-serif".to_string()),
+                };
 
                 // Evaluate the subtitle text expression to get the actual text
                 let text_node: LogicalExprNode = s.text.clone().into();
                 let text_expr = text_node.to_expr(ctx)?;
                 let text_value =
-                    crate::plot::compiled::expr_eval::evaluate_string_expr(&text_expr, ctx, params)
+                    evaluate_string_expr(&text_expr, ctx, params)
                         .await?;
 
                 // Measure text for layout (using Normal weight/style as approximation)
                 let measurer = default_text_measurer();
                 let config = TextMeasurementConfig {
                     text: &text_value,
-                    font: font_family,
+                    font: &font_family,
                     font_size,
                     font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
                     font_style: &FontStyle::Normal,

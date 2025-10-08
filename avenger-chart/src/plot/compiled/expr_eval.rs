@@ -8,8 +8,8 @@ use indexmap::IndexMap;
 
 use crate::error::AvengerChartError;
 
-/// Helper function to evaluate a dimension expression to a concrete f32 value
-pub(crate) async fn evaluate_dimension_expr(
+/// Helper function to evaluate an expression to a concrete f32 value
+pub(crate) async fn evaluate_f32_expr(
     expr: &datafusion::prelude::Expr,
     ctx: &SessionContext,
     params: &IndexMap<String, datafusion::common::ScalarValue>,
@@ -24,17 +24,17 @@ pub(crate) async fn evaluate_dimension_expr(
     )
     .await
     .map_err(|e| {
-        AvengerChartError::InternalError(format!("Failed to evaluate dimension expression: {}", e))
+        AvengerChartError::InternalError(format!("Failed to evaluate f32 expression: {}", e))
     })?;
 
     let scalar = scalars.first().ok_or_else(|| {
-        AvengerChartError::InternalError("No value returned from dimension expression".to_string())
+        AvengerChartError::InternalError("No value returned from f32 expression".to_string())
     })?;
 
     // Convert to f32 using the ScalarValueHelpers trait
     scalar.as_f32().map_err(|e| {
         AvengerChartError::InternalError(format!(
-            "Cannot convert dimension expression result to f32: {}",
+            "Cannot convert expression result to f32: {}",
             e
         ))
     })

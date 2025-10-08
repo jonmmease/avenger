@@ -3,6 +3,7 @@
 use super::{LegendChannel, LegendRenderer};
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
+use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_f64_expr, evaluate_string_expr, evaluate_legend_position_expr};
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation};
 use avenger_scenegraph::marks::group::SceneGroup;
@@ -83,7 +84,6 @@ impl LegendRenderer for CompiledColorbar {
         }
 
         // Evaluate gradient_thickness expression (default 15.0 if not set)
-        use crate::plot::compiled::expr_eval::*;
         use crate::serialization::LogicalExprNodeExt;
 
         let gradient_thickness = if let Some(node) = config.gradient_thickness.as_option().and_then(|o| o.as_ref()) {
@@ -180,7 +180,7 @@ impl LegendRenderer for CompiledColorbar {
         }
         if let Some(node) = config.title_font_size.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            legend_config.title_font_size = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
+            legend_config.title_font_size = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         // Override font sizes with params
         let legend_ctx = theme
@@ -197,7 +197,7 @@ impl LegendRenderer for CompiledColorbar {
         }
         if let Some(node) = config.title_font_weight.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
+            let weight = evaluate_f32_expr(&expr, ctx, params).await?;
             legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
         // Use tick typography for colorbar axis labels
@@ -207,18 +207,18 @@ impl LegendRenderer for CompiledColorbar {
         }
         if let Some(node) = config.tick_font_weight.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
+            let weight = evaluate_f32_expr(&expr, ctx, params).await?;
             legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
 
         // Evaluate and apply legend background styling if provided
         if let Some(node) = config.background_padding.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            legend_config.background_padding = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
+            legend_config.background_padding = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         if let Some(node) = config.background_corner_radius.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            legend_config.background_corner_radius = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
+            legend_config.background_corner_radius = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;

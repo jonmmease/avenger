@@ -3,6 +3,7 @@
 use super::{LegendChannel, LegendRenderer, helpers};
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
+use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr};
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
@@ -143,7 +144,6 @@ impl LegendRenderer for CompiledLineLegend {
         let default_stroke_width = 2.0;
 
         // Evaluate title expression
-        use crate::plot::compiled::expr_eval::*;
         use crate::serialization::LogicalExprNodeExt;
 
         let title = if let Some(node) = config.title.as_option().and_then(|o| o.as_ref()) {
@@ -171,7 +171,7 @@ impl LegendRenderer for CompiledLineLegend {
         // Evaluate and apply legend background styling if provided
         if let Some(node) = config.background_padding.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            let pad = evaluate_dimension_expr(&expr, ctx, params).await?;
+            let pad = evaluate_f32_expr(&expr, ctx, params).await?;
             legend_config.background_padding = Some(pad);
             tracing::trace!(
                 channel = channel_name.as_str(),
@@ -186,7 +186,7 @@ impl LegendRenderer for CompiledLineLegend {
         }
         if let Some(node) = config.background_corner_radius.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            legend_config.background_corner_radius = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
+            legend_config.background_corner_radius = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
@@ -238,7 +238,7 @@ impl LegendRenderer for CompiledLineLegend {
         }
         if let Some(node) = config.title_font_size.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            legend_config.title_font_size = Some(evaluate_dimension_expr(&expr, ctx, params).await?);
+            legend_config.title_font_size = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         // Override font sizes with params
         let legend_ctx = theme
@@ -255,7 +255,7 @@ impl LegendRenderer for CompiledLineLegend {
         }
         if let Some(node) = config.title_font_weight.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
+            let weight = evaluate_f32_expr(&expr, ctx, params).await?;
             legend_config.title_font_weight =
                 Some(avenger_text::types::FontWeight::Number(weight));
         }
@@ -265,7 +265,7 @@ impl LegendRenderer for CompiledLineLegend {
         }
         if let Some(node) = config.label_font_weight.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
-            let weight = evaluate_dimension_expr(&expr, ctx, params).await?;
+            let weight = evaluate_f32_expr(&expr, ctx, params).await?;
             legend_config.label_font_weight =
                 Some(avenger_text::types::FontWeight::Number(weight));
         }
