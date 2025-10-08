@@ -87,6 +87,48 @@ pub struct ChartLayout {
 }
 
 impl ChartLayout {
+    /// Default canvas width when no dimensions are specified
+    const DEFAULT_CANVAS_WIDTH: f32 = 400.0;
+
+    /// Default canvas height when no dimensions are specified
+    const DEFAULT_CANVAS_HEIGHT: f32 = 300.0;
+
+    /// Minimum size for plot area and flexible legends
+    const MIN_COMPONENT_SIZE: f32 = 50.0;
+
+    /// Evaluate title/subtitle span from expression or theme
+    async fn evaluate_span(
+        span_field: &crate::maybe::Maybe<Option<datafusion_proto::protobuf::LogicalExprNode>>,
+        theme_context: &crate::theme::ThemeContext,
+        theme: &Theme,
+        ctx: &datafusion::prelude::SessionContext,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> Result<TitleSpan, AvengerChartError> {
+        match span_field {
+            crate::maybe::Maybe::Set(Some(node)) => {
+                let expr = node.to_expr(ctx)?;
+                let span_str = evaluate_string_expr(&expr, ctx, params).await?;
+                Ok(match span_str.as_str() {
+                    "canvas" => TitleSpan::Canvas,
+                    "plot_area" | "plot-area" => TitleSpan::PlotArea,
+                    _ => TitleSpan::default(),
+                })
+            }
+            _ => {
+                // Query from theme
+                Ok(theme
+                    .query(theme_context, "width")
+                    .and_then(|v| v.as_string().map(|s| s.to_string()))
+                    .and_then(|s| match s.as_str() {
+                        "canvas" => Some(TitleSpan::Canvas),
+                        "plot-area" | "plot_area" => Some(TitleSpan::PlotArea),
+                        _ => None,
+                    })
+                    .unwrap_or(TitleSpan::default()))
+            }
+        }
+    }
+
     /// Create a new ChartLayout with overflow space requirements
     /// This is the unified layout method for all coordinate systems
     pub(crate) async fn new(
@@ -150,58 +192,16 @@ impl ChartLayout {
 
         // Evaluate title span expression (or get from theme)
         let title_span = if let Some(t) = title {
-            match t.span.as_ref() {
-                crate::maybe::Maybe::Set(Some(node)) => {
-                    let expr = node.to_expr(ctx)?;
-                    let span_str = evaluate_string_expr(&expr, ctx, params).await?;
-                    match span_str.as_str() {
-                        "canvas" => TitleSpan::Canvas,
-                        "plot_area" | "plot-area" => TitleSpan::PlotArea,
-                        _ => TitleSpan::default(),
-                    }
-                }
-                _ => {
-                    // Query from theme
-                    let title_ctx = theme.title_context().with_params(params.clone());
-                    theme.query(&title_ctx, "width")
-                        .and_then(|v| v.as_string().map(|s| s.to_string()))
-                        .and_then(|s| match s.as_str() {
-                            "canvas" => Some(TitleSpan::Canvas),
-                            "plot-area" | "plot_area" => Some(TitleSpan::PlotArea),
-                            _ => None,
-                        })
-                        .unwrap_or(TitleSpan::default())
-                }
-            }
+            let title_ctx = theme.title_context().with_params(params.clone());
+            Self::evaluate_span(&t.span, &title_ctx, theme, ctx, params).await?
         } else {
             TitleSpan::default()
         };
 
         // Evaluate subtitle span expression (or get from theme)
         let subtitle_span = if let Some(s) = subtitle {
-            match s.span.as_ref() {
-                crate::maybe::Maybe::Set(Some(node)) => {
-                    let expr = node.to_expr(ctx)?;
-                    let span_str = evaluate_string_expr(&expr, ctx, params).await?;
-                    match span_str.as_str() {
-                        "canvas" => TitleSpan::Canvas,
-                        "plot_area" | "plot-area" => TitleSpan::PlotArea,
-                        _ => TitleSpan::default(),
-                    }
-                }
-                _ => {
-                    // Query from theme
-                    let subtitle_ctx = theme.subtitle_context().with_params(params.clone());
-                    theme.query(&subtitle_ctx, "width")
-                        .and_then(|v| v.as_string().map(|s| s.to_string()))
-                        .and_then(|s| match s.as_str() {
-                            "canvas" => Some(TitleSpan::Canvas),
-                            "plot-area" | "plot_area" => Some(TitleSpan::PlotArea),
-                            _ => None,
-                        })
-                        .unwrap_or(TitleSpan::default())
-                }
-            }
+            let subtitle_ctx = theme.subtitle_context().with_params(params.clone());
+            Self::evaluate_span(&s.span, &subtitle_ctx, theme, ctx, params).await?
         } else {
             TitleSpan::default()
         };
@@ -237,12 +237,12 @@ impl ChartLayout {
         // Normalize the layout spec to handle special cases
         // The layout spec should already have canvas and plot_area fields set from the mode
         let normalized_spec = match (&layout_spec.canvas, &layout_spec.plot_area) {
-            // Case 1: Both canvas and plot area are Auto - use default 400x300
+            // Case 1: Both canvas and plot area are Auto - use default dimensions
             (EvaluatedSizeMode::Auto, EvaluatedSizeMode::Auto) => {
                 let mut spec = layout_spec.clone();
                 spec.canvas = EvaluatedSizeMode::Fixed {
-                    width: 400.0,
-                    height: 300.0,
+                    width: Self::DEFAULT_CANVAS_WIDTH,
+                    height: Self::DEFAULT_CANVAS_HEIGHT,
                 };
                 spec
             }
@@ -297,12 +297,12 @@ impl ChartLayout {
                     width: match &normalized_spec.plot_area {
                         EvaluatedSizeMode::Fixed { width, .. }
                         | EvaluatedSizeMode::Width(width) => length(*width),
-                        _ => length(50.0),
+                        _ => length(Self::MIN_COMPONENT_SIZE),
                     },
                     height: match &normalized_spec.plot_area {
                         EvaluatedSizeMode::Fixed { height, .. }
                         | EvaluatedSizeMode::Height(height) => length(*height),
-                        _ => length(50.0),
+                        _ => length(Self::MIN_COMPONENT_SIZE),
                     },
                 },
                 ..Default::default()
@@ -426,16 +426,14 @@ impl ChartLayout {
         // Now get legend bounds relative to their containers
         for (channel, legend_node) in &self.nodes.legend_nodes {
             let legend_layout = self.taffy.layout(*legend_node)?;
-            if channel == "stroke" {
-                debug!(
-                    channel = channel,
-                    x = legend_layout.location.x,
-                    y = legend_layout.location.y,
-                    width = legend_layout.size.width,
-                    height = legend_layout.size.height,
-                    "Individual legend node bounds"
-                );
-            }
+            debug!(
+                channel = channel,
+                x = legend_layout.location.x,
+                y = legend_layout.location.y,
+                width = legend_layout.size.width,
+                height = legend_layout.size.height,
+                "Individual legend node bounds"
+            );
 
             // Find which container this legend belongs to by checking the legend configuration
             // We need to determine the legend's position to know its container
@@ -561,8 +559,8 @@ fn build_taffy_tree(
         flex_grow: 1.0,
         flex_shrink: 1.0,
         min_size: Size {
-            width: length(50.0),
-            height: length(50.0),
+            width: length(ChartLayout::MIN_COMPONENT_SIZE),
+            height: length(ChartLayout::MIN_COMPONENT_SIZE),
         },
         ..Default::default()
     };
@@ -777,7 +775,7 @@ fn create_legend_nodes(
                                     flex_grow: 1.0,
                                     flex_shrink: 1.0,
                                     min_size: Size {
-                                        width: length(50.0),
+                                        width: length(ChartLayout::MIN_COMPONENT_SIZE),
                                         height: length(size.height),
                                     },
                                     ..Default::default()
@@ -792,7 +790,7 @@ fn create_legend_nodes(
                                     flex_shrink: 1.0,
                                     min_size: Size {
                                         width: length(size.width),
-                                        height: length(50.0),
+                                        height: length(ChartLayout::MIN_COMPONENT_SIZE),
                                     },
                                     ..Default::default()
                                 },
