@@ -176,10 +176,13 @@ impl Theme {
             /* === Legend Elements === */
             legend {
                 spacing: 10;
-                symbol-size: 100;
                 label-padding: 5;
                 columns: 1;
                 label-limit: 0;  /* 0 means no limit */
+            }
+
+            legend[type="symbol"] {
+                symbol-size: 100;
             }
 
             legend[type="colorbar"] {
@@ -188,10 +191,6 @@ impl Theme {
 
             legend[type="rect"] {
                 symbol-size: 64;
-            }
-
-            legend[type="line"] {
-                symbol-size: 16;
             }
 
             legend title {
