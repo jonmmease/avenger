@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 pub struct CompiledColorbar;
 
 impl CompiledColorbar {
+    /// Default gradient thickness in pixels
+    const DEFAULT_GRADIENT_THICKNESS: f64 = 15.0;
+
     pub fn new() -> Self {
         Self
     }
@@ -95,7 +98,7 @@ impl LegendRenderer for CompiledColorbar {
             theme.query(&legend_ctx, "gradient-thickness")
                 .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
                 .map(|f| f as f64)
-                .unwrap_or(15.0)
+                .unwrap_or(Self::DEFAULT_GRADIENT_THICKNESS)
         };
 
         // Evaluate gradient_length expression (from expression, theme, or use available space)
