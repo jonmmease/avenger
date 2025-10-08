@@ -103,7 +103,7 @@ impl LegendRenderer for CompiledRectLegend {
         );
 
         // Get size value - use constant from mark if available
-        let size_value = helpers::get_constant_f32(
+        let default_size_value = helpers::get_constant_f32(
             "size",
             &primary_channel.related_channels,
             &self.mark_encodings,
@@ -121,6 +121,19 @@ impl LegendRenderer for CompiledRectLegend {
             None
         };
 
+        // Evaluate symbol size (from expression, theme, or mark defaults)
+        let symbol_size = if let Some(node) = config.symbol_size.as_option().and_then(|o| o.as_ref()) {
+            // Expression is set - evaluate it
+            let expr = node.to_expr(ctx)?;
+            evaluate_f32_expr(&expr, ctx, params).await?
+        } else {
+            // Query from theme legend context
+            let legend_ctx = theme.legend_context(Some("rect")).with_params(params.clone());
+            theme.query(&legend_ctx, "symbol-size")
+                .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+                .unwrap_or(default_size_value)
+        };
+
         // Create legend configuration
         let mut legend_config = SymbolLegendConfig {
             title,
@@ -128,7 +141,7 @@ impl LegendRenderer for CompiledRectLegend {
             shape: ScalarOrArray::new_scalar(
                 SymbolShape::from_vega_str("square").unwrap_or_default(),
             ), // Always use square for rect marks
-            size: ScalarOrArray::new_scalar(size_value),
+            size: ScalarOrArray::new_scalar(symbol_size),
             angle: ScalarOrArray::new_scalar(default_angle as f32),
             fill: ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(
                 &default_fill,

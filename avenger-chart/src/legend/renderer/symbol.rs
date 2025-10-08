@@ -347,6 +347,19 @@ impl LegendRenderer for CompiledSymbolLegend {
                 Some(crate::utils::parse_color_string_strict(&stroke_str)?);
         }
 
+        // Evaluate symbol size (from expression, theme, or mark defaults)
+        let symbol_size = if let Some(node) = config.symbol_size.as_option().and_then(|o| o.as_ref()) {
+            // Expression is set - evaluate it
+            let expr = node.to_expr(ctx)?;
+            evaluate_f32_expr(&expr, ctx, params).await?
+        } else {
+            // Query from theme legend context
+            let legend_ctx = theme.legend_context(Some("symbol")).with_params(params.clone());
+            theme.query(&legend_ctx, "symbol-size")
+                .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+                .unwrap_or(default_size)
+        };
+
         // Apply each channel's mapping
         // When multiple channels are present, they all vary together
 
@@ -356,7 +369,7 @@ impl LegendRenderer for CompiledSymbolLegend {
             ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(&default_fill)?);
         legend_config.stroke =
             ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(&default_stroke)?);
-        legend_config.size = ScalarOrArray::new_scalar(default_size);
+        legend_config.size = ScalarOrArray::new_scalar(symbol_size);
         legend_config.angle = ScalarOrArray::new_scalar(default_angle);
         legend_config.stroke_width = Some(default_stroke_width);
 

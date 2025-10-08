@@ -53,9 +53,41 @@ impl CompiledPlot {
                 .unwrap_or_else(|| "sans-serif".to_string()),
         };
 
+        // Evaluate text alignment (from expression or theme)
+        let text_align = match title.align.as_ref() {
+            crate::maybe::Maybe::Set(Some(node)) => {
+                let expr = node.to_expr(ctx)?;
+                let align_str = super::expr_eval::evaluate_string_expr(&expr, ctx, params).await?;
+                match align_str.to_lowercase().as_str() {
+                    "left" => TextAlign::Left,
+                    "center" => TextAlign::Center,
+                    "right" => TextAlign::Right,
+                    _ => TextAlign::Center, // default
+                }
+            }
+            _ => {
+                // Query from theme
+                theme
+                    .text_align(&title_ctx)
+                    .and_then(|s| match s.to_lowercase().as_str() {
+                        "left" => Some(TextAlign::Left),
+                        "center" => Some(TextAlign::Center),
+                        "right" => Some(TextAlign::Right),
+                        _ => None,
+                    })
+                    .unwrap_or(TextAlign::Center)
+            }
+        };
+
         // Position title within its layout bounds or use fallback
         let (x, y) = if let Some(bounds) = layout_bounds {
-            (bounds.x, bounds.y + bounds.height / 2.0)
+            // Adjust x position based on text alignment
+            let x_pos = match text_align {
+                TextAlign::Left => bounds.x,
+                TextAlign::Center => bounds.x + bounds.width / 2.0,
+                TextAlign::Right => bounds.x + bounds.width,
+            };
+            (x_pos, bounds.y + bounds.height / 2.0)
         } else {
             (10.0, 20.0)
         };
@@ -75,7 +107,7 @@ impl CompiledPlot {
                 theme.font_weight(&title_ctx).unwrap_or(400.0),
             )
             .into(),
-            align: TextAlign::Left.into(),
+            align: text_align.into(),
             baseline: TextBaseline::Middle.into(),
             ..Default::default()
         };
@@ -128,9 +160,41 @@ impl CompiledPlot {
                 .unwrap_or_else(|| "sans-serif".to_string()),
         };
 
+        // Evaluate text alignment (from expression or theme)
+        let text_align = match subtitle.align.as_ref() {
+            crate::maybe::Maybe::Set(Some(node)) => {
+                let expr = node.to_expr(ctx)?;
+                let align_str = super::expr_eval::evaluate_string_expr(&expr, ctx, params).await?;
+                match align_str.to_lowercase().as_str() {
+                    "left" => TextAlign::Left,
+                    "center" => TextAlign::Center,
+                    "right" => TextAlign::Right,
+                    _ => TextAlign::Center, // default
+                }
+            }
+            _ => {
+                // Query from theme
+                theme
+                    .text_align(&subtitle_ctx)
+                    .and_then(|s| match s.to_lowercase().as_str() {
+                        "left" => Some(TextAlign::Left),
+                        "center" => Some(TextAlign::Center),
+                        "right" => Some(TextAlign::Right),
+                        _ => None,
+                    })
+                    .unwrap_or(TextAlign::Center)
+            }
+        };
+
         // Position subtitle within its layout bounds or use fallback
         let (x, y) = if let Some(bounds) = layout_bounds {
-            (bounds.x, bounds.y + bounds.height / 2.0)
+            // Adjust x position based on text alignment
+            let x_pos = match text_align {
+                TextAlign::Left => bounds.x,
+                TextAlign::Center => bounds.x + bounds.width / 2.0,
+                TextAlign::Right => bounds.x + bounds.width,
+            };
+            (x_pos, bounds.y + bounds.height / 2.0)
         } else {
             (10.0, 40.0)
         };
@@ -152,7 +216,7 @@ impl CompiledPlot {
                 theme.font_weight(&subtitle_ctx).unwrap_or(400.0),
             )
             .into(),
-            align: TextAlign::Left.into(),
+            align: text_align.into(),
             baseline: TextBaseline::Middle.into(),
             ..Default::default()
         };

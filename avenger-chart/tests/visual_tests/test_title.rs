@@ -308,14 +308,8 @@ async fn title_plot_area_only() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
-        .configure_title("Plot Area Only Title", |t| PlotTitle {
-            align: TitleAlign::PlotAreaOnly,
-            ..t
-        })
-        .configure_subtitle("Plot Area Only Subtitle", |s| PlotSubtitle {
-            align: TitleAlign::PlotAreaOnly,
-            ..s
-        })
+        .configure_title("Plot Area Only Title", |t| t.span(TitleSpan::PlotArea))
+        .configure_subtitle("Plot Area Only Subtitle", |s| s.span(TitleSpan::PlotArea))
         .data(df)
         .mark(
             Symbol::new()
@@ -334,14 +328,8 @@ async fn title_plot_area_only_with_legend() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
-        .configure_title("Plot Area Title", |t| PlotTitle {
-            align: TitleAlign::PlotAreaOnly,
-            ..t
-        })
-        .configure_subtitle("With Right Legend", |s| PlotSubtitle {
-            align: TitleAlign::PlotAreaOnly,
-            ..s
-        })
+        .configure_title("Plot Area Title", |t| t.span(TitleSpan::PlotArea))
+        .configure_subtitle("With Right Legend", |s| s.span(TitleSpan::PlotArea))
         .data(df)
         .mark(
             Symbol::new()

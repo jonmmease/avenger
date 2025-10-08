@@ -40,12 +40,7 @@ async fn test_fixed_plot_area_400x300_with_legend() {
     // The canvas will expand to fit this plus axes, legend, and margins
     let plot = Plot::<Cartesian>::new()
         .plot_size(400.0, 300.0)
-        .margins(Margins {
-            top: 20.0,
-            right: 20.0,
-            bottom: 30.0,
-            left: 40.0,
-        })
+        .margins(Margins::uniform(0.0).top(20.0).right(20.0).bottom(30.0).left(40.0))
         .data(df)
         .mark(
             Line::new()
@@ -171,12 +166,7 @@ async fn test_plot_width_with_canvas_height() {
     let plot = Plot::<Cartesian>::new()
         .plot_constraint(PlotConstraint::width(350.0)) // Fixed plot area width
         .canvas_constraint(CanvasConstraint::height(400.0)) // Fixed canvas height
-        .margins(Margins {
-            top: 20.0,
-            right: 20.0,
-            bottom: 20.0,
-            left: 20.0,
-        })
+        .margins(Margins::uniform(20.0))
         .data(df)
         .mark(
             Symbol::new()
@@ -213,12 +203,7 @@ async fn test_fixed_plot_area_with_fixed_canvas() {
     let plot = Plot::<Cartesian>::new()
         .canvas_size(500.0, 400.0)
         .plot_size(300.0, 200.0)
-        .margins(Margins {
-            top: 15.0,
-            right: 25.0,
-            bottom: 20.0,
-            left: 30.0,
-        })
+        .margins(Margins::uniform(0.0).top(15.0).right(25.0).bottom(20.0).left(30.0))
         .data(df)
         .mark(
             Line::new()
