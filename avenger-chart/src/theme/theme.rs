@@ -188,9 +188,10 @@ impl Theme {
             }
 
             legend tick {
-                color: var(--text-secondary);
+                color: var(--text-tertiary);
                 font-weight: 300;
                 font-size: 0.833rem; /* 10px @ 12px base */
+                stroke: var(--border-color);
             }
 
             legend background {
