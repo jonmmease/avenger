@@ -22,6 +22,15 @@ pub struct CompiledRectLegend {
 }
 
 impl CompiledRectLegend {
+    // Default values for rect legends
+    const DEFAULT_SIZE: f32 = 64.0;
+    const DEFAULT_ANGLE: f32 = 0.0;
+    const DEFAULT_FILL: &'static str = "#4682b4"; // Steelblue
+    const DEFAULT_STROKE: &'static str = "#000000"; // Black
+    const DEFAULT_STROKE_WIDTH: f32 = 1.0;
+    const INNER_HEIGHT: f32 = 100.0;
+    const TEXT_PADDING: f32 = 2.0;
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -85,31 +94,14 @@ impl LegendRenderer for CompiledRectLegend {
         // Get channel name
         let channel_name = &primary_channel.channel_type;
 
-        // Default values for rect marks - always use square shape
-        let (
-            default_size,
-            _default_shape,
-            default_angle,
-            default_fill,
-            default_stroke,
-            default_stroke_width,
-        ) = (
-            64.0,
-            "square".to_string(),
-            0.0,
-            "#4682b4".to_string(),
-            "#000000".to_string(),
-            1.0,
-        );
-
-        // Get size value - use constant from mark if available
+        // Get size value - use constant from mark if available, or use default
         let default_size_value = helpers::get_constant_f32(
             "size",
             &primary_channel.related_channels,
             &self.mark_encodings,
             ctx,
         )
-        .unwrap_or(default_size as f32);
+        .unwrap_or(Self::DEFAULT_SIZE);
 
         // Evaluate title expression
         use crate::serialization::LogicalExprNodeExt;
@@ -142,18 +134,18 @@ impl LegendRenderer for CompiledRectLegend {
                 SymbolShape::from_vega_str("square").unwrap_or_default(),
             ), // Always use square for rect marks
             size: ScalarOrArray::new_scalar(symbol_size),
-            angle: ScalarOrArray::new_scalar(default_angle as f32),
+            angle: ScalarOrArray::new_scalar(Self::DEFAULT_ANGLE),
             fill: ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(
-                &default_fill,
+                Self::DEFAULT_FILL,
             )?),
             stroke: ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(
-                &default_stroke,
+                Self::DEFAULT_STROKE,
             )?),
-            stroke_width: Some(default_stroke_width as f32),
+            stroke_width: Some(Self::DEFAULT_STROKE_WIDTH),
             inner_width: 0.0,
-            inner_height: 100.0,
+            inner_height: Self::INNER_HEIGHT,
             outer_margin: 0.0,
-            text_padding: 2.0,
+            text_padding: Self::TEXT_PADDING,
             background_fill: None,
             background_stroke: None,
             background_corner_radius: None,
