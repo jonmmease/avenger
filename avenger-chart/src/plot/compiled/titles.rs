@@ -9,6 +9,15 @@ use crate::error::AvengerChartError;
 use super::CompiledPlot;
 
 impl CompiledPlot {
+    // Default values for title/subtitle rendering
+    const DEFAULT_TITLE_FONT_SIZE: f32 = 16.0;
+    const DEFAULT_SUBTITLE_FONT_SIZE: f32 = 14.0;
+    const DEFAULT_FONT_FAMILY: &'static str = "sans-serif";
+    const DEFAULT_FONT_WEIGHT: f32 = 400.0;
+    const DEFAULT_TEXT_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0]; // Black
+    const FALLBACK_TITLE_POSITION: (f32, f32) = (10.0, 20.0);
+    const FALLBACK_SUBTITLE_POSITION: (f32, f32) = (10.0, 40.0);
+
     /// Create title mark if configured
     pub(super) async fn create_title(
         &self,
@@ -39,7 +48,7 @@ impl CompiledPlot {
                 let expr = node.to_expr(ctx)?;
                 super::expr_eval::evaluate_f32_expr(&expr, ctx, params).await?
             }
-            _ => theme.font_size(&title_ctx).unwrap_or(16.0),
+            _ => theme.font_size(&title_ctx).unwrap_or(Self::DEFAULT_TITLE_FONT_SIZE),
         };
 
         // Evaluate font_family
@@ -50,7 +59,7 @@ impl CompiledPlot {
             }
             _ => theme
                 .font_family(&title_ctx)
-                .unwrap_or_else(|| "sans-serif".to_string()),
+                .unwrap_or_else(|| Self::DEFAULT_FONT_FAMILY.to_string()),
         };
 
         // Evaluate text alignment (from expression or theme)
@@ -89,7 +98,7 @@ impl CompiledPlot {
             };
             (x_pos, bounds.y + bounds.height / 2.0)
         } else {
-            (10.0, 20.0)
+            Self::FALLBACK_TITLE_POSITION
         };
 
         let text_mark = SceneTextMark {
@@ -97,14 +106,14 @@ impl CompiledPlot {
             x: x.into(),
             y: y.into(),
             color: avenger_common::types::ColorOrGradient::Color(
-                theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                theme.text_color(&title_ctx).unwrap_or(Self::DEFAULT_TEXT_COLOR),
             )
             .into(),
             font_size: font_size.into(),
             font: font_family.into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(
-                theme.font_weight(&title_ctx).unwrap_or(400.0),
+                theme.font_weight(&title_ctx).unwrap_or(Self::DEFAULT_FONT_WEIGHT),
             )
             .into(),
             align: text_align.into(),
@@ -146,7 +155,7 @@ impl CompiledPlot {
                 let expr = node.to_expr(ctx)?;
                 super::expr_eval::evaluate_f32_expr(&expr, ctx, params).await?
             }
-            _ => theme.font_size(&subtitle_ctx).unwrap_or(14.0),
+            _ => theme.font_size(&subtitle_ctx).unwrap_or(Self::DEFAULT_SUBTITLE_FONT_SIZE),
         };
 
         // Evaluate font_family
@@ -157,7 +166,7 @@ impl CompiledPlot {
             }
             _ => theme
                 .font_family(&subtitle_ctx)
-                .unwrap_or_else(|| "sans-serif".to_string()),
+                .unwrap_or_else(|| Self::DEFAULT_FONT_FAMILY.to_string()),
         };
 
         // Evaluate text alignment (from expression or theme)
@@ -196,7 +205,7 @@ impl CompiledPlot {
             };
             (x_pos, bounds.y + bounds.height / 2.0)
         } else {
-            (10.0, 40.0)
+            Self::FALLBACK_SUBTITLE_POSITION
         };
 
         let text_mark = SceneTextMark {
@@ -206,14 +215,14 @@ impl CompiledPlot {
             color: avenger_common::types::ColorOrGradient::Color(
                 theme
                     .text_color(&subtitle_ctx)
-                    .unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                    .unwrap_or(Self::DEFAULT_TEXT_COLOR),
             )
             .into(),
             font_size: font_size.into(),
             font: font_family.into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(
-                theme.font_weight(&subtitle_ctx).unwrap_or(400.0),
+                theme.font_weight(&subtitle_ctx).unwrap_or(Self::DEFAULT_FONT_WEIGHT),
             )
             .into(),
             align: text_align.into(),
