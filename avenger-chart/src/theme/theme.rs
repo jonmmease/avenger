@@ -130,12 +130,16 @@ impl Theme {
                 color: var(--text-color);
                 font-weight: 500;
                 font-size: 1.5rem; /* 18px @ 12px base */
+                text-align: center;
+                width: canvas;  /* or plot-area */
             }
 
             chart-subtitle {
                 color: var(--text-tertiary);
                 font-weight: 200;
                 font-size: 1.167rem; /* 14px @ 12px base */
+                text-align: center;
+                width: canvas;  /* or plot-area */
             }
 
             /* === Axis Elements === */
@@ -679,6 +683,12 @@ impl Theme {
         self.query(context, "font-weight")
             .and_then(|v| v.as_number())
             .map(|n| n as f32)
+    }
+
+    /// Get text-align for a context
+    pub fn text_align(&self, context: &ThemeContext) -> Option<String> {
+        self.query(context, "text-align")
+            .and_then(|v| v.as_string().map(|s| s.to_string()))
     }
 
     /// Get color for a context as normalized RGBA array

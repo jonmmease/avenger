@@ -148,7 +148,7 @@ impl ChartLayout {
             .map(|(k, m)| (k.clone(), m.position))
             .collect();
 
-        // Evaluate title span expression
+        // Evaluate title span expression (or get from theme)
         let title_span = if let Some(t) = title {
             match t.span.as_ref() {
                 crate::maybe::Maybe::Set(Some(node)) => {
@@ -156,17 +156,28 @@ impl ChartLayout {
                     let span_str = evaluate_string_expr(&expr, ctx, params).await?;
                     match span_str.as_str() {
                         "canvas" => TitleSpan::Canvas,
-                        "plot_area" => TitleSpan::PlotArea,
+                        "plot_area" | "plot-area" => TitleSpan::PlotArea,
                         _ => TitleSpan::default(),
                     }
                 }
-                _ => TitleSpan::default(),
+                _ => {
+                    // Query from theme
+                    let title_ctx = theme.title_context().with_params(params.clone());
+                    theme.query(&title_ctx, "width")
+                        .and_then(|v| v.as_string().map(|s| s.to_string()))
+                        .and_then(|s| match s.as_str() {
+                            "canvas" => Some(TitleSpan::Canvas),
+                            "plot-area" | "plot_area" => Some(TitleSpan::PlotArea),
+                            _ => None,
+                        })
+                        .unwrap_or(TitleSpan::default())
+                }
             }
         } else {
             TitleSpan::default()
         };
 
-        // Evaluate subtitle span expression
+        // Evaluate subtitle span expression (or get from theme)
         let subtitle_span = if let Some(s) = subtitle {
             match s.span.as_ref() {
                 crate::maybe::Maybe::Set(Some(node)) => {
@@ -174,11 +185,22 @@ impl ChartLayout {
                     let span_str = evaluate_string_expr(&expr, ctx, params).await?;
                     match span_str.as_str() {
                         "canvas" => TitleSpan::Canvas,
-                        "plot_area" => TitleSpan::PlotArea,
+                        "plot_area" | "plot-area" => TitleSpan::PlotArea,
                         _ => TitleSpan::default(),
                     }
                 }
-                _ => TitleSpan::default(),
+                _ => {
+                    // Query from theme
+                    let subtitle_ctx = theme.subtitle_context().with_params(params.clone());
+                    theme.query(&subtitle_ctx, "width")
+                        .and_then(|v| v.as_string().map(|s| s.to_string()))
+                        .and_then(|s| match s.as_str() {
+                            "canvas" => Some(TitleSpan::Canvas),
+                            "plot-area" | "plot_area" => Some(TitleSpan::PlotArea),
+                            _ => None,
+                        })
+                        .unwrap_or(TitleSpan::default())
+                }
             }
         } else {
             TitleSpan::default()

@@ -138,6 +138,18 @@ impl IntoExpr for crate::legend::LegendOrientation {
     }
 }
 
+impl IntoExpr for crate::plot::title::TitleSpan {
+    fn into_expr(self) -> Expr {
+        lit(self.to_str())
+    }
+}
+
+impl IntoExpr for crate::plot::title::TitleAlign {
+    fn into_expr(self) -> Expr {
+        lit(self.to_str())
+    }
+}
+
 use super::compiled::CompiledPlot;
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};

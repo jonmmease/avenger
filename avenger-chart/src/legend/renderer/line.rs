@@ -153,6 +153,19 @@ impl LegendRenderer for CompiledLineLegend {
             None
         };
 
+        // Evaluate symbol size (line length) from expression, theme, or default
+        let line_length = if let Some(node) = config.symbol_size.as_option().and_then(|o| o.as_ref()) {
+            // Expression is set - evaluate it
+            let expr = node.to_expr(ctx)?;
+            evaluate_f32_expr(&expr, ctx, params).await?
+        } else {
+            // Query from theme legend context
+            let legend_ctx = theme.legend_context(Some("line")).with_params(params.clone());
+            theme.query(&legend_ctx, "symbol-size")
+                .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+                .unwrap_or(16.0)  // Default line length
+        };
+
         // Initialize config with defaults
         // Use longer line length for better dash pattern visibility
         let mut legend_config = LineLegendConfig {
@@ -163,7 +176,7 @@ impl LegendRenderer for CompiledLineLegend {
             inner_width: 0.0,
             inner_height: 100.0,
             outer_margin: 0.0, // Don't offset legend entries
-            line_length: ScalarOrArray::new_scalar(16.0), // Default, will be adjusted for dash patterns
+            line_length: ScalarOrArray::new_scalar(line_length),
             text_padding: 4.0,                            // Consistent with symbol legend
             ..Default::default()
         };

@@ -43,9 +43,12 @@
 //! When both canvas and plot dimensions are fixed in the same direction, margins become
 //! expandable and will grow to center the plot within the canvas.
 
-use crate::serialization::SerializableExpr;
+use crate::maybe::{Maybe, MaybeOptionalExpr};
+use crate::serialization::{LogicalExprNodeExt, SerializableExpr};
 use datafusion::prelude::{Expr, lit};
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 
 /// Trait for types that can be converted to Expr (for dimensions)
 pub trait IntoExprDimension {
@@ -201,6 +204,15 @@ pub struct LayoutSpec {
     pub margins: Margins,
 }
 
+/// Evaluated margins with concrete f32 values
+#[derive(Clone, Debug)]
+pub(crate) struct EvaluatedMargins {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
 /// Evaluated layout specification with concrete f32 values for layout computation
 #[derive(Clone, Debug)]
 pub(crate) struct EvaluatedLayoutSpec {
@@ -211,7 +223,7 @@ pub(crate) struct EvaluatedLayoutSpec {
     pub(crate) plot_area: EvaluatedSizeMode,
 
     /// Fixed margins around entire chart
-    pub margins: Margins,
+    pub margins: EvaluatedMargins,
 }
 
 impl EvaluatedLayoutSpec {
@@ -278,12 +290,17 @@ impl LayoutSpec {
     }
 }
 
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Margins {
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub top: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub right: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub bottom: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub left: Maybe<Option<LogicalExprNode>>,
 }
 
 impl Default for Margins {
@@ -293,25 +310,62 @@ impl Default for Margins {
 }
 
 impl Margins {
-    pub fn uniform(size: f32) -> Self {
+    /// Create margins with uniform size
+    pub fn uniform(size: impl IntoExprDimension) -> Self {
+        let expr = size.into_expr_dim();
+        let node = LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr");
         Self {
-            top: size,
-            right: size,
-            bottom: size,
-            left: size,
+            top: Maybe::Set(Some(node.clone())),
+            right: Maybe::Set(Some(node.clone())),
+            bottom: Maybe::Set(Some(node.clone())),
+            left: Maybe::Set(Some(node)),
         }
     }
 
-    pub fn symmetric(vertical: f32, horizontal: f32) -> Self {
+    /// Create margins with symmetric vertical and horizontal values
+    pub fn symmetric(vertical: impl IntoExprDimension, horizontal: impl IntoExprDimension) -> Self {
+        let v_expr = vertical.into_expr_dim();
+        let h_expr = horizontal.into_expr_dim();
+        let v_node = LogicalExprNode::from_expr(v_expr).expect("Failed to serialize margin expr");
+        let h_node = LogicalExprNode::from_expr(h_expr).expect("Failed to serialize margin expr");
         Self {
-            top: vertical,
-            right: horizontal,
-            bottom: vertical,
-            left: horizontal,
+            top: Maybe::Set(Some(v_node.clone())),
+            right: Maybe::Set(Some(h_node.clone())),
+            bottom: Maybe::Set(Some(v_node)),
+            left: Maybe::Set(Some(h_node)),
         }
     }
 
+    /// Create margins with no space
     pub fn none() -> Self {
         Self::uniform(0.0)
+    }
+
+    /// Set the top margin
+    pub fn top(mut self, value: impl IntoExprDimension) -> Self {
+        let expr = value.into_expr_dim();
+        self.top = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr")));
+        self
+    }
+
+    /// Set the right margin
+    pub fn right(mut self, value: impl IntoExprDimension) -> Self {
+        let expr = value.into_expr_dim();
+        self.right = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr")));
+        self
+    }
+
+    /// Set the bottom margin
+    pub fn bottom(mut self, value: impl IntoExprDimension) -> Self {
+        let expr = value.into_expr_dim();
+        self.bottom = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr")));
+        self
+    }
+
+    /// Set the left margin
+    pub fn left(mut self, value: impl IntoExprDimension) -> Self {
+        let expr = value.into_expr_dim();
+        self.left = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr")));
+        self
     }
 }

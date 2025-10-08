@@ -24,7 +24,7 @@ pub use crate::polar::Polar;
 pub use crate::zerod::ZeroDCoord;
 
 // Re-export the Plot type
-pub use crate::plot::{Plot, PlotSubtitle, PlotTitle, TitleAlign};
+pub use crate::plot::{Plot, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan};
 
 // Re-export theme types
 pub use crate::theme::Theme;

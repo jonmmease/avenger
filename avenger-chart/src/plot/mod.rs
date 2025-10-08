@@ -15,7 +15,7 @@ pub use compiled::CompiledPlot;
 pub use plot::{IntoExpr, Plot};
 
 // Re-export title types
-pub use title::{PlotSubtitle, PlotTitle, TitleAlign};
+pub use title::{PlotSubtitle, PlotTitle, TitleAlign, TitleSpan};
 
 // Re-export specification types
 pub use specs::{AxisSpec, ScaleSpec};

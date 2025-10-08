@@ -60,7 +60,12 @@
       "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/datafusion-expr-48.0.1/src/logical_plan/**)",
       "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/datafusion-expr-48.0.1/src/**)",
       "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/datafusion-expr-48.0.1/**)",
-      "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/**)"
+      "Read(//Users/jonmmease/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/**)",
+      "Bash(timeout 120 cargo test:*)",
+      "Bash(timeout 180 cargo test --package avenger-chart --test visual_regression visual_tests::test_media_query_guide_background::test_media_query_guide_background_responsive -- --exact --nocapture)",
+      "Bash(timeout 240 cargo test --package avenger-chart --test visual_regression visual_tests::test_media_query_guide_background::test_media_query_guide_background_responsive -- --exact --nocapture 2)",
+      "Bash(1)",
+      "Bash(timeout 240 cargo test --package avenger-chart --test visual_regression visual_tests::test_media_query_guide_background::test_media_query_guide_background_responsive -- --exact --nocapture)"
     ]
   },
   "enableAllProjectMcpServers": false
