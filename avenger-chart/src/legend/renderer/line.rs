@@ -40,6 +40,55 @@ impl CompiledLineLegend {
         Self::default()
     }
 
+    /// Calculate the optimal length for a dash pattern within the given max length
+    ///
+    /// This simulates drawing the dash pattern and finds the longest length that
+    /// fits complete dash-gap pairs without exceeding max_legend_length.
+    fn calculate_dash_pattern_length(pattern: &[f32], max_legend_length: f32) -> f32 {
+        let mut current_pos = 0.0;
+        let mut last_valid_length = 0.0;
+        let mut is_dash = true; // Start with a dash segment
+        let mut pattern_idx = 0;
+
+        // Simulate drawing the pattern
+        // We want to fit complete dash-gap pairs where possible
+        while current_pos <= max_legend_length {
+            let segment_length = pattern[pattern_idx];
+            let next_pos = current_pos + segment_length;
+
+            if is_dash {
+                // This is a dash segment
+                if next_pos <= max_legend_length {
+                    // Dash fits completely
+                    last_valid_length = next_pos;
+                } else {
+                    // Dash would exceed limit, don't include it
+                    break;
+                }
+            } else {
+                // This is a gap - we include it if the next dash will also fit
+                // Look ahead to see if there's room for the next dash
+                let next_pattern_idx = (pattern_idx + 1) % pattern.len();
+                let next_dash_length = pattern[next_pattern_idx];
+                if next_pos + next_dash_length > max_legend_length {
+                    // Next dash won't fit, so stop here
+                    break;
+                }
+            }
+
+            current_pos = next_pos;
+            is_dash = !is_dash;
+            pattern_idx = (pattern_idx + 1) % pattern.len();
+        }
+
+        // Make sure we show at least some pattern
+        if last_valid_length == 0.0 && !pattern.is_empty() {
+            last_valid_length = pattern[0].min(max_legend_length); // At least show first dash
+        }
+
+        last_valid_length
+    }
+
     /// Convert dash pattern names to numeric arrays using the coercer
     fn convert_dash_pattern(pattern: &str) -> Option<Vec<f32>> {
         use avenger_scales::scales::coerce::Coercer;
@@ -140,7 +189,6 @@ impl LegendRenderer for CompiledLineLegend {
         };
 
         // Get default stroke properties
-        let _default_stroke = "#000000".to_string();
         let default_stroke_width = 2.0;
 
         // Evaluate title expression
@@ -378,53 +426,9 @@ impl LegendRenderer for CompiledLineLegend {
                 let mut actual_max_length_without_caps: f32 = 0.0; // Track the longest dash pattern
 
                 // First pass: calculate lengths for all dash patterns
-                for pattern in dash_patterns.iter() {
-                    if let Some(pattern) = pattern.as_ref() {
-                        // Calculate how many complete dash segments fit within max_legend_length
-                        let mut current_pos = 0.0;
-                        let mut last_valid_length = 0.0;
-                        let mut is_dash = true; // Start with a dash segment
-                        let mut pattern_idx = 0;
-
-                        // Simulate drawing the pattern
-                        // We want to fit complete dash-gap pairs where possible
-                        while current_pos <= max_legend_length {
-                            let segment_length = pattern[pattern_idx];
-                            let next_pos = current_pos + segment_length;
-
-                            if is_dash {
-                                // This is a dash segment
-                                if next_pos <= max_legend_length {
-                                    // Dash fits completely
-                                    last_valid_length = next_pos;
-                                } else {
-                                    // Dash would exceed limit, don't include it
-                                    break;
-                                }
-                            } else {
-                                // This is a gap - we include it if the next dash will also fit
-                                // Look ahead to see if there's room for the next dash
-                                let next_pattern_idx = (pattern_idx + 1) % pattern.len();
-                                let next_dash_length = pattern[next_pattern_idx];
-                                if next_pos + next_dash_length > max_legend_length {
-                                    // Next dash won't fit, so stop here
-                                    break;
-                                }
-                            }
-
-                            current_pos = next_pos;
-                            is_dash = !is_dash;
-                            pattern_idx = (pattern_idx + 1) % pattern.len();
-                        }
-
-                        // Make sure we show at least some pattern
-                        if last_valid_length == 0.0 {
-                            last_valid_length = pattern[0].min(max_legend_length); // At least show first dash
-                        }
-
-                        actual_max_length_without_caps =
-                            actual_max_length_without_caps.max(last_valid_length);
-                    }
+                for pattern in dash_patterns.iter().flatten() {
+                    let length = Self::calculate_dash_pattern_length(pattern, max_legend_length);
+                    actual_max_length_without_caps = actual_max_length_without_caps.max(length);
                 }
 
                 // If no dash patterns were found, use the theoretical max
@@ -442,50 +446,7 @@ impl LegendRenderer for CompiledLineLegend {
                 // Second pass: assign lengths
                 for (i, pattern) in dash_patterns.iter().enumerate() {
                     let optimal_length = if let Some(pattern) = pattern.as_ref() {
-                        // Calculate how many complete dash segments fit within max_legend_length
-                        // All patterns including [32, 0] for solid lines are processed uniformly
-                        let mut current_pos = 0.0;
-                        let mut last_valid_length = 0.0;
-                        let mut is_dash = true; // Start with a dash segment
-                        let mut pattern_idx = 0;
-
-                        // Simulate drawing the pattern
-                        // We want to fit complete dash-gap pairs where possible
-                        while current_pos <= max_legend_length {
-                            let segment_length = pattern[pattern_idx];
-                            let next_pos = current_pos + segment_length;
-
-                            if is_dash {
-                                // This is a dash segment
-                                if next_pos <= max_legend_length {
-                                    // Dash fits completely
-                                    last_valid_length = next_pos;
-                                } else {
-                                    // Dash would exceed limit, don't include it
-                                    break;
-                                }
-                            } else {
-                                // This is a gap - we include it if the next dash will also fit
-                                // Look ahead to see if there's room for the next dash
-                                let next_pattern_idx = (pattern_idx + 1) % pattern.len();
-                                let next_dash_length = pattern[next_pattern_idx];
-                                if next_pos + next_dash_length > max_legend_length {
-                                    // Next dash won't fit, so stop here
-                                    break;
-                                }
-                            }
-
-                            current_pos = next_pos;
-                            is_dash = !is_dash;
-                            pattern_idx = (pattern_idx + 1) % pattern.len();
-                        }
-
-                        // Make sure we show at least some pattern
-                        if last_valid_length == 0.0 && !pattern.is_empty() {
-                            last_valid_length = pattern[0].min(max_legend_length); // At least show first dash
-                        }
-
-                        last_valid_length
+                        Self::calculate_dash_pattern_length(pattern, max_legend_length)
                     } else {
                         // No pattern (solid line)
                         actual_max_length_without_caps
