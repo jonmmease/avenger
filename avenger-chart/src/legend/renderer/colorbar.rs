@@ -119,16 +119,16 @@ impl LegendRenderer for CompiledColorbar {
 
         // Determine colorbar dimensions based on orientation
         // Always use available space for gradient length (flexible layout)
-        // For vertical orientations (Left/Right): use height for gradient length
-        // For horizontal orientations (Top/Bottom): use width for gradient length
+        // Note: In ColorbarConfig, both width and height represent different things depending on orientation:
+        // - For all orientations: colorbar_height is the LENGTH, colorbar_width is the THICKNESS
         let (colorbar_height_param, colorbar_width_param) = match orientation {
             ColorbarOrientation::Left | ColorbarOrientation::Right => {
-                // Vertical: height fills available space, width is the thickness
+                // Vertical: height is length, width is thickness
                 (Some(height), Some(gradient_thickness as f32))
             }
             ColorbarOrientation::Top | ColorbarOrientation::Bottom => {
-                // Horizontal: width fills available space, height is the thickness
-                (Some(gradient_thickness as f32), Some(width))
+                // Horizontal: height is still length (not thickness!), width is still thickness
+                (Some(width), Some(gradient_thickness as f32))
             }
         };
 
