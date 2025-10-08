@@ -190,6 +190,10 @@ impl Theme {
                 symbol-size: 64;
             }
 
+            legend[type="line"] {
+                symbol-size: 16;
+            }
+
             legend title {
                 color: var(--text-color);
                 font-weight: 400;
