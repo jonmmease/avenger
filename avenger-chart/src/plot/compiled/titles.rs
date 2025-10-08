@@ -71,7 +71,7 @@ impl CompiledPlot {
                     "left" => TextAlign::Left,
                     "center" => TextAlign::Center,
                     "right" => TextAlign::Right,
-                    _ => TextAlign::Center, // default
+                    _ => TextAlign::default(),
                 }
             }
             _ => {
@@ -84,7 +84,7 @@ impl CompiledPlot {
                         "right" => Some(TextAlign::Right),
                         _ => None,
                     })
-                    .unwrap_or(TextAlign::Center)
+                    .unwrap_or_default()
             }
         };
 
@@ -178,7 +178,7 @@ impl CompiledPlot {
                     "left" => TextAlign::Left,
                     "center" => TextAlign::Center,
                     "right" => TextAlign::Right,
-                    _ => TextAlign::Center, // default
+                    _ => TextAlign::default(),
                 }
             }
             _ => {
@@ -191,7 +191,7 @@ impl CompiledPlot {
                         "right" => Some(TextAlign::Right),
                         _ => None,
                     })
-                    .unwrap_or(TextAlign::Center)
+                    .unwrap_or_default()
             }
         };
 
