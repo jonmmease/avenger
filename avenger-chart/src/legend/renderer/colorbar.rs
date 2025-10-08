@@ -96,7 +96,7 @@ impl LegendRenderer for CompiledColorbar {
             // Query from theme legend context
             let legend_ctx = theme.legend_context(Some("colorbar")).with_params(params.clone());
             theme.query(&legend_ctx, "gradient-thickness")
-                .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+                .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
                 .map(|f| f as f64)
                 .unwrap_or(Self::DEFAULT_GRADIENT_THICKNESS)
         };
@@ -109,7 +109,7 @@ impl LegendRenderer for CompiledColorbar {
             // Query from theme legend context
             let legend_ctx = theme.legend_context(Some("colorbar")).with_params(params.clone());
             theme.query(&legend_ctx, "gradient-length")
-                .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+                .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
                 .map(|f| f)
         };
 

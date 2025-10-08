@@ -137,36 +137,14 @@ impl ThemeValue {
     /// - Number: Returns the raw number (interpreted as px)
     /// - Length(Px): Returns pixel value
     /// - Length(Rem): Converts rem to pixels using base_font_size (rem-based scaling)
-    /// - Calc: Resolves calc expression with runtime params
-    ///
-    /// Note: Percentage values are not supported (would require parent element context)
-    pub fn as_font_size(&self, base_font_size: f32) -> Option<f32> {
-        match self {
-            ThemeValue::Number(n) => Some(*n as f32),
-            ThemeValue::Length(n, LengthUnit::Px) => Some(*n as f32),
-            ThemeValue::Length(n, LengthUnit::Rem) => Some((*n as f32) * base_font_size),
-            ThemeValue::Calc(calc_node) => {
-                // Resolve calc without params (backward compatibility)
-                let resolved = calc_node.resolve(base_font_size).ok()?;
-                resolved.as_length_px(base_font_size)
-            }
-            _ => None,
-        }
-    }
-
-    /// Extract font-size value with calc and runtime parameter support
-    ///
-    /// This is the extended version that supports CSS variables in calc expressions.
-    /// Converts font-size values to pixels:
-    /// - Number: Returns the raw number (interpreted as px)
-    /// - Length(Px): Returns pixel value
-    /// - Length(Rem): Converts rem to pixels using base_font_size
     /// - Calc: Resolves calc expression with runtime params from ScalarValue map
     ///
     /// # Arguments
     /// * `params` - Runtime parameter values (from ThemeContext)
     /// * `base_font_size` - Base font size for rem conversion
-    pub fn as_font_size_with_params(
+    ///
+    /// Note: Percentage values are not supported (would require parent element context)
+    pub fn as_font_size(
         &self,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         base_font_size: f32,
@@ -181,7 +159,7 @@ impl ThemeValue {
 
                 // Resolve calc with params
                 let resolved = calc_node
-                    .resolve_with_params(&f64_params, base_font_size)
+                    .resolve(&f64_params, base_font_size)
                     .ok()?;
                 resolved.as_length_px(base_font_size)
             }

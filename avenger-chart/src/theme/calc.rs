@@ -864,7 +864,7 @@ impl CalcNode {
     /// # Arguments
     /// * `params` - Runtime parameter values (var(--name) => params["name"])
     /// * `base_font_size` - Base font size for rem conversion
-    pub fn resolve_with_params(
+    pub fn resolve(
         &self,
         params: &IndexMap<String, f64>,
         base_font_size: f32,
@@ -907,11 +907,6 @@ impl CalcNode {
 
     /// Resolve to concrete value (backward compatibility wrapper)
     ///
-    /// Calls resolve_with_params with empty params map.
-    /// Use this when no CSS variables are expected.
-    pub fn resolve(&self, base_font_size: f32) -> Result<CalcLeaf, String> {
-        self.resolve_with_params(&IndexMap::new(), base_font_size)
-    }
 
     /// Internal resolution after variable substitution
     ///
@@ -1811,7 +1806,7 @@ mod tests {
             eprintln!("Multiply result: {:?}", mult_result);
         }
 
-        let result = product.resolve(16.0).unwrap();
+        let result = product.resolve(&IndexMap::new(), 16.0).unwrap();
         eprintln!("Final result: {:?}", result);
         assert_eq!(result, CalcLeaf::Length(20.0, LengthUnit::Px));
     }

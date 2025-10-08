@@ -80,7 +80,7 @@ async fn evaluate_margins(
     let query_margin = |property: &str| -> f32 {
         let canvas_ctx = crate::theme::ThemeContext::new("canvas").with_params(params.clone());
         theme.query(&canvas_ctx, property)
-            .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+            .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
             .unwrap_or(CompiledPlot::DEFAULT_MARGIN)
     };
 

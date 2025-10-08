@@ -143,14 +143,14 @@ impl CompiledPlot {
 
             // Apply background padding if set
             if let Some(value) = theme.query(&bg_ctx, "padding") {
-                if let Some(padding) = value.as_font_size(base_font_size) {
+                if let Some(padding) = value.as_font_size(&legend_ctx.params, base_font_size) {
                     legend = legend.background_padding(padding);
                 }
             }
 
             // Apply background corner radius if set
             if let Some(value) = theme.query(&bg_ctx, "corner-radius") {
-                if let Some(radius) = value.as_font_size(base_font_size) {
+                if let Some(radius) = value.as_font_size(&legend_ctx.params, base_font_size) {
                     legend = legend.background_corner_radius(radius);
                 }
             }
