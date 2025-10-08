@@ -21,8 +21,6 @@ pub struct Legend {
     #[serde_as(as = "MaybeOptionalExpr")]
     pub symbol_size: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
-    pub gradient_length: Maybe<Option<LogicalExprNode>>,
-    #[serde_as(as = "MaybeOptionalExpr")]
     pub gradient_thickness: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub columns: Maybe<Option<LogicalExprNode>>,
@@ -89,7 +87,6 @@ impl std::fmt::Debug for Legend {
             .field("position", &self.position)
             .field("orientation", &self.orientation)
             .field("symbol_size", &self.symbol_size)
-            .field("gradient_length", &self.gradient_length)
             .field("gradient_thickness", &self.gradient_thickness)
             .field("columns", &self.columns)
             .field("label_limit", &self.label_limit)
@@ -146,7 +143,6 @@ impl Legend {
             title: Maybe::Unset,
             orientation: Maybe::Unset,
             symbol_size: Maybe::Unset,
-            gradient_length: Maybe::Unset,
             gradient_thickness: Maybe::Unset,
             columns: Maybe::Unset,
             label_limit: Maybe::Unset,
@@ -191,9 +187,6 @@ impl Legend {
         }
         if other.symbol_size.is_set() {
             self.symbol_size = other.symbol_size;
-        }
-        if other.gradient_length.is_set() {
-            self.gradient_length = other.gradient_length;
         }
         if other.gradient_thickness.is_set() {
             self.gradient_thickness = other.gradient_thickness;
@@ -314,15 +307,6 @@ impl Legend {
         let expr = size.into_expr();
         self.symbol_size = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize symbol_size expr"),
-        ));
-        self
-    }
-
-    pub fn gradient_length(mut self, length: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
-        let expr = length.into_expr();
-        self.gradient_length = Maybe::Set(Some(
-            LogicalExprNode::from_expr(expr).expect("Failed to serialize gradient_length expr"),
         ));
         self
     }
@@ -614,7 +598,6 @@ mod tests {
         let plot = Plot::<ZeroDCoord>::new().legend("opacity", |legend| {
             legend
                 .title("Confidence")
-                .gradient_length(150.0)
                 .gradient_thickness(15.0)
         });
 
@@ -622,7 +605,6 @@ mod tests {
         let legend = &plot.legends["opacity"];
         // Check that fields are set
         assert!(legend.title.is_set());
-        assert!(legend.gradient_length.is_set());
         assert!(legend.gradient_thickness.is_set());
     }
 
