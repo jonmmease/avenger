@@ -538,8 +538,6 @@ impl LegendRenderer for CompiledSymbolLegend {
 
         // Apply constant values from related channels if not varying
         // This ensures legends use the same visual properties as the marks
-        // Create a single SessionContext for all constant value lookups
-        let session_context = datafusion::prelude::SessionContext::new();
 
         if channels.iter().all(|c| c.channel_type != "stroke_width") {
             // Stroke width not varying - use constant if available
@@ -547,7 +545,7 @@ impl LegendRenderer for CompiledSymbolLegend {
                 "stroke_width",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 legend_config.stroke_width = Some(width);
             }
@@ -559,7 +557,7 @@ impl LegendRenderer for CompiledSymbolLegend {
                 "angle",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 legend_config.angle = ScalarOrArray::new_scalar(angle);
             }
@@ -571,7 +569,7 @@ impl LegendRenderer for CompiledSymbolLegend {
                 "shape",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 legend_config.shape = ScalarOrArray::new_scalar(parse_shape(&shape_str)?);
             }
@@ -586,7 +584,7 @@ impl LegendRenderer for CompiledSymbolLegend {
                 "fill",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 legend_config.fill = ScalarOrArray::new_scalar(color);
             }
@@ -598,7 +596,7 @@ impl LegendRenderer for CompiledSymbolLegend {
                 "stroke",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 legend_config.stroke = ScalarOrArray::new_scalar(color);
             }
@@ -617,7 +615,7 @@ impl LegendRenderer for CompiledSymbolLegend {
                 "size",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 tracing::trace!(size_value = size_value, "Found constant size");
                 legend_config.size = ScalarOrArray::new_scalar(size_value);

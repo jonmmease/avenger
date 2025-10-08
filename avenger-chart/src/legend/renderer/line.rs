@@ -300,13 +300,11 @@ impl LegendRenderer for CompiledLineLegend {
             }
         } else {
             // No stroke channel in group - try to get constant stroke color from mark
-            // Create a temporary SessionContext for get_constant_color
-            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(color) = helpers::get_constant_color(
                 "stroke",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 legend_config.stroke = ScalarOrArray::new_scalar(color);
             } else {
@@ -329,13 +327,11 @@ impl LegendRenderer for CompiledLineLegend {
             }
         } else {
             // Try to get constant stroke width from mark
-            // Create a temporary SessionContext for get_constant_f32
-            let session_context = datafusion::prelude::SessionContext::new();
             let width = helpers::get_constant_f32(
                 "stroke_width",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             )
             .unwrap_or(default_stroke_width);
             legend_config.stroke_width = ScalarOrArray::new_scalar(width);
@@ -519,13 +515,11 @@ impl LegendRenderer for CompiledLineLegend {
             }
         } else {
             // Try to get constant stroke dash from mark
-            // Create a temporary SessionContext for get_constant_string
-            let session_context = datafusion::prelude::SessionContext::new();
             if let Some(pattern_str) = helpers::get_constant_string(
                 "stroke_dash",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-                &session_context,
+                ctx,
             ) {
                 let dash = Self::convert_dash_pattern(&pattern_str);
                 legend_config.stroke_dash = ScalarOrArray::new_scalar(dash);
