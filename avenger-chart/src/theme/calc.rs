@@ -905,9 +905,6 @@ impl CalcNode {
         substituted.resolve_internal(base_font_size)
     }
 
-    /// Resolve to concrete value (backward compatibility wrapper)
-    ///
-
     /// Internal resolution after variable substitution
     ///
     /// Evaluates the expression tree to a single leaf value.
@@ -1796,18 +1793,7 @@ mod tests {
             CalcNode::Invert(Box::new(CalcNode::Leaf(CalcLeaf::Number(4.0)))),
         ]);
 
-        // Debug: check what nodes[0] resolves to
-        if let CalcNode::Product(ref nodes) = product {
-            let first = nodes[0].resolve_internal(16.0).unwrap();
-            eprintln!("First node resolves to: {:?}", first);
-            let second = nodes[1].resolve_internal(16.0).unwrap();
-            eprintln!("Second node resolves to: {:?}", second);
-            let mult_result = first.multiply(&second).unwrap();
-            eprintln!("Multiply result: {:?}", mult_result);
-        }
-
         let result = product.resolve(&IndexMap::new(), 16.0).unwrap();
-        eprintln!("Final result: {:?}", result);
         assert_eq!(result, CalcLeaf::Length(20.0, LengthUnit::Px));
     }
 }
