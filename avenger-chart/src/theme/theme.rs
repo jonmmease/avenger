@@ -186,6 +186,10 @@ impl Theme {
                 gradient-thickness: 15;
             }
 
+            legend[type="rect"] {
+                symbol-size: 64;
+            }
+
             legend title {
                 color: var(--text-color);
                 font-weight: 400;
