@@ -241,7 +241,7 @@ async fn test_conditional_with_legend() {
                             Srgba::new(0.8, 0.8, 0.2, 1.0), // Yellow-green
                         ])
                     })
-                    .legend(|l| l.title("Temperature").gradient_length(150.0))
+                    .legend(|l| l.title("Temperature"))
             }),
     );
 

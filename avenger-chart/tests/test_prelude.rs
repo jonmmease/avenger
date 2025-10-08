@@ -33,7 +33,7 @@ fn test_prelude_imports() {
     // Legend builders
     let _legend = ColorLegendBuilder::new()
         .title("My Legend")
-        .gradient_length(200.0);
+        .gradient_thickness(15.0);
 
     // Test passes if compilation succeeds
 }

@@ -59,11 +59,6 @@ impl ColorLegendBuilder {
     }
 
     // Color-specific methods
-    pub fn gradient_length(mut self, length: impl crate::plot::IntoExpr) -> Self {
-        self.legend = self.legend.gradient_length(length);
-        self
-    }
-
     pub fn gradient_thickness(mut self, thickness: impl crate::plot::IntoExpr) -> Self {
         self.legend = self.legend.gradient_thickness(thickness);
         self
@@ -312,11 +307,6 @@ impl OpacityLegendBuilder {
     }
 
     // Opacity-specific methods
-    pub fn gradient_length(mut self, length: impl crate::plot::IntoExpr) -> Self {
-        self.legend = self.legend.gradient_length(length);
-        self
-    }
-
     pub fn gradient_thickness(mut self, thickness: impl crate::plot::IntoExpr) -> Self {
         self.legend = self.legend.gradient_thickness(thickness);
         self

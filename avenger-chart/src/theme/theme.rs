@@ -183,7 +183,6 @@ impl Theme {
             }
 
             legend[type="colorbar"] {
-                gradient-length: 150;
                 gradient-thickness: 15;
             }
 
