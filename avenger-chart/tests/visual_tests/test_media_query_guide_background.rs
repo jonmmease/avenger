@@ -338,3 +338,144 @@ async fn test_media_query_multi_range_syntax() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_media_query_legend_position() {
+    // Test responsive legend positioning using media queries
+    // Wide layout: legend on right
+    // Narrow layout: legend on top
+    let css = r#"
+        canvas {
+            background-color: #ffffff;
+        }
+
+        /* Default: legend at right for wide layouts */
+        legend {
+            position: right;
+        }
+
+        /* Narrow screens (< 600px): legend at top */
+        @media (width < 600px) {
+            legend {
+                position: top;
+            }
+        }
+
+        mark[type="symbol"] {
+            size: 100px;
+        }
+
+        axis title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #424242;
+        }
+
+        axis label {
+            font-size: 11px;
+            color: #616161;
+        }
+
+        axis grid {
+            stroke: #e0e0e0;
+            stroke-width: 1px;
+            opacity: 0.5;
+        }
+
+        axis domain {
+            stroke: #9e9e9e;
+            stroke-width: 1.5px;
+        }
+    "#;
+
+    let ctx = SessionContext::new();
+    let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
+
+    // Create sample data with temperature values
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("temperature", DataType::Float64, false),
+    ]));
+
+    let x_data = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+    let y_data = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0, 6.0, 8.0, 7.5]);
+    let temp_data = Float64Array::from(vec![10.0, 20.0, 30.0, 25.0, 15.0, 35.0, 28.0, 22.0]);
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(x_data),
+            Arc::new(y_data),
+            Arc::new(temp_data),
+        ],
+    )
+    .unwrap();
+
+    let df = ctx.read_batch(batch).unwrap();
+
+    // Create width and height parameters
+    let width_param = Param::new("width", ScalarValue::Float32(Some(800.0)));
+    let height_param = Param::new("height", ScalarValue::Float32(Some(400.0)));
+
+    // Create title that indicates the current layout
+    let title_expr = when(width_param.expr().lt(lit(600)), lit("Narrow: Legend at Top"))
+        .otherwise(lit("Wide: Legend at Right"))
+        .unwrap();
+
+    // Create a SINGLE plot with responsive legend positioning
+    let plot = Plot::<Cartesian>::new()
+        .canvas_size(width_param.expr(), height_param.expr())
+        .title(title_expr)
+        .data(df)
+        .add_param(width_param)
+        .add_param(height_param)
+        .legend("fill", |legend| legend.title("Temperature °C"))
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 9.0)))
+                        .axis(|a| a.grid(true).title("X Axis"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 9.0)))
+                        .axis(|a| a.grid(true).title("Y Axis"))
+                })
+                .fill_with(col("temperature"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((5.0, 40.0)))
+                })
+                .size(100.0),
+        )
+        .theme(theme);
+
+    // Compile ONCE
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+
+    // Test 1: Wide layout (800px) - legend should be at right
+    let mut params_wide = IndexMap::new();
+    params_wide.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
+    params_wide.insert("height".to_string(), ScalarValue::Float32(Some(400.0)));
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        Some(params_wide),
+        "media_query",
+        "legend_position_wide_800px",
+        0.9999,
+    )
+    .await;
+
+    // Test 2: Narrow layout (400px) - legend should be at top
+    let mut params_narrow = IndexMap::new();
+    params_narrow.insert("width".to_string(), ScalarValue::Float32(Some(400.0)));
+    params_narrow.insert("height".to_string(), ScalarValue::Float32(Some(400.0)));
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        Some(params_narrow),
+        "media_query",
+        "legend_position_narrow_400px",
+        0.9999,
+    )
+    .await;
+}
