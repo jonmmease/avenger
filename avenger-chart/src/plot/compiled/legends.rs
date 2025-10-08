@@ -28,6 +28,26 @@ fn color_array_to_hex(color: [f32; 4]) -> String {
 }
 
 impl CompiledPlot {
+    /// Apply a theme value to a legend field if the field is Unset
+    ///
+    /// This helper reduces repetition when applying theme defaults to legend properties.
+    /// It checks if a field is Unset and applies the theme value using a setter function.
+    fn apply_theme_to_legend<T, U, F, G>(
+        legend: &mut Legend,
+        field_check: F,
+        theme_query: G,
+        setter: impl FnOnce(Legend, T) -> Legend,
+    ) where
+        F: FnOnce(&Legend) -> &crate::maybe::Maybe<Option<U>>,
+        G: FnOnce() -> Option<T>,
+    {
+        if matches!(field_check(legend), crate::maybe::Maybe::Unset) {
+            if let Some(value) = theme_query() {
+                *legend = setter(legend.clone(), value);
+            }
+        }
+    }
+
     /// Create default legends for channels with scales
     fn create_default_legends(
         &self,
@@ -267,68 +287,37 @@ impl CompiledPlot {
                 .legend_context(legend_type)
                 .with_params(params.clone());
 
-            // Theme only fills in Unset values
-            // Apply theme fonts if not explicitly set
-            if matches!(legend.title_color, crate::maybe::Maybe::Unset) {
-                if let Some(color) = theme.text_color(&legend_ctx.child("title")) {
-                    *legend = legend.clone().title_color(color_array_to_hex(color));
-                }
-            }
-            if matches!(legend.label_color, crate::maybe::Maybe::Unset) {
-                if let Some(color) = theme.text_color(&legend_ctx.child("label")) {
-                    *legend = legend.clone().label_color(color_array_to_hex(color));
-                }
-            }
-            if matches!(legend.title_font_family, crate::maybe::Maybe::Unset) {
-                if let Some(font_family) = theme.font_family(&legend_ctx.child("title")) {
-                    *legend = legend.clone().title_font_family(font_family);
-                }
-            }
-            if matches!(legend.title_font_size, crate::maybe::Maybe::Unset) {
-                if let Some(size) = theme.font_size(&legend_ctx.child("title")) {
-                    *legend = legend.clone().title_font_size(size);
-                }
-            }
-            if matches!(legend.title_font_weight, crate::maybe::Maybe::Unset) {
-                if let Some(weight) = theme.font_weight(&legend_ctx.child("title")) {
-                    *legend = legend.clone().title_font_weight(weight);
-                }
-            }
-            if matches!(legend.label_font_family, crate::maybe::Maybe::Unset) {
-                if let Some(font_family) = theme.font_family(&legend_ctx.child("label")) {
-                    *legend = legend.clone().label_font_family(font_family);
-                }
-            }
-            if matches!(legend.label_font_size, crate::maybe::Maybe::Unset) {
-                if let Some(size) = theme.font_size(&legend_ctx.child("label")) {
-                    *legend = legend.clone().label_font_size(size);
-                }
-            }
-            if matches!(legend.label_font_weight, crate::maybe::Maybe::Unset) {
-                if let Some(weight) = theme.font_weight(&legend_ctx.child("label")) {
-                    *legend = legend.clone().label_font_weight(weight);
-                }
-            }
-            if matches!(legend.tick_font_family, crate::maybe::Maybe::Unset) {
-                if let Some(font_family) = theme.font_family(&legend_ctx.child("tick")) {
-                    *legend = legend.clone().tick_font_family(font_family);
-                }
-            }
-            if matches!(legend.tick_font_size, crate::maybe::Maybe::Unset) {
-                if let Some(size) = theme.font_size(&legend_ctx.child("tick")) {
-                    *legend = legend.clone().tick_font_size(size);
-                }
-            }
-            if matches!(legend.tick_font_weight, crate::maybe::Maybe::Unset) {
-                if let Some(weight) = theme.font_weight(&legend_ctx.child("tick")) {
-                    *legend = legend.clone().tick_font_weight(weight);
-                }
-            }
-            if matches!(legend.tick_color, crate::maybe::Maybe::Unset) {
-                if let Some(color) = theme.text_color(&legend_ctx.child("tick")) {
-                    *legend = legend.clone().tick_color(color_array_to_hex(color));
-                }
-            }
+            // Theme only fills in Unset values - apply theme properties if not explicitly set
+
+            // Title styling
+            Self::apply_theme_to_legend(legend, |l| &l.title_color,
+                || theme.text_color(&legend_ctx.child("title")).map(color_array_to_hex), |l, v| l.title_color(v));
+            Self::apply_theme_to_legend(legend, |l| &l.title_font_family,
+                || theme.font_family(&legend_ctx.child("title")), |l, v| l.title_font_family(v));
+            Self::apply_theme_to_legend(legend, |l| &l.title_font_size,
+                || theme.font_size(&legend_ctx.child("title")), |l, v| l.title_font_size(v));
+            Self::apply_theme_to_legend(legend, |l| &l.title_font_weight,
+                || theme.font_weight(&legend_ctx.child("title")), |l, v| l.title_font_weight(v));
+
+            // Label styling
+            Self::apply_theme_to_legend(legend, |l| &l.label_color,
+                || theme.text_color(&legend_ctx.child("label")).map(color_array_to_hex), |l, v| l.label_color(v));
+            Self::apply_theme_to_legend(legend, |l| &l.label_font_family,
+                || theme.font_family(&legend_ctx.child("label")), |l, v| l.label_font_family(v));
+            Self::apply_theme_to_legend(legend, |l| &l.label_font_size,
+                || theme.font_size(&legend_ctx.child("label")), |l, v| l.label_font_size(v));
+            Self::apply_theme_to_legend(legend, |l| &l.label_font_weight,
+                || theme.font_weight(&legend_ctx.child("label")), |l, v| l.label_font_weight(v));
+
+            // Tick styling (for colorbar legends)
+            Self::apply_theme_to_legend(legend, |l| &l.tick_color,
+                || theme.text_color(&legend_ctx.child("tick")).map(color_array_to_hex), |l, v| l.tick_color(v));
+            Self::apply_theme_to_legend(legend, |l| &l.tick_font_family,
+                || theme.font_family(&legend_ctx.child("tick")), |l, v| l.tick_font_family(v));
+            Self::apply_theme_to_legend(legend, |l| &l.tick_font_size,
+                || theme.font_size(&legend_ctx.child("tick")), |l, v| l.tick_font_size(v));
+            Self::apply_theme_to_legend(legend, |l| &l.tick_font_weight,
+                || theme.font_weight(&legend_ctx.child("tick")), |l, v| l.tick_font_weight(v));
 
             // Apply legend position from theme if not explicitly set
             if matches!(legend.position, crate::maybe::Maybe::Unset) {
