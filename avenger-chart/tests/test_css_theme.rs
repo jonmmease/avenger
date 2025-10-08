@@ -213,13 +213,13 @@ fn test_value_conversions() {
     let context = ThemeContext::new("mark");
 
     let size = theme.query(&context, "size");
-    assert_eq!(size.and_then(|v| v.as_font_size(12.0)), Some(100.0));
+    assert_eq!(size.and_then(|v| v.as_font_size(&indexmap::IndexMap::new(), 12.0)), Some(100.0));
 
     let opacity = theme.query(&context, "opacity");
     assert_eq!(opacity.and_then(|v| v.as_number()), Some(0.5));
 
     let stroke_width = theme.query(&context, "stroke-width");
-    assert_eq!(stroke_width.and_then(|v| v.as_font_size(12.0)), Some(2.0));
+    assert_eq!(stroke_width.and_then(|v| v.as_font_size(&indexmap::IndexMap::new(), 12.0)), Some(2.0));
 }
 
 #[test]
