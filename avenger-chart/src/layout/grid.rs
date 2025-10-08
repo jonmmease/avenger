@@ -19,6 +19,13 @@ use taffy::prelude::*;
 const TITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.15;
 const SUBTITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.1;
 
+/// Default font sizes for title and subtitle when not specified
+const DEFAULT_TITLE_FONT_SIZE: f32 = 16.0;
+const DEFAULT_SUBTITLE_FONT_SIZE: f32 = 14.0;
+
+/// Default font family when not specified in theme or expression
+const DEFAULT_FONT_FAMILY: &str = "sans-serif";
+
 /// Dynamic grid builder for chart layouts
 ///
 /// `GridBuilder` constructs CSS Grid layouts for charts by dynamically positioning components
@@ -152,6 +159,56 @@ impl GridLayout {
         }
         None
     }
+}
+
+/// Helper function to measure title/subtitle text height
+async fn measure_text_height(
+    text_expr: &datafusion_proto::protobuf::LogicalExprNode,
+    font_size_field: &crate::maybe::Maybe<Option<datafusion_proto::protobuf::LogicalExprNode>>,
+    font_family_field: &crate::maybe::Maybe<Option<datafusion_proto::protobuf::LogicalExprNode>>,
+    theme_context: &crate::theme::ThemeContext,
+    theme: &Theme,
+    default_font_size: f32,
+    height_multiplier: f32,
+    ctx: &datafusion::prelude::SessionContext,
+    params: &IndexMap<String, datafusion::common::ScalarValue>,
+) -> Result<f32, AvengerChartError> {
+    // Evaluate font_size
+    let font_size = match font_size_field {
+        crate::maybe::Maybe::Set(Some(node)) => {
+            let expr = node.to_expr(ctx)?;
+            evaluate_f32_expr(&expr, ctx, params).await?
+        }
+        _ => theme.font_size(theme_context).unwrap_or(default_font_size),
+    };
+
+    // Evaluate font_family
+    let font_family = match font_family_field {
+        crate::maybe::Maybe::Set(Some(node)) => {
+            let expr = node.to_expr(ctx)?;
+            evaluate_string_expr(&expr, ctx, params).await?
+        }
+        _ => theme
+            .font_family(theme_context)
+            .unwrap_or_else(|| DEFAULT_FONT_FAMILY.to_string()),
+    };
+
+    // Evaluate the text expression to get the actual text
+    let text_expr_df = text_expr.to_expr(ctx)?;
+    let text_value = evaluate_string_expr(&text_expr_df, ctx, params).await?;
+
+    // Measure text for layout (using Normal weight/style as approximation)
+    let measurer = default_text_measurer();
+    let config = TextMeasurementConfig {
+        text: &text_value,
+        font: &font_family,
+        font_size,
+        font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
+        font_style: &FontStyle::Normal,
+    };
+    let bounds = measurer.measure_text_bounds(&config);
+
+    Ok(bounds.line_height * height_multiplier)
 }
 
 impl GridBuilder {
@@ -328,43 +385,22 @@ impl GridBuilder {
                 // Create theme context with params for querying font size
                 let title_ctx = theme.title_context().with_params(params.clone());
 
-                // Evaluate font_size
-                let font_size = match t.font_size.as_ref() {
-                    crate::maybe::Maybe::Set(Some(node)) => {
-                        let expr = node.to_expr(ctx)?;
-                        evaluate_f32_expr(&expr, ctx, params).await?
-                    }
-                    _ => theme.font_size(&title_ctx).unwrap_or(16.0),
-                };
-
-                // Evaluate font_family
-                let font_family = match t.font_family.as_ref() {
-                    crate::maybe::Maybe::Set(Some(node)) => {
-                        let expr = node.to_expr(ctx)?;
-                        evaluate_string_expr(&expr, ctx, params).await?
-                    }
-                    _ => theme.font_family(&title_ctx).unwrap_or_else(|| "sans-serif".to_string()),
-                };
-
-                // Evaluate the title text expression to get the actual text
+                // Measure title height
                 let text_node: LogicalExprNode = t.text.clone().into();
-                let text_expr = text_node.to_expr(ctx)?;
-                let text_value =
-                    evaluate_string_expr(&text_expr, ctx, params)
-                        .await?;
+                let height = measure_text_height(
+                    &text_node,
+                    &t.font_size,
+                    &t.font_family,
+                    &title_ctx,
+                    theme,
+                    DEFAULT_TITLE_FONT_SIZE,
+                    TITLE_ROW_HEIGHT_MULTIPLIER,
+                    ctx,
+                    params,
+                )
+                .await?;
 
-                // Measure text for layout (using Normal weight/style as approximation)
-                let measurer = default_text_measurer();
-                let config = TextMeasurementConfig {
-                    text: &text_value,
-                    font: &font_family,
-                    font_size,
-                    font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-                    font_style: &FontStyle::Normal,
-                };
-                let bounds = measurer.measure_text_bounds(&config);
-                grid.rows
-                    .push(length(bounds.line_height * TITLE_ROW_HEIGHT_MULTIPLIER));
+                grid.rows.push(length(height));
                 // Title spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Title, row_index, start_col);
@@ -378,43 +414,22 @@ impl GridBuilder {
                 // Create theme context with params for querying font size
                 let subtitle_ctx = theme.subtitle_context().with_params(params.clone());
 
-                // Evaluate font_size
-                let font_size = match s.font_size.as_ref() {
-                    crate::maybe::Maybe::Set(Some(node)) => {
-                        let expr = node.to_expr(ctx)?;
-                        evaluate_f32_expr(&expr, ctx, params).await?
-                    }
-                    _ => theme.font_size(&subtitle_ctx).unwrap_or(14.0),
-                };
-
-                // Evaluate font_family
-                let font_family = match s.font_family.as_ref() {
-                    crate::maybe::Maybe::Set(Some(node)) => {
-                        let expr = node.to_expr(ctx)?;
-                        evaluate_string_expr(&expr, ctx, params).await?
-                    }
-                    _ => theme.font_family(&subtitle_ctx).unwrap_or_else(|| "sans-serif".to_string()),
-                };
-
-                // Evaluate the subtitle text expression to get the actual text
+                // Measure subtitle height
                 let text_node: LogicalExprNode = s.text.clone().into();
-                let text_expr = text_node.to_expr(ctx)?;
-                let text_value =
-                    evaluate_string_expr(&text_expr, ctx, params)
-                        .await?;
+                let height = measure_text_height(
+                    &text_node,
+                    &s.font_size,
+                    &s.font_family,
+                    &subtitle_ctx,
+                    theme,
+                    DEFAULT_SUBTITLE_FONT_SIZE,
+                    SUBTITLE_ROW_HEIGHT_MULTIPLIER,
+                    ctx,
+                    params,
+                )
+                .await?;
 
-                // Measure text for layout (using Normal weight/style as approximation)
-                let measurer = default_text_measurer();
-                let config = TextMeasurementConfig {
-                    text: &text_value,
-                    font: &font_family,
-                    font_size,
-                    font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-                    font_style: &FontStyle::Normal,
-                };
-                let bounds = measurer.measure_text_bounds(&config);
-                grid.rows
-                    .push(length(bounds.line_height * SUBTITLE_ROW_HEIGHT_MULTIPLIER));
+                grid.rows.push(length(height));
                 // Subtitle spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Subtitle, row_index, start_col);
