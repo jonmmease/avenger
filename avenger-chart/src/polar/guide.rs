@@ -1,5 +1,6 @@
 //! Polar coordinate system guide implementation
 
+use crate::plot::compiled::expr_eval::evaluate_string_expr;
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
 use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
@@ -246,7 +247,7 @@ impl CompiledGuide for PolarGuide {
         let bg_color = if let Some(color_node) = self.options.plot_background_color.as_option().and_then(|o| o.as_ref()) {
             if let Ok(color_expr) = color_node.to_expr(_ctx) {
                 // Evaluate the expression to get color string
-                if let Ok(color_str) = crate::plot::compiled::expr_eval::evaluate_string_expr(&color_expr, _ctx, params).await {
+                if let Ok(color_str) = evaluate_string_expr(&color_expr, _ctx, params).await {
                     // Parse the color string
                     crate::utils::parse_color_to_array_strict(&color_str).ok()
                 } else {

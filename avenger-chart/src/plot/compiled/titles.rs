@@ -33,6 +33,26 @@ impl CompiledPlot {
         let text_expr = text_node.to_expr(ctx)?;
         let text_value = super::expr_eval::evaluate_string_expr(&text_expr, ctx, params).await?;
 
+        // Evaluate font_size
+        let font_size = match title.font_size.as_ref() {
+            crate::maybe::Maybe::Set(Some(node)) => {
+                let expr = node.to_expr(ctx)?;
+                super::expr_eval::evaluate_f32_expr(&expr, ctx, params).await?
+            }
+            _ => theme.font_size(&title_ctx).unwrap_or(16.0),
+        };
+
+        // Evaluate font_family
+        let font_family = match title.font_family.as_ref() {
+            crate::maybe::Maybe::Set(Some(node)) => {
+                let expr = node.to_expr(ctx)?;
+                super::expr_eval::evaluate_string_expr(&expr, ctx, params).await?
+            }
+            _ => theme
+                .font_family(&title_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string()),
+        };
+
         // Position title within its layout bounds or use fallback
         let (x, y) = if let Some(bounds) = layout_bounds {
             (bounds.x, bounds.y + bounds.height / 2.0)
@@ -48,17 +68,8 @@ impl CompiledPlot {
                 theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
             )
             .into(),
-            font_size: title
-                .font_size
-                .or_else(|| theme.font_size(&title_ctx))
-                .unwrap_or(16.0)
-                .into(),
-            font: title
-                .font_family
-                .clone()
-                .or_else(|| theme.font_family(&title_ctx))
-                .unwrap_or_else(|| "sans-serif".to_string())
-                .into(),
+            font_size: font_size.into(),
+            font: font_family.into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(
                 theme.font_weight(&title_ctx).unwrap_or(400.0),
@@ -97,6 +108,26 @@ impl CompiledPlot {
         let text_expr = text_node.to_expr(ctx)?;
         let text_value = super::expr_eval::evaluate_string_expr(&text_expr, ctx, params).await?;
 
+        // Evaluate font_size
+        let font_size = match subtitle.font_size.as_ref() {
+            crate::maybe::Maybe::Set(Some(node)) => {
+                let expr = node.to_expr(ctx)?;
+                super::expr_eval::evaluate_f32_expr(&expr, ctx, params).await?
+            }
+            _ => theme.font_size(&subtitle_ctx).unwrap_or(14.0),
+        };
+
+        // Evaluate font_family
+        let font_family = match subtitle.font_family.as_ref() {
+            crate::maybe::Maybe::Set(Some(node)) => {
+                let expr = node.to_expr(ctx)?;
+                super::expr_eval::evaluate_string_expr(&expr, ctx, params).await?
+            }
+            _ => theme
+                .font_family(&subtitle_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string()),
+        };
+
         // Position subtitle within its layout bounds or use fallback
         let (x, y) = if let Some(bounds) = layout_bounds {
             (bounds.x, bounds.y + bounds.height / 2.0)
@@ -114,17 +145,8 @@ impl CompiledPlot {
                     .unwrap_or([0.0, 0.0, 0.0, 1.0]),
             )
             .into(),
-            font_size: subtitle
-                .font_size
-                .or_else(|| theme.font_size(&subtitle_ctx))
-                .unwrap_or(14.0)
-                .into(),
-            font: subtitle
-                .font_family
-                .clone()
-                .or_else(|| theme.font_family(&subtitle_ctx))
-                .unwrap_or_else(|| "sans-serif".to_string())
-                .into(),
+            font_size: font_size.into(),
+            font: font_family.into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(
                 theme.font_weight(&subtitle_ctx).unwrap_or(400.0),
