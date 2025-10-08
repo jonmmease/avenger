@@ -19,6 +19,14 @@ use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
 use super::CompiledPlot;
 use super::expr_eval::evaluate_f32_expr;
 
+impl CompiledPlot {
+    /// Initial estimate for plot area as ratio of total canvas size
+    const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
+
+    /// Default margin in pixels when not specified in theme or expression
+    const DEFAULT_MARGIN: f32 = 10.0;
+}
+
 /// Evaluate a SizeMode to get an EvaluatedSizeMode with concrete f32 values
 async fn evaluate_size_mode(
     size_mode: &crate::layout::SizeMode,
@@ -73,7 +81,7 @@ async fn evaluate_margins(
         let canvas_ctx = crate::theme::ThemeContext::new("canvas").with_params(params.clone());
         theme.query(&canvas_ctx, property)
             .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
-            .unwrap_or(10.0)
+            .unwrap_or(CompiledPlot::DEFAULT_MARGIN)
     };
 
     // Evaluate each margin field, checking expression → theme → default
@@ -535,15 +543,14 @@ impl CompiledPlot {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
         use crate::layout::ChartLayout;
-        const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
 
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
 
         // Measure how much space the guide needs if we have one
         let overflow = if let Some(compiled_guide) = &self.compiled_guide {
-            let width_estimate = width * INITIAL_PLOT_AREA_RATIO;
-            let height_estimate = height * INITIAL_PLOT_AREA_RATIO;
+            let width_estimate = width * Self::INITIAL_PLOT_AREA_RATIO;
+            let height_estimate = height * Self::INITIAL_PLOT_AREA_RATIO;
 
             let theme = self.get_theme();
             // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
@@ -575,8 +582,8 @@ impl CompiledPlot {
 
         // Prepare legend measurements
         let available_size = taffy::Size {
-            width: width * INITIAL_PLOT_AREA_RATIO,
-            height: height * INITIAL_PLOT_AREA_RATIO,
+            width: width * Self::INITIAL_PLOT_AREA_RATIO,
+            height: height * Self::INITIAL_PLOT_AREA_RATIO,
         };
         let legend_measurements =
             self.prepare_legend_measurements(&legends_map, scales, available_size, ctx, params).await?;
@@ -610,8 +617,6 @@ impl CompiledPlot {
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         layout: &crate::layout::LayoutResult,
-        _plot_width: f32,
-        _plot_height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -704,8 +709,6 @@ impl CompiledPlot {
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         layout: &crate::render::LayoutSolution,
-        _width: f32,
-        _height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<
@@ -754,8 +757,6 @@ impl CompiledPlot {
         let legend_marks = self.create_legends_with_layout(
             scales,
             &layout.taffy_layout,
-            plot_area_width,
-            plot_area_height,
             ctx,
             params,
         ).await?;
@@ -793,7 +794,6 @@ impl CompiledPlot {
         use crate::render::RenderContext;
         use avenger_scenegraph::marks::group::SceneGroup;
         use avenger_scenegraph::scene_graph::SceneGraph;
-        const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
 
         // Get layout spec and estimate initial dimensions
         let layout_spec = &self.layout_spec;
@@ -855,8 +855,8 @@ impl CompiledPlot {
 
         // Use estimated dimensions for initial scale construction
         // Default to reasonable sizes if not specified
-        let estimated_plot_width = estimated_width.unwrap_or(400.0) * INITIAL_PLOT_AREA_RATIO;
-        let estimated_plot_height = estimated_height.unwrap_or(300.0) * INITIAL_PLOT_AREA_RATIO;
+        let estimated_plot_width = estimated_width.unwrap_or(400.0) * Self::INITIAL_PLOT_AREA_RATIO;
+        let estimated_plot_height = estimated_height.unwrap_or(300.0) * Self::INITIAL_PLOT_AREA_RATIO;
 
         // Create initial RenderContext with estimated dimensions and SessionContext
         let theme = self.get_theme();
@@ -915,8 +915,6 @@ impl CompiledPlot {
             .render_all_components(
                 &final_configured_scales,
                 &layout,
-                final_width,
-                final_height,
                 ctx,
                 &merged_params,
             )
