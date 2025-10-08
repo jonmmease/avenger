@@ -43,7 +43,7 @@
 //! // Rust
 //! let mut params = IndexMap::new();
 //! params.insert("base-size".to_string(), ScalarValue::Float64(Some(12.0)));
-//! let ctx = ThemeContext::new("mark").with_params(params);
+//! let ctx = ThemeContext::new("mark", params);
 //! let size = theme.font_size(&ctx); // => Some(24.0)
 //! ```
 //!
@@ -107,7 +107,7 @@
 //! params.insert("base".to_string(), ScalarValue::Float64(Some(12.0)));
 //! params.insert("offset".to_string(), ScalarValue::Float64(Some(4.0)));
 //!
-//! let ctx = ThemeContext::new("mark").with_params(params);
+//! let ctx = ThemeContext::new("mark", params);
 //! let size = theme.font_size(&ctx); // => Some(16.0)
 //! ```
 //!

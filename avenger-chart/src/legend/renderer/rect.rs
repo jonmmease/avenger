@@ -120,7 +120,7 @@ impl LegendRenderer for CompiledRectLegend {
             evaluate_f32_expr(&expr, ctx, params).await?
         } else {
             // Query from theme legend context
-            let legend_ctx = theme.legend_context(Some("rect")).with_params(params.clone());
+            let legend_ctx = theme.legend_context_with_params(Some("rect"), params.clone());
             theme.query(&legend_ctx, "symbol-size")
                 .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
                 .unwrap_or(default_size_value)
@@ -221,8 +221,7 @@ impl LegendRenderer for CompiledRectLegend {
         }
         // Override font sizes with params
         let legend_ctx = theme
-            .legend_context(Some("rect"))
-            .with_params(params.clone());
+            .legend_context_with_params(Some("rect"), params.clone());
         let title_ctx = legend_ctx.child("title");
         let label_ctx = legend_ctx.child("label");
 

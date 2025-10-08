@@ -383,7 +383,7 @@ impl GridBuilder {
         if self.has_title {
             if let Some(t) = title {
                 // Create theme context with params for querying font size
-                let title_ctx = theme.title_context().with_params(params.clone());
+                let title_ctx = theme.title_context_with_params(params.clone());
 
                 // Measure title height
                 let text_node: LogicalExprNode = t.text.clone().into();
@@ -412,7 +412,7 @@ impl GridBuilder {
         if self.has_subtitle {
             if let Some(s) = subtitle {
                 // Create theme context with params for querying font size
-                let subtitle_ctx = theme.subtitle_context().with_params(params.clone());
+                let subtitle_ctx = theme.subtitle_context_with_params(params.clone());
 
                 // Measure subtitle height
                 let text_node: LogicalExprNode = s.text.clone().into();

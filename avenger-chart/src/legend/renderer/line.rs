@@ -208,7 +208,7 @@ impl LegendRenderer for CompiledLineLegend {
             evaluate_f32_expr(&expr, ctx, params).await?
         } else {
             // Query from theme legend context
-            let legend_ctx = theme.legend_context(Some("line")).with_params(params.clone());
+            let legend_ctx = theme.legend_context_with_params(Some("line"), params.clone());
             theme.query(&legend_ctx, "symbol-size")
                 .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
                 .unwrap_or(16.0)  // Default line length
@@ -303,8 +303,7 @@ impl LegendRenderer for CompiledLineLegend {
         }
         // Override font sizes with params
         let legend_ctx = theme
-            .legend_context(Some("line"))
-            .with_params(params.clone());
+            .legend_context_with_params(Some("line"), params.clone());
         let title_ctx = legend_ctx.child("title");
         let label_ctx = legend_ctx.child("label");
 

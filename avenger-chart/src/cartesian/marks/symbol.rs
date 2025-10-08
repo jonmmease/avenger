@@ -377,6 +377,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         domain: &crate::scales::ResolvedDomain,
         _data_type: &datafusion::arrow::datatypes::DataType,
         theme: &Theme,
+        params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Option<crate::scales::ScaleRange> {
         use crate::scales::ScaleRange;
         use datafusion::logical_expr::lit;
@@ -391,7 +392,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         };
 
         if let Some(theme_range) =
-            theme.get_range_for_channel("symbol", channel, range_kind, cardinality)
+            theme.get_range_for_channel("symbol", channel, range_kind, cardinality, params)
         {
             return Some(theme_range);
         }

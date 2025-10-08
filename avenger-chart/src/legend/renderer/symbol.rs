@@ -295,8 +295,7 @@ impl LegendRenderer for CompiledSymbolLegend {
             Some("symbol")
         };
         let legend_ctx = theme
-            .legend_context(legend_type)
-            .with_params(params.clone());
+            .legend_context_with_params(legend_type, params.clone());
         let title_ctx = legend_ctx.child("title");
         let label_ctx = legend_ctx.child("label");
 
@@ -354,7 +353,7 @@ impl LegendRenderer for CompiledSymbolLegend {
             evaluate_f32_expr(&expr, ctx, params).await?
         } else {
             // Query from theme legend context
-            let legend_ctx = theme.legend_context(Some("symbol")).with_params(params.clone());
+            let legend_ctx = theme.legend_context_with_params(Some("symbol"), params.clone());
             theme.query(&legend_ctx, "symbol-size")
                 .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
                 .unwrap_or(default_size)
@@ -390,6 +389,7 @@ impl LegendRenderer for CompiledSymbolLegend {
                                 "shape",
                                 RangeKind::Discrete,
                                 Some(domain_values.len()),
+                                params,
                             ) {
                                 if let crate::scales::ScaleRange::Discrete(scalars) = range {
                                     // Convert SerializableScalar wrappers to strings

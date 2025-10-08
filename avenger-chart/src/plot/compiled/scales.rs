@@ -711,6 +711,7 @@ impl CompiledPlot {
                                 &resolved_domain,
                                 &dt,
                                 theme.as_ref(),
+                                &context.params,
                             ) {
                                 scale = scale.range(mark_range);
                                 break;
@@ -730,7 +731,7 @@ impl CompiledPlot {
 
             let theme = self.get_theme();
             let range = theme
-                .get_range_for_channel("mark", name, range_kind, None)
+                .get_range_for_channel("mark", name, range_kind, None, &context.params)
                 .unwrap_or_else(|| crate::scales::default_range_for_channel(name, range_kind));
 
             scale = scale.range(range);

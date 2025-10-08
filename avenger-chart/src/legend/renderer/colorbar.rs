@@ -94,7 +94,7 @@ impl LegendRenderer for CompiledColorbar {
             evaluate_f64_expr(&expr, ctx, params).await?
         } else {
             // Query from theme legend context
-            let legend_ctx = theme.legend_context(Some("colorbar")).with_params(params.clone());
+            let legend_ctx = theme.legend_context_with_params(Some("colorbar"), params.clone());
             theme.query(&legend_ctx, "gradient-thickness")
                 .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
                 .map(|f| f as f64)
@@ -193,8 +193,7 @@ impl LegendRenderer for CompiledColorbar {
         }
         // Override font sizes with params
         let legend_ctx = theme
-            .legend_context(Some("colorbar"))
-            .with_params(params.clone());
+            .legend_context_with_params(Some("colorbar"), params.clone());
         let title_ctx = legend_ctx.child("title");
         let tick_ctx = legend_ctx.child("tick");
 
