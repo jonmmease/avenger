@@ -131,7 +131,7 @@ impl Theme {
                 color: var(--text-color);
                 font-weight: 500;
                 font-size: 1.5rem; /* 18px @ 12px base */
-                text-align: center;
+                text-align: left;
                 width: canvas;  /* or plot-area */
             }
 
@@ -139,7 +139,7 @@ impl Theme {
                 color: var(--text-tertiary);
                 font-weight: 200;
                 font-size: 1.167rem; /* 14px @ 12px base */
-                text-align: center;
+                text-align: left;
                 width: canvas;  /* or plot-area */
             }
 
