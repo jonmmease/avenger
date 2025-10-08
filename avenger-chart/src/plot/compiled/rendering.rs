@@ -144,13 +144,14 @@ impl CompiledPlot {
         channel_name: &str,
         channel_value: &ChannelValue,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        ctx: &SessionContext,
     ) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
         use crate::channel::value::strip_trailing_numbers;
 
         match channel_value {
             ChannelValue::Value { expr } => {
                 // No scaling requested, return expression as-is - convert to Expr
-                expr.to_expr(&SessionContext::new())
+                expr.to_expr(ctx)
             }
             ChannelValue::Conditional {
                 conditions,
@@ -211,16 +212,16 @@ impl CompiledPlot {
                             if let Some(scale) = scales.get(&scale_key) {
                                 use crate::scales::ConfiguredScaleDataFusionExt;
                                 // Convert SerializableExpr to Expr first
-                                expr.to_expr(&SessionContext::new())
+                                expr.to_expr(ctx)
                                     .and_then(|e| scale.to_expr(e))
                             } else {
                                 // No scale found, return expression as-is - convert to Expr
-                                expr.to_expr(&SessionContext::new())
+                                expr.to_expr(ctx)
                             }
                         }
                         ConditionalValue::Value { expr } => {
                             // Pass through literal values unchanged - convert to Expr
-                            let expr_df = expr.to_expr(&SessionContext::new())?;
+                            let expr_df = expr.to_expr(ctx)?;
                             if needs_color_conversion {
                                 Ok(convert_color_literal(&expr_df))
                             } else {
@@ -234,14 +235,14 @@ impl CompiledPlot {
                 let first_cond = &conditions[0];
                 let first_value = apply_to_conditional(&first_cond.1)?;
                 // Convert SerializableExpr to Expr
-                let first_cond_expr = first_cond.0.to_expr(&SessionContext::new())?;
+                let first_cond_expr = first_cond.0.to_expr(ctx)?;
                 let mut case_expr = when(first_cond_expr, first_value);
 
                 // Add remaining conditions
                 for (condition, value) in &conditions[1..] {
                     let scaled_value = apply_to_conditional(value)?;
                     // Convert SerializableExpr to Expr
-                    let condition_expr = condition.to_expr(&SessionContext::new())?;
+                    let condition_expr = condition.to_expr(ctx)?;
                     case_expr = case_expr.when(condition_expr, scaled_value);
                 }
 
@@ -271,7 +272,7 @@ impl CompiledPlot {
                 // Apply the scale transformation
                 use crate::scales::ConfiguredScaleDataFusionExt;
                 // Convert SerializableExpr to Expr first
-                let expr_df = expr.to_expr(&SessionContext::new())?;
+                let expr_df = expr.to_expr(ctx)?;
                 if let Some(band) = band {
                     scale.to_expr_with_band(expr_df.clone(), *band)
                 } else {
@@ -354,7 +355,7 @@ impl CompiledPlot {
                 if let Some(sort_channel) = channels.get(sort_channel_name) {
                     // Apply sorting transformation
                     let sort_expr =
-                        self.apply_channel_scale(sort_channel_name, sort_channel, scales)?;
+                        self.apply_channel_scale(sort_channel_name, sort_channel, scales, ctx)?;
 
                     // Sort the DataFrame by the sorting expression
                     let sorted_df = df_ref.sort(vec![sort_expr.sort(true, false)])?;
@@ -386,7 +387,7 @@ impl CompiledPlot {
             if let Some(channel_value) = channels.get(channel_desc.name) {
                 // Apply scaling to get the final expression
                 let scaled_expr =
-                    self.apply_channel_scale(channel_desc.name, channel_value, scales)?;
+                    self.apply_channel_scale(channel_desc.name, channel_value, scales, ctx)?;
 
                 // Check if this channel references columns (needs array data)
                 if channel_desc.allow_column_ref && scaled_expr.any_column_refs() {
