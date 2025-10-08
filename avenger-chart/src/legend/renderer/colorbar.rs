@@ -83,14 +83,31 @@ impl LegendRenderer for CompiledColorbar {
             }
         }
 
-        // Evaluate gradient_thickness expression (default 15.0 if not set)
+        // Evaluate gradient_thickness expression (from expression, theme, or default)
         use crate::serialization::LogicalExprNodeExt;
 
         let gradient_thickness = if let Some(node) = config.gradient_thickness.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             evaluate_f64_expr(&expr, ctx, params).await?
         } else {
-            15.0
+            // Query from theme legend context
+            let legend_ctx = theme.legend_context(Some("colorbar")).with_params(params.clone());
+            theme.query(&legend_ctx, "gradient-thickness")
+                .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+                .map(|f| f as f64)
+                .unwrap_or(15.0)
+        };
+
+        // Evaluate gradient_length expression (from expression, theme, or use available space)
+        let gradient_length = if let Some(node) = config.gradient_length.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            Some(evaluate_f64_expr(&expr, ctx, params).await? as f32)
+        } else {
+            // Query from theme legend context
+            let legend_ctx = theme.legend_context(Some("colorbar")).with_params(params.clone());
+            theme.query(&legend_ctx, "gradient-length")
+                .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+                .map(|f| f)
         };
 
         // Evaluate position to determine orientation
@@ -114,12 +131,12 @@ impl LegendRenderer for CompiledColorbar {
         // For horizontal orientations (Top/Bottom): use width for gradient length
         let (colorbar_height_param, colorbar_width_param) = match orientation {
             ColorbarOrientation::Left | ColorbarOrientation::Right => {
-                // Vertical: height is the gradient length, width is the thickness
-                (Some(height), Some(gradient_thickness as f32))
+                // Vertical: height is the gradient length (or available height), width is the thickness
+                (gradient_length.or(Some(height)), Some(gradient_thickness as f32))
             }
             ColorbarOrientation::Top | ColorbarOrientation::Bottom => {
-                // Horizontal: width is the gradient length, height is the thickness
-                (Some(width), Some(gradient_thickness as f32))
+                // Horizontal: width is the gradient length (or available width), height is the thickness
+                (Some(gradient_thickness as f32), gradient_length.or(Some(width)))
             }
         };
 

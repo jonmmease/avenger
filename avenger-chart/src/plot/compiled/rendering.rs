@@ -58,22 +58,31 @@ async fn evaluate_size_mode(
     }
 }
 
-/// Evaluate Margins to get concrete f32 values
+/// Evaluate Margins to get concrete f32 values (from expression, theme, or default)
 async fn evaluate_margins(
     margins: &crate::layout::Margins,
     ctx: &SessionContext,
     params: &IndexMap<String, datafusion::common::ScalarValue>,
+    theme: &crate::theme::Theme,
 ) -> Result<crate::layout::EvaluatedMargins, AvengerChartError> {
     use crate::layout::EvaluatedMargins;
     use crate::serialization::LogicalExprNodeExt;
 
-    // Evaluate each margin field, using 10.0 as default if unset
+    // Helper to query margin from theme
+    let query_margin = |property: &str| -> f32 {
+        let canvas_ctx = crate::theme::ThemeContext::new("canvas").with_params(params.clone());
+        theme.query(&canvas_ctx, property)
+            .and_then(|v| v.as_font_size(theme.get_base_font_size(params)))
+            .unwrap_or(10.0)
+    };
+
+    // Evaluate each margin field, checking expression → theme → default
     let top = match margins.top.as_ref() {
         crate::maybe::Maybe::Set(Some(node)) => {
             let expr = node.to_expr(ctx)?;
             evaluate_f32_expr(&expr, ctx, params).await?
         }
-        _ => 10.0,
+        _ => query_margin("margin-top"),
     };
 
     let right = match margins.right.as_ref() {
@@ -81,7 +90,7 @@ async fn evaluate_margins(
             let expr = node.to_expr(ctx)?;
             evaluate_f32_expr(&expr, ctx, params).await?
         }
-        _ => 10.0,
+        _ => query_margin("margin-right"),
     };
 
     let bottom = match margins.bottom.as_ref() {
@@ -89,7 +98,7 @@ async fn evaluate_margins(
             let expr = node.to_expr(ctx)?;
             evaluate_f32_expr(&expr, ctx, params).await?
         }
-        _ => 10.0,
+        _ => query_margin("margin-bottom"),
     };
 
     let left = match margins.left.as_ref() {
@@ -97,7 +106,7 @@ async fn evaluate_margins(
             let expr = node.to_expr(ctx)?;
             evaluate_f32_expr(&expr, ctx, params).await?
         }
-        _ => 10.0,
+        _ => query_margin("margin-left"),
     };
 
     Ok(EvaluatedMargins {
@@ -113,12 +122,13 @@ async fn evaluate_layout_spec(
     layout_spec: &crate::layout::LayoutSpec,
     ctx: &SessionContext,
     params: &IndexMap<String, datafusion::common::ScalarValue>,
+    theme: &crate::theme::Theme,
 ) -> Result<crate::layout::EvaluatedLayoutSpec, AvengerChartError> {
     use crate::layout::EvaluatedLayoutSpec;
 
     let canvas = evaluate_size_mode(&layout_spec.canvas, ctx, params).await?;
     let plot_area = evaluate_size_mode(&layout_spec.plot_area, ctx, params).await?;
-    let margins = evaluate_margins(&layout_spec.margins, ctx, params).await?;
+    let margins = evaluate_margins(&layout_spec.margins, ctx, params, theme).await?;
 
     Ok(EvaluatedLayoutSpec {
         canvas,
@@ -574,7 +584,8 @@ impl CompiledPlot {
         let layout_spec = self.get_layout_spec();
 
         // Evaluate the layout spec to get concrete dimensions
-        let evaluated_spec = evaluate_layout_spec(layout_spec, ctx, params).await?;
+        let theme = self.get_theme();
+        let evaluated_spec = evaluate_layout_spec(layout_spec, ctx, params, theme.as_ref()).await?;
 
         let mut layout = ChartLayout::new(
             &overflow,

@@ -119,6 +119,7 @@ impl Theme {
             /* Backgrounds */
             canvas {
                 background-color: var(--bg-color);
+                margin: 10px;  /* Default margins around chart */
             }
 
             plot {
@@ -177,6 +178,13 @@ impl Theme {
                 spacing: 10;
                 symbol-size: 100;
                 label-padding: 5;
+                columns: 1;
+                label-limit: 0;  /* 0 means no limit */
+            }
+
+            legend[type="colorbar"] {
+                gradient-length: 150;
+                gradient-thickness: 15;
             }
 
             legend title {
