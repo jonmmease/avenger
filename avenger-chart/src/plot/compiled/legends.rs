@@ -329,6 +329,25 @@ impl CompiledPlot {
                     *legend = legend.clone().tick_color(color_array_to_hex(color));
                 }
             }
+
+            // Apply legend position from theme if not explicitly set
+            if matches!(legend.position, crate::maybe::Maybe::Unset) {
+                if let Some(theme_value) = theme.query(&legend_ctx, "position") {
+                    if let Some(position_str) = theme_value.as_string() {
+                        let position = match position_str.to_lowercase().as_str() {
+                            "top" => Some(crate::legend::LegendPosition::Top),
+                            "bottom" => Some(crate::legend::LegendPosition::Bottom),
+                            "left" => Some(crate::legend::LegendPosition::Left),
+                            "right" => Some(crate::legend::LegendPosition::Right),
+                            _ => None,
+                        };
+                        if let Some(pos) = position {
+                            *legend = legend.clone().position(pos);
+                        }
+                    }
+                }
+            }
+
             // Note: Don't apply theme background settings - they're only for default legends
             // This matches PlotRenderer behavior
         }
