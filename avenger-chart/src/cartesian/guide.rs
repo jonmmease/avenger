@@ -105,9 +105,8 @@ impl CartesianGuide {
         }
 
         // Fallback to theme
-        let guide_ctx = crate::theme::ThemeContext::new("guide")
-            .with_subtype("cartesian")
-            .with_params(params.clone());
+        let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+            .with_subtype("cartesian");
         theme
             .query(&guide_ctx, "background-color")
             .and_then(|v| v.as_color_array())

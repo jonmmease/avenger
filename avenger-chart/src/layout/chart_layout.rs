@@ -192,7 +192,7 @@ impl ChartLayout {
 
         // Evaluate title span expression (or get from theme)
         let title_span = if let Some(t) = title {
-            let title_ctx = theme.title_context().with_params(params.clone());
+            let title_ctx = theme.title_context_with_params(params.clone());
             Self::evaluate_span(&t.span, &title_ctx, theme, ctx, params).await?
         } else {
             TitleSpan::default()
@@ -200,7 +200,7 @@ impl ChartLayout {
 
         // Evaluate subtitle span expression (or get from theme)
         let subtitle_span = if let Some(s) = subtitle {
-            let subtitle_ctx = theme.subtitle_context().with_params(params.clone());
+            let subtitle_ctx = theme.subtitle_context_with_params(params.clone());
             Self::evaluate_span(&s.span, &subtitle_ctx, theme, ctx, params).await?
         } else {
             TitleSpan::default()

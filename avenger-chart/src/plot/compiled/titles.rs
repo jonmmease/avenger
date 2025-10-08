@@ -30,7 +30,7 @@ impl CompiledPlot {
         };
 
         let theme = self.get_theme();
-        let title_ctx = crate::theme::ThemeContext::new("chart-title").with_params(params.clone());
+        let title_ctx = crate::theme::ThemeContext::new("chart-title", params.clone());
 
         use crate::serialization::LogicalExprNodeExt;
         use avenger_scenegraph::marks::text::SceneTextMark;
@@ -137,7 +137,7 @@ impl CompiledPlot {
 
         let theme = self.get_theme();
         let subtitle_ctx =
-            crate::theme::ThemeContext::new("chart-subtitle").with_params(params.clone());
+            crate::theme::ThemeContext::new("chart-subtitle", params.clone());
 
         use crate::serialization::LogicalExprNodeExt;
         use avenger_scenegraph::marks::text::SceneTextMark;

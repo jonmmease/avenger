@@ -509,7 +509,7 @@ impl Theme {
                 datafusion_common::ScalarValue::UInt64(Some(px)) => Some(*px as f32),
                 _ => None,
             })
-            .unwrap_or(16.0); // Default to 16px if not specified
+            .unwrap_or(DEFAULT_BASE_FONT_SIZE); // Default to constant if not specified
 
         // Find matching rules
         let mut matches = Vec::new();
@@ -622,7 +622,12 @@ impl Theme {
 
     /// Build a legend context with optional subtype
     pub fn legend_context(&self, subtype: Option<&str>) -> ThemeContext {
-        let mut legend_ctx = ThemeContext::new("legend");
+        self.legend_context_with_params(subtype, IndexMap::new())
+    }
+
+    /// Build a legend context with optional subtype and params
+    pub fn legend_context_with_params(&self, subtype: Option<&str>, params: IndexMap<String, datafusion_common::ScalarValue>) -> ThemeContext {
+        let mut legend_ctx = ThemeContext::new("legend", params);
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
         }
@@ -631,7 +636,12 @@ impl Theme {
 
     /// Build an axis context with optional coordinate and axis types
     pub fn axis_context(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> ThemeContext {
-        let mut guide_ctx = ThemeContext::new("guide");
+        self.axis_context_with_params(coord_type, axis_type, IndexMap::new())
+    }
+
+    /// Build an axis context with optional coordinate and axis types and params
+    pub fn axis_context_with_params(&self, coord_type: Option<&str>, axis_type: Option<&str>, params: IndexMap<String, datafusion_common::ScalarValue>) -> ThemeContext {
+        let mut guide_ctx = ThemeContext::new("guide", params);
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
         }
@@ -644,12 +654,22 @@ impl Theme {
 
     /// Build a title context
     pub fn title_context(&self) -> ThemeContext {
-        ThemeContext::new("chart-title")
+        self.title_context_with_params(IndexMap::new())
+    }
+
+    /// Build a title context with params
+    pub fn title_context_with_params(&self, params: IndexMap<String, datafusion_common::ScalarValue>) -> ThemeContext {
+        ThemeContext::new("chart-title", params)
     }
 
     /// Build a subtitle context
     pub fn subtitle_context(&self) -> ThemeContext {
-        ThemeContext::new("chart-subtitle")
+        self.subtitle_context_with_params(IndexMap::new())
+    }
+
+    /// Build a subtitle context with params
+    pub fn subtitle_context_with_params(&self, params: IndexMap<String, datafusion_common::ScalarValue>) -> ThemeContext {
+        ThemeContext::new("chart-subtitle", params)
     }
 
     /// Get font family for a context
@@ -824,6 +844,7 @@ impl Theme {
         channel: &str,
         range_kind: avenger_scales::scales::RangeKind,
         domain_cardinality: Option<usize>,
+        params: &IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Option<crate::scales::ScaleRange> {
         use avenger_scales::scales::RangeKind;
 
@@ -840,19 +861,20 @@ impl Theme {
             }
         );
 
-        // Ensure color-scheme param is set for light-dark() resolution
-        let mut params = indexmap::IndexMap::new();
-        params.insert(
-            "color-scheme".to_string(),
-            datafusion_common::ScalarValue::Utf8(Some(self.default_color_scheme.clone())),
-        );
+        // Use provided params, ensuring color-scheme is set for light-dark() resolution
+        let mut params = params.clone();
+        if !params.contains_key("color-scheme") {
+            params.insert(
+                "color-scheme".to_string(),
+                datafusion_common::ScalarValue::Utf8(Some(self.default_color_scheme.clone())),
+            );
+        }
 
         // Try mark-specific first, then general mark
         let base_contexts = vec![
-            ThemeContext::new("mark")
-                .with_subtype(mark_type)
-                .with_params(params.clone()),
-            ThemeContext::new("mark").with_params(params),
+            ThemeContext::new("mark", params.clone())
+                .with_subtype(mark_type),
+            ThemeContext::new("mark", params),
         ];
 
         // For discrete ranges, try cardinality-specific values with fallback logic
@@ -995,9 +1017,8 @@ impl Theme {
         params: &IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Option<datafusion_common::ScalarValue> {
         // Query CSS theme for mark defaults
-        let context = ThemeContext::new("mark")
-            .with_subtype(mark_type)
-            .with_params(params.clone());
+        let context = ThemeContext::new("mark", params.clone())
+            .with_subtype(mark_type);
 
         // Convert underscore to hyphen for CSS property name
         let css_property = channel.replace('_', "-");
@@ -1244,7 +1265,7 @@ mod tests {
         let theme = Theme::from_css(css).unwrap();
 
         // Test direct list value
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
         let value = theme.query(&ctx, "fill-discrete");
         println!("Direct value type: {:?}", value);
         match value {
@@ -1388,7 +1409,7 @@ mod tests {
         assert_eq!(theme.get_base_font_size(&IndexMap::new()), 16.0);
 
         // Check that rem values are calculated correctly
-        let context = ThemeContext::new("mark");
+        let context = ThemeContext::new("mark", IndexMap::new());
         let font_size = theme.font_size(&context);
         assert_eq!(font_size, Some(32.0)); // 2rem * 16px = 32px
     }
@@ -1418,7 +1439,7 @@ mod tests {
         match Theme::from_css(css) {
             Ok(theme) => {
                 println!("Theme created successfully");
-                let ctx = ThemeContext::new("mark");
+                let ctx = ThemeContext::new("mark", IndexMap::new());
                 let value = theme.query(&ctx, "fill-discrete");
                 println!("fill-discrete value: {:?}", value);
             }
@@ -1440,7 +1461,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).unwrap();
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
         let value = theme.query(&ctx, "fill-discrete");
 
         println!("fill-discrete value: {:?}", value);
@@ -1494,7 +1515,7 @@ mod tests {
         let theme = Theme::from_css(css).unwrap();
 
         // Test 1: Exact match for cardinality 3
-        let range_3 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(3));
+        let range_3 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(3), &IndexMap::new());
         assert!(range_3.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_3 {
             assert_eq!(values.len(), 3, "Should get 3-color palette");
@@ -1503,7 +1524,7 @@ mod tests {
         }
 
         // Test 2: Exact match for cardinality 5
-        let range_5 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(5));
+        let range_5 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(5), &IndexMap::new());
         assert!(range_5.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_5 {
             assert_eq!(values.len(), 5, "Should get 5-color palette");
@@ -1514,7 +1535,7 @@ mod tests {
         // Test 3: Fallback to largest available cardinality (3) when requesting 4
         // Since we have cardinality-specific rules for 2, 3, and 5, requesting 4 should
         // fall back to 3 (the largest cardinality < 4)
-        let range_4 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(4));
+        let range_4 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(4), &IndexMap::new());
         assert!(range_4.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_4 {
             assert_eq!(
@@ -1528,7 +1549,7 @@ mod tests {
 
         // Test 4: Use largest available cardinality (5) when requesting 10
         // Since we have no exact match and the largest defined is 5, use that
-        let range_10 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(10));
+        let range_10 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(10), &IndexMap::new());
         assert!(range_10.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_10 {
             assert_eq!(
@@ -1541,7 +1562,7 @@ mod tests {
         }
 
         // Test 5: When cardinality is unknown, should get base palette
-        let range_none = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, None);
+        let range_none = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, None, &IndexMap::new());
         assert!(range_none.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_none {
             assert_eq!(values.len(), 6, "Should get base 6-color palette");
@@ -1592,7 +1613,7 @@ mod tests {
         assert_eq!(theme.get_base_font_size(&IndexMap::new()), 18.0);
 
         // Verify rem calculations use the new base
-        let context = ThemeContext::new("test-element");
+        let context = ThemeContext::new("test-element", IndexMap::new());
         let font_size = theme.font_size(&context);
         assert_eq!(font_size, Some(36.0)); // 2rem * 18px = 36px
 
@@ -1621,7 +1642,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
 
         // Query without params - should default to light mode
         let value = theme.query(&ctx, "fill");
@@ -1651,7 +1672,7 @@ mod tests {
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
         println!("One var theme variables: {:?}", theme.variables);
 
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
         let raw_value = theme.query(&ctx, "fill");
         println!("One var fill value: {:?}", raw_value);
 
@@ -1681,7 +1702,7 @@ mod tests {
             "color-scheme".to_string(),
             datafusion_common::ScalarValue::Utf8(Some("light".to_string())),
         );
-        let ctx_light = ThemeContext::new("mark").with_params(params_light);
+        let ctx_light = ThemeContext::new("mark", params_light);
 
         let fill_light = theme.query(&ctx_light, "fill");
         match fill_light {
@@ -1699,7 +1720,7 @@ mod tests {
             "color-scheme".to_string(),
             datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
         );
-        let ctx_dark = ThemeContext::new("mark").with_params(params_dark);
+        let ctx_dark = ThemeContext::new("mark", params_dark);
 
         let fill_dark = theme.query(&ctx_dark, "fill");
         match fill_dark {
@@ -1734,7 +1755,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
 
         // Without params - should use theme variable
         let value_default = theme.query(&ctx, "fill");
@@ -1754,7 +1775,8 @@ mod tests {
             datafusion_common::ScalarValue::Utf8(Some("#ff6b6b".to_string())),
         );
 
-        let ctx_with_params = ctx.clone().with_params(params);
+        let mut ctx_with_params = ctx.clone();
+        ctx_with_params.params = params;
         let value_override = theme.query(&ctx_with_params, "fill");
         match value_override {
             Some(ThemeValue::Color(c)) => {
@@ -1782,7 +1804,7 @@ mod tests {
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
         println!("Theme variables: {:?}", theme.variables);
 
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
 
         // First check what raw value is stored (before param resolution)
         let raw_value = theme.query(&ctx, "fill");
@@ -1794,7 +1816,7 @@ mod tests {
             "color-scheme".to_string(),
             datafusion_common::ScalarValue::Utf8(Some("light".to_string())),
         );
-        let ctx_light = ThemeContext::new("mark").with_params(params_light);
+        let ctx_light = ThemeContext::new("mark", params_light);
 
         let value_light = theme.query(&ctx_light, "fill");
         println!("Light value: {:?}", value_light);
@@ -1816,7 +1838,7 @@ mod tests {
             "color-scheme".to_string(),
             datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
         );
-        let ctx_dark = ThemeContext::new("mark").with_params(params_dark);
+        let ctx_dark = ThemeContext::new("mark", params_dark);
 
         let value_dark = theme.query(&ctx_dark, "fill");
         match value_dark {
@@ -1858,7 +1880,7 @@ mod tests {
             "--secondary".to_string(),
             datafusion_common::ScalarValue::Utf8(Some("#00ff00".to_string())),
         );
-        let ctx = ThemeContext::new("mark").with_params(params);
+        let ctx = ThemeContext::new("mark", params);
 
         let value = theme.query(&ctx, "fill");
         match value {
@@ -1892,7 +1914,7 @@ mod tests {
             "color-scheme".to_string(),
             datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
         );
-        let ctx = ThemeContext::new("mark").with_params(params);
+        let ctx = ThemeContext::new("mark", params);
 
         let value = theme.query(&ctx, "fill-discrete");
         match value {
@@ -1986,7 +2008,7 @@ mod tests {
             datafusion_common::ScalarValue::Utf8(Some("#00ff00".to_string())),
         );
 
-        let ctx = ThemeContext::new("mark").with_params(params);
+        let ctx = ThemeContext::new("mark", params);
 
         let value = theme.query(&ctx, "fill");
         match value {
@@ -2022,7 +2044,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
 
         // This should not panic, but may not fully resolve due to depth limit
         let value = theme.query(&ctx, "fill");
@@ -2045,7 +2067,7 @@ mod tests {
             "color-scheme".to_string(),
             datafusion_common::ScalarValue::Utf8(Some("light".to_string())),
         );
-        let ctx_light = ThemeContext::new("canvas").with_params(light_params.clone());
+        let ctx_light = ThemeContext::new("canvas", light_params.clone());
 
         let bg_value = theme.query(&ctx_light, "background-color");
         let bg_light = bg_value.and_then(|v| v.as_color_with_params(&light_params, base_font_size));
@@ -2067,7 +2089,7 @@ mod tests {
             "color-scheme".to_string(),
             datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
         );
-        let ctx_dark = ThemeContext::new("canvas").with_params(dark_params.clone());
+        let ctx_dark = ThemeContext::new("canvas", dark_params.clone());
 
         let bg_value_dark = dark_theme.query(&ctx_dark, "background-color");
         let bg_dark =
@@ -2084,7 +2106,7 @@ mod tests {
         }
 
         // Test that Theme::dark() can be switched to light mode with param
-        let ctx_light_override = ThemeContext::new("canvas").with_params(light_params.clone());
+        let ctx_light_override = ThemeContext::new("canvas", light_params.clone());
 
         let bg_value_override = dark_theme.query(&ctx_light_override, "background-color");
         let bg_light_override =
@@ -2119,7 +2141,7 @@ mod tests {
         );
 
         // Query with params set
-        let ctx = ThemeContext::new(":root").with_params(params.clone());
+        let ctx = ThemeContext::new(":root", params.clone());
         let color_value = theme.query(&ctx, "--categorical-color-0");
 
         if let Some(color_value) = color_value {
@@ -2139,7 +2161,7 @@ mod tests {
                 datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
             );
 
-            let ctx_dark = ThemeContext::new(":root").with_params(params_dark.clone());
+            let ctx_dark = ThemeContext::new(":root", params_dark.clone());
             let color_value_dark = theme.query(&ctx_dark, "--categorical-color-0");
 
             if let Some(color_value_dark) = color_value_dark {
@@ -2172,7 +2194,7 @@ mod tests {
         let theme = Theme::light();
 
         // Test light mode - axis label uses --text-secondary
-        let ctx_light = ThemeContext::new("axis").child("label");
+        let ctx_light = ThemeContext::new("axis", IndexMap::new()).child("label");
 
         // Debug: Check what the raw query returns
         let raw_value = theme.query(&ctx_light, "color");
@@ -2207,7 +2229,7 @@ mod tests {
             "color-scheme".to_string(),
             datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
         );
-        let ctx_dark = ThemeContext::new("axis").child("label").with_params(params);
+        let ctx_dark = ThemeContext::new("axis", params).child("label");
         let color_dark = theme.text_color(&ctx_dark);
 
         match color_dark {
@@ -2242,7 +2264,7 @@ mod tests {
         assert_eq!(light_theme.default_color_scheme, "light");
 
         // Verify dark theme produces dark text color without any params
-        let ctx = ThemeContext::new("axis").child("title");
+        let ctx = ThemeContext::new("axis", IndexMap::new()).child("title");
         let text_color = dark_theme.text_color(&ctx);
 
         match text_color {
@@ -2271,7 +2293,7 @@ mod tests {
         assert_eq!(deserialized.default_color_scheme, "dark");
 
         // Verify the deserialized theme still produces dark text color
-        let ctx = ThemeContext::new("axis").child("title");
+        let ctx = ThemeContext::new("axis", IndexMap::new()).child("title");
         let text_color = deserialized.text_color(&ctx);
 
         match text_color {
@@ -2299,7 +2321,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
-        let ctx = ThemeContext::new("mark").with_subtype("rect");
+        let ctx = ThemeContext::new("mark", IndexMap::new()).with_subtype("rect");
 
         let fill_discrete = theme.query(&ctx, "fill-discrete");
 
@@ -2324,7 +2346,7 @@ mod tests {
     fn test_font_size_with_base_font_size_param() {
         // Test that base-font-size parameter affects rem-based font size calculations
         let theme = Theme::light();
-        let ctx = ThemeContext::new("chart-title");
+        let ctx = ThemeContext::new("chart-title", IndexMap::new());
 
         // Default: title uses 1.5rem which is 18px (1.5 * 12px)
         let default_size = theme.font_size(&ctx);
@@ -2337,7 +2359,8 @@ mod tests {
             datafusion_common::ScalarValue::Utf8(Some("16px".to_string())),
         );
 
-        let ctx_with_params = ctx.clone().with_params(params);
+        let mut ctx_with_params = ctx.clone();
+        ctx_with_params.params = params;
         let custom_size = theme.font_size(&ctx_with_params);
         assert_eq!(
             custom_size,
@@ -2352,7 +2375,8 @@ mod tests {
             datafusion_common::ScalarValue::Utf8(Some("8px".to_string())),
         );
 
-        let ctx_with_small_params = ctx.clone().with_params(small_params);
+        let mut ctx_with_small_params = ctx.clone();
+        ctx_with_small_params.params = small_params;
         let small_size = theme.font_size(&ctx_with_small_params);
         assert_eq!(small_size, Some(12.0), "Title should be 12px with 8px base");
     }
@@ -2373,7 +2397,7 @@ mod tests {
         let theme = Theme::from_css(css).unwrap();
 
         // Default: 2rem * 14px = 28px
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
         assert_eq!(theme.get_base_font_size(&IndexMap::new()), 14.0);
         assert_eq!(theme.font_size(&ctx), Some(28.0));
 
@@ -2385,7 +2409,8 @@ mod tests {
         );
 
         assert_eq!(theme.get_base_font_size(&params), 20.0);
-        let ctx_with_params = ctx.clone().with_params(params);
+        let mut ctx_with_params = ctx.clone();
+        ctx_with_params.params = params;
         assert_eq!(theme.font_size(&ctx_with_params), Some(40.0));
     }
 
@@ -2405,7 +2430,7 @@ mod tests {
         let theme = Theme::from_css(css).unwrap();
 
         // Default: 3rem * 10px = 30px
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
         assert_eq!(theme.get_base_font_size(&IndexMap::new()), 10.0);
         assert_eq!(theme.font_size(&ctx), Some(30.0));
 
@@ -2417,7 +2442,8 @@ mod tests {
         );
 
         assert_eq!(theme.get_base_font_size(&params), 25.0);
-        let ctx_with_params = ctx.clone().with_params(params);
+        let mut ctx_with_params = ctx.clone();
+        ctx_with_params.params = params;
         assert_eq!(theme.font_size(&ctx_with_params), Some(75.0));
     }
 
@@ -2455,7 +2481,7 @@ mod tests {
         theme.rules.push(rule);
 
         // Test without width param - media query should not match, get blue
-        let ctx = ThemeContext::new("test-element");
+        let ctx = ThemeContext::new("test-element", IndexMap::new());
         let fill = theme.query(&ctx, "fill");
         assert!(fill.is_some(), "Should have fill value");
         if let Some(ThemeValue::Color(c)) = fill {
@@ -2474,7 +2500,7 @@ mod tests {
             "width".to_string(),
             datafusion_common::ScalarValue::Float32(Some(400.0)),
         );
-        let ctx_small = ThemeContext::new("test-element").with_params(params_small);
+        let ctx_small = ThemeContext::new("test-element", params_small);
         let fill_small = theme.query(&ctx_small, "fill");
         if let Some(ThemeValue::Color(c)) = fill_small {
             assert_eq!(
@@ -2490,7 +2516,7 @@ mod tests {
             "width".to_string(),
             datafusion_common::ScalarValue::Float32(Some(800.0)),
         );
-        let ctx_large = ThemeContext::new("test-element").with_params(params_large);
+        let ctx_large = ThemeContext::new("test-element", params_large);
         let fill_large = theme.query(&ctx_large, "fill");
         if let Some(ThemeValue::Color(c)) = fill_large {
             assert_eq!(

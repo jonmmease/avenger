@@ -227,8 +227,7 @@ impl PolarAxis {
         use crate::serialization::LogicalExprNodeExt;
         // Create context for theme queries with params
         let axis_ctx = theme
-            .axis_context(Some("polar"), Some(channel))
-            .with_params(params.clone());
+            .axis_context_with_params(Some("polar"), Some(channel), params.clone());
 
         // Evaluate visible expression (default to true if not set)
         let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref()) {

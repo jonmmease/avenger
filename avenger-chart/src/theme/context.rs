@@ -36,8 +36,11 @@ pub struct ThemeContext {
 }
 
 impl ThemeContext {
-    /// Create a new context for a specific element
-    pub fn new(element_type: impl Into<String>) -> Self {
+    /// Create a new context for a specific element with runtime parameters
+    ///
+    /// Runtime parameters are required to ensure CSS variables and media queries
+    /// can be properly evaluated throughout the theme system.
+    pub fn new(element_type: impl Into<String>, params: IndexMap<String, ScalarValue>) -> Self {
         Self {
             element_type: element_type.into(),
             subtype: None,
@@ -45,11 +48,11 @@ impl ThemeContext {
             id: None,
             attributes: HashMap::new(),
             parent: None,
-            params: IndexMap::new(),
+            params,
         }
     }
 
-    /// Create a child context
+    /// Create a child context (inherits params from parent)
     pub fn child(&self, element_type: impl Into<String>) -> Self {
         Self {
             element_type: element_type.into(),
@@ -60,12 +63,6 @@ impl ThemeContext {
             parent: Some(Arc::new(self.clone())),
             params: self.params.clone(), // Inherit params from parent
         }
-    }
-
-    /// Set the params for this context
-    pub fn with_params(mut self, params: IndexMap<String, ScalarValue>) -> Self {
-        self.params = params;
-        self
     }
 
     /// Set the subtype for the element
@@ -101,8 +98,10 @@ impl ThemeContext {
     ///
     /// ```
     /// use avenger_chart::theme::ThemeContext;
+    /// use indexmap::IndexMap;
     ///
-    /// let ctx = ThemeContext::new("mark")
+    /// let params = IndexMap::new();
+    /// let ctx = ThemeContext::new("mark", params)
     ///     .with_subtype("symbol")
     ///     .with_attribute("cardinality", "5");
     /// ```

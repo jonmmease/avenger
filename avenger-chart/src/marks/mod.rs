@@ -271,6 +271,7 @@ pub trait CompiledMark {
     /// * `domain` - The resolved domain type (Discrete with count or Interval)
     /// * `data_type` - The data type of the channel
     /// * `theme` - The current theme for accessing default values
+    /// * `params` - Runtime parameters for theme resolution
     ///
     /// # Returns
     /// * `Some(range)` - A specific range to use for this channel
@@ -282,6 +283,7 @@ pub trait CompiledMark {
         _domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
         _theme: &Theme,
+        _params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Option<ScaleRange> {
         None
     }

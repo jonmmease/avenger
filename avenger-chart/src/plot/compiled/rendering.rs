@@ -78,7 +78,7 @@ async fn evaluate_margins(
 
     // Helper to query margin from theme
     let query_margin = |property: &str| -> f32 {
-        let canvas_ctx = crate::theme::ThemeContext::new("canvas").with_params(params.clone());
+        let canvas_ctx = crate::theme::ThemeContext::new("canvas", params.clone());
         theme.query(&canvas_ctx, property)
             .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
             .unwrap_or(CompiledPlot::DEFAULT_MARGIN)
@@ -956,7 +956,7 @@ impl CompiledPlot {
 
         // Add background rect if theme specifies one
         let canvas_ctx =
-            crate::theme::ThemeContext::new("canvas").with_params(merged_params.clone());
+            crate::theme::ThemeContext::new("canvas", merged_params.clone());
         if let Some(color) = theme
             .query(&canvas_ctx, "background-color")
             .and_then(|v| v.as_color_array())

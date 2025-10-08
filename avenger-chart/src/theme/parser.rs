@@ -2070,7 +2070,7 @@ mod tests {
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
         // Without width param - should get blue
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
         let fill = theme.fill_color(&ctx).expect("Should have fill");
         assert_eq!(fill[2], 1.0, "Should be blue without width param");
         assert_eq!(fill[0], 0.0, "Should not be red");
@@ -2078,14 +2078,14 @@ mod tests {
         // With width < 600 - should get blue
         let mut params_small = IndexMap::new();
         params_small.insert("width".to_string(), ScalarValue::Float32(Some(400.0)));
-        let ctx_small = ThemeContext::new("mark").with_params(params_small);
+        let ctx_small = ThemeContext::new("mark", params_small);
         let fill_small = theme.fill_color(&ctx_small).expect("Should have fill");
         assert_eq!(fill_small[2], 1.0, "Should be blue with width < 600");
 
         // With width >= 600 - should get red
         let mut params_large = IndexMap::new();
         params_large.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
-        let ctx_large = ThemeContext::new("mark").with_params(params_large);
+        let ctx_large = ThemeContext::new("mark", params_large);
         let fill_large = theme.fill_color(&ctx_large).expect("Should have fill");
         assert_eq!(fill_large[0], 1.0, "Should be red with width >= 600");
         assert_eq!(fill_large[2], 0.0, "Should not be blue");
@@ -2142,7 +2142,7 @@ mod tests {
         let mut params1 = IndexMap::new();
         params1.insert("width".to_string(), ScalarValue::Float32(Some(300.0)));
         params1.insert("height".to_string(), ScalarValue::Float32(Some(100.0)));
-        let ctx1 = ThemeContext::new("guide").with_params(params1);
+        let ctx1 = ThemeContext::new("guide", params1);
         let color1 = theme.query(&ctx1, "background-color");
         assert!(color1.is_some(), "Should match when width < 400");
 
@@ -2150,7 +2150,7 @@ mod tests {
         let mut params2 = IndexMap::new();
         params2.insert("width".to_string(), ScalarValue::Float32(Some(500.0)));
         params2.insert("height".to_string(), ScalarValue::Float32(Some(500.0)));
-        let ctx2 = ThemeContext::new("guide").with_params(params2);
+        let ctx2 = ThemeContext::new("guide", params2);
         let _color2 = theme.query(&ctx2, "background-color");
         // This should NOT match because width is not < 400 and not (>= 600 AND >= 400)
         // With correct precedence, should be white (default)
@@ -2159,7 +2159,7 @@ mod tests {
         let mut params3 = IndexMap::new();
         params3.insert("width".to_string(), ScalarValue::Float32(Some(700.0)));
         params3.insert("height".to_string(), ScalarValue::Float32(Some(500.0)));
-        let ctx3 = ThemeContext::new("guide").with_params(params3);
+        let ctx3 = ThemeContext::new("guide", params3);
         let color3 = theme.query(&ctx3, "background-color");
         assert!(
             color3.is_some(),
@@ -2240,14 +2240,14 @@ mod tests {
         // Width 800px - should match (in range)
         let mut params_in = IndexMap::new();
         params_in.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
-        let ctx_in = ThemeContext::new("guide").with_params(params_in);
+        let ctx_in = ThemeContext::new("guide", params_in);
         let bg_in = theme.query(&ctx_in, "background-color");
         assert!(bg_in.is_some(), "Should match when in range");
 
         // Width 400px - should not match (below range)
         let mut params_below = IndexMap::new();
         params_below.insert("width".to_string(), ScalarValue::Float32(Some(400.0)));
-        let ctx_below = ThemeContext::new("guide").with_params(params_below);
+        let ctx_below = ThemeContext::new("guide", params_below);
         let bg_below = theme.query(&ctx_below, "background-color");
         // Should get white (default), not green
         if let Some(ThemeValue::Color(color)) = bg_below {
@@ -2258,7 +2258,7 @@ mod tests {
         // Width 1200px - should not match (at exclusive boundary)
         let mut params_boundary = IndexMap::new();
         params_boundary.insert("width".to_string(), ScalarValue::Float32(Some(1200.0)));
-        let ctx_boundary = ThemeContext::new("guide").with_params(params_boundary);
+        let ctx_boundary = ThemeContext::new("guide", params_boundary);
         let bg_boundary = theme.query(&ctx_boundary, "background-color");
         // Should get white (default), not green
         if let Some(ThemeValue::Color(color)) = bg_boundary {

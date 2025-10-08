@@ -232,8 +232,7 @@ impl CartesianAxis {
 
         // Create context for theme queries with params
         let axis_ctx = theme
-            .axis_context(coord_type, axis_type)
-            .with_params(params.clone());
+            .axis_context_with_params(coord_type, axis_type, params.clone());
         let label_ctx = axis_ctx.child("label");
         let title_ctx = axis_ctx.child("title");
 
