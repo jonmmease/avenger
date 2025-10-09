@@ -2,6 +2,7 @@
 
 use avenger_chart::theme::Theme;
 use avenger_scales::scales::RangeKind;
+use indexmap::IndexMap;
 
 #[test]
 fn test_underscore_to_hyphen_conversion() {
@@ -21,6 +22,7 @@ fn test_underscore_to_hyphen_conversion() {
         "glow_color", // underscore in Rust
         RangeKind::Continuous,
         None,
+        &IndexMap::new(),
     );
 
     let pulse_speed_range = theme.get_range_for_channel(
@@ -28,6 +30,7 @@ fn test_underscore_to_hyphen_conversion() {
         "pulse_speed", // underscore in Rust
         RangeKind::Discrete,
         Some(3),
+        &IndexMap::new(),
     );
 
     // Verify we got color range (not empty/default)
@@ -87,6 +90,7 @@ fn test_stroke_width_conversion() {
         "stroke_width", // underscore in Rust
         RangeKind::Discrete,
         Some(4),
+        &IndexMap::new(),
     );
 
     let continuous_range = theme.get_range_for_channel(
@@ -94,6 +98,7 @@ fn test_stroke_width_conversion() {
         "stroke_width", // underscore in Rust
         RangeKind::Continuous,
         None,
+        &IndexMap::new(),
     );
 
     // Verify we got the values from CSS
