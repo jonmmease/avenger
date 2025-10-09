@@ -30,14 +30,14 @@ fn test_media_query_with_explicit_params() {
     let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
     // Test 1: No width param - should get transparent (default)
-    let ctx_no_param = ThemeContext::new("guide");
+    let ctx_no_param = ThemeContext::new("guide", IndexMap::new());
     let bg_no_param = theme.query(&ctx_no_param, "background-color");
     println!("No param: {:?}", bg_no_param);
 
     // Test 2: Small width (400px) - should get blue
     let mut params_small = IndexMap::new();
     params_small.insert("width".to_string(), ScalarValue::Float32(Some(400.0)));
-    let ctx_small = ThemeContext::new("guide").with_params(params_small);
+    let ctx_small = ThemeContext::new("guide", params_small);
     let bg_small = theme.query(&ctx_small, "background-color");
     println!("Small (400px): {:?}", bg_small);
 
@@ -66,7 +66,7 @@ fn test_media_query_with_explicit_params() {
     // Test 3: Large width (800px) - should get red
     let mut params_large = IndexMap::new();
     params_large.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
-    let ctx_large = ThemeContext::new("guide").with_params(params_large);
+    let ctx_large = ThemeContext::new("guide", params_large);
     let bg_large = theme.query(&ctx_large, "background-color");
     println!("Large (800px): {:?}", bg_large);
 

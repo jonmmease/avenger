@@ -1,3 +1,8 @@
+//! Visual regression tests for colorbar legend positioning
+//!
+//! Tests that continuous color legends (colorbars) render correctly
+//! in all four positions: Right, Left, Top, Bottom.
+
 use arrow::array::Float64Array;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
