@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{CompiledMark, DataContext, Mark, MarkState, RadiusExpression};
+use crate::marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression};
 use crate::theme::Theme;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -35,20 +35,20 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianSymbol {
-    pub(crate) state: MarkState,
+    pub(crate) state: CompiledMarkState,
 }
 
 #[typetag::serde]
 impl CompiledMark for CompiledCartesianSymbol {
-    fn state(&self) -> &MarkState {
+    fn state(&self) -> &CompiledMarkState {
         &self.state
     }
 
-    fn state_mut(&mut self) -> &mut MarkState {
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
         &mut self.state
     }
 
-    fn data_context(&self) -> &DataContext {
+    fn data_context(&self) -> &CompiledDataContext {
         &self.state.data
     }
 

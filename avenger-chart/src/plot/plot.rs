@@ -158,7 +158,7 @@ use crate::error::AvengerChartError;
 use crate::guide::CoordinateGuide;
 use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 use crate::legend::Legend;
-use crate::marks::{CompiledMark, Mark};
+use crate::marks::{CompiledMark, CompiledMarkState, Mark};
 use crate::serialization::LogicalPlanNodeExt;
 use crate::theme::Theme;
 
@@ -252,8 +252,36 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         // 2. Compile all marks
-        let compiled_marks: Vec<Arc<dyn CompiledMark>> =
-            self.marks.iter().map(|m| m.compile()).collect();
+        // For now, we pass the mark's DataFrame unchanged to CompiledMarkState
+        // TODO: This is where aggregation will be applied in Phase 4
+        let compiled_marks: Vec<Arc<dyn CompiledMark>> = self
+            .marks
+            .iter()
+            .map(|m| {
+                let mark_state = m.state();
+                // Get the DataFrame (or use plot-level data)
+                let df = mark_state
+                    .data
+                    .dataframe()
+                    .cloned()
+                    .or_else(|| self.data.clone())
+                    .unwrap_or_else(|| {
+                        DataFrame::new(
+                            session_context.state().clone(),
+                            datafusion::logical_expr::LogicalPlan::EmptyRelation(
+                                datafusion::logical_expr::EmptyRelation {
+                                    produce_one_row: false,
+                                    schema: Arc::new(datafusion::common::DFSchema::empty()),
+                                },
+                            ),
+                        )
+                    });
+
+                // Create CompiledMarkState from the mark's state and DataFrame
+                let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
+                m.compile(compiled_state)
+            })
+            .collect();
 
         // 3. Build guide renderer - either from config or default
         let mut guide = if let Some(config) = &self.guide_config {

@@ -1,7 +1,7 @@
 use crate::define_position_channels;
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
-use crate::marks::{CompiledMark, DataContext, Mark, MarkState, RadiusExpression};
+use crate::marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression};
 use std::sync::Arc;
 
 use crate::channel::ChannelDescriptor;
@@ -35,21 +35,21 @@ impl Mark<Polar> for Symbol<Polar> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledPolarSymbol {
-    pub(crate) state: MarkState,
+    pub(crate) state: CompiledMarkState,
 }
 
 // CompiledMark implementation
 #[typetag::serde]
 impl CompiledMark for CompiledPolarSymbol {
-    fn state(&self) -> &MarkState {
+    fn state(&self) -> &CompiledMarkState {
         &self.state
     }
 
-    fn state_mut(&mut self) -> &mut MarkState {
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
         &mut self.state
     }
 
-    fn data_context(&self) -> &DataContext {
+    fn data_context(&self) -> &CompiledDataContext {
         &self.state.data
     }
 
