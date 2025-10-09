@@ -244,6 +244,7 @@ async fn test_aggregate_movies_symbol_plot() {
     let plot = Plot::<Cartesian>::new()
         .title("Movie Count by MPAA Rating and Creative Type")
         .subtitle("Size: Count, Color: Avg Rotten Tomatoes Rating")
+        .canvas_size(600.0, 300.0) // 50% wider than default (400x300)
         .data(df)
         .mark(
             Symbol::new()
