@@ -96,6 +96,18 @@ pub async fn unemployment(ctx: &SessionContext) -> Result<DataFrame, DataFusionE
     .await
 }
 
+/// Load the movies dataset
+///
+/// IMDB movie ratings and metadata
+/// - Rows: 3,201
+/// - Columns: Title, US Gross, Worldwide Gross, US DVD Sales, Production Budget, Release Date,
+///   MPAA Rating, Running Time min, Distributor, Source, Major Genre, Creative Type, Director,
+///   Rotten Tomatoes Rating, IMDB Rating, IMDB Votes
+pub async fn movies(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
+    ctx.read_parquet("tests/data/movies.parquet", ParquetReadOptions::default())
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,6 +126,7 @@ mod tests {
             ("airports", airports(&ctx).await),
             ("co2-concentration", co2_concentration(&ctx).await),
             ("unemployment", unemployment(&ctx).await),
+            ("movies", movies(&ctx).await),
         ];
 
         for (name, result) in datasets {

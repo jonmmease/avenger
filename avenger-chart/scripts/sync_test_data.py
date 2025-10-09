@@ -42,6 +42,7 @@ VEGA_DATASETS: Dict[str, tuple] = {
     # JSON files (regular JSON arrays)
     "cars": ("cars.json", {}),
     "barley": ("barley.json", {}),
+    "movies": ("movies.json", {}),
 
     # TSV files
     "unemployment": ("unemployment.tsv", {}),
@@ -119,6 +120,11 @@ def convert_to_parquet(name: str, source_file_or_url: str, read_kwargs: dict,
         print(f"  ℹ  {rows} rows × {cols} columns ({size_kb:.1f} KB)")
         print(f"  ℹ  Columns: {', '.join(df.columns)}")
 
+        # Clean up object columns with mixed types (convert to string)
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str)
+
         # Convert to Parquet
         print(f"  Converting to Parquet...")
         df.to_parquet(output_path, index=False, compression="snappy")
@@ -157,6 +163,7 @@ See: https://github.com/vega/vega-datasets/blob/main/LICENSE
 - **airports.parquet** - US airport locations and metadata
 - **co2-concentration.parquet** - Atmospheric CO2 concentration measurements
 - **unemployment.parquet** - US unemployment rates by county
+- **movies.parquet** - IMDB movie ratings and metadata
 
 ## Updating
 

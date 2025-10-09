@@ -20,6 +20,7 @@ See: https://github.com/vega/vega-datasets/blob/main/LICENSE
 - **airports.parquet** - US airport locations and metadata
 - **co2-concentration.parquet** - Atmospheric CO2 concentration measurements
 - **unemployment.parquet** - US unemployment rates by county
+- **movies.parquet** - IMDB movie ratings and metadata
 
 ## Updating
 
