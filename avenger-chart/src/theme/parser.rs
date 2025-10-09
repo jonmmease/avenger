@@ -515,12 +515,8 @@ fn parse_single_value<'i, 't>(
                     Ok(ThemeValue::Function(name_str, args))
                 }
                 "contrast-color" => {
-                    use crate::theme::contrast_color::parse_contrast_color_function;
-                    if let Some(color) = parse_contrast_color_function(&args) {
-                        Ok(ThemeValue::Color(color))
-                    } else {
-                        Ok(ThemeValue::Function(name_str, args))
-                    }
+                    // Store as function - will be resolved at runtime with params
+                    Ok(ThemeValue::Function(name_str, args))
                 }
                 "var" => {
                     // CSS variable
