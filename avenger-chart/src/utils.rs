@@ -723,3 +723,40 @@ pub fn params_to_datafusion(params: &IndexMap<String, ScalarValue>) -> Option<Pa
         Some(ParamValues::Map(params.clone().into_iter().collect()))
     }
 }
+
+/// Check if an expression contains any aggregate functions
+///
+/// This recursively walks the expression tree to detect aggregate functions
+/// like sum(), avg(), count(), etc.
+pub fn contains_aggregate(expr: &Expr) -> bool {
+    use datafusion::common::tree_node::TreeNode;
+
+    let mut has_aggregate = false;
+    let _ = expr.apply(|e| {
+        if matches!(e, Expr::AggregateFunction(_)) {
+            has_aggregate = true;
+        }
+        Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
+    });
+    has_aggregate
+}
+
+/// Partition a list of expressions into grouping and aggregate expressions
+///
+/// Returns (group_by_exprs, aggregate_exprs) where:
+/// - group_by_exprs: expressions without aggregate functions
+/// - aggregate_exprs: expressions containing aggregate functions
+pub fn partition_expressions(exprs: Vec<Expr>) -> (Vec<Expr>, Vec<Expr>) {
+    let mut group_by = Vec::new();
+    let mut aggregates = Vec::new();
+
+    for expr in exprs {
+        if contains_aggregate(&expr) {
+            aggregates.push(expr);
+        } else {
+            group_by.push(expr);
+        }
+    }
+
+    (group_by, aggregates)
+}
