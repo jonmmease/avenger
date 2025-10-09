@@ -1474,13 +1474,21 @@ mod tests {
                 }
                 assert_eq!(items.len(), 2, "Should have 2 color-mix results");
 
-                // Both should be Color values
+                // Both should be Function values (deferred resolution)
                 for item in &items {
                     assert!(
-                        matches!(item, ThemeValue::Color(_)),
-                        "Each item should be a Color, got {:?}",
+                        matches!(item, ThemeValue::Function(name, _) if name == "color-mix"),
+                        "Each item should be a color-mix Function, got {:?}",
                         item
                     );
+                }
+
+                // Verify they can be resolved to colors with params
+                let params = IndexMap::new();
+                let base_font_size = theme.get_base_font_size(&params);
+                for item in &items {
+                    let color = item.as_color_with_params(&params, base_font_size);
+                    assert!(color.is_some(), "color-mix should resolve to a color");
                 }
             }
             other => panic!("Expected List, got {:?}", other),
