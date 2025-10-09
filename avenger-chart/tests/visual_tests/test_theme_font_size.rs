@@ -8,9 +8,12 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
-#[tokio::test]
-async fn test_large_base_font_size() {
-    // Create test data with categories for legend
+// ============================================================================
+// Test Data Helpers
+// ============================================================================
+
+/// Create test data for font size tests with categories for legend
+fn create_test_data() -> RecordBatch {
     let categories = StringArray::from(vec!["Red", "Green", "Blue", "Red", "Green", "Blue"]);
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0, 6.0]);
@@ -21,13 +24,22 @@ async fn test_large_base_font_size() {
         Field::new("y", DataType::Float64, false),
     ]));
 
-    let batch = RecordBatch::try_new(
+    RecordBatch::try_new(
         schema,
         vec![Arc::new(categories), Arc::new(x_values), Arc::new(y_values)],
     )
-    .unwrap();
+    .unwrap()
+}
 
+// ============================================================================
+// Font Size Tests
+// ============================================================================
+
+/// Test that rem-based font sizes scale with base font size set to 18px
+#[tokio::test]
+async fn test_large_base_font_size() {
     let ctx = SessionContext::new();
+    let batch = create_test_data();
     let df = ctx.read_batch(batch).unwrap();
 
     // Start with light theme and append CSS to set base font size to 18px
@@ -77,26 +89,11 @@ async fn test_large_base_font_size() {
     .await;
 }
 
+/// Test default base font size (12px) for comparison
 #[tokio::test]
 async fn test_default_base_font_size() {
-    // Create same plot but with default 12px base font for comparison
-    let categories = StringArray::from(vec!["Red", "Green", "Blue", "Red", "Green", "Blue"]);
-    let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-    let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0, 6.0]);
-
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("category", DataType::Utf8, false),
-        Field::new("x", DataType::Float64, false),
-        Field::new("y", DataType::Float64, false),
-    ]));
-
-    let batch = RecordBatch::try_new(
-        schema,
-        vec![Arc::new(categories), Arc::new(x_values), Arc::new(y_values)],
-    )
-    .unwrap();
-
     let ctx = SessionContext::new();
+    let batch = create_test_data();
     let df = ctx.read_batch(batch).unwrap();
 
     // Use default light theme (12px base)
@@ -134,26 +131,11 @@ async fn test_default_base_font_size() {
     .await;
 }
 
+/// Test runtime parameter for base font size
 #[tokio::test]
 async fn test_base_font_size_with_param() {
-    // Create test data with categories for legend
-    let categories = StringArray::from(vec!["Red", "Green", "Blue", "Red", "Green", "Blue"]);
-    let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-    let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0, 6.0]);
-
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("category", DataType::Utf8, false),
-        Field::new("x", DataType::Float64, false),
-        Field::new("y", DataType::Float64, false),
-    ]));
-
-    let batch = RecordBatch::try_new(
-        schema,
-        vec![Arc::new(categories), Arc::new(x_values), Arc::new(y_values)],
-    )
-    .unwrap();
-
     let ctx = SessionContext::new();
+    let batch = create_test_data();
     let df = ctx.read_batch(batch).unwrap();
 
     // Use default light theme (which has :root { font-size: var(--base-font-size) })
