@@ -36,30 +36,6 @@ use crate::color::contrast::choose_contrast_color;
 use crate::color::types::AbsoluteColor;
 use crate::theme::{CssRgba, ThemeValue};
 
-/// Parse and evaluate a contrast-color() function
-///
-/// # Syntax
-///
-/// Basic form (choose between black and white):
-/// ```css
-/// contrast-color(<color>)
-/// ```
-///
-/// Extended form (choose from candidate list):
-/// ```css
-/// contrast-color(<color>, <color-list>)
-/// ```
-///
-/// # Arguments
-///
-/// * `args` - Parsed function arguments from CSS parser
-///   - Single argument: base color (returns black or white)
-///   - Multiple arguments: base color + candidate colors to choose from
-///
-/// # Returns
-///
-/// The contrasting color as CssRgba, or None if parsing fails
-///
 /// Resolve contrast-color() function with runtime parameter support
 ///
 /// This is called from `ThemeValue::as_color_with_params()` when a
