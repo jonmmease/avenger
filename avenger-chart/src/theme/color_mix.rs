@@ -7,81 +7,6 @@ use crate::color::mix::{HueInterpolationMethod, mix_colors};
 use crate::color::types::{AbsoluteColor, ColorSpace};
 use crate::theme::{CssRgba, ThemeValue};
 
-/// Parse and evaluate a color-mix() function
-///
-/// Syntax: color-mix(in <colorspace> [<hue-method>]?, <color> [<percentage>]?, <color> [<percentage>]?)
-///
-/// # Arguments
-/// * `args` - Parsed function arguments from CSS parser
-///
-/// # Returns
-/// The mixed color as CssRgba, or None if parsing fails
-pub fn parse_color_mix_function(args: &[ThemeValue]) -> Option<CssRgba> {
-    if args.len() < 3 {
-        return None; // Need at least: "in", colorspace, and 2 colors
-    }
-
-    let mut i = 0;
-
-    // First argument should be "in" keyword
-    if let ThemeValue::String(s) = &args[i] {
-        if s != "in" {
-            return None;
-        }
-        i += 1;
-    } else {
-        return None;
-    }
-
-    // Next is the color space
-    if i >= args.len() {
-        return None;
-    }
-    let color_space = parse_color_space(&args[i])?;
-    i += 1;
-
-    // Optionally parse hue interpolation method (for polar spaces)
-    let mut hue_method = HueInterpolationMethod::Shorter;
-    if i < args.len() {
-        if let ThemeValue::String(s) = &args[i] {
-            if let Some(method) = parse_hue_method(s) {
-                hue_method = method;
-                i += 1;
-                // Should be followed by "hue" keyword
-                if i < args.len() {
-                    if let ThemeValue::String(s) = &args[i] {
-                        if s == "hue" {
-                            i += 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Parse first color and optional percentage
-    if i >= args.len() {
-        return None;
-    }
-    let (color1, pct1) = parse_color_and_percentage(&args[i..])?;
-    i += if pct1.is_some() { 2 } else { 1 };
-
-    // Parse second color and optional percentage
-    if i >= args.len() {
-        return None;
-    }
-    let (color2, pct2) = parse_color_and_percentage(&args[i..])?;
-
-    // Calculate weights
-    let (w1, w2) = normalize_percentages(pct1, pct2);
-
-    // Mix colors
-    let mixed = mix_colors(color_space, &color1, w1, &color2, w2, hue_method);
-
-    // Convert to CssRgba
-    Some(mixed.to_css_rgba())
-}
-
 /// Parse a color space name
 fn parse_color_space(value: &ThemeValue) -> Option<ColorSpace> {
     if let ThemeValue::String(s) = value {
@@ -108,53 +33,6 @@ fn parse_hue_method(s: &str) -> Option<HueInterpolationMethod> {
         "increasing" => Some(HueInterpolationMethod::Increasing),
         "decreasing" => Some(HueInterpolationMethod::Decreasing),
         "specified" => Some(HueInterpolationMethod::Specified),
-        _ => None,
-    }
-}
-
-/// Parse a color and optional percentage from argument list
-///
-/// Returns (color, optional_percentage) and consumes 1 or 2 args
-fn parse_color_and_percentage(args: &[ThemeValue]) -> Option<(AbsoluteColor, Option<f32>)> {
-    if args.is_empty() {
-        return None;
-    }
-
-    // Parse color
-    let color = parse_color_value(&args[0])?;
-
-    // Check for percentage
-    let percentage = if args.len() > 1 {
-        match &args[1] {
-            ThemeValue::Percentage(p) => Some(*p as f32),
-            ThemeValue::Number(n) => Some(*n as f32), // Also accept numbers as percentages
-            _ => None,
-        }
-    } else {
-        None
-    };
-
-    Some((color, percentage))
-}
-
-/// Parse a ThemeValue into an AbsoluteColor
-fn parse_color_value(value: &ThemeValue) -> Option<AbsoluteColor> {
-    match value {
-        ThemeValue::Color(rgba) => Some(AbsoluteColor::from_css_rgba(rgba)),
-        ThemeValue::String(s) => {
-            // Try to parse as a color string (named color, hex, etc.)
-            use crate::theme::value::parse_color_string;
-            parse_color_string(s).map(|rgba| AbsoluteColor::from_css_rgba(&rgba))
-        }
-        ThemeValue::Function(name, args) => {
-            // Handle nested color functions like contrast-color()
-            if name == "contrast-color" {
-                use crate::theme::contrast_color::parse_contrast_color_function;
-                parse_contrast_color_function(args).map(|rgba| AbsoluteColor::from_css_rgba(&rgba))
-            } else {
-                None
-            }
-        }
         _ => None,
     }
 }
@@ -359,7 +237,7 @@ mod tests {
             }),
         ];
 
-        let result = parse_color_mix_function(&args).unwrap();
+        let result = resolve_color_mix_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         // Should be purple (roughly 127, 0, 127)
         assert!(result.red > 120 && result.red < 135);
@@ -390,7 +268,7 @@ mod tests {
             ThemeValue::Percentage(25.0),
         ];
 
-        let result = parse_color_mix_function(&args).unwrap();
+        let result = resolve_color_mix_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         // Should be more red than blue (roughly 191, 0, 64)
         assert!(result.red > 185);
@@ -414,7 +292,7 @@ mod tests {
             ThemeValue::Color(blue),
         ];
 
-        let result = parse_color_mix_function(&args);
+        let result = resolve_color_mix_with_params(&args, &indexmap::IndexMap::new(), 16.0);
         assert!(result.is_some(), "color-mix should parse successfully");
 
         let color = result.unwrap();
@@ -439,7 +317,7 @@ mod tests {
             ThemeValue::String("blue".to_string()),
         ];
 
-        let result = parse_color_mix_function(&args);
+        let result = resolve_color_mix_with_params(&args, &indexmap::IndexMap::new(), 16.0);
         println!("Result from string colors: {:?}", result);
         assert!(
             result.is_some(),

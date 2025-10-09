@@ -1,7 +1,6 @@
 //! CSS stylesheet parser using cssparser's high-level APIs
 
 use crate::theme::calc::{CalcLeaf, CalcNode, ChannelKeyword, RoundingStrategy};
-use crate::theme::color_mix::parse_color_mix_function;
 // Color parsing functions are now imported within _with_origin helper functions
 use crate::theme::css_value;
 use crate::theme::lab_color;
@@ -512,11 +511,8 @@ fn parse_single_value<'i, 't>(
             match name_str.as_str() {
                 // All color functions are now handled earlier with "from" syntax support
                 "color-mix" => {
-                    if let Some(color) = parse_color_mix_function(&args) {
-                        Ok(ThemeValue::Color(color))
-                    } else {
-                        Ok(ThemeValue::Function(name_str, args))
-                    }
+                    // Store as function - will be resolved at runtime with params
+                    Ok(ThemeValue::Function(name_str, args))
                 }
                 "contrast-color" => {
                     use crate::theme::contrast_color::parse_contrast_color_function;
