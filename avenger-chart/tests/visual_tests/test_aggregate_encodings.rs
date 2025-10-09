@@ -65,7 +65,9 @@ async fn test_aggregate_sum_by_category() {
         .mark(
             Rect::new()
                 .x(col("category")) // grouping dimension
-                .y(sum(col("sales"))) // aggregate dimension
+                .x2_with(col("category"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(sum(col("sales"))) // aggregate dimension
                 .fill("#3498db"),
         );
 
@@ -86,7 +88,9 @@ async fn test_aggregate_mean_by_category() {
         .mark(
             Rect::new()
                 .x(col("category")) // grouping dimension
-                .y(avg(col("profit"))) // aggregate dimension
+                .x2_with(col("category"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(avg(col("profit"))) // aggregate dimension
                 .fill("#e74c3c"),
         );
 
@@ -108,7 +112,9 @@ async fn test_aggregate_multiple_aggregates() {
         .mark(
             Rect::new()
                 .x(col("category")) // grouping dimension
-                .y(sum(col("sales"))) // aggregate dimension
+                .x2_with(col("category"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(sum(col("sales"))) // aggregate dimension
                 .fill_with(avg(col("profit")), |c| {
                     // Color by avg profit
                     c.legend(|l| l.title("Avg Profit"))
@@ -139,7 +145,9 @@ async fn test_aggregate_count() {
         .mark(
             Rect::new()
                 .x(col("category")) // grouping dimension
-                .y(count(col("sales"))) // count aggregate
+                .x2_with(col("category"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(count(col("sales"))) // count aggregate
                 .fill("#2ecc71"),
         );
 
@@ -154,14 +162,19 @@ async fn test_aggregate_no_grouping() {
 
     // Single bar showing total of all sales (no grouping dimension)
     // This tests the empty group_by case
+    // Add a constant column for the x position
+    let df = df.with_column("label", lit("Total")).unwrap();
+
     let plot = Plot::<Cartesian>::new()
         .title("Total Sales (All Categories)")
         .subtitle("Full table aggregation with no GROUP BY")
         .data(df)
         .mark(
             Rect::new()
-                .x("Total") // literal value, not a grouping column
-                .y(sum(col("sales"))) // aggregate dimension
+                .x(col("label")) // constant column with value "Total"
+                .x2_with(col("label"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(sum(col("sales"))) // aggregate dimension
                 .fill("#9b59b6"),
         );
 

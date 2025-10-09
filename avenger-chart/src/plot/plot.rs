@@ -373,26 +373,40 @@ impl<C: CoordinateSystem> Plot<C> {
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         use datafusion::prelude::col;
+        use datafusion_proto::protobuf::LogicalExprNode;
+        use crate::serialization::LogicalExprNodeExt;
 
-        // Collect all channel expressions
-        let mut group_by_exprs = Vec::new();
-        let mut agg_exprs = Vec::new();
-        let mut channel_info: Vec<(String, Expr, bool)> = Vec::new(); // (name, expr, is_aggregate)
+        // Collect all channel expressions and deduplicate group expressions
+        // IndexMap preserves insertion order which matches schema field order
+        let mut unique_group_exprs = indexmap::IndexMap::new(); // expr -> insertion_index
+        let mut unique_agg_exprs = indexmap::IndexMap::new(); // expr -> insertion_index
+        let mut channel_info: Vec<(String, Expr, bool, bool, crate::marks::ChannelValue)> = Vec::new(); // (name, expr, is_aggregate, is_literal, original_channel_value)
 
         for (channel_name, channel_value) in mark_state.data.channels() {
             // Skip channels without expressions (e.g., conditional channels)
             if let Some(expr) = channel_value.expr(session_context) {
                 let is_aggregate = crate::utils::contains_aggregate(&expr);
+                let is_literal = matches!(expr, Expr::Literal(_, _));
 
                 if is_aggregate {
-                    agg_exprs.push(expr.clone());
-                } else {
-                    group_by_exprs.push(expr.clone());
+                    // Track unique aggregate expressions
+                    if !unique_agg_exprs.contains_key(&expr) {
+                        unique_agg_exprs.insert(expr.clone(), unique_agg_exprs.len());
+                    }
+                } else if !is_literal {
+                    // Track unique group expressions (excluding literals)
+                    if !unique_group_exprs.contains_key(&expr) {
+                        unique_group_exprs.insert(expr.clone(), unique_group_exprs.len());
+                    }
                 }
 
-                channel_info.push((channel_name.clone(), expr, is_aggregate));
+                channel_info.push((channel_name.clone(), expr, is_aggregate, is_literal, channel_value.clone()));
             }
         }
+
+        // Extract deduplicated expression lists for aggregation
+        let group_by_exprs: Vec<Expr> = unique_group_exprs.keys().cloned().collect();
+        let agg_exprs: Vec<Expr> = unique_agg_exprs.keys().cloned().collect();
 
         // Apply aggregation
         let agg_df = df
@@ -403,27 +417,34 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Build updated channels by matching expressions to schema fields
         let mut updated_channels = indexmap::IndexMap::new();
-        let mut group_idx = 0;
-        let mut agg_idx = 0;
 
-        for (channel_name, _expr, is_aggregate) in channel_info {
-            let field_name = if is_aggregate {
+        for (channel_name, original_expr, is_aggregate, is_literal, original_channel_value) in channel_info {
+            if is_literal {
+                // Literals stay as-is - keep original channel value unchanged
+                updated_channels.insert(channel_name, original_channel_value);
+            } else if is_aggregate {
+                // Look up which aggregate expression this is
+                let agg_index = unique_agg_exprs.get(&original_expr).unwrap();
                 // Aggregate expressions come after grouping expressions in schema
-                let field_index = group_by_exprs.len() + agg_idx;
-                agg_idx += 1;
-                schema.field(field_index).name().clone()
+                let field_index = group_by_exprs.len() + agg_index;
+                let field_name = schema.field(field_index).name().clone();
+                // Update expression while preserving channel configuration (band, scale, etc.)
+                let new_expr = LogicalExprNode::from_expr(col(&field_name))?;
+                updated_channels.insert(
+                    channel_name,
+                    original_channel_value.with_expr(new_expr),
+                );
             } else {
-                // Grouping expressions come first in schema
-                let field_index = group_idx;
-                group_idx += 1;
-                schema.field(field_index).name().clone()
-            };
-
-            // Replace with col() reference to the output field
-            updated_channels.insert(
-                channel_name,
-                crate::marks::ChannelValue::from(col(&field_name)),
-            );
+                // Look up which group expression this is
+                let group_index = unique_group_exprs.get(&original_expr).unwrap();
+                let field_name = schema.field(*group_index).name().clone();
+                // Update expression while preserving channel configuration (band, scale, etc.)
+                let new_expr = LogicalExprNode::from_expr(col(&field_name))?;
+                updated_channels.insert(
+                    channel_name,
+                    original_channel_value.with_expr(new_expr),
+                );
+            }
         }
 
         // Create CompiledMarkState with aggregated DataFrame and updated channels

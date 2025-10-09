@@ -429,7 +429,11 @@ impl CompiledPlot {
             if batch.is_empty() {
                 None
             } else {
-                Some(batch[0].clone())
+                // Concat all batches into a single RecordBatch
+                use datafusion::arrow::compute::concat_batches;
+                let schema = batch[0].schema();
+                let combined = concat_batches(&schema, &batch)?;
+                Some(combined)
             }
         } else {
             None
@@ -457,7 +461,10 @@ impl CompiledPlot {
                 // Create empty batch with correct schema
                 return Ok(vec![]);
             } else {
-                batch[0].clone()
+                // Concat all batches into a single RecordBatch
+                use datafusion::arrow::compute::concat_batches;
+                let schema = batch[0].schema();
+                concat_batches(&schema, &batch)?
             }
         } else {
             // Create an empty record batch
