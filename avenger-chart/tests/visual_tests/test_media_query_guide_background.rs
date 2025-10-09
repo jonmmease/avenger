@@ -98,6 +98,20 @@ fn create_test_data(ctx: &SessionContext) -> DataFrame {
     ctx.read_batch(batch).expect("Failed to read batch")
 }
 
+// ============================================================================
+// Basic Media Query Tests
+// ============================================================================
+
+/// Test CSS media query responsive guide backgrounds with width breakpoints
+///
+/// Creates a single compiled plot that uses CSS media queries to change the
+/// guide (plot area) background color based on canvas width:
+/// - Small screens (< 600px): Light blue background
+/// - Medium screens (600px to < 1200px): Light green background
+/// - Large screens (>= 1200px): Light red background
+///
+/// The plot is compiled once and rendered at three different widths using
+/// runtime parameters, demonstrating true responsive behavior without recompilation.
 #[tokio::test]
 async fn test_media_query_guide_background_responsive() {
     let ctx = SessionContext::new();
@@ -189,9 +203,21 @@ async fn test_media_query_guide_background_responsive() {
     .await;
 }
 
+// ============================================================================
+// Multi-Range Syntax Tests
+// ============================================================================
+
+/// Test CSS Media Queries Level 4 multi-range syntax
+///
+/// Verifies support for the compact multi-range syntax: `@media (600px <= width < 1200px)`
+/// which is equivalent to `@media (width >= 600px) and (width < 1200px)`.
+///
+/// Tests three scenarios:
+/// - 800px: Within range, should match (Light Purple background)
+/// - 400px: Below range, should NOT match (Transparent)
+/// - 1200px: At exclusive upper boundary, should NOT match (Transparent)
 #[tokio::test]
 async fn test_media_query_multi_range_syntax() {
-    // Test the CSS Media Queries Level 4 multi-range syntax: 600px <= width < 1200px
     let css = r#"
         canvas {
             background-color: #ffffff;
@@ -339,11 +365,20 @@ async fn test_media_query_multi_range_syntax() {
     .await;
 }
 
+// ============================================================================
+// Responsive Layout Tests
+// ============================================================================
+
+/// Test responsive legend positioning via media queries
+///
+/// Demonstrates using media queries to change legend position based on canvas width:
+/// - Wide layouts (>= 600px): Legend positioned on the right
+/// - Narrow layouts (< 600px): Legend positioned on the top
+///
+/// This is useful for creating responsive visualizations that adapt to different
+/// screen sizes while maintaining good layout and readability.
 #[tokio::test]
 async fn test_media_query_legend_position() {
-    // Test responsive legend positioning using media queries
-    // Wide layout: legend on right
-    // Narrow layout: legend on top
     let css = r#"
         canvas {
             background-color: #ffffff;

@@ -1,3 +1,14 @@
+//! Visual regression tests for multiple legend handling
+//!
+//! Tests the rendering and layout of plots with multiple legends, including:
+//! - Multiple symbol legends (size, shape, color) in the same position
+//! - Mixed legend types (symbol legends and colorbars) together
+//! - Legends positioned at different locations (Right, Bottom, etc.)
+//! - Legend ordering with explicit order values
+//!
+//! Each test verifies that multiple legends are correctly laid out without
+//! overlapping and maintain proper spacing and alignment.
+
 use super::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
@@ -6,7 +17,15 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
-/// Test multiple legends for a scatter plot with size, shape, and color encodings
+// ============================================================================
+// Multiple Symbol Legends Tests
+// ============================================================================
+
+/// Test multiple symbol legends (size, shape, color) at same position (Right)
+///
+/// Creates a scatter plot with three legends stacked vertically on the right:
+/// Category (fill color), Size (continuous), and Shape (ordinal).
+/// Verifies all three legends render without overlap.
 #[tokio::test]
 async fn test_scatter_multiple_legends() {
     // Create sample data
@@ -83,7 +102,17 @@ async fn test_scatter_multiple_legends() {
     assert_visual_match_default(&compiled, &ctx, None, "layout", "scatter_multiple_legends").await;
 }
 
-/// Test mixed legend types (symbol, line, colorbar) in same position
+// ============================================================================
+// Mixed Legend Types Tests
+// ============================================================================
+
+/// Test mixed legend types (line stroke, symbol shape, colorbar) at same position
+///
+/// Creates a plot with three different mark types, each contributing a legend:
+/// - Line mark with stroke legend (ordinal series)
+/// - Symbol mark with shape legend (ordinal series)
+/// - Rect mark with continuous color legend (temperature colorbar)
+/// All legends positioned on the right side.
 #[tokio::test]
 async fn test_mixed_legend_types() {
     // Create sample data with multiple marks
@@ -173,7 +202,16 @@ async fn test_mixed_legend_types() {
     assert_visual_match_default(&compiled, &ctx, None, "layout", "mixed_legend_types").await;
 }
 
-/// Test legends at different positions
+// ============================================================================
+// Different Position Tests
+// ============================================================================
+
+/// Test legends positioned at different locations (Right and Bottom)
+///
+/// Creates a scatter plot with two legends:
+/// - Category legend on the right
+/// - Size legend on the bottom
+/// Verifies legends can be positioned independently at different edges.
 #[tokio::test]
 async fn test_legends_different_positions() {
     // Create sample data
@@ -238,7 +276,16 @@ async fn test_legends_different_positions() {
     .await;
 }
 
-/// Test colorbar legend with symbol legends
+// ============================================================================
+// Colorbar with Symbol Legends Tests
+// ============================================================================
+
+/// Test continuous colorbar combined with ordinal symbol legend (both Right)
+///
+/// Creates a scatter plot with:
+/// - Temperature colorbar (continuous fill scale) on the right
+/// - Shape legend (ordinal shape scale) on the right
+/// Verifies colorbar and symbol legend layout together correctly.
 #[tokio::test]
 async fn test_colorbar_with_symbols() {
     // Create sample data
@@ -305,7 +352,12 @@ async fn test_colorbar_with_symbols() {
     assert_visual_match_default(&compiled, &ctx, None, "layout", "colorbar_with_symbols").await;
 }
 
-/// Test colorbar and symbol legends both at bottom position
+/// Test continuous colorbar combined with symbol legend (both Bottom)
+///
+/// Creates a scatter plot with:
+/// - Temperature colorbar (continuous fill scale) on the bottom
+/// - Shape legend (ordinal shape scale) on the bottom
+/// Verifies colorbar and symbol legend layout horizontally at bottom.
 #[tokio::test]
 async fn test_colorbar_with_symbols_bottom() {
     // Create sample data
@@ -372,7 +424,17 @@ async fn test_colorbar_with_symbols_bottom() {
     assert_visual_match_default(&compiled, &ctx, None, "layout", "colorbar_with_symbols_bottom").await;
 }
 
-/// Test legend ordering with explicit order values
+// ============================================================================
+// Legend Ordering Tests
+// ============================================================================
+
+/// Test explicit legend ordering with .order() values
+///
+/// Creates a scatter plot with three legends where the order is specified:
+/// - Legend C (fill) with order(1) - should appear first
+/// - Legend B (stroke) with order(2) - should appear second
+/// - Legend A (shape) with order(3) - should appear third
+/// Verifies legends render in specified order, not declaration order.
 #[tokio::test]
 async fn test_legend_ordering() {
     // Create sample data
