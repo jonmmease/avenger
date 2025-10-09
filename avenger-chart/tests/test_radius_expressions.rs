@@ -1,3 +1,9 @@
+//! Tests for radius expression calculation in marks
+//!
+//! Radius expressions determine the spatial extent of marks for hit testing
+//! and layout purposes. Different mark types (Symbol, Line, Rect) calculate
+//! radius differently based on their visual properties like size and stroke_width.
+
 use avenger_chart::prelude::*;
 use avenger_chart::render::RenderContext;
 use avenger_chart::serialization::LogicalExprNodeExt;
@@ -6,6 +12,11 @@ use datafusion::prelude::SessionContext;
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
 
+// ============================================================================
+// Symbol Mark Tests
+// ============================================================================
+
+/// Test default channel values for Symbol marks from theme
 #[tokio::test]
 async fn test_symbol_default_channel_values() {
     let ctx = SessionContext::new();
@@ -63,6 +74,7 @@ async fn test_symbol_default_channel_values() {
     );
 }
 
+/// Test radius expression calculation for Symbol marks
 #[tokio::test]
 async fn test_symbol_radius_expression() {
     let ctx = SessionContext::new();
@@ -191,6 +203,11 @@ async fn test_symbol_radius_includes_stroke_width() {
     }
 }
 
+// ============================================================================
+// Line Mark Tests
+// ============================================================================
+
+/// Test radius expression calculation for Line marks
 #[tokio::test]
 async fn test_line_radius_expression() {
     let ctx = SessionContext::new();

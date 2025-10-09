@@ -1,11 +1,24 @@
 //! Tests for CSS Color Level 5 Relative Color Syntax
+//!
+//! Relative color syntax allows deriving new colors from existing ones using
+//! the `from` keyword. For example: `oklch(from blue calc(l - 0.2) c h)` creates
+//! a darker version of blue by reducing its lightness.
+//!
+//! This file tests:
+//! - All color spaces (oklch, oklab, lch, lab, hsl, rgb)
+//! - Component manipulation (lightness, chroma, hue, etc.)
+//! - Runtime parameters in relative colors
+//! - Alpha channel manipulation
+//! - Edge cases and special values
 
 use avenger_chart::theme::{Theme, ThemeContext};
+use indexmap::IndexMap;
 
 // ============================================================================
 // Basic Relative Color Tests - All Color Spaces
 // ============================================================================
 
+/// Test oklch relative color by darkening blue
 #[test]
 fn test_oklch_from_blue_darken() {
     let css = r#"
@@ -15,7 +28,7 @@ fn test_oklch_from_blue_darken() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve oklch relative color");
@@ -35,7 +48,7 @@ fn test_oklab_from_blue_adjust_lightness() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve oklab relative color");
@@ -50,7 +63,7 @@ fn test_lch_from_red_rotate_hue() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve lch relative color");
@@ -65,7 +78,7 @@ fn test_lab_from_red_preserve_components() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve lab relative color");
@@ -80,7 +93,7 @@ fn test_hsl_from_orange_desaturate() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve hsl relative color");
@@ -97,7 +110,7 @@ fn test_rgb_from_navy_lighten() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve rgb relative color");
@@ -127,7 +140,7 @@ fn test_relative_color_with_variable_origin() {
         ScalarValue::Utf8(Some("blue".to_string())),
     );
 
-    let ctx = ThemeContext::new("mark").with_params(params);
+    let ctx = ThemeContext::new("mark", params);
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve with variable origin color");
@@ -154,7 +167,7 @@ fn test_relative_color_with_variable_in_calc() {
     let mut params = IndexMap::new();
     params.insert("--factor".to_string(), ScalarValue::Float64(Some(0.5)));
 
-    let ctx = ThemeContext::new("mark").with_params(params);
+    let ctx = ThemeContext::new("mark", params);
 
     let color = theme.fill_color(&ctx);
     assert!(
@@ -191,7 +204,7 @@ fn test_relative_color_with_variable_origin_and_calc() {
         ScalarValue::Float64(Some(1.2)),
     );
 
-    let ctx = ThemeContext::new("mark").with_params(params);
+    let ctx = ThemeContext::new("mark", params);
 
     let color = theme.fill_color(&ctx);
     assert!(
@@ -221,7 +234,7 @@ fn test_relative_color_alpha_with_variable() {
     let mut params = IndexMap::new();
     params.insert("--opacity".to_string(), ScalarValue::Float64(Some(0.6)));
 
-    let ctx = ThemeContext::new("mark").with_params(params);
+    let ctx = ThemeContext::new("mark", params);
 
     let color = theme.fill_color(&ctx);
     assert!(
@@ -246,7 +259,7 @@ fn test_relative_color_with_alpha() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve with alpha");
@@ -264,7 +277,7 @@ fn test_relative_color_calc_alpha() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve with calc alpha");
@@ -291,7 +304,7 @@ fn test_relative_color_hue_wraparound() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should handle hue values > 360");
@@ -306,7 +319,7 @@ fn test_relative_color_clamping() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should handle values outside normal range");
@@ -343,7 +356,7 @@ fn test_relative_color_from_named_colors() {
         );
 
         let theme = Theme::from_css(&css).unwrap();
-        let ctx = ThemeContext::new("mark");
+        let ctx = ThemeContext::new("mark", IndexMap::new());
 
         let color = theme.fill_color(&ctx);
         assert!(
@@ -367,7 +380,7 @@ fn test_relative_color_from_hex() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve from hex color");
@@ -382,7 +395,7 @@ fn test_relative_color_from_short_hex() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should resolve from short hex color");
@@ -401,7 +414,7 @@ fn test_relative_color_with_min_max() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(color.is_some(), "Should handle min() in component calc");
@@ -423,7 +436,7 @@ fn test_relative_colors_in_multiple_properties() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let fill = theme.fill_color(&ctx);
     let stroke = theme.stroke_color(&ctx);
@@ -451,7 +464,7 @@ fn test_derive_oklch_from_rgb_origin() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(
@@ -469,7 +482,7 @@ fn test_derive_hsl_from_lab_origin() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let color = theme.fill_color(&ctx);
     assert!(

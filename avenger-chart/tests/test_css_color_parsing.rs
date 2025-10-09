@@ -2,6 +2,7 @@
 
 use avenger_chart::theme::Theme;
 use avenger_chart::theme::{ThemeContext, ThemeValue};
+use indexmap::IndexMap;
 
 #[test]
 fn test_color_parsing_behavior() {
@@ -30,7 +31,7 @@ fn test_color_parsing_behavior() {
     let theme = Theme::from_css(css).unwrap();
 
     // Test bare color keyword
-    let ctx1 = ThemeContext::new("element").with_class("test1");
+    let ctx1 = ThemeContext::new("element", IndexMap::new()).with_class("test1");
     let fill1 = theme.query(&ctx1, "fill");
     println!("bare 'red': {:?}", fill1);
     assert!(
@@ -39,7 +40,7 @@ fn test_color_parsing_behavior() {
     );
 
     // Test quoted string
-    let ctx2 = ThemeContext::new("element").with_class("test2");
+    let ctx2 = ThemeContext::new("element", IndexMap::new()).with_class("test2");
     let fill2 = theme.query(&ctx2, "fill");
     println!("quoted \"red\": {:?}", fill2);
     assert!(
@@ -48,7 +49,7 @@ fn test_color_parsing_behavior() {
     );
 
     // Test hex color
-    let ctx3 = ThemeContext::new("element").with_class("test3");
+    let ctx3 = ThemeContext::new("element", IndexMap::new()).with_class("test3");
     let fill3 = theme.query(&ctx3, "fill");
     println!("hex #ff0000: {:?}", fill3);
     assert!(
@@ -57,7 +58,7 @@ fn test_color_parsing_behavior() {
     );
 
     // Test RGB function
-    let ctx4 = ThemeContext::new("element").with_class("test4");
+    let ctx4 = ThemeContext::new("element", IndexMap::new()).with_class("test4");
     let fill4 = theme.query(&ctx4, "fill");
     println!("rgb(255,0,0): {:?}", fill4);
     assert!(
@@ -66,7 +67,7 @@ fn test_color_parsing_behavior() {
     );
 
     // Test non-color identifier
-    let ctx5 = ThemeContext::new("element").with_class("test5");
+    let ctx5 = ThemeContext::new("element", IndexMap::new()).with_class("test5");
     let fill5 = theme.query(&ctx5, "fill");
     println!("bare 'foobar': {:?}", fill5);
     assert!(
@@ -75,7 +76,7 @@ fn test_color_parsing_behavior() {
     );
 
     // Test font-family with bare identifier
-    let ctx6 = ThemeContext::new("element").with_class("test6");
+    let ctx6 = ThemeContext::new("element", IndexMap::new()).with_class("test6");
     let font6 = theme.query(&ctx6, "font-family");
     println!("bare 'Arial': {:?}", font6);
     assert!(
@@ -84,7 +85,7 @@ fn test_color_parsing_behavior() {
     );
 
     // Test font-family with quoted string
-    let ctx7 = ThemeContext::new("element").with_class("test7");
+    let ctx7 = ThemeContext::new("element", IndexMap::new()).with_class("test7");
     let font7 = theme.query(&ctx7, "font-family");
     println!("quoted \"Arial\": {:?}", font7);
     assert!(
@@ -113,7 +114,7 @@ fn test_css_spec_behavior() {
 
     let theme = Theme::from_css(css).unwrap();
 
-    let ctx = ThemeContext::new("element").with_class("weird");
+    let ctx = ThemeContext::new("element", IndexMap::new()).with_class("weird");
 
     // Font-family with color keyword - becomes a Color!
     let font = theme.query(&ctx, "font-family");
@@ -156,7 +157,7 @@ fn test_practical_implications() {
     "#;
 
     let theme = Theme::from_css(css).unwrap();
-    let ctx = ThemeContext::new("mark");
+    let ctx = ThemeContext::new("mark", IndexMap::new());
 
     let fill = theme.query(&ctx, "fill");
     assert!(matches!(fill, Some(ThemeValue::Color(_))));
