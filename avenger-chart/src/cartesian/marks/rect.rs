@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{CompiledMark, DataContext, Mark, MarkState};
+use crate::marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Mark};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 // Import Rect for the macro, then re-export it
@@ -38,21 +38,21 @@ impl Mark<Cartesian> for Rect<Cartesian> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianRect {
-    pub(crate) state: MarkState,
+    pub(crate) state: CompiledMarkState,
 }
 
 // CompiledMark implementation
 #[typetag::serde]
 impl CompiledMark for CompiledCartesianRect {
-    fn state(&self) -> &MarkState {
+    fn state(&self) -> &CompiledMarkState {
         &self.state
     }
 
-    fn state_mut(&mut self) -> &mut MarkState {
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
         &mut self.state
     }
 
-    fn data_context(&self) -> &DataContext {
+    fn data_context(&self) -> &CompiledDataContext {
         &self.state.data
     }
 

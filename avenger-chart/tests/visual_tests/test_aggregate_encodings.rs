@@ -1,0 +1,170 @@
+use super::helpers::assert_visual_match_default;
+use avenger_chart::cartesian::Cartesian;
+use avenger_chart::prelude::*;
+
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::expr_fn::{count, sum};
+use datafusion::functions_aggregate::average::avg;
+use datafusion::prelude::*;
+use std::sync::Arc;
+
+/// Create a dataset for testing aggregation
+/// This creates multiple rows per category to test aggregation
+fn create_sales_data() -> DataFrame {
+    // Create data with multiple rows per category
+    let categories = StringArray::from(vec![
+        "A", "A", "A", "B", "B", "B", "C", "C", "C", "D", "D", "D",
+    ]);
+    let sales = Float64Array::from(vec![
+        100.0, 150.0, 200.0, // A: total=450
+        80.0, 120.0, 160.0, // B: total=360
+        200.0, 250.0, 300.0, // C: total=750
+        50.0, 100.0, 150.0, // D: total=300
+    ]);
+    let profit = Float64Array::from(vec![
+        20.0, 30.0, 40.0, // A: avg=30
+        15.0, 25.0, 35.0, // B: avg=25
+        40.0, 50.0, 60.0, // C: avg=50
+        10.0, 20.0, 30.0, // D: avg=20
+    ]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("category", DataType::Utf8, false),
+        Field::new("sales", DataType::Float64, false),
+        Field::new("profit", DataType::Float64, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(categories),
+            Arc::new(sales),
+            Arc::new(profit),
+        ],
+    )
+    .expect("Failed to create RecordBatch");
+
+    let ctx = SessionContext::new();
+    ctx.read_batch(batch)
+        .expect("Failed to read batch into DataFrame")
+}
+
+#[tokio::test]
+async fn test_aggregate_sum_by_category() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
+
+    // Bar chart with aggregation: sum of sales by category
+    // This should automatically group by category and sum sales
+    let plot = Plot::<Cartesian>::new()
+        .title("Total Sales by Category")
+        .subtitle("Automatically aggregated using sum()")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("category")) // grouping dimension
+                .y(sum(col("sales"))) // aggregate dimension
+                .fill("#3498db"),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "sum_by_category").await;
+}
+
+#[tokio::test]
+async fn test_aggregate_mean_by_category() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
+
+    // Bar chart with avg aggregation
+    let plot = Plot::<Cartesian>::new()
+        .title("Average Profit by Category")
+        .subtitle("Automatically aggregated using avg()")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("category")) // grouping dimension
+                .y(avg(col("profit"))) // aggregate dimension
+                .fill("#e74c3c"),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "mean_by_category").await;
+}
+
+#[tokio::test]
+async fn test_aggregate_multiple_aggregates() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
+
+    // Bar chart with multiple aggregated encodings
+    // Both y and fill use aggregates, x is the grouping dimension
+    let plot = Plot::<Cartesian>::new()
+        .title("Sales with Profit-based Color")
+        .subtitle("Multiple aggregate encodings (sum + avg)")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("category")) // grouping dimension
+                .y(sum(col("sales"))) // aggregate dimension
+                .fill_with(avg(col("profit")), |c| {
+                    // Color by avg profit
+                    c.legend(|l| l.title("Avg Profit"))
+                }),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "aggregate",
+        "multiple_aggregates",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_aggregate_count() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
+
+    // Bar chart counting rows per category
+    let plot = Plot::<Cartesian>::new()
+        .title("Count of Records by Category")
+        .subtitle("Using count() aggregation")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("category")) // grouping dimension
+                .y(count(col("sales"))) // count aggregate
+                .fill("#2ecc71"),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "count_by_category").await;
+}
+
+#[tokio::test]
+async fn test_aggregate_no_grouping() {
+    let ctx = SessionContext::new();
+    let df = create_sales_data();
+
+    // Single bar showing total of all sales (no grouping dimension)
+    // This tests the empty group_by case
+    let plot = Plot::<Cartesian>::new()
+        .title("Total Sales (All Categories)")
+        .subtitle("Full table aggregation with no GROUP BY")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x("Total") // literal value, not a grouping column
+                .y(sum(col("sales"))) // aggregate dimension
+                .fill("#9b59b6"),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "no_grouping").await;
+}

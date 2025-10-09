@@ -1,3 +1,4 @@
+pub mod compiled_data_context;
 pub mod data_context;
 use crate::theme::Theme;
 pub mod facet_strategy;
@@ -10,9 +11,10 @@ pub mod util;
 pub mod macros;
 
 pub use crate::channel::{ChannelDefault, ChannelDescriptor, ChannelValue, ConditionalValue};
+pub use compiled_data_context::CompiledDataContext;
 pub use data_context::DataContext;
 pub use facet_strategy::FacetStrategy;
-pub use state::MarkState;
+pub use state::{CompiledMarkState, MarkState};
 pub use util::default_scale_for_data_type;
 
 use crate::coords::{CoordinateSystem, CoordinateSystemTransform};
@@ -53,32 +55,46 @@ pub enum RadiusExpression {
     },
 }
 
-/// Core trait for all mark types
+/// Core trait for all mark types (uncompiled)
 pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
-    /// Get the mark's state
+    /// Get the mark's state (uncompiled version with DataContext)
     fn state(&self) -> &MarkState;
 
     /// Get mutable reference to the mark's state
     fn state_mut(&mut self) -> &mut MarkState;
 
-    /// Get the data context for this mark (for accessing encodings and data)
+    /// Get the data context for this mark (for accessing encodings and data during construction)
     fn data_context(&self) -> &DataContext;
 
-    /// Build a CompiledMark from this Mark
+    /// Build a CompiledMark from this Mark with the provided compiled state
     /// This enables type-erased rendering without the coordinate system generic
-    fn compile(&self) -> Arc<dyn CompiledMark>;
+    /// The compiled_state contains the transformed DataFrame (e.g., after aggregation)
+    fn compile(&self, compiled_state: CompiledMarkState) -> Arc<dyn CompiledMark>;
+
+    /// Convenience method to compile a mark without transforming its DataFrame
+    /// This is useful for tests and simple cases where no aggregation is needed
+    fn compile_untransformed(&self, ctx: &datafusion::prelude::SessionContext) -> Arc<dyn CompiledMark> {
+        let mark_state = self.state();
+        let df = mark_state
+            .data
+            .dataframe()
+            .cloned()
+            .unwrap_or_else(|| ctx.read_empty().unwrap());
+        let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
+        self.compile(compiled_state)
+    }
 }
 
 #[typetag::serde(tag = "type")]
 pub trait CompiledMark {
-    /// Get the mark's state
-    fn state(&self) -> &MarkState;
+    /// Get the mark's state (compiled version with CompiledDataContext)
+    fn state(&self) -> &CompiledMarkState;
 
     /// Get mutable reference to the mark's state
-    fn state_mut(&mut self) -> &mut MarkState;
+    fn state_mut(&mut self) -> &mut CompiledMarkState;
 
-    /// Get the data context for this mark (for accessing encodings and data)
-    fn data_context(&self) -> &DataContext;
+    /// Get the data context for this mark (for accessing encodings and serialized data)
+    fn data_context(&self) -> &CompiledDataContext;
 
     /// Get the mark type name (e.g., "rect", "line", "symbol")
     fn mark_type(&self) -> &str;

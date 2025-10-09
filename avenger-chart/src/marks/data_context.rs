@@ -1,49 +1,46 @@
 use crate::marks::ChannelValue;
-use crate::serialization::{LogicalPlanNodeExt, SerializableDataFrame};
 use datafusion::dataframe::DataFrame;
-use datafusion::prelude::SessionContext;
-use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
-use serde_with::{FromInto, serde_as};
 
-/// Stores a mark's data source and channel-to-expression mappings
-/// (e.g., x -> col("price"), fill -> lit("blue")
-#[serde_as]
-#[derive(Clone, Default, Serialize, Deserialize)]
+/// Stores a mark's data source and channel-to-expression mappings during construction
+/// This is the uncompiled version that holds a live DataFrame that can be transformed
+/// (e.g., x -> col("price"), fill -> lit("blue"))
+#[derive(Clone)]
 pub struct DataContext {
-    #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
-    dataframe: Option<LogicalPlanNode>,
+    dataframe: Option<DataFrame>,
     channels: IndexMap<String, ChannelValue>,
+}
+
+impl Default for DataContext {
+    fn default() -> Self {
+        Self {
+            dataframe: None,
+            channels: IndexMap::new(),
+        }
+    }
 }
 
 impl DataContext {
     pub fn new(dataframe: DataFrame) -> Self {
-        let plan = dataframe.logical_plan().clone();
         Self {
-            dataframe: LogicalPlanNode::from_logical_plan(&plan).ok(),
+            dataframe: Some(dataframe),
             channels: IndexMap::new(),
         }
     }
 
-    /// Get the serialized LogicalPlanNode directly without deserialization
-    pub fn logical_plan_node(&self) -> Option<&LogicalPlanNode> {
+    /// Get the DataFrame if present
+    pub fn dataframe(&self) -> Option<&DataFrame> {
         self.dataframe.as_ref()
     }
 
-    /// Get the DataFrame using the provided SessionContext
-    pub fn dataframe_with_context(&self, ctx: &SessionContext) -> Option<DataFrame> {
-        self.dataframe.as_ref().and_then(|node| {
-            node.to_logical_plan(ctx)
-                .ok()
-                .map(|plan| DataFrame::new(ctx.state().clone(), plan))
-        })
+    /// Get a mutable reference to the DataFrame if present
+    pub fn dataframe_mut(&mut self) -> Option<&mut DataFrame> {
+        self.dataframe.as_mut()
     }
 
-    /// Legacy method - returns None since we no longer store DataFrames directly
-    /// Use dataframe_with_context() instead
-    pub fn dataframe(&self) -> Option<&DataFrame> {
-        None
+    /// Take ownership of the DataFrame, leaving None in its place
+    pub fn take_dataframe(&mut self) -> Option<DataFrame> {
+        self.dataframe.take()
     }
 
     pub fn with_channel_value(mut self, channel: &str, value: ChannelValue) -> Self {
