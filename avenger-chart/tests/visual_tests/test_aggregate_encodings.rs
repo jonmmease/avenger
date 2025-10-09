@@ -221,3 +221,51 @@ async fn test_aggregate_movies_by_mpaa_rating() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_aggregate_movies_symbol_plot() {
+    let ctx = SessionContext::new();
+    let df = test_data::movies(&ctx)
+        .await
+        .expect("Failed to load movies dataset");
+
+    // Filter to non-null MPAA Rating and Creative Type
+    let df = df
+        .filter(
+            col("MPAA Rating")
+                .is_not_null()
+                .and(col("Creative Type").is_not_null())
+                .and(col("Rotten Tomatoes Rating").is_not_null()),
+        )
+        .unwrap();
+
+    // Symbol plot: MPAA Rating vs Creative Type
+    // Size by count, color by avg Rotten Tomatoes Rating
+    let plot = Plot::<Cartesian>::new()
+        .title("Movie Count by MPAA Rating and Creative Type")
+        .subtitle("Size: Count, Color: Avg Rotten Tomatoes Rating")
+        .data(df)
+        .mark(
+            Symbol::new()
+                .x(col("MPAA Rating")) // grouping dimension
+                .y(col("Creative Type")) // grouping dimension
+                .size_with(count(col("MPAA Rating")), |c| {
+                    // count aggregate for size
+                    c.legend(|l| l.title("Count"))
+                })
+                .fill_with(avg(col("Rotten Tomatoes Rating")), |c| {
+                    // color by avg rating
+                    c.legend(|l| l.title("Avg RT Rating"))
+                }),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "aggregate",
+        "movies_symbol_plot",
+    )
+    .await;
+}
