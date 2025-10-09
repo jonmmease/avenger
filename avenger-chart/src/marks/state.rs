@@ -53,4 +53,22 @@ impl CompiledMarkState {
             axis_configs: state.axis_configs.clone(),
         }
     }
+
+    /// Convert MarkState to CompiledMarkState with a transformed DataFrame and updated channels
+    ///
+    /// This is used when transformations (like aggregation) modify the channel expressions
+    /// to reference the output columns of the transformation.
+    pub fn from_mark_state_with_channels(
+        state: &MarkState,
+        transformed_df: DataFrame,
+        channels: indexmap::IndexMap<String, crate::marks::ChannelValue>,
+    ) -> Self {
+        Self {
+            data: CompiledDataContext::new(transformed_df, channels),
+            facet_strategy: state.facet_strategy.clone(),
+            details: state.details.clone(),
+            zindex: state.zindex,
+            axis_configs: state.axis_configs.clone(),
+        }
+    }
 }

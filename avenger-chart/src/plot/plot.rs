@@ -251,9 +251,7 @@ impl<C: CoordinateSystem> Plot<C> {
             );
         }
 
-        // 2. Compile all marks
-        // For now, we pass the mark's DataFrame unchanged to CompiledMarkState
-        // TODO: This is where aggregation will be applied in Phase 4
+        // 2. Compile all marks, applying aggregation if needed
         let compiled_marks: Vec<Arc<dyn CompiledMark>> = self
             .marks
             .iter()
@@ -277,11 +275,24 @@ impl<C: CoordinateSystem> Plot<C> {
                         )
                     });
 
-                // Create CompiledMarkState from the mark's state and DataFrame
-                let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
-                m.compile(compiled_state)
+                // Check if any channel uses aggregate functions
+                let needs_aggregation = mark_state
+                    .data
+                    .channels()
+                    .values()
+                    .filter_map(|value| value.expr(session_context))
+                    .any(|expr| crate::utils::contains_aggregate(&expr));
+
+                if needs_aggregation {
+                    // Apply aggregation and update channel expressions
+                    self.compile_mark_with_aggregation(m, mark_state, df, session_context)
+                } else {
+                    // No aggregation needed - compile as-is
+                    let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
+                    Ok(m.compile(compiled_state))
+                }
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         // 3. Build guide renderer - either from config or default
         let mut guide = if let Some(config) = &self.guide_config {
@@ -348,6 +359,81 @@ impl<C: CoordinateSystem> Plot<C> {
                 .map(|p| (p.name.clone(), p.default.clone()))
                 .collect(),
         })
+    }
+
+    /// Helper method to compile a mark with aggregation
+    ///
+    /// This detects aggregate functions in channels, applies DataFrame aggregation,
+    /// and updates channel expressions to reference the aggregated output columns.
+    fn compile_mark_with_aggregation(
+        &self,
+        mark: &Arc<dyn Mark<C>>,
+        mark_state: &crate::marks::MarkState,
+        df: DataFrame,
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        use datafusion::prelude::col;
+
+        // Collect all channel expressions
+        let mut group_by_exprs = Vec::new();
+        let mut agg_exprs = Vec::new();
+        let mut channel_info: Vec<(String, Expr, bool)> = Vec::new(); // (name, expr, is_aggregate)
+
+        for (channel_name, channel_value) in mark_state.data.channels() {
+            // Skip channels without expressions (e.g., conditional channels)
+            if let Some(expr) = channel_value.expr(session_context) {
+                let is_aggregate = crate::utils::contains_aggregate(&expr);
+
+                if is_aggregate {
+                    agg_exprs.push(expr.clone());
+                } else {
+                    group_by_exprs.push(expr.clone());
+                }
+
+                channel_info.push((channel_name.clone(), expr, is_aggregate));
+            }
+        }
+
+        // Apply aggregation
+        let agg_df = df
+            .aggregate(group_by_exprs.clone(), agg_exprs.clone())?;
+
+        // Get the schema to discover DataFusion's chosen column names
+        let schema = agg_df.schema();
+
+        // Build updated channels by matching expressions to schema fields
+        let mut updated_channels = indexmap::IndexMap::new();
+        let mut group_idx = 0;
+        let mut agg_idx = 0;
+
+        for (channel_name, _expr, is_aggregate) in channel_info {
+            let field_name = if is_aggregate {
+                // Aggregate expressions come after grouping expressions in schema
+                let field_index = group_by_exprs.len() + agg_idx;
+                agg_idx += 1;
+                schema.field(field_index).name().clone()
+            } else {
+                // Grouping expressions come first in schema
+                let field_index = group_idx;
+                group_idx += 1;
+                schema.field(field_index).name().clone()
+            };
+
+            // Replace with col() reference to the output field
+            updated_channels.insert(
+                channel_name,
+                crate::marks::ChannelValue::from(col(&field_name)),
+            );
+        }
+
+        // Create CompiledMarkState with aggregated DataFrame and updated channels
+        let compiled_state = CompiledMarkState::from_mark_state_with_channels(
+            mark_state,
+            agg_df,
+            updated_channels,
+        );
+
+        Ok(mark.compile(compiled_state))
     }
 
     /// Get a reference to the coordinate system
