@@ -26,8 +26,11 @@ fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
     use datafusion::scalar::ScalarValue;
 
     match expr {
-        // Column reference
-        Expr::Column(col) => col.name.clone(),
+        // Column reference - strip table qualifier for cleaner display
+        Expr::Column(col) => {
+            // Remove table qualifiers like "?table?." from column names
+            col.name.replace("?table?.", "")
+        }
 
         // Literals - show value without type wrapper
         Expr::Literal(scalar, _) => match scalar {
@@ -300,6 +303,37 @@ impl ChannelValue {
                 legend_config: legend_config.clone(),
             },
             other => other, // No-op for identity and conditional values
+        }
+    }
+
+    /// Update the expression while preserving scale configuration
+    /// This is useful when replacing expressions after aggregation
+    pub fn with_expr(self, new_expr: LogicalExprNode) -> Self {
+        match self {
+            ChannelValue::Scaled {
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                ..
+            } => ChannelValue::Scaled {
+                expr: new_expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+            },
+            ChannelValue::Value { .. } => ChannelValue::Value { expr: new_expr },
+            ChannelValue::Conditional { .. } => {
+                // For conditional, we can't easily update - just create a new scaled value
+                ChannelValue::Scaled {
+                    expr: new_expr,
+                    scale_name: None,
+                    band: None,
+                    scale_config: None,
+                    legend_config: None,
+                }
+            }
         }
     }
 
