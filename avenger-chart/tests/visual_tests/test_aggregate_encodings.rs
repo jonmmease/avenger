@@ -1,4 +1,5 @@
 use super::helpers::assert_visual_match_default;
+use crate::test_data;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::prelude::*;
 
@@ -180,4 +181,40 @@ async fn test_aggregate_no_grouping() {
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(&compiled, &ctx, None, "aggregate", "no_grouping").await;
+}
+
+#[tokio::test]
+async fn test_aggregate_movies_by_mpaa_rating() {
+    let ctx = SessionContext::new();
+    let df = test_data::movies(&ctx)
+        .await
+        .expect("Failed to load movies dataset");
+
+    // Bar chart: Average worldwide gross by MPAA rating, colored by average IMDB rating
+    // This tests aggregation with a real-world dataset
+    let plot = Plot::<Cartesian>::new()
+        .title("Average Worldwide Gross by MPAA Rating")
+        .subtitle("Colored by Average IMDB Rating")
+        .data(df)
+        .mark(
+            Rect::new()
+                .x(col("MPAA Rating")) // grouping dimension
+                .x2_with(col("MPAA Rating"), |c| c.band(1.0)) // end of band
+                .y(lit(0.0)) // baseline at 0
+                .y2(avg(col("Worldwide Gross"))) // aggregate dimension
+                .fill_with(avg(col("IMDB Rating")), |c| {
+                    // Color by avg IMDB rating
+                    c.legend(|l| l.title("Avg IMDB Rating"))
+                }),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "aggregate",
+        "movies_by_mpaa_rating",
+    )
+    .await;
 }
