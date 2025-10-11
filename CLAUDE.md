@@ -73,12 +73,23 @@ cargo test
 # Run specific crate tests
 cd avenger-wgpu && cargo test
 
-# Run tests with layout debugging (shows layout boxes in pink)
+# Run tests with layout debugging (shows layout boxes in magenta)
 AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart
 
 # Run specific visual regression test with layout debugging
 AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression test_name -- --nocapture
+
+# Run tests with debug logging (textual output)
+RUST_LOG=avenger_chart=debug cargo test -p avenger-chart -- --nocapture
+
+# Run with trace-level logging for specific modules
+RUST_LOG=avenger_chart::layout=trace,avenger_chart::legend=debug cargo test -p avenger-chart -- --nocapture
+
+# Combine visual and logging debugging
+AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart=debug cargo test -p avenger-chart -- --nocapture
 ```
+
+See `avenger-chart/docs/DEBUGGING.md` for detailed debugging documentation.
 
 ## Project Structure
 
@@ -113,3 +124,7 @@ When implementing new features:
 2. For new scales: Implement `ScaleImpl` trait in `avenger-scales`
 3. For interactivity: Use `EventStreamHandler` pattern in `avenger-app`
 4. For GPU optimizations: Modify shaders in `avenger-wgpu/src/shaders/`
+5. For debugging layout issues:
+   - Use `AVENGER_CHART_DEBUG_LAYOUT=1` to visualize layout bounds (magenta rectangles)
+   - Use `RUST_LOG=avenger_chart::layout=debug` for layout calculations
+   - See `avenger-chart/docs/DEBUGGING.md` for comprehensive debugging guide
