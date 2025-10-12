@@ -4,22 +4,17 @@ Bar charts compare quantities across categories using rectangular bars. This gui
 
 ## Basic Bar Chart
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let _plot = Plot::<Cartesian>::new()
-    .data(df)
+```rust,render,ignore
+use avenger_chart::prelude::*;
+
+Plot::<Cartesian>::new()
+    .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
             .x(col("category"))
             .y(lit(0.0))
             .y2(col("value"))
-    );
-# Ok(())
-# }
+    )
 ```
 
 This creates vertical bars from 0 to the value in each category.
@@ -28,102 +23,137 @@ This creates vertical bars from 0 to the value in each category.
 
 Swap x and y:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-let _rect = Rect::<Cartesian>::new()
-    .y(col("category"))
-    .x(lit(0.0))
-    .x2(col("value"));
+```rust,render,ignore
+use avenger_chart::prelude::*;
+
+Plot::<Cartesian>::new()
+    .data(datasets::categorical_bars(&ctx))
+    .mark(
+        Rect::new()
+            .y(col("category"))
+            .x(lit(0.0))
+            .x2(col("value"))
+    )
 ```
 
 ## Styling Bars
 
 ### Bar Color
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-let _rect = Rect::<Cartesian>::new()
-    .x(col("category"))
-    .y(lit(0.0))
-    .y2(col("value"))
-    .fill("#4682b4");
+```rust,render,ignore
+use avenger_chart::prelude::*;
+
+Plot::<Cartesian>::new()
+    .data(datasets::categorical_bars(&ctx))
+    .mark(
+        Rect::new()
+            .x(col("category"))
+            .y(lit(0.0))
+            .y2(col("value"))
+            .fill("#4682b4")
+    )
 ```
 
 ### Bar Borders
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-let _rect = Rect::<Cartesian>::new()
-    .x(col("category"))
-    .y(lit(0.0))
-    .y2(col("value"))
-    .fill("lightblue")
-    .stroke("#4682b4")
-    .stroke_width(1.0);
+```rust,render,ignore
+use avenger_chart::prelude::*;
+
+Plot::<Cartesian>::new()
+    .data(datasets::categorical_bars(&ctx))
+    .mark(
+        Rect::new()
+            .x(col("category"))
+            .y(lit(0.0))
+            .y2(col("value"))
+            .fill("lightblue")
+            .stroke("#4682b4")
+            .stroke_width(1.0)
+    )
 ```
 
 ## Categorical Scales
 
-Use band scales for categorical x-axes:
+Use band scales for categorical x-axes with padding between bars:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-let _rect = Rect::<Cartesian>::new()
-    .x_with(col("category"), |c| c.scale_with::<Band>(|s| s.padding_inner(0.1)))
-    .y(lit(0.0))
-    .y2(col("value"));
+```rust,render,ignore
+use avenger_chart::prelude::*;
+
+Plot::<Cartesian>::new()
+    .data(datasets::categorical_bars(&ctx))
+    .mark(
+        Rect::new()
+            .x_with(col("category"), |c| {
+                c.scale_with::<Band>(|s| s.padding_inner(0.3))
+            })
+            .y(lit(0.0))
+            .y2(col("value"))
+    )
 ```
 
 ## Color by Category
 
 Encode categories with color:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-let _rect = Rect::<Cartesian>::new()
-    .x(col("category"))
-    .y(lit(0.0))
-    .y2(col("value"))
-    .fill_with(col("category"), |c| {
-        c.scale(|s| s.range_colors(vec![
-            Srgba::new(0.121, 0.466, 0.705, 1.0),
-            Srgba::new(0.173, 0.627, 0.173, 1.0),
-            Srgba::new(0.882, 0.470, 0.0, 1.0),
-        ]))
-        .legend(|l| l.title("Category"))
-    });
+```rust,render,ignore
+use avenger_chart::prelude::*;
+
+Plot::<Cartesian>::new()
+    .data(datasets::categorical_bars(&ctx))
+    .mark(
+        Rect::new()
+            .x(col("category"))
+            .y(lit(0.0))
+            .y2(col("value"))
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Category"))
+            })
+    )
 ```
 
 ## Aggregated Bar Charts
 
 Pre-aggregate in DataFusion before rendering:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let aggregated = df
-    .aggregate(
-        vec![col("category")],
-        vec![sum(col("amount")).alias("total")]
-    )?;
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::expr_fn::sum;
+use datafusion::prelude::*;
+use std::sync::Arc;
 
-let _rect = Rect::<Cartesian>::new()
+// Create sample sales data with multiple entries per category
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "category",
+        Arc::new(StringArray::from(vec!["A", "A", "B", "B", "C", "C"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "amount",
+        Arc::new(Float64Array::from(vec![10.0, 15.0, 25.0, 30.0, 20.0, 23.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+// Aggregate by category
+let aggregated = df
+    .aggregate(vec![col("category")], vec![sum(col("amount")).alias("total")])
+    .expect("aggregate");
+
+Plot::<Cartesian>::new()
     .data(aggregated)
-    .x(col("category"))
-    .y(lit(0.0))
-    .y2(col("total"));
-# Ok(())
-# }
+    .mark(
+        Rect::new()
+            .x(col("category"))
+            .y(lit(0.0))
+            .y2(col("total"))
+    )
 ```
 
 ## Grouped Bar Charts
@@ -138,15 +168,15 @@ Stacked bars will arrive with the transform system (see `docs/future-work/transf
 
 Sort categories by value:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let sorted = df.sort(vec![col("value").sort(false, false)])?;  // Descending
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
 
-let _plot = Plot::<Cartesian>::new()
+let sorted = datasets::categorical_bars(&ctx)
+    .sort(vec![col("value").sort(false, false)])
+    .expect("sort");
+
+Plot::<Cartesian>::new()
     .data(sorted)
     .mark(
         Rect::new()
@@ -154,9 +184,6 @@ let _plot = Plot::<Cartesian>::new()
             .y(lit(0.0))
             .y2(col("value"))
     )
-# ;
-# Ok(())
-# }
 ```
 
 ## Bar Chart with Labels
@@ -168,32 +195,47 @@ Text annotations will ship with the planned text mark (see `docs/future-work/tex
 
 Show positive and negative values:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let status = when(col("change").gt(lit(0.0)), lit("positive"))
-    .otherwise(lit("negative"))?;
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::prelude::*;
+use std::sync::Arc;
 
-let _rect = Rect::<Cartesian>::new()
-    .x(col("category"))
-    .y(lit(0.0))
-    .y2(col("change"))  // Can be positive or negative
-    .fill_with(status, |c| {
-        c.scale(|s| s
-            .domain_discrete(vec![lit("positive"), lit("negative")])
-            .range_colors(vec![
-                Srgba::new(0.200, 0.627, 0.173, 1.0),
-                Srgba::new(0.800, 0.200, 0.200, 1.0),
-            ])
-        )
-        .legend(|l| l.title("Change"))
-    });
-# Ok(())
-# }
+// Create data with positive and negative changes
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "category",
+        Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "change",
+        Arc::new(Float64Array::from(vec![15.0, -8.0, 22.0, -12.0, 18.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+// Create status based on change sign
+let status = when(col("change").gt(lit(0.0)), lit("positive"))
+    .otherwise(lit("negative"))
+    .expect("create status");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Rect::new()
+            .x(col("category"))
+            .y(lit(0.0))
+            .y2(col("change"))  // Can be positive or negative
+            .fill_with(status, |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Change"))
+            })
+    )
 ```
 
 ## Bar Chart with Reference Line
@@ -203,17 +245,12 @@ Reference overlays (e.g., rules) are planned but not yet implemented.
 
 ## Complete Example
 
-```rust,no_run
+```rust,render,ignore
 use avenger_chart::prelude::*;
 use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
-use palette::Srgba;
 
-let ctx = SessionContext::new();
-let movies_path = format!(
-    "{}/../tests/data/movies.parquet",
-    env!("CARGO_MANIFEST_DIR")
-);
+# let movies_path = format!("{}/../tests/data/movies.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(movies_path, ParquetReadOptions::default())
     .await
@@ -221,36 +258,32 @@ let df = ctx
 
 let aggregated = df
     .aggregate(
-        vec![col("MPAA_Rating")],
-        vec![sum(col("Worldwide_Gross")).alias("total_gross")],
+        vec![col("MPAA Rating")],
+        vec![sum(col("Worldwide Gross")).alias("total_gross")],
     )
     .expect("aggregate worldwide gross by rating");
 
 let filtered = aggregated
-    .filter(col("MPAA_Rating").is_not_null())
+    .filter(col("MPAA Rating").is_not_null())
     .expect("filter rated films");
 let sorted = filtered
     .sort(vec![col("total_gross").sort(false, false)])
     .expect("sort by total gross");
 
-let plot = Plot::<Cartesian>::new()
+Plot::<Cartesian>::new()
     .data(sorted)
     .mark(
         Rect::new()
-            .x_with(col("MPAA_Rating"), |c| c.scale_with::<Band>(|s| s.padding_inner(0.2)))
+            .x_with(col("MPAA Rating"), |c| {
+                c.scale_with::<Band>(|s| s.padding_inner(0.2))
+            })
             .y(lit(0.0))
             .y2(col("total_gross"))
-            .fill_with(col("MPAA_Rating"), |c| {
-                c.scale(|s| s.range_colors(vec![
-                    Srgba::new(0.204, 0.596, 0.859, 1.0),
-                    Srgba::new(0.984, 0.604, 0.600, 1.0),
-                    Srgba::new(0.169, 0.506, 0.337, 1.0),
-                ]))
-                .legend(|l| l.title("MPAA Rating"))
+            .fill_with(col("MPAA Rating"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("MPAA Rating"))
             })
-    );
-
-plot
+    )
 ```
 
 ## Next Steps
