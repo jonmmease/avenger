@@ -8,10 +8,10 @@ use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, LoadOp, MapMode, Operations,
     Origin3d, PowerPreference, Queue, RenderPassColorAttachment, RenderPassDescriptor,
-    RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration, TexelCopyBufferInfo,
-    TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
-    TextureViewDescriptor, Trace,
+    RequestAdapterError, RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration,
+    TexelCopyBufferInfo, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages,
+    TextureView, TextureViewDescriptor, Trace,
 };
 use winit::dpi::Size;
 use winit::event::WindowEvent;
@@ -66,7 +66,7 @@ impl CanvasDimensionUtils for CanvasDimensions {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct CanvasConfig {
     pub text_builder_ctor: Option<TextBuildCtor>,
 }
@@ -386,14 +386,28 @@ pub(crate) async fn make_wgpu_adapter(
     instance: &wgpu::Instance,
     compatible_surface: Option<&Surface<'_>>,
 ) -> Result<Adapter, AvengerWgpuError> {
-    instance
-        .request_adapter(&RequestAdapterOptions {
-            power_preference: PowerPreference::default(),
-            compatible_surface,
-            force_fallback_adapter: false,
-        })
-        .await
-        .map_err(|_| AvengerWgpuError::MakeWgpuAdapterError)
+    let primary_options = RequestAdapterOptions {
+        power_preference: PowerPreference::default(),
+        compatible_surface,
+        force_fallback_adapter: false,
+    };
+
+    match instance.request_adapter(&primary_options).await {
+        Ok(adapter) => return Ok(adapter),
+        Err(RequestAdapterError::NotFound { .. }) => {}
+        Err(_) => return Err(AvengerWgpuError::MakeWgpuAdapterError),
+    }
+
+    let fallback_options = RequestAdapterOptions {
+        power_preference: PowerPreference::LowPower,
+        compatible_surface,
+        force_fallback_adapter: true,
+    };
+
+    match instance.request_adapter(&fallback_options).await {
+        Ok(adapter) => return Ok(adapter),
+        Err(_) => Err(AvengerWgpuError::MakeWgpuAdapterError),
+    }
 }
 
 pub(crate) async fn request_wgpu_device(

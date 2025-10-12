@@ -1,6 +1,6 @@
 //! Cartesian coordinate system guide implementation
-use crate::theme::Theme;
 use crate::plot::compiled::expr_eval::evaluate_string_expr;
+use crate::theme::Theme;
 
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::extract_channel_title_from_marks;
@@ -69,7 +69,8 @@ impl CartesianGuide {
         use crate::serialization::LogicalExprNodeExt;
         let expr = color.into_expr();
         self.options.plot_background_color = Maybe::Set(Some(
-            LogicalExprNode::from_expr(expr).expect("Failed to serialize plot_background_color expr"),
+            LogicalExprNode::from_expr(expr)
+                .expect("Failed to serialize plot_background_color expr"),
         ));
         self
     }
@@ -92,7 +93,12 @@ impl CartesianGuide {
         use crate::serialization::LogicalExprNodeExt;
 
         // Try to evaluate expression if set
-        if let Some(color_node) = self.options.plot_background_color.as_option().and_then(|o| o.as_ref()) {
+        if let Some(color_node) = self
+            .options
+            .plot_background_color
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             if let Ok(color_expr) = color_node.to_expr(ctx) {
                 // Evaluate the expression to get color string
                 if let Ok(color_str) = evaluate_string_expr(&color_expr, ctx, params).await {
@@ -105,8 +111,8 @@ impl CartesianGuide {
         }
 
         // Fallback to theme
-        let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-            .with_subtype("cartesian");
+        let guide_ctx =
+            crate::theme::ThemeContext::new("guide", params.clone()).with_subtype("cartesian");
         theme
             .query(&guide_ctx, "background-color")
             .and_then(|v| v.as_color_array())

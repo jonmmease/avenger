@@ -33,10 +33,7 @@ pub(crate) async fn evaluate_f32_expr(
 
     // Convert to f32 using the ScalarValueHelpers trait
     scalar.as_f32().map_err(|e| {
-        AvengerChartError::InternalError(format!(
-            "Cannot convert expression result to f32: {}",
-            e
-        ))
+        AvengerChartError::InternalError(format!("Cannot convert expression result to f32: {}", e))
     })
 }
 
@@ -195,14 +192,15 @@ pub(crate) async fn evaluate_f64_expr(
     })?;
 
     // Try f64 first, then f32
-    scalar.as_f64().or_else(|_| {
-        scalar.as_f32().map(|f| f as f64)
-    }).map_err(|e| {
-        AvengerChartError::InternalError(format!(
-            "Cannot convert expression result to f64: {}",
-            e
-        ))
-    })
+    scalar
+        .as_f64()
+        .or_else(|_| scalar.as_f32().map(|f| f as f64))
+        .map_err(|e| {
+            AvengerChartError::InternalError(format!(
+                "Cannot convert expression result to f64: {}",
+                e
+            ))
+        })
 }
 
 /// Helper function to evaluate an AxisPosition expression (string-only)

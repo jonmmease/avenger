@@ -6,7 +6,7 @@ use crate::plot::Plot;
 use crate::serialization::{LogicalExprNodeExt, SerializableExpr};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 
 /// Controls the width that the title/subtitle spans
 #[derive(Clone, Debug, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -166,28 +166,36 @@ impl PlotTitle {
     /// Set the font size
     pub fn font_size(mut self, size: impl super::plot::IntoExpr) -> Self {
         let expr = size.into_expr();
-        self.font_size = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize font_size expr")));
+        self.font_size = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize font_size expr"),
+        ));
         self
     }
 
     /// Set the font family
     pub fn font_family(mut self, family: impl super::plot::IntoExpr) -> Self {
         let expr = family.into_expr();
-        self.font_family = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize font_family expr")));
+        self.font_family = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize font_family expr"),
+        ));
         self
     }
 
     /// Set the span (Canvas or PlotArea)
     pub fn span(mut self, span: impl super::plot::IntoExpr) -> Self {
         let expr = span.into_expr();
-        self.span = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize span expr")));
+        self.span = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize span expr"),
+        ));
         self
     }
 
     /// Set the text alignment (Left, Center, Right)
     pub fn align(mut self, align: impl super::plot::IntoExpr) -> Self {
         let expr = align.into_expr();
-        self.align = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize align expr")));
+        self.align = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize align expr"),
+        ));
         self
     }
 }
@@ -196,28 +204,36 @@ impl PlotSubtitle {
     /// Set the font size
     pub fn font_size(mut self, size: impl super::plot::IntoExpr) -> Self {
         let expr = size.into_expr();
-        self.font_size = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize font_size expr")));
+        self.font_size = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize font_size expr"),
+        ));
         self
     }
 
     /// Set the font family
     pub fn font_family(mut self, family: impl super::plot::IntoExpr) -> Self {
         let expr = family.into_expr();
-        self.font_family = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize font_family expr")));
+        self.font_family = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize font_family expr"),
+        ));
         self
     }
 
     /// Set the span (Canvas or PlotArea)
     pub fn span(mut self, span: impl super::plot::IntoExpr) -> Self {
         let expr = span.into_expr();
-        self.span = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize span expr")));
+        self.span = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize span expr"),
+        ));
         self
     }
 
     /// Set the text alignment (Left, Center, Right)
     pub fn align(mut self, align: impl super::plot::IntoExpr) -> Self {
         let expr = align.into_expr();
-        self.align = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize align expr")));
+        self.align = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize align expr"),
+        ));
         self
     }
 }

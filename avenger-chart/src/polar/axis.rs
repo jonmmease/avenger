@@ -226,11 +226,11 @@ impl PolarAxis {
         use crate::plot::compiled::expr_eval::{evaluate_bool_expr, evaluate_string_expr};
         use crate::serialization::LogicalExprNodeExt;
         // Create context for theme queries with params
-        let axis_ctx = theme
-            .axis_context_with_params(Some("polar"), Some(channel), params.clone());
+        let axis_ctx = theme.axis_context_with_params(Some("polar"), Some(channel), params.clone());
 
         // Evaluate visible expression (default to true if not set)
-        let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref()) {
+        let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref())
+        {
             let visible_expr = visible_node.to_expr(ctx)?;
             evaluate_bool_expr(&visible_expr, ctx, params).await?
         } else {
@@ -248,12 +248,13 @@ impl PolarAxis {
         let radius = plot_width.min(plot_height) / 2.0;
 
         // Evaluate axis_type expression (default to Radial)
-        let axis_type_str = if let Some(axis_type_node) = self.axis_type.as_option().and_then(|o| o.as_ref()) {
-            let axis_type_expr = axis_type_node.to_expr(ctx)?;
-            evaluate_string_expr(&axis_type_expr, ctx, params).await?
-        } else {
-            "radial".to_string()
-        };
+        let axis_type_str =
+            if let Some(axis_type_node) = self.axis_type.as_option().and_then(|o| o.as_ref()) {
+                let axis_type_expr = axis_type_node.to_expr(ctx)?;
+                evaluate_string_expr(&axis_type_expr, ctx, params).await?
+            } else {
+                "radial".to_string()
+            };
 
         let axis_type = match axis_type_str.to_lowercase().as_str() {
             "angular" => PolarAxisType::Angular,
@@ -263,13 +264,17 @@ impl PolarAxis {
         match axis_type {
             PolarAxisType::Radial => {
                 // Render radial axis (circles from center)
-                self.render_radial_axis(scale, center_x, center_y, radius, theme, &axis_ctx, params, ctx).await
+                self.render_radial_axis(
+                    scale, center_x, center_y, radius, theme, &axis_ctx, params, ctx,
+                )
+                .await
             }
             PolarAxisType::Angular => {
                 // Render angular axis (lines from center)
                 self.render_angular_axis(
                     scale, center_x, center_y, radius, scales, theme, &axis_ctx, params, ctx,
-                ).await
+                )
+                .await
             }
         }
     }
@@ -304,21 +309,33 @@ impl PolarAxis {
         // Create concentric circles for the grid using actual scale ticks
         if grid {
             // Evaluate tick_count expression
-            let tick_count = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
+            let tick_count = if let Some(tick_count_node) =
+                self.tick_count.as_option().and_then(|o| o.as_ref())
+            {
                 let tick_count_expr = tick_count_node.to_expr(ctx)?;
                 use crate::utils::ScalarValueHelpers;
                 let scalars = crate::utils::eval_to_scalars(
                     vec![tick_count_expr],
                     Some(ctx),
                     crate::utils::params_to_datafusion(params).as_ref(),
-                ).await.map_err(|e| {
-                    AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
+                )
+                .await
+                .map_err(|e| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to evaluate tick_count: {}",
+                        e
+                    ))
                 })?;
                 let scalar = scalars.first().ok_or_else(|| {
-                    AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
+                    AvengerChartError::InternalError(
+                        "No value returned from tick_count expression".to_string(),
+                    )
                 })?;
                 Some(scalar.as_i32().map_err(|e| {
-                    AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
+                    AvengerChartError::InternalError(format!(
+                        "Cannot convert tick_count to i32: {}",
+                        e
+                    ))
                 })? as f32)
             } else {
                 None
@@ -402,18 +419,24 @@ impl PolarAxis {
 
         // Get tick values from scale - use same as grid
         // Evaluate tick_count expression
-        let tick_count = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
+        let tick_count = if let Some(tick_count_node) =
+            self.tick_count.as_option().and_then(|o| o.as_ref())
+        {
             let tick_count_expr = tick_count_node.to_expr(ctx)?;
             use crate::utils::ScalarValueHelpers;
             let scalars = crate::utils::eval_to_scalars(
                 vec![tick_count_expr],
                 Some(ctx),
                 crate::utils::params_to_datafusion(params).as_ref(),
-            ).await.map_err(|e| {
+            )
+            .await
+            .map_err(|e| {
                 AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
             })?;
             let scalar = scalars.first().ok_or_else(|| {
-                AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
+                AvengerChartError::InternalError(
+                    "No value returned from tick_count expression".to_string(),
+                )
             })?;
             Some(scalar.as_i32().map_err(|e| {
                 AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
@@ -421,32 +444,31 @@ impl PolarAxis {
         } else {
             None
         };
-            let ticks = scale.ticks(tick_count.or(Some(RADIAL_DEFAULT_TICK_COUNT)))?;
+        let ticks = scale.ticks(tick_count.or(Some(RADIAL_DEFAULT_TICK_COUNT)))?;
 
-            // Format tick values as strings
-            let formatted_ticks = scale.format(&ticks)?;
+        // Format tick values as strings
+        let formatted_ticks = scale.format(&ticks)?;
 
-            let mut x_vals = Vec::new();
-            let mut y_vals = Vec::new();
-            let mut text_vals = Vec::new();
+        let mut x_vals = Vec::new();
+        let mut y_vals = Vec::new();
+        let mut text_vals = Vec::new();
 
-            let tick_values = Self::extract_tick_values(&ticks);
+        let tick_values = Self::extract_tick_values(&ticks);
 
-            // Get formatted strings and positions
-            for (i, value) in tick_values.iter().enumerate() {
-                // Skip zero value
-                if value.abs() < 0.001 {
-                    continue;
-                }
+        // Get formatted strings and positions
+        for (i, value) in tick_values.iter().enumerate() {
+            // Skip zero value
+            if value.abs() < 0.001 {
+                continue;
+            }
 
-                // Transform tick value through scale to get radius (same as grid circles)
-                let tick_array = Arc::new(Float64Array::from(vec![*value]))
-                    as datafusion::arrow::array::ArrayRef;
-                let scaled_values = scale.scale(&tick_array)?;
+            // Transform tick value through scale to get radius (same as grid circles)
+            let tick_array =
+                Arc::new(Float64Array::from(vec![*value])) as datafusion::arrow::array::ArrayRef;
+            let scaled_values = scale.scale(&tick_array)?;
 
-                let radius = if let Some(scaled_array) =
-                    scaled_values.as_any().downcast_ref::<Float64Array>()
-                {
+            let radius =
+                if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float64Array>() {
                     scaled_array.value(0) as f32
                 } else if let Some(scaled_array) = scaled_values
                     .as_any()
@@ -457,52 +479,52 @@ impl PolarAxis {
                     continue;
                 };
 
-                if radius.is_finite() && radius > 0.0 {
-                    // Position labels vertically below center (at 90 degrees)
-                    x_vals.push(center_x);
-                    y_vals.push(center_y + radius);
+            if radius.is_finite() && radius > 0.0 {
+                // Position labels vertically below center (at 90 degrees)
+                x_vals.push(center_x);
+                y_vals.push(center_y + radius);
 
-                    // Get formatted text for this tick
-                    match formatted_ticks.value() {
-                        avenger_common::value::ScalarOrArrayValue::Array(texts) => {
-                            if i < texts.len() {
-                                text_vals.push(texts[i].clone());
-                            }
+                // Get formatted text for this tick
+                match formatted_ticks.value() {
+                    avenger_common::value::ScalarOrArrayValue::Array(texts) => {
+                        if i < texts.len() {
+                            text_vals.push(texts[i].clone());
                         }
-                        avenger_common::value::ScalarOrArrayValue::Scalar(text) => {
-                            text_vals.push(text.clone());
-                        }
+                    }
+                    avenger_common::value::ScalarOrArrayValue::Scalar(text) => {
+                        text_vals.push(text.clone());
                     }
                 }
             }
+        }
 
-            if !text_vals.is_empty() {
-                let (font_family, font_size, font_weight, color) =
-                    Self::get_label_theme_values(theme, axis_ctx);
+        if !text_vals.is_empty() {
+            let (font_family, font_size, font_weight, color) =
+                Self::get_label_theme_values(theme, axis_ctx);
 
-                let text_mark = SceneTextMark {
-                    name: "polar-r-labels".to_string(),
-                    clip: false,
-                    len: text_vals.len() as u32,
-                    x: ScalarOrArray::new_array(x_vals),
-                    y: ScalarOrArray::new_array(y_vals),
-                    text: ScalarOrArray::new_array(text_vals),
-                    font: ScalarOrArray::new_scalar(font_family),
-                    font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(font_weight),
-                    ),
-                    font_size: ScalarOrArray::new_scalar(font_size),
-                    font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color(color)),
-                    align: ScalarOrArray::new_scalar(TextAlign::Center),
-                    baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
-                    angle: ScalarOrArray::new_scalar(0.0),
-                    limit: ScalarOrArray::new_scalar(200.0),
-                    indices: None,
-                    zindex: Some(0),
-                };
-                marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
-            }
+            let text_mark = SceneTextMark {
+                name: "polar-r-labels".to_string(),
+                clip: false,
+                len: text_vals.len() as u32,
+                x: ScalarOrArray::new_array(x_vals),
+                y: ScalarOrArray::new_array(y_vals),
+                text: ScalarOrArray::new_array(text_vals),
+                font: ScalarOrArray::new_scalar(font_family),
+                font_weight: ScalarOrArray::new_scalar(avenger_text::types::FontWeight::Number(
+                    font_weight,
+                )),
+                font_size: ScalarOrArray::new_scalar(font_size),
+                font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
+                color: ScalarOrArray::new_scalar(ColorOrGradient::Color(color)),
+                align: ScalarOrArray::new_scalar(TextAlign::Center),
+                baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
+                angle: ScalarOrArray::new_scalar(0.0),
+                limit: ScalarOrArray::new_scalar(200.0),
+                indices: None,
+                zindex: Some(0),
+            };
+            marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
+        }
 
         // Note: Axis title rendering removed - placement needs design work
 
@@ -549,21 +571,33 @@ impl PolarAxis {
         // Render angular grid (radial lines) based on scale ticks
         if grid {
             // Evaluate tick_count expression
-            let tick_count = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
+            let tick_count = if let Some(tick_count_node) =
+                self.tick_count.as_option().and_then(|o| o.as_ref())
+            {
                 let tick_count_expr = tick_count_node.to_expr(ctx)?;
                 use crate::utils::ScalarValueHelpers;
                 let scalars = crate::utils::eval_to_scalars(
                     vec![tick_count_expr],
                     Some(ctx),
                     crate::utils::params_to_datafusion(params).as_ref(),
-                ).await.map_err(|e| {
-                    AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
+                )
+                .await
+                .map_err(|e| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to evaluate tick_count: {}",
+                        e
+                    ))
                 })?;
                 let scalar = scalars.first().ok_or_else(|| {
-                    AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
+                    AvengerChartError::InternalError(
+                        "No value returned from tick_count expression".to_string(),
+                    )
                 })?;
                 Some(scalar.as_i32().map_err(|e| {
-                    AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
+                    AvengerChartError::InternalError(format!(
+                        "Cannot convert tick_count to i32: {}",
+                        e
+                    ))
                 })? as f32)
             } else {
                 None
@@ -646,47 +680,33 @@ impl PolarAxis {
                 } else {
                     // Fallback if not float32
                     // Evaluate tick_count expression for fallback
-                    let num_ticks = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
+                    let num_ticks = if let Some(tick_count_node) =
+                        self.tick_count.as_option().and_then(|o| o.as_ref())
+                    {
                         let tick_count_expr = tick_count_node.to_expr(ctx)?;
                         use crate::utils::ScalarValueHelpers;
                         let scalars = crate::utils::eval_to_scalars(
                             vec![tick_count_expr],
                             Some(ctx),
                             crate::utils::params_to_datafusion(params).as_ref(),
-                        ).await.map_err(|e| {
-                            AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
+                        )
+                        .await
+                        .map_err(|e| {
+                            AvengerChartError::InternalError(format!(
+                                "Failed to evaluate tick_count: {}",
+                                e
+                            ))
                         })?;
                         let scalar = scalars.first().ok_or_else(|| {
-                            AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
+                            AvengerChartError::InternalError(
+                                "No value returned from tick_count expression".to_string(),
+                            )
                         })?;
                         scalar.as_i32().map_err(|e| {
-                            AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
-                        })? as usize
-                    } else {
-                        8
-                    };
-                        (0..num_ticks)
-                            .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
-                            .collect()
-                    }
-                } else {
-                    // Fallback to uniform distribution
-                    // Evaluate tick_count expression for fallback
-                    let num_ticks = if let Some(tick_count_node) = self.tick_count.as_option().and_then(|o| o.as_ref()) {
-                        let tick_count_expr = tick_count_node.to_expr(ctx)?;
-                        use crate::utils::ScalarValueHelpers;
-                        let scalars = crate::utils::eval_to_scalars(
-                            vec![tick_count_expr],
-                            Some(ctx),
-                            crate::utils::params_to_datafusion(params).as_ref(),
-                        ).await.map_err(|e| {
-                            AvengerChartError::InternalError(format!("Failed to evaluate tick_count: {}", e))
-                        })?;
-                        let scalar = scalars.first().ok_or_else(|| {
-                            AvengerChartError::InternalError("No value returned from tick_count expression".to_string())
-                        })?;
-                        scalar.as_i32().map_err(|e| {
-                            AvengerChartError::InternalError(format!("Cannot convert tick_count to i32: {}", e))
+                            AvengerChartError::InternalError(format!(
+                                "Cannot convert tick_count to i32: {}",
+                                e
+                            ))
                         })? as usize
                     } else {
                         8
@@ -694,80 +714,118 @@ impl PolarAxis {
                     (0..num_ticks)
                         .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
                         .collect()
-                };
-
-            let mut x_vals = Vec::new();
-            let mut y_vals = Vec::new();
-            let mut text_vals = Vec::new();
-            let mut label_aligns = Vec::new();
-            let mut label_baselines = Vec::new();
-
-            let label_radius = max_radius + 15.0; // Place labels outside the plot
-
-            for tick_val in tick_values {
-                // Use tick value directly as angle (it's already in radians)
-                let cos_angle = tick_val.cos();
-                let sin_angle = tick_val.sin();
-
-                // Position label outside the plot circle
-                let x = center_x + label_radius * cos_angle;
-                let y = center_y + label_radius * sin_angle;
-
-                x_vals.push(x);
-                y_vals.push(y);
-
-                // Determine text alignment based on angle
-                let align = if cos_angle.abs() < 0.1 {
-                    TextAlign::Center
-                } else if cos_angle > 0.0 {
-                    TextAlign::Left
+                }
+            } else {
+                // Fallback to uniform distribution
+                // Evaluate tick_count expression for fallback
+                let num_ticks = if let Some(tick_count_node) =
+                    self.tick_count.as_option().and_then(|o| o.as_ref())
+                {
+                    let tick_count_expr = tick_count_node.to_expr(ctx)?;
+                    use crate::utils::ScalarValueHelpers;
+                    let scalars = crate::utils::eval_to_scalars(
+                        vec![tick_count_expr],
+                        Some(ctx),
+                        crate::utils::params_to_datafusion(params).as_ref(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        AvengerChartError::InternalError(format!(
+                            "Failed to evaluate tick_count: {}",
+                            e
+                        ))
+                    })?;
+                    let scalar = scalars.first().ok_or_else(|| {
+                        AvengerChartError::InternalError(
+                            "No value returned from tick_count expression".to_string(),
+                        )
+                    })?;
+                    scalar.as_i32().map_err(|e| {
+                        AvengerChartError::InternalError(format!(
+                            "Cannot convert tick_count to i32: {}",
+                            e
+                        ))
+                    })? as usize
                 } else {
-                    TextAlign::Right
+                    8
                 };
+                (0..num_ticks)
+                    .map(|i| (i as f32 / num_ticks as f32) * 2.0 * std::f32::consts::PI)
+                    .collect()
+            };
 
-                let baseline = if sin_angle.abs() < 0.1 {
-                    TextBaseline::Middle
-                } else if sin_angle > 0.0 {
-                    TextBaseline::Top
-                } else {
-                    TextBaseline::Bottom
-                };
+        let mut x_vals = Vec::new();
+        let mut y_vals = Vec::new();
+        let mut text_vals = Vec::new();
+        let mut label_aligns = Vec::new();
+        let mut label_baselines = Vec::new();
 
-                label_aligns.push(align);
-                label_baselines.push(baseline);
+        let label_radius = max_radius + 15.0; // Place labels outside the plot
 
-                // Convert radians to degrees for display
-                let degrees = (tick_val * 180.0 / std::f32::consts::PI).round() as i32;
-                text_vals.push(format!("{}°", degrees));
-            }
+        for tick_val in tick_values {
+            // Use tick value directly as angle (it's already in radians)
+            let cos_angle = tick_val.cos();
+            let sin_angle = tick_val.sin();
 
-            if !text_vals.is_empty() {
-                let (font_family, font_size, font_weight, color) =
-                    Self::get_label_theme_values(theme, axis_ctx);
+            // Position label outside the plot circle
+            let x = center_x + label_radius * cos_angle;
+            let y = center_y + label_radius * sin_angle;
 
-                let text_mark = SceneTextMark {
-                    name: "polar-theta-labels".to_string(),
-                    clip: false,
-                    len: text_vals.len() as u32,
-                    x: ScalarOrArray::new_array(x_vals),
-                    y: ScalarOrArray::new_array(y_vals),
-                    text: ScalarOrArray::new_array(text_vals),
-                    align: ScalarOrArray::new_array(label_aligns),
-                    baseline: ScalarOrArray::new_array(label_baselines),
-                    font: ScalarOrArray::new_scalar(font_family),
-                    font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(font_weight),
-                    ),
-                    font_size: ScalarOrArray::new_scalar(font_size),
-                    font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color(color)),
-                    angle: ScalarOrArray::new_scalar(0.0),
-                    limit: ScalarOrArray::new_scalar(200.0),
-                    indices: None,
-                    zindex: Some(0),
-                };
-                marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
-            }
+            x_vals.push(x);
+            y_vals.push(y);
+
+            // Determine text alignment based on angle
+            let align = if cos_angle.abs() < 0.1 {
+                TextAlign::Center
+            } else if cos_angle > 0.0 {
+                TextAlign::Left
+            } else {
+                TextAlign::Right
+            };
+
+            let baseline = if sin_angle.abs() < 0.1 {
+                TextBaseline::Middle
+            } else if sin_angle > 0.0 {
+                TextBaseline::Top
+            } else {
+                TextBaseline::Bottom
+            };
+
+            label_aligns.push(align);
+            label_baselines.push(baseline);
+
+            // Convert radians to degrees for display
+            let degrees = (tick_val * 180.0 / std::f32::consts::PI).round() as i32;
+            text_vals.push(format!("{}°", degrees));
+        }
+
+        if !text_vals.is_empty() {
+            let (font_family, font_size, font_weight, color) =
+                Self::get_label_theme_values(theme, axis_ctx);
+
+            let text_mark = SceneTextMark {
+                name: "polar-theta-labels".to_string(),
+                clip: false,
+                len: text_vals.len() as u32,
+                x: ScalarOrArray::new_array(x_vals),
+                y: ScalarOrArray::new_array(y_vals),
+                text: ScalarOrArray::new_array(text_vals),
+                align: ScalarOrArray::new_array(label_aligns),
+                baseline: ScalarOrArray::new_array(label_baselines),
+                font: ScalarOrArray::new_scalar(font_family),
+                font_weight: ScalarOrArray::new_scalar(avenger_text::types::FontWeight::Number(
+                    font_weight,
+                )),
+                font_size: ScalarOrArray::new_scalar(font_size),
+                font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
+                color: ScalarOrArray::new_scalar(ColorOrGradient::Color(color)),
+                angle: ScalarOrArray::new_scalar(0.0),
+                limit: ScalarOrArray::new_scalar(200.0),
+                indices: None,
+                zindex: Some(0),
+            };
+            marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
+        }
 
         Ok(marks)
     }

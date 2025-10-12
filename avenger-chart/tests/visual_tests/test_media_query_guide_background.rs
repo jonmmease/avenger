@@ -439,11 +439,7 @@ async fn test_media_query_legend_position() {
 
     let batch = RecordBatch::try_new(
         schema.clone(),
-        vec![
-            Arc::new(x_data),
-            Arc::new(y_data),
-            Arc::new(temp_data),
-        ],
+        vec![Arc::new(x_data), Arc::new(y_data), Arc::new(temp_data)],
     )
     .unwrap();
 
@@ -454,9 +450,12 @@ async fn test_media_query_legend_position() {
     let height_param = Param::new("height", ScalarValue::Float32(Some(400.0)));
 
     // Create title that indicates the current layout
-    let title_expr = when(width_param.expr().lt(lit(600)), lit("Narrow: Legend at Top"))
-        .otherwise(lit("Wide: Legend at Right"))
-        .unwrap();
+    let title_expr = when(
+        width_param.expr().lt(lit(600)),
+        lit("Narrow: Legend at Top"),
+    )
+    .otherwise(lit("Wide: Legend at Right"))
+    .unwrap();
 
     // Create a SINGLE plot with responsive legend positioning
     let plot = Plot::<Cartesian>::new()

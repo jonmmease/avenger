@@ -79,7 +79,8 @@ async fn evaluate_margins(
     // Helper to query margin from theme
     let query_margin = |property: &str| -> f32 {
         let canvas_ctx = crate::theme::ThemeContext::new("canvas", params.clone());
-        theme.query(&canvas_ctx, property)
+        theme
+            .query(&canvas_ctx, property)
             .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
             .unwrap_or(CompiledPlot::DEFAULT_MARGIN)
     };
@@ -220,8 +221,7 @@ impl CompiledPlot {
                             if let Some(scale) = scales.get(&scale_key) {
                                 use crate::scales::ConfiguredScaleDataFusionExt;
                                 // Convert SerializableExpr to Expr first
-                                expr.to_expr(ctx)
-                                    .and_then(|e| scale.to_expr(e))
+                                expr.to_expr(ctx).and_then(|e| scale.to_expr(e))
                             } else {
                                 // No scale found, return expression as-is - convert to Expr
                                 expr.to_expr(ctx)
@@ -584,16 +584,18 @@ impl CompiledPlot {
         let all_legends = self.get_legends_with_theme(scales, ctx, params);
 
         // Use the helper to merge legend channels
-        let (_channel_groups, legends_map) =
-            self.merge_legend_channels(&all_legends, scales, ctx, params).await?;
+        let (_channel_groups, legends_map) = self
+            .merge_legend_channels(&all_legends, scales, ctx, params)
+            .await?;
 
         // Prepare legend measurements
         let available_size = taffy::Size {
             width: width * Self::INITIAL_PLOT_AREA_RATIO,
             height: height * Self::INITIAL_PLOT_AREA_RATIO,
         };
-        let legend_measurements =
-            self.prepare_legend_measurements(&legends_map, scales, available_size, ctx, params).await?;
+        let legend_measurements = self
+            .prepare_legend_measurements(&legends_map, scales, available_size, ctx, params)
+            .await?;
 
         // Create ChartLayout with overflow directly
         let layout_spec = self.get_layout_spec();
@@ -631,8 +633,9 @@ impl CompiledPlot {
         let all_legend_configs = self.get_legends_with_theme(scales, ctx, params);
 
         // Use the helper to merge legend channels
-        let (sorted_channel_groups, _legends_map) =
-            self.merge_legend_channels(&all_legend_configs, scales, ctx, params).await?;
+        let (sorted_channel_groups, _legends_map) = self
+            .merge_legend_channels(&all_legend_configs, scales, ctx, params)
+            .await?;
 
         // Create legend marks positioned according to layout
         let mut legend_marks = Vec::new();
@@ -675,29 +678,32 @@ impl CompiledPlot {
                 use crate::plot::compiled::expr_eval::*;
                 use crate::serialization::LogicalExprNodeExt;
 
-                let visible = if let Some(node) = legend.visible.as_option().and_then(|o| o.as_ref()) {
-                    let expr = node.to_expr(ctx)?;
-                    evaluate_bool_expr(&expr, ctx, params).await?
-                } else {
-                    true // Default to visible
-                };
+                let visible =
+                    if let Some(node) = legend.visible.as_option().and_then(|o| o.as_ref()) {
+                        let expr = node.to_expr(ctx)?;
+                        evaluate_bool_expr(&expr, ctx, params).await?
+                    } else {
+                        true // Default to visible
+                    };
 
                 // Skip this legend group if no renderer is available or if not visible
                 if visible {
                     if let Some(renderer) = renderer_opt {
                         // Render the legend with the determined renderer
                         let theme = self.get_theme();
-                        let group_opt = renderer.render(
-                            &channels,
-                            legend,
-                            bounds.x,
-                            bounds.y,
-                            bounds.width,
-                            bounds.height,
-                            theme.as_ref(),
-                            params,
-                            ctx,
-                        ).await?;
+                        let group_opt = renderer
+                            .render(
+                                &channels,
+                                legend,
+                                bounds.x,
+                                bounds.y,
+                                bounds.width,
+                                bounds.height,
+                                theme.as_ref(),
+                                params,
+                                ctx,
+                            )
+                            .await?;
 
                         // Add the legend group mark if it was rendered
                         if let Some(group) = group_opt {
@@ -761,12 +767,9 @@ impl CompiledPlot {
             .await?;
 
         // Create legends
-        let legend_marks = self.create_legends_with_layout(
-            scales,
-            &layout.taffy_layout,
-            ctx,
-            params,
-        ).await?;
+        let legend_marks = self
+            .create_legends_with_layout(scales, &layout.taffy_layout, ctx, params)
+            .await?;
 
         // Create title
         let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
@@ -863,7 +866,8 @@ impl CompiledPlot {
         // Use estimated dimensions for initial scale construction
         // Default to reasonable sizes if not specified
         let estimated_plot_width = estimated_width.unwrap_or(400.0) * Self::INITIAL_PLOT_AREA_RATIO;
-        let estimated_plot_height = estimated_height.unwrap_or(300.0) * Self::INITIAL_PLOT_AREA_RATIO;
+        let estimated_plot_height =
+            estimated_height.unwrap_or(300.0) * Self::INITIAL_PLOT_AREA_RATIO;
 
         // Create initial RenderContext with estimated dimensions and SessionContext
         let theme = self.get_theme();
@@ -919,12 +923,7 @@ impl CompiledPlot {
 
         // STAGE 4: RENDER ALL COMPONENTS WITH FINAL SCALES
         let all_component_marks = self
-            .render_all_components(
-                &final_configured_scales,
-                &layout,
-                ctx,
-                &merged_params,
-            )
+            .render_all_components(&final_configured_scales, &layout, ctx, &merged_params)
             .await?;
 
         let (mark_groups, guide_marks, legend_marks, title_marks, subtitle_marks) =
@@ -962,8 +961,7 @@ impl CompiledPlot {
         };
 
         // Add background rect if theme specifies one
-        let canvas_ctx =
-            crate::theme::ThemeContext::new("canvas", merged_params.clone());
+        let canvas_ctx = crate::theme::ThemeContext::new("canvas", merged_params.clone());
         if let Some(color) = theme
             .query(&canvas_ctx, "background-color")
             .and_then(|v| v.as_color_array())

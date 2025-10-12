@@ -108,7 +108,10 @@ macro_rules! impl_mark_trait_common {
             self.get_data_context()
         }
 
-        fn compile(&self, compiled_state: $crate::marks::CompiledMarkState) -> std::sync::Arc<dyn $crate::marks::CompiledMark> {
+        fn compile(
+            &self,
+            compiled_state: $crate::marks::CompiledMarkState,
+        ) -> std::sync::Arc<dyn $crate::marks::CompiledMark> {
             std::sync::Arc::new($renderer_type {
                 state: compiled_state,
             })

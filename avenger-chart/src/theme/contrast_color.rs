@@ -144,7 +144,8 @@ mod tests {
     fn test_parse_contrast_color_with_hex() {
         // contrast-color(#000000) should return white
         let args = vec![ThemeValue::String("#000000".to_string())];
-        let result = resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         assert_eq!(result.red, 255);
         assert_eq!(result.green, 255);
@@ -156,7 +157,8 @@ mod tests {
     fn test_parse_contrast_color_with_named_color() {
         // contrast-color(blue) should return white
         let args = vec![ThemeValue::String("blue".to_string())];
-        let result = resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         assert_eq!(result.red, 255);
         assert_eq!(result.green, 255);
@@ -167,7 +169,8 @@ mod tests {
     fn test_parse_contrast_color_with_white() {
         // contrast-color(white) should return black
         let args = vec![ThemeValue::String("white".to_string())];
-        let result = resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         assert_eq!(result.red, 0);
         assert_eq!(result.green, 0);
@@ -185,7 +188,8 @@ mod tests {
         };
 
         let args = vec![ThemeValue::Color(black)];
-        let result = resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         // Should return white
         assert_eq!(result.red, 255);
@@ -197,18 +201,23 @@ mod tests {
     fn test_parse_contrast_color_invalid_args() {
         // No arguments
         let args: Vec<ThemeValue> = vec![];
-        assert!(resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).is_none());
+        assert!(
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).is_none()
+        );
 
         // Invalid base color
         let args = vec![ThemeValue::Number(5.0)];
-        assert!(resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).is_none());
+        assert!(
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).is_none()
+        );
     }
 
     #[test]
     fn test_parse_contrast_color_yellow() {
         // Yellow is very light, should get black
         let args = vec![ThemeValue::String("#ffff00".to_string())];
-        let result = resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         assert_eq!(result.red, 0);
         assert_eq!(result.green, 0);
@@ -219,7 +228,8 @@ mod tests {
     fn test_parse_contrast_color_purple() {
         // Purple/navy is dark, should get white
         let args = vec![ThemeValue::String("#000080".to_string())]; // navy
-        let result = resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         assert_eq!(result.red, 255);
         assert_eq!(result.green, 255);
@@ -322,7 +332,8 @@ mod tests {
             ThemeValue::String("#eeeeee".to_string()), // Lighter gray
         ];
 
-        let result = resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         // #eee should be chosen (better contrast)
         assert_eq!(result.red, 0xee);
@@ -340,7 +351,8 @@ mod tests {
             ThemeValue::String("purple".to_string()),
         ];
 
-        let result = resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         // Navy should provide best contrast
         // Navy is rgb(0, 0, 128)
@@ -350,7 +362,9 @@ mod tests {
     #[test]
     fn test_parse_contrast_color_empty_args() {
         let args: Vec<ThemeValue> = vec![];
-        assert!(resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).is_none());
+        assert!(
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).is_none()
+        );
     }
 
     #[test]
@@ -362,7 +376,8 @@ mod tests {
             ThemeValue::Number(10.0), // Invalid
         ];
 
-        let result = resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_contrast_color_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         // Should fall back to black/white since no valid candidates
         // Blue is dark, should get white

@@ -3,7 +3,9 @@
 use super::{LegendChannel, LegendRenderer};
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
-use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_f64_expr, evaluate_string_expr, evaluate_legend_position_expr};
+use crate::plot::compiled::expr_eval::{
+    evaluate_f32_expr, evaluate_f64_expr, evaluate_legend_position_expr, evaluate_string_expr,
+};
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation};
 use avenger_scenegraph::marks::group::SceneGroup;
@@ -89,13 +91,18 @@ impl LegendRenderer for CompiledColorbar {
         // Evaluate gradient_thickness expression (from expression, theme, or default)
         use crate::serialization::LogicalExprNodeExt;
 
-        let gradient_thickness = if let Some(node) = config.gradient_thickness.as_option().and_then(|o| o.as_ref()) {
+        let gradient_thickness = if let Some(node) = config
+            .gradient_thickness
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             evaluate_f64_expr(&expr, ctx, params).await?
         } else {
             // Query from theme legend context
             let legend_ctx = theme.legend_context_with_params(Some("colorbar"), params.clone());
-            theme.query(&legend_ctx, "gradient-thickness")
+            theme
+                .query(&legend_ctx, "gradient-thickness")
                 .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
                 .map(|f| f as f64)
                 .unwrap_or(Self::DEFAULT_GRADIENT_THICKNESS)
@@ -138,7 +145,7 @@ impl LegendRenderer for CompiledColorbar {
             colorbar_width: colorbar_width_param,
             colorbar_height: colorbar_height_param,
             colorbar_margin: Some(0.0), // No margin - align exactly with axis
-            format_number: None, // Will be set below after evaluating expression
+            format_number: None,        // Will be set below after evaluating expression
             background_fill: None,
             background_stroke: None,
             background_corner_radius: None,
@@ -183,7 +190,11 @@ impl LegendRenderer for CompiledColorbar {
         }
 
         // Evaluate and set typography from legend config
-        if let Some(node) = config.title_font_family.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .title_font_family
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             legend_config.title_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
@@ -192,8 +203,7 @@ impl LegendRenderer for CompiledColorbar {
             legend_config.title_font_size = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         // Override font sizes with params
-        let legend_ctx = theme
-            .legend_context_with_params(Some("colorbar"), params.clone());
+        let legend_ctx = theme.legend_context_with_params(Some("colorbar"), params.clone());
         let title_ctx = legend_ctx.child("title");
         let tick_ctx = legend_ctx.child("tick");
 
@@ -203,7 +213,11 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(size) = theme.font_size(&tick_ctx) {
             legend_config.label_font_size = Some(size);
         }
-        if let Some(node) = config.title_font_weight.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .title_font_weight
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
             legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
@@ -220,13 +234,22 @@ impl LegendRenderer for CompiledColorbar {
         }
 
         // Evaluate and apply legend background styling if provided
-        if let Some(node) = config.background_padding.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .background_padding
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             legend_config.background_padding = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
-        if let Some(node) = config.background_corner_radius.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .background_corner_radius
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
-            legend_config.background_corner_radius = Some(evaluate_f32_expr(&expr, ctx, params).await?);
+            legend_config.background_corner_radius =
+                Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
@@ -235,7 +258,11 @@ impl LegendRenderer for CompiledColorbar {
                 legend_config.background_fill = Some(color);
             }
         }
-        if let Some(node) = config.background_stroke.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .background_stroke
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
             if let Some(color) = crate::utils::parse_color_string(&stroke_str) {

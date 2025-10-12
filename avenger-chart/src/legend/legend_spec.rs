@@ -596,9 +596,7 @@ mod tests {
     #[test]
     fn test_legend_opacity_with_gradient() {
         let plot = Plot::<ZeroDCoord>::new().legend("opacity", |legend| {
-            legend
-                .title("Confidence")
-                .gradient_thickness(15.0)
+            legend.title("Confidence").gradient_thickness(15.0)
         });
 
         assert!(plot.legends.contains_key("opacity"));
