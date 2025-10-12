@@ -12,16 +12,17 @@ Plot::<Cartesian>::new()
     .mark(
         Rect::new()
             .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
     )
 ```
 
-This creates vertical bars from 0 to the value in each category.
+This creates vertical bars from 0 to the value in each category. The `x2` channel uses the special `:x` reference with `.band(1.0)` to span the full width of each categorical band.
 
 ## Horizontal Bars
 
-Swap x and y:
+Swap x and y coordinates:
 
 ```rust,render,ignore
 use avenger_chart::prelude::*;
@@ -30,9 +31,10 @@ Plot::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
-            .y(col("category"))
             .x(lit(0.0))
             .x2(col("value"))
+            .y(col("category"))
+            .y2_with(col(":y"), |c| c.band(1.0))
     )
 ```
 
@@ -48,6 +50,7 @@ Plot::<Cartesian>::new()
     .mark(
         Rect::new()
             .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
             .fill("#4682b4")
@@ -64,6 +67,7 @@ Plot::<Cartesian>::new()
     .mark(
         Rect::new()
             .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
             .fill("lightblue")
@@ -86,6 +90,7 @@ Plot::<Cartesian>::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| s.padding_inner(0.3))
             })
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
     )
@@ -103,6 +108,7 @@ Plot::<Cartesian>::new()
     .mark(
         Rect::new()
             .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
             .fill_with(col("category"), |c| {
@@ -151,6 +157,7 @@ Plot::<Cartesian>::new()
     .mark(
         Rect::new()
             .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("total"))
     )
@@ -181,6 +188,7 @@ Plot::<Cartesian>::new()
     .mark(
         Rect::new()
             .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
     )
@@ -229,6 +237,7 @@ Plot::<Cartesian>::new()
     .mark(
         Rect::new()
             .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("change"))  // Can be positive or negative
             .fill_with(status, |c| {
@@ -277,6 +286,7 @@ Plot::<Cartesian>::new()
             .x_with(col("MPAA Rating"), |c| {
                 c.scale_with::<Band>(|s| s.padding_inner(0.2))
             })
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("total_gross"))
             .fill_with(col("MPAA Rating"), |c| {
