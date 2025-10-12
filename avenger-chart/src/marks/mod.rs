@@ -73,7 +73,10 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
 
     /// Convenience method to compile a mark without transforming its DataFrame
     /// This is useful for tests and simple cases where no aggregation is needed
-    fn compile_untransformed(&self, ctx: &datafusion::prelude::SessionContext) -> Arc<dyn CompiledMark> {
+    fn compile_untransformed(
+        &self,
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> Arc<dyn CompiledMark> {
         let mark_state = self.state();
         let df = mark_state
             .data

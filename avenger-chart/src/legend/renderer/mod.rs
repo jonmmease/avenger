@@ -88,17 +88,20 @@ pub trait LegendRenderer: Send + Sync + 'static {
         use avenger_geometry::rtree::EnvelopeUtils;
         use taffy::Size;
 
-        if let Some(group) = self.render(
-            channels,
-            config,
-            0.0,
-            0.0,
-            available_space.width,
-            available_space.height,
-            theme,
-            params,
-            ctx,
-        ).await? {
+        if let Some(group) = self
+            .render(
+                channels,
+                config,
+                0.0,
+                0.0,
+                available_space.width,
+                available_space.height,
+                theme,
+                params,
+                ctx,
+            )
+            .await?
+        {
             let bounds = group.bounding_box();
 
             // Account for stroke width on background if present

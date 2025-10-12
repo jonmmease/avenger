@@ -25,17 +25,22 @@ pub fn make_colorbar_marks(
             let available_width = config.dimensions[0];
             let _available_height = config.dimensions[1];
 
-            let total_width = config
-                .colorbar_height
-                .unwrap_or(available_width.min(200.0));
+            let total_width = config.colorbar_height.unwrap_or(available_width.min(200.0));
             let bg_padding = config.background_padding.unwrap_or(4.0);
 
             // For horizontal colorbars (Top/Bottom), measure tick label widths to reserve horizontal space
             // This ensures tick labels at left/right don't run into the background edge
             let measurer = default_text_measurer();
             let label_font_size = config.label_font_size.unwrap_or(10.0);
-            let label_font_weight = config.label_font_weight.as_ref().unwrap_or(&FontWeight::Number(400.0));
-            let label_font_family = config.label_font_family.as_ref().map(|s| s.as_str()).unwrap_or("sans-serif");
+            let label_font_weight = config
+                .label_font_weight
+                .as_ref()
+                .unwrap_or(&FontWeight::Number(400.0));
+            let label_font_family = config
+                .label_font_family
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("sans-serif");
 
             // Get the domain min and max values to measure their formatted width
             let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
@@ -75,10 +80,13 @@ pub fn make_colorbar_marks(
             // Only reduce gradient if text overflow exceeds available padding
             // Keep a minimum margin between text and background edge
             let min_margin = 2.0;
-            let horizontal_text_padding = ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
+            let horizontal_text_padding =
+                ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
 
             // Calculate the actual gradient width by subtracting padding and text padding
-            let gradient_width = ((total_width - 2.0 * bg_padding - 2.0 * horizontal_text_padding).max(10.0)).round();
+            let gradient_width = ((total_width - 2.0 * bg_padding - 2.0 * horizontal_text_padding)
+                .max(10.0))
+            .round();
             let colorbar_height = config.colorbar_width.unwrap_or(15.0).round();
             let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
 
@@ -219,8 +227,15 @@ pub fn make_colorbar_marks(
             // This ensures tick labels at left/right don't run into the background edge
             let measurer = default_text_measurer();
             let label_font_size = config.label_font_size.unwrap_or(10.0);
-            let label_font_weight = config.label_font_weight.as_ref().unwrap_or(&FontWeight::Number(400.0));
-            let label_font_family = config.label_font_family.as_ref().map(|s| s.as_str()).unwrap_or("sans-serif");
+            let label_font_weight = config
+                .label_font_weight
+                .as_ref()
+                .unwrap_or(&FontWeight::Number(400.0));
+            let label_font_family = config
+                .label_font_family
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("sans-serif");
 
             // Get the domain min and max values to measure their formatted width
             let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
@@ -260,10 +275,13 @@ pub fn make_colorbar_marks(
             // Only reduce gradient if text overflow exceeds available padding
             // Keep a minimum margin between text and background edge
             let min_margin = 2.0;
-            let horizontal_text_padding = ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
+            let horizontal_text_padding =
+                ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
 
             // Calculate the actual gradient width by subtracting padding and text padding
-            let gradient_width = ((total_width - 2.0 * bg_padding - 2.0 * horizontal_text_padding).max(10.0)).round();
+            let gradient_width = ((total_width - 2.0 * bg_padding - 2.0 * horizontal_text_padding)
+                .max(10.0))
+            .round();
             let colorbar_height = config.colorbar_width.unwrap_or(15.0).round(); // thickness
             let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
 
@@ -400,8 +418,15 @@ pub fn make_colorbar_marks(
             // This ensures tick labels at top/bottom don't run into the background edge
             let measurer = default_text_measurer();
             let label_font_size = config.label_font_size.unwrap_or(10.0);
-            let label_font_weight = config.label_font_weight.as_ref().unwrap_or(&FontWeight::Number(400.0));
-            let label_font_family = config.label_font_family.as_ref().map(|s| s.as_str()).unwrap_or("sans-serif");
+            let label_font_weight = config
+                .label_font_weight
+                .as_ref()
+                .unwrap_or(&FontWeight::Number(400.0));
+            let label_font_family = config
+                .label_font_family
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("sans-serif");
 
             let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: "0",
@@ -417,10 +442,12 @@ pub fn make_colorbar_marks(
             // Only reduce gradient if text overflow exceeds available padding
             // Keep a minimum margin between text and background edge
             let min_margin = 2.0;
-            let vertical_text_padding = ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
+            let vertical_text_padding =
+                ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
 
             // Calculate the actual gradient height by subtracting padding and text padding
-            let gradient_height = ((total_height - 2.0 * bg_padding - 2.0 * vertical_text_padding).max(10.0)).round();
+            let gradient_height =
+                ((total_height - 2.0 * bg_padding - 2.0 * vertical_text_padding).max(10.0)).round();
             let colorbar_width = config.colorbar_width.unwrap_or(15.0).round();
             let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
 
@@ -469,7 +496,8 @@ pub fn make_colorbar_marks(
             // So we need to find where to place the axis origin
 
             // First measure the axis to see its extent
-            let _axis_temp = make_numeric_axis_marks(&numeric_scale, title, [0.0, 0.0], &axis_config)?;
+            let _axis_temp =
+                make_numeric_axis_marks(&numeric_scale, title, [0.0, 0.0], &axis_config)?;
 
             // The axis origin should be positioned so the axis ends at -colorbar_margin
             // (i.e., margin distance to the left of the rect at x=0)
@@ -577,8 +605,15 @@ pub fn make_colorbar_marks(
             // This ensures tick labels at top/bottom don't run into the background edge
             let measurer = default_text_measurer();
             let label_font_size = config.label_font_size.unwrap_or(10.0);
-            let label_font_weight = config.label_font_weight.as_ref().unwrap_or(&FontWeight::Number(400.0));
-            let label_font_family = config.label_font_family.as_ref().map(|s| s.as_str()).unwrap_or("sans-serif");
+            let label_font_weight = config
+                .label_font_weight
+                .as_ref()
+                .unwrap_or(&FontWeight::Number(400.0));
+            let label_font_family = config
+                .label_font_family
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("sans-serif");
 
             let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: "0",
@@ -594,11 +629,13 @@ pub fn make_colorbar_marks(
             // Only reduce gradient if text overflow exceeds available padding
             // Keep a minimum margin between text and background edge
             let min_margin = 2.0;
-            let vertical_text_padding = ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
+            let vertical_text_padding =
+                ((text_overflow - (bg_padding - min_margin)).max(0.0)).round();
 
             // Calculate the actual gradient height by subtracting padding and text padding
             // Round dimensions to pixel boundaries
-            let gradient_height = ((total_height - 2.0 * bg_padding - 2.0 * vertical_text_padding).max(10.0)).round();
+            let gradient_height =
+                ((total_height - 2.0 * bg_padding - 2.0 * vertical_text_padding).max(10.0)).round();
 
             let colorbar_width = config.colorbar_width.unwrap_or(15.0).round();
             let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();

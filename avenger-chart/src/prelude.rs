@@ -75,6 +75,9 @@ pub use crate::render::CanvasExt;
 // Re-export error type
 pub use crate::error::AvengerChartError;
 
+// Re-export parameter type
+pub use crate::param::Param;
+
 // Re-export DataFusion prelude for data manipulation
 pub use datafusion::prelude::{Expr, col, lit};
 

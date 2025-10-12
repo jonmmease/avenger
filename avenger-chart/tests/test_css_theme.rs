@@ -49,9 +49,15 @@ fn test_context_matching() {
         .with_id("main-mark");
     let fill_id = theme.query(&context_with_id, "fill");
     if let Some(ThemeValue::Color(color)) = fill_id {
-        assert_eq!(color.green, 128, "Mark with ID 'main-mark' should be green (#008000)");
+        assert_eq!(
+            color.green, 128,
+            "Mark with ID 'main-mark' should be green (#008000)"
+        );
     } else {
-        panic!("Expected green color for mark with ID 'main-mark', got {:?}", fill_id);
+        panic!(
+            "Expected green color for mark with ID 'main-mark', got {:?}",
+            fill_id
+        );
     }
 }
 
@@ -200,7 +206,10 @@ fn test_specificity_cascade() {
     let fill = theme.query(&context, "fill");
     // ID selector should win (highest specificity)
     if let Some(ThemeValue::Color(color)) = fill {
-        assert_eq!(color.green, 128, "ID selector should have highest specificity (green)");
+        assert_eq!(
+            color.green, 128,
+            "ID selector should have highest specificity (green)"
+        );
     } else {
         panic!("Expected green color from ID selector, got {:?}", fill);
     }
@@ -220,13 +229,19 @@ fn test_value_conversions() {
     let context = ThemeContext::new("mark", IndexMap::new());
 
     let size = theme.query(&context, "size");
-    assert_eq!(size.and_then(|v| v.as_font_size(&indexmap::IndexMap::new(), 12.0)), Some(100.0));
+    assert_eq!(
+        size.and_then(|v| v.as_font_size(&indexmap::IndexMap::new(), 12.0)),
+        Some(100.0)
+    );
 
     let opacity = theme.query(&context, "opacity");
     assert_eq!(opacity.and_then(|v| v.as_number()), Some(0.5));
 
     let stroke_width = theme.query(&context, "stroke-width");
-    assert_eq!(stroke_width.and_then(|v| v.as_font_size(&indexmap::IndexMap::new(), 12.0)), Some(2.0));
+    assert_eq!(
+        stroke_width.and_then(|v| v.as_font_size(&indexmap::IndexMap::new(), 12.0)),
+        Some(2.0)
+    );
 }
 
 // NOTE: Comprehensive descendant selector tests have been moved to test_css_descendant.rs

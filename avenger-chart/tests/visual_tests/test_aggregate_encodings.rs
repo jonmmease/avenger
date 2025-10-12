@@ -6,8 +6,8 @@ use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::functions_aggregate::expr_fn::{count, sum};
 use datafusion::functions_aggregate::average::avg;
+use datafusion::functions_aggregate::expr_fn::{count, sum};
 use datafusion::prelude::*;
 use std::sync::Arc;
 
@@ -39,11 +39,7 @@ fn create_sales_data() -> DataFrame {
 
     let batch = RecordBatch::try_new(
         schema,
-        vec![
-            Arc::new(categories),
-            Arc::new(sales),
-            Arc::new(profit),
-        ],
+        vec![Arc::new(categories), Arc::new(sales), Arc::new(profit)],
     )
     .expect("Failed to create RecordBatch");
 
@@ -123,14 +119,7 @@ async fn test_aggregate_multiple_aggregates() {
         );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-    assert_visual_match_default(
-        &compiled,
-        &ctx,
-        None,
-        "aggregate",
-        "multiple_aggregates",
-    )
-    .await;
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "multiple_aggregates").await;
 }
 
 #[tokio::test]
@@ -212,14 +201,7 @@ async fn test_aggregate_movies_by_mpaa_rating() {
         );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-    assert_visual_match_default(
-        &compiled,
-        &ctx,
-        None,
-        "aggregate",
-        "movies_by_mpaa_rating",
-    )
-    .await;
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "movies_by_mpaa_rating").await;
 }
 
 #[tokio::test]
@@ -261,12 +243,5 @@ async fn test_aggregate_movies_symbol_plot() {
         );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-    assert_visual_match_default(
-        &compiled,
-        &ctx,
-        None,
-        "aggregate",
-        "movies_symbol_plot",
-    )
-    .await;
+    assert_visual_match_default(&compiled, &ctx, None, "aggregate", "movies_symbol_plot").await;
 }

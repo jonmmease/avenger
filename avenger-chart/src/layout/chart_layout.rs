@@ -570,7 +570,15 @@ fn build_taffy_tree(
     create_overflow_nodes(&mut taffy, &mut nodes, grid_layout, overflow)?;
 
     // Create title and subtitle nodes
-    create_title_nodes(&mut taffy, &mut nodes, grid_layout, title, subtitle, title_span, subtitle_span)?;
+    create_title_nodes(
+        &mut taffy,
+        &mut nodes,
+        grid_layout,
+        title,
+        subtitle,
+        title_span,
+        subtitle_span,
+    )?;
 
     // Create legend nodes
     create_legend_nodes(
@@ -652,37 +660,36 @@ fn create_title_nodes(
     subtitle_span: TitleSpan,
 ) -> Result<(), AvengerChartError> {
     // Helper function to calculate grid column based on TitleSpan
-    let calculate_grid_column =
-        |col: usize, span: TitleSpan, grid_layout: &GridLayout| match span {
-            TitleSpan::PlotArea => {
-                let mut plot_col = col;
-                for ((_, c), comp) in &grid_layout.component_cells {
-                    if matches!(comp, ComponentType::PlotArea) {
-                        plot_col = *c;
-                        break;
-                    }
+    let calculate_grid_column = |col: usize, span: TitleSpan, grid_layout: &GridLayout| match span {
+        TitleSpan::PlotArea => {
+            let mut plot_col = col;
+            for ((_, c), comp) in &grid_layout.component_cells {
+                if matches!(comp, ComponentType::PlotArea) {
+                    plot_col = *c;
+                    break;
                 }
-                line((plot_col + 1) as i16)
             }
-            TitleSpan::Canvas => {
-                let mut end_col = col;
-                for ((_, c), _comp) in &grid_layout.component_cells {
-                    if *c > end_col {
-                        end_col = *c;
-                    }
+            line((plot_col + 1) as i16)
+        }
+        TitleSpan::Canvas => {
+            let mut end_col = col;
+            for ((_, c), _comp) in &grid_layout.component_cells {
+                if *c > end_col {
+                    end_col = *c;
                 }
+            }
 
-                let span_count = (end_col - col + 1) as u16;
-                if span_count == 1 {
-                    line((col + 1) as i16)
-                } else {
-                    Line {
-                        start: line((col + 1) as i16),
-                        end: line((end_col + 2) as i16),
-                    }
+            let span_count = (end_col - col + 1) as u16;
+            if span_count == 1 {
+                line((col + 1) as i16)
+            } else {
+                Line {
+                    start: line((col + 1) as i16),
+                    end: line((end_col + 2) as i16),
                 }
             }
-        };
+        }
+    };
 
     // Create title node
     if let Some((row, col)) = grid_layout.find_component_position(&ComponentType::Title) {

@@ -490,9 +490,7 @@ impl GridBuilder {
         }
 
         // 8. Position left legend containers at the plot row
-        if self
-            .legends_by_position
-            .contains_key(&LegendPosition::Left)
+        if self.legends_by_position.contains_key(&LegendPosition::Left)
             && !left_legend_cols.is_empty()
         {
             grid.add_component(

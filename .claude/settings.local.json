@@ -65,7 +65,8 @@
       "Bash(timeout 180 cargo test --package avenger-chart --test visual_regression visual_tests::test_media_query_guide_background::test_media_query_guide_background_responsive -- --exact --nocapture)",
       "Bash(timeout 240 cargo test --package avenger-chart --test visual_regression visual_tests::test_media_query_guide_background::test_media_query_guide_background_responsive -- --exact --nocapture 2)",
       "Bash(1)",
-      "Bash(timeout 240 cargo test --package avenger-chart --test visual_regression visual_tests::test_media_query_guide_background::test_media_query_guide_background_responsive -- --exact --nocapture)"
+      "Bash(timeout 240 cargo test --package avenger-chart --test visual_regression visual_tests::test_media_query_guide_background::test_media_query_guide_background_responsive -- --exact --nocapture)",
+      "Bash(mdbook:*)"
     ]
   },
   "enableAllProjectMcpServers": false

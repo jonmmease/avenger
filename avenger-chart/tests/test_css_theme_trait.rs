@@ -23,10 +23,15 @@ fn test_css_theme_implements_trait() {
         Some(ThemeValue::Color(rgba)) => {
             // Color #4c78a8 (steel blue)
             assert_eq!(rgba.red, 0x4c, "Fill color red component should be 0x4c");
-            assert_eq!(rgba.green, 0x78, "Fill color green component should be 0x78");
+            assert_eq!(
+                rgba.green, 0x78,
+                "Fill color green component should be 0x78"
+            );
             assert_eq!(rgba.blue, 0xa8, "Fill color blue component should be 0xa8");
         }
-        Some(ThemeValue::String(s)) => assert!(s.starts_with("#"), "String color should start with #"),
+        Some(ThemeValue::String(s)) => {
+            assert!(s.starts_with("#"), "String color should start with #")
+        }
         _ => panic!("Expected color value for fill, got {:?}", fill),
     }
 
@@ -45,28 +50,39 @@ fn test_css_theme_implements_trait() {
         Some(ThemeValue::Color(rgba)) => {
             // Color #333 (expanded to #333333)
             assert_eq!(rgba.red, 0x33, "Axis color red component should be 0x33");
-            assert_eq!(rgba.green, 0x33, "Axis color green component should be 0x33");
+            assert_eq!(
+                rgba.green, 0x33,
+                "Axis color green component should be 0x33"
+            );
             assert_eq!(rgba.blue, 0x33, "Axis color blue component should be 0x33");
         }
-        Some(ThemeValue::String(s)) => assert_eq!(s, "#333333", "Axis color string should be #333333"),
+        Some(ThemeValue::String(s)) => {
+            assert_eq!(s, "#333333", "Axis color string should be #333333")
+        }
         _ => panic!("Expected color value for axis color, got {:?}", color),
     }
 
     let font_size = theme.query(&axis_context, "font-size");
-    assert!(matches!(font_size, Some(ThemeValue::Length(14.0, _))),
-        "Axis font-size should be 14px");
+    assert!(
+        matches!(font_size, Some(ThemeValue::Length(14.0, _))),
+        "Axis font-size should be 14px"
+    );
 
     // Test axis with class
     let label_context = ThemeContext::new("axis", IndexMap::new()).with_class("label");
     let font_weight = theme.query(&label_context, "font-weight");
-    assert!(matches!(font_weight, Some(ThemeValue::Number(n)) if n == 300.0),
-        "Axis label font-weight should be 300");
+    assert!(
+        matches!(font_weight, Some(ThemeValue::Number(n)) if n == 300.0),
+        "Axis label font-weight should be 300"
+    );
 
     // Test legend with class
     let legend_title_context = ThemeContext::new("legend", IndexMap::new()).with_class("title");
     let title_size = theme.query(&legend_title_context, "font-size");
-    assert!(matches!(title_size, Some(ThemeValue::Length(16.0, _))),
-        "Legend title font-size should be 16px");
+    assert!(
+        matches!(title_size, Some(ThemeValue::Length(16.0, _))),
+        "Legend title font-size should be 16px"
+    );
 }
 
 #[test]
@@ -118,7 +134,9 @@ fn test_clone_box() {
             // Green color (#008000)
             assert_eq!(rgba.green, 128, "Cloned theme should have green fill");
         }
-        Some(ThemeValue::String(s)) => assert!(s.starts_with("#"), "String color should start with #"),
+        Some(ThemeValue::String(s)) => {
+            assert!(s.starts_with("#"), "String color should start with #")
+        }
         _ => panic!("Expected color value for cloned theme fill, got {:?}", fill),
     }
 }

@@ -20,7 +20,10 @@ fn assert_color_eq(value: Option<ThemeValue>, r: u8, g: u8, b: u8, message: &str
             assert_eq!(color.green, g, "{} - green component", message);
             assert_eq!(color.blue, b, "{} - blue component", message);
         }
-        other => panic!("{}: Expected Color({}, {}, {}), got {:?}", message, r, g, b, other),
+        other => panic!(
+            "{}: Expected Color({}, {}, {}), got {:?}",
+            message, r, g, b, other
+        ),
     }
 }
 
@@ -66,7 +69,10 @@ fn test_basic_descendant_selector() {
     // Blue #0000ff = rgb(0, 0, 255) = [0.0, 0.0, 1.0, 1.0]
     assert!(axis_stroke[0].abs() < 0.01, "axis blue has no red");
     assert!(axis_stroke[1].abs() < 0.01, "axis blue has no green");
-    assert!((axis_stroke[2] - 1.0).abs() < 0.01, "axis should have blue stroke (B=1.0)");
+    assert!(
+        (axis_stroke[2] - 1.0).abs() < 0.01,
+        "axis should have blue stroke (B=1.0)"
+    );
 }
 
 /// Test descendant selectors with attribute selectors
@@ -102,7 +108,13 @@ fn test_descendant_with_attributes() {
         "Symbol in cartesian should have size 100px"
     );
     let fill = theme.query(&symbol_in_cartesian, "fill");
-    assert_color_eq(fill, 0, 128, 0, "coords[type=cartesian] mark[type=symbol] should be green");
+    assert_color_eq(
+        fill,
+        0,
+        128,
+        0,
+        "coords[type=cartesian] mark[type=symbol] should be green",
+    );
 }
 
 /// Test multi-level descendant selectors

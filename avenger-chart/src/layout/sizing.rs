@@ -344,28 +344,36 @@ impl Margins {
     /// Set the top margin
     pub fn top(mut self, value: impl IntoExprDimension) -> Self {
         let expr = value.into_expr_dim();
-        self.top = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr")));
+        self.top = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr"),
+        ));
         self
     }
 
     /// Set the right margin
     pub fn right(mut self, value: impl IntoExprDimension) -> Self {
         let expr = value.into_expr_dim();
-        self.right = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr")));
+        self.right = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr"),
+        ));
         self
     }
 
     /// Set the bottom margin
     pub fn bottom(mut self, value: impl IntoExprDimension) -> Self {
         let expr = value.into_expr_dim();
-        self.bottom = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr")));
+        self.bottom = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr"),
+        ));
         self
     }
 
     /// Set the left margin
     pub fn left(mut self, value: impl IntoExprDimension) -> Self {
         let expr = value.into_expr_dim();
-        self.left = Maybe::Set(Some(LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr")));
+        self.left = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr"),
+        ));
         self
     }
 }

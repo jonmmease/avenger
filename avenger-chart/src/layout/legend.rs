@@ -29,11 +29,19 @@ pub async fn measure_legend_size_with_channels(
 
     if !visible {
         // Return zero size for invisible legends
-        return Ok((Size { width: 0.0, height: 0.0 }, false));
+        return Ok((
+            Size {
+                width: 0.0,
+                height: 0.0,
+            },
+            false,
+        ));
     }
 
     // Ask the renderer to measure itself with all merged channels
-    let size = renderer.measure(legend_channels, legend, available_space, theme, params, ctx).await?;
+    let size = renderer
+        .measure(legend_channels, legend, available_space, theme, params, ctx)
+        .await?;
     let flexible = renderer.prefers_flexible_layout();
     Ok((size, flexible))
 }

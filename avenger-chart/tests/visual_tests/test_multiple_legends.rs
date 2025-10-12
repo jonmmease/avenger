@@ -421,7 +421,14 @@ async fn test_colorbar_with_symbols_bottom() {
         );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-    assert_visual_match_default(&compiled, &ctx, None, "layout", "colorbar_with_symbols_bottom").await;
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "colorbar_with_symbols_bottom",
+    )
+    .await;
 }
 
 // ============================================================================

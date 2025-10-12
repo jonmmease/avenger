@@ -105,7 +105,6 @@ fn test_contrast_color_with_hex() {
 /// Test contrast-color() with CSS variable for background color
 #[test]
 fn test_contrast_color_with_css_variable() {
-
     let css = r#"
         :root {
             --bg-color: #ffffff;
@@ -136,7 +135,6 @@ fn test_contrast_color_with_css_variable() {
 
 #[test]
 fn test_contrast_color_with_runtime_params() {
-
     let css = r#"
         mark {
             fill: contrast-color(var(--user-bg));
@@ -340,9 +338,21 @@ fn test_contrast_color_with_candidates_static() {
 
     // #eee should be chosen (better contrast with #333)
     let expected = 0xee as f32 * U8_TO_F32;
-    assert!((color[0] - expected).abs() < COLOR_EPSILON, "Red component should be ~{}", expected);
-    assert!((color[1] - expected).abs() < COLOR_EPSILON, "Green component should be ~{}", expected);
-    assert!((color[2] - expected).abs() < COLOR_EPSILON, "Blue component should be ~{}", expected);
+    assert!(
+        (color[0] - expected).abs() < COLOR_EPSILON,
+        "Red component should be ~{}",
+        expected
+    );
+    assert!(
+        (color[1] - expected).abs() < COLOR_EPSILON,
+        "Green component should be ~{}",
+        expected
+    );
+    assert!(
+        (color[2] - expected).abs() < COLOR_EPSILON,
+        "Blue component should be ~{}",
+        expected
+    );
 }
 
 #[test]
@@ -360,12 +370,15 @@ fn test_contrast_color_with_brand_palette() {
 
     // Navy should provide best contrast (rgb 0, 0, 128)
     let expected_blue = 128.0 * U8_TO_F32;
-    assert!((color[2] - expected_blue).abs() < COLOR_EPSILON, "Blue component should be ~{}", expected_blue);
+    assert!(
+        (color[2] - expected_blue).abs() < COLOR_EPSILON,
+        "Blue component should be ~{}",
+        expected_blue
+    );
 }
 
 #[test]
 fn test_contrast_color_candidates_with_variable() {
-
     let css = r#"
         mark {
             fill: contrast-color(var(--bg), #aaa, #eee);
@@ -386,12 +399,15 @@ fn test_contrast_color_candidates_with_variable() {
 
     // #eee should be chosen
     let expected = 0xee as f32 * U8_TO_F32;
-    assert!((color[0] - expected).abs() < COLOR_EPSILON, "Red component should be ~{}", expected);
+    assert!(
+        (color[0] - expected).abs() < COLOR_EPSILON,
+        "Red component should be ~{}",
+        expected
+    );
 }
 
 #[test]
 fn test_contrast_color_all_variable_candidates() {
-
     let css = r#"
         mark {
             fill: contrast-color(var(--bg), var(--text1), var(--text2));
@@ -419,9 +435,21 @@ fn test_contrast_color_all_variable_candidates() {
 
     // #eee should be chosen (better contrast)
     let expected = 0xee as f32 * U8_TO_F32;
-    assert!((color[0] - expected).abs() < COLOR_EPSILON, "Red component should be ~{}", expected);
-    assert!((color[1] - expected).abs() < COLOR_EPSILON, "Green component should be ~{}", expected);
-    assert!((color[2] - expected).abs() < COLOR_EPSILON, "Blue component should be ~{}", expected);
+    assert!(
+        (color[0] - expected).abs() < COLOR_EPSILON,
+        "Red component should be ~{}",
+        expected
+    );
+    assert!(
+        (color[1] - expected).abs() < COLOR_EPSILON,
+        "Green component should be ~{}",
+        expected
+    );
+    assert!(
+        (color[2] - expected).abs() < COLOR_EPSILON,
+        "Blue component should be ~{}",
+        expected
+    );
 }
 
 #[test]
@@ -450,7 +478,6 @@ fn test_contrast_color_candidates_fallback_to_black_white() {
 /// Test contrast-color() used within color-mix() for subtle shading
 #[test]
 fn test_contrast_color_with_color_mix() {
-
     // Use color-mix to create a lighter shade by mixing background toward its contrast color
     let css = r#"
         mark {
@@ -501,7 +528,6 @@ fn test_contrast_color_with_color_mix() {
 
 #[test]
 fn test_contrast_color_with_color_mix_and_candidates() {
-
     // Mix background toward chosen candidate color (not black/white)
     let css = r#"
         mark {
@@ -530,7 +556,16 @@ fn test_contrast_color_with_color_mix_and_candidates() {
     // #f0f0f0 is rgb(240, 240, 240)
     // Navy is rgb(0, 0, 128)
     // 80% of 240 + 20% of 0/0/128 = 192, 192, 217.6
-    assert!((color[0] - 192.0 * U8_TO_F32).abs() < COLOR_EPSILON, "Red component should be ~192"); // R
-    assert!((color[1] - 192.0 * U8_TO_F32).abs() < COLOR_EPSILON, "Green component should be ~192"); // G
-    assert!((color[2] - 217.6 * U8_TO_F32).abs() < COLOR_MIX_EPSILON, "Blue component should be ~217.6"); // B (blue component from navy)
+    assert!(
+        (color[0] - 192.0 * U8_TO_F32).abs() < COLOR_EPSILON,
+        "Red component should be ~192"
+    ); // R
+    assert!(
+        (color[1] - 192.0 * U8_TO_F32).abs() < COLOR_EPSILON,
+        "Green component should be ~192"
+    ); // G
+    assert!(
+        (color[2] - 217.6 * U8_TO_F32).abs() < COLOR_MIX_EPSILON,
+        "Blue component should be ~217.6"
+    ); // B (blue component from navy)
 }

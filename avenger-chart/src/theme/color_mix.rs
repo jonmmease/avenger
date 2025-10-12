@@ -237,7 +237,8 @@ mod tests {
             }),
         ];
 
-        let result = resolve_color_mix_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_color_mix_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         // Should be purple (roughly 127, 0, 127)
         assert!(result.red > 120 && result.red < 135);
@@ -268,7 +269,8 @@ mod tests {
             ThemeValue::Percentage(25.0),
         ];
 
-        let result = resolve_color_mix_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
+        let result =
+            resolve_color_mix_with_params(&args, &indexmap::IndexMap::new(), 16.0).unwrap();
 
         // Should be more red than blue (roughly 191, 0, 64)
         assert!(result.red > 185);

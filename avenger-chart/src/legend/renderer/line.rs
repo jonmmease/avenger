@@ -202,17 +202,19 @@ impl LegendRenderer for CompiledLineLegend {
         };
 
         // Evaluate symbol size (line length) from expression, theme, or default
-        let line_length = if let Some(node) = config.symbol_size.as_option().and_then(|o| o.as_ref()) {
-            // Expression is set - evaluate it
-            let expr = node.to_expr(ctx)?;
-            evaluate_f32_expr(&expr, ctx, params).await?
-        } else {
-            // Query from theme legend context
-            let legend_ctx = theme.legend_context_with_params(Some("line"), params.clone());
-            theme.query(&legend_ctx, "symbol-size")
-                .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
-                .unwrap_or(16.0)  // Default line length
-        };
+        let line_length =
+            if let Some(node) = config.symbol_size.as_option().and_then(|o| o.as_ref()) {
+                // Expression is set - evaluate it
+                let expr = node.to_expr(ctx)?;
+                evaluate_f32_expr(&expr, ctx, params).await?
+            } else {
+                // Query from theme legend context
+                let legend_ctx = theme.legend_context_with_params(Some("line"), params.clone());
+                theme
+                    .query(&legend_ctx, "symbol-size")
+                    .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
+                    .unwrap_or(16.0) // Default line length
+            };
 
         // Initialize config with defaults
         // Use longer line length for better dash pattern visibility
@@ -225,12 +227,16 @@ impl LegendRenderer for CompiledLineLegend {
             inner_height: 100.0,
             outer_margin: 0.0, // Don't offset legend entries
             line_length: ScalarOrArray::new_scalar(line_length),
-            text_padding: 4.0,                            // Consistent with symbol legend
+            text_padding: 4.0, // Consistent with symbol legend
             ..Default::default()
         };
 
         // Evaluate and apply legend background styling if provided
-        if let Some(node) = config.background_padding.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .background_padding
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             let pad = evaluate_f32_expr(&expr, ctx, params).await?;
             legend_config.background_padding = Some(pad);
@@ -245,9 +251,14 @@ impl LegendRenderer for CompiledLineLegend {
                 "Line legend has no padding specified, will use default"
             );
         }
-        if let Some(node) = config.background_corner_radius.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .background_corner_radius
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
-            legend_config.background_corner_radius = Some(evaluate_f32_expr(&expr, ctx, params).await?);
+            legend_config.background_corner_radius =
+                Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
@@ -255,7 +266,11 @@ impl LegendRenderer for CompiledLineLegend {
             legend_config.background_fill =
                 Some(crate::utils::parse_color_string_strict(&fill_str)?);
         }
-        if let Some(node) = config.background_stroke.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .background_stroke
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
             legend_config.background_stroke =
@@ -293,7 +308,11 @@ impl LegendRenderer for CompiledLineLegend {
         }
 
         // Set typography from legend config
-        if let Some(node) = config.title_font_family.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .title_font_family
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             legend_config.title_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
@@ -302,8 +321,7 @@ impl LegendRenderer for CompiledLineLegend {
             legend_config.title_font_size = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         // Override font sizes with params
-        let legend_ctx = theme
-            .legend_context_with_params(Some("line"), params.clone());
+        let legend_ctx = theme.legend_context_with_params(Some("line"), params.clone());
         let title_ctx = legend_ctx.child("title");
         let label_ctx = legend_ctx.child("label");
 
@@ -313,21 +331,31 @@ impl LegendRenderer for CompiledLineLegend {
         if let Some(size) = theme.font_size(&label_ctx) {
             legend_config.label_font_size = Some(size);
         }
-        if let Some(node) = config.title_font_weight.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .title_font_weight
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.title_font_weight =
-                Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
-        if let Some(node) = config.label_font_family.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .label_font_family
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             legend_config.label_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
-        if let Some(node) = config.label_font_weight.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .label_font_weight
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.label_font_weight =
-                Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
 
         // When multiple channels are present, vary all of them together

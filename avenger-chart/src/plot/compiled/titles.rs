@@ -48,7 +48,9 @@ impl CompiledPlot {
                 let expr = node.to_expr(ctx)?;
                 super::expr_eval::evaluate_f32_expr(&expr, ctx, params).await?
             }
-            _ => theme.font_size(&title_ctx).unwrap_or(Self::DEFAULT_TITLE_FONT_SIZE),
+            _ => theme
+                .font_size(&title_ctx)
+                .unwrap_or(Self::DEFAULT_TITLE_FONT_SIZE),
         };
 
         // Evaluate font_family
@@ -106,14 +108,18 @@ impl CompiledPlot {
             x: x.into(),
             y: y.into(),
             color: avenger_common::types::ColorOrGradient::Color(
-                theme.text_color(&title_ctx).unwrap_or(Self::DEFAULT_TEXT_COLOR),
+                theme
+                    .text_color(&title_ctx)
+                    .unwrap_or(Self::DEFAULT_TEXT_COLOR),
             )
             .into(),
             font_size: font_size.into(),
             font: font_family.into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(
-                theme.font_weight(&title_ctx).unwrap_or(Self::DEFAULT_FONT_WEIGHT),
+                theme
+                    .font_weight(&title_ctx)
+                    .unwrap_or(Self::DEFAULT_FONT_WEIGHT),
             )
             .into(),
             align: text_align.into(),
@@ -136,8 +142,7 @@ impl CompiledPlot {
         };
 
         let theme = self.get_theme();
-        let subtitle_ctx =
-            crate::theme::ThemeContext::new("chart-subtitle", params.clone());
+        let subtitle_ctx = crate::theme::ThemeContext::new("chart-subtitle", params.clone());
 
         use crate::serialization::LogicalExprNodeExt;
         use avenger_scenegraph::marks::text::SceneTextMark;
@@ -155,7 +160,9 @@ impl CompiledPlot {
                 let expr = node.to_expr(ctx)?;
                 super::expr_eval::evaluate_f32_expr(&expr, ctx, params).await?
             }
-            _ => theme.font_size(&subtitle_ctx).unwrap_or(Self::DEFAULT_SUBTITLE_FONT_SIZE),
+            _ => theme
+                .font_size(&subtitle_ctx)
+                .unwrap_or(Self::DEFAULT_SUBTITLE_FONT_SIZE),
         };
 
         // Evaluate font_family
@@ -222,7 +229,9 @@ impl CompiledPlot {
             font: font_family.into(),
             font_style: FontStyle::Normal.into(),
             font_weight: avenger_text::types::FontWeight::Number(
-                theme.font_weight(&subtitle_ctx).unwrap_or(Self::DEFAULT_FONT_WEIGHT),
+                theme
+                    .font_weight(&subtitle_ctx)
+                    .unwrap_or(Self::DEFAULT_FONT_WEIGHT),
             )
             .into(),
             align: text_align.into(),

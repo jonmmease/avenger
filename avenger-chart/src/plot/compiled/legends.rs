@@ -135,8 +135,7 @@ impl CompiledPlot {
                 .position(self.default_legend_position(channel));
 
             // Create legend context for querying theme values
-            let legend_ctx = theme
-                .legend_context_with_params(legend_type, params.clone());
+            let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
             let bg_ctx = legend_ctx.child("background");
             let base_font_size = theme.get_base_font_size(&legend_ctx.params);
 
@@ -282,40 +281,99 @@ impl CompiledPlot {
             };
 
             // Create legend context for querying theme values
-            let legend_ctx = theme
-                .legend_context_with_params(legend_type, params.clone());
+            let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
 
             // Theme only fills in Unset values - apply theme properties if not explicitly set
 
             // Title styling
-            Self::apply_theme_to_legend(legend, |l| &l.title_color,
-                || theme.text_color(&legend_ctx.child("title")).map(color_array_to_hex), |l, v| l.title_color(v));
-            Self::apply_theme_to_legend(legend, |l| &l.title_font_family,
-                || theme.font_family(&legend_ctx.child("title")), |l, v| l.title_font_family(v));
-            Self::apply_theme_to_legend(legend, |l| &l.title_font_size,
-                || theme.font_size(&legend_ctx.child("title")), |l, v| l.title_font_size(v));
-            Self::apply_theme_to_legend(legend, |l| &l.title_font_weight,
-                || theme.font_weight(&legend_ctx.child("title")), |l, v| l.title_font_weight(v));
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.title_color,
+                || {
+                    theme
+                        .text_color(&legend_ctx.child("title"))
+                        .map(color_array_to_hex)
+                },
+                |l, v| l.title_color(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.title_font_family,
+                || theme.font_family(&legend_ctx.child("title")),
+                |l, v| l.title_font_family(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.title_font_size,
+                || theme.font_size(&legend_ctx.child("title")),
+                |l, v| l.title_font_size(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.title_font_weight,
+                || theme.font_weight(&legend_ctx.child("title")),
+                |l, v| l.title_font_weight(v),
+            );
 
             // Label styling
-            Self::apply_theme_to_legend(legend, |l| &l.label_color,
-                || theme.text_color(&legend_ctx.child("label")).map(color_array_to_hex), |l, v| l.label_color(v));
-            Self::apply_theme_to_legend(legend, |l| &l.label_font_family,
-                || theme.font_family(&legend_ctx.child("label")), |l, v| l.label_font_family(v));
-            Self::apply_theme_to_legend(legend, |l| &l.label_font_size,
-                || theme.font_size(&legend_ctx.child("label")), |l, v| l.label_font_size(v));
-            Self::apply_theme_to_legend(legend, |l| &l.label_font_weight,
-                || theme.font_weight(&legend_ctx.child("label")), |l, v| l.label_font_weight(v));
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.label_color,
+                || {
+                    theme
+                        .text_color(&legend_ctx.child("label"))
+                        .map(color_array_to_hex)
+                },
+                |l, v| l.label_color(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.label_font_family,
+                || theme.font_family(&legend_ctx.child("label")),
+                |l, v| l.label_font_family(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.label_font_size,
+                || theme.font_size(&legend_ctx.child("label")),
+                |l, v| l.label_font_size(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.label_font_weight,
+                || theme.font_weight(&legend_ctx.child("label")),
+                |l, v| l.label_font_weight(v),
+            );
 
             // Tick styling (for colorbar legends)
-            Self::apply_theme_to_legend(legend, |l| &l.tick_color,
-                || theme.text_color(&legend_ctx.child("tick")).map(color_array_to_hex), |l, v| l.tick_color(v));
-            Self::apply_theme_to_legend(legend, |l| &l.tick_font_family,
-                || theme.font_family(&legend_ctx.child("tick")), |l, v| l.tick_font_family(v));
-            Self::apply_theme_to_legend(legend, |l| &l.tick_font_size,
-                || theme.font_size(&legend_ctx.child("tick")), |l, v| l.tick_font_size(v));
-            Self::apply_theme_to_legend(legend, |l| &l.tick_font_weight,
-                || theme.font_weight(&legend_ctx.child("tick")), |l, v| l.tick_font_weight(v));
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.tick_color,
+                || {
+                    theme
+                        .text_color(&legend_ctx.child("tick"))
+                        .map(color_array_to_hex)
+                },
+                |l, v| l.tick_color(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.tick_font_family,
+                || theme.font_family(&legend_ctx.child("tick")),
+                |l, v| l.tick_font_family(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.tick_font_size,
+                || theme.font_size(&legend_ctx.child("tick")),
+                |l, v| l.tick_font_size(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.tick_font_weight,
+                || theme.font_weight(&legend_ctx.child("tick")),
+                |l, v| l.tick_font_weight(v),
+            );
 
             // Apply legend position from theme if not explicitly set
             if matches!(legend.position, crate::maybe::Maybe::Unset) {
@@ -425,10 +483,13 @@ impl CompiledPlot {
         configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<(
-        Vec<Vec<crate::legend::LegendChannel>>,
-        IndexMap<String, Legend>,
-    ), AvengerChartError> {
+    ) -> Result<
+        (
+            Vec<Vec<crate::legend::LegendChannel>>,
+            IndexMap<String, Legend>,
+        ),
+        AvengerChartError,
+    > {
         use crate::legend::MergeKey;
 
         // Collect all channels that need legends from all marks
@@ -505,7 +566,9 @@ impl CompiledPlot {
             if !channels.is_empty() {
                 let primary_channel = &channels[0];
                 if let Some(legend_config) = all_legends.get(&primary_channel.name) {
-                    let order = if let Some(node) = legend_config.order.as_option().and_then(|o| o.as_ref()) {
+                    let order = if let Some(node) =
+                        legend_config.order.as_option().and_then(|o| o.as_ref())
+                    {
                         let expr = node.to_expr(ctx)?;
                         evaluate_i32_expr(&expr, ctx, params).await?
                     } else {
@@ -532,7 +595,9 @@ impl CompiledPlot {
                 let primary_channel = &channels[0];
                 if let Some(legend_config) = all_legends.get(&primary_channel.name) {
                     // Evaluate visibility expression
-                    let visible = if let Some(node) = legend_config.visible.as_option().and_then(|o| o.as_ref()) {
+                    let visible = if let Some(node) =
+                        legend_config.visible.as_option().and_then(|o| o.as_ref())
+                    {
                         let expr = node.to_expr(ctx)?;
                         evaluate_bool_expr(&expr, ctx, params).await?
                     } else {
@@ -575,8 +640,9 @@ impl CompiledPlot {
 
         // Merge channels to get the same groups that will be used for rendering
         // Use the passed-in legends parameter which is already sorted
-        let (sorted_channel_groups, _) =
-            self.merge_legend_channels(&all_legends, scales, ctx, params).await?;
+        let (sorted_channel_groups, _) = self
+            .merge_legend_channels(&all_legends, scales, ctx, params)
+            .await?;
 
         for channels in sorted_channel_groups {
             if channels.is_empty() {
@@ -636,16 +702,18 @@ impl CompiledPlot {
                     theme.as_ref(),
                     params,
                     ctx,
-                ).await?;
+                )
+                .await?;
                 // Evaluate position expression
                 use crate::plot::compiled::expr_eval::*;
                 use crate::serialization::LogicalExprNodeExt;
-                let position = if let Some(node) = legend.position.as_option().and_then(|o| o.as_ref()) {
-                    let expr = node.to_expr(ctx)?;
-                    evaluate_legend_position_expr(&expr, ctx, params).await?
-                } else {
-                    crate::legend::LegendPosition::Right
-                };
+                let position =
+                    if let Some(node) = legend.position.as_option().and_then(|o| o.as_ref()) {
+                        let expr = node.to_expr(ctx)?;
+                        evaluate_legend_position_expr(&expr, ctx, params).await?
+                    } else {
+                        crate::legend::LegendPosition::Right
+                    };
                 legend_measurements.insert(
                     primary_channel.name.clone(),
                     LegendMeasurement {

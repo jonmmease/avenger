@@ -49,7 +49,6 @@ This is a hobby project with large ambitions. Where it goes will largely depend 
  - Vega native: Combining Avenger and [VegaFusion](https://vegafusion.io/) gets us close to being able to render entire Vega visualizations without JavaScript. More thought is needed, but it may make sense to add support for scales and guides (axes, legends, colorbars, etc.) to the Avenger SceneGraph. Then VegaFusion could have a mode that produces an Avenger scenegraph for rendering.  To support interactive charts, Avenger could adopt Vega's Event Stream system (https://vega.github.io/vega/docs/event-streams/).
  - Matplotlib backend: Avenger could potentially serve as a rendering backend for Matplotlib (as an alternative to Agg) that provides GPU acceleration. See https://matplotlib.org/stable/users/explain/figure/backends.html#the-builtin-backends.
  - CPU rendering: The wgpu backend requires GPU support, so it would be useful to have a CPU rendering option as well. This could be based on [tinyskia](https://github.com/RazrFalcon/tiny-skia), which is what resvg uses.
- - SVG/PDF rendering: Renderers that produce SVG and PDF documents from the Avenger SceneGraph could be written.
 
 # Call for help
 Do any of the ambitions above sound interesting? Are you interested in learning Rust? Please [start a discussion](https://github.com/jonmmease/avenger/discussions) and get involved.

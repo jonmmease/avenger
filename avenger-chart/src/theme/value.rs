@@ -158,9 +158,7 @@ impl ThemeValue {
                 let f64_params = scalar_value_params_to_f64(params);
 
                 // Resolve calc with params
-                let resolved = calc_node
-                    .resolve(&f64_params, base_font_size)
-                    .ok()?;
+                let resolved = calc_node.resolve(&f64_params, base_font_size).ok()?;
                 resolved.as_length_px(base_font_size)
             }
             _ => None,

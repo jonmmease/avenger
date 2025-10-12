@@ -114,17 +114,19 @@ impl LegendRenderer for CompiledRectLegend {
         };
 
         // Evaluate symbol size (from expression, theme, or mark defaults)
-        let symbol_size = if let Some(node) = config.symbol_size.as_option().and_then(|o| o.as_ref()) {
-            // Expression is set - evaluate it
-            let expr = node.to_expr(ctx)?;
-            evaluate_f32_expr(&expr, ctx, params).await?
-        } else {
-            // Query from theme legend context
-            let legend_ctx = theme.legend_context_with_params(Some("rect"), params.clone());
-            theme.query(&legend_ctx, "symbol-size")
-                .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
-                .unwrap_or(default_size_value)
-        };
+        let symbol_size =
+            if let Some(node) = config.symbol_size.as_option().and_then(|o| o.as_ref()) {
+                // Expression is set - evaluate it
+                let expr = node.to_expr(ctx)?;
+                evaluate_f32_expr(&expr, ctx, params).await?
+            } else {
+                // Query from theme legend context
+                let legend_ctx = theme.legend_context_with_params(Some("rect"), params.clone());
+                theme
+                    .query(&legend_ctx, "symbol-size")
+                    .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
+                    .unwrap_or(default_size_value)
+            };
 
         // Create legend configuration
         let mut legend_config = SymbolLegendConfig {
@@ -161,23 +163,38 @@ impl LegendRenderer for CompiledRectLegend {
         };
 
         // Evaluate and apply legend background styling if provided
-        if let Some(node) = config.background_padding.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .background_padding
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             legend_config.background_padding = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
-        if let Some(node) = config.background_corner_radius.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .background_corner_radius
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
-            legend_config.background_corner_radius = Some(evaluate_f32_expr(&expr, ctx, params).await?);
+            legend_config.background_corner_radius =
+                Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_fill = Some(crate::utils::parse_color_string_strict(&fill_str)?);
+            legend_config.background_fill =
+                Some(crate::utils::parse_color_string_strict(&fill_str)?);
         }
-        if let Some(node) = config.background_stroke.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .background_stroke
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_stroke = Some(crate::utils::parse_color_string_strict(&stroke_str)?);
+            legend_config.background_stroke =
+                Some(crate::utils::parse_color_string_strict(&stroke_str)?);
         }
 
         // Evaluate and apply legend colors
@@ -211,7 +228,11 @@ impl LegendRenderer for CompiledRectLegend {
         }
 
         // Set typography from legend config
-        if let Some(node) = config.title_font_family.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .title_font_family
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             legend_config.title_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
@@ -220,8 +241,7 @@ impl LegendRenderer for CompiledRectLegend {
             legend_config.title_font_size = Some(evaluate_f32_expr(&expr, ctx, params).await?);
         }
         // Override font sizes with params
-        let legend_ctx = theme
-            .legend_context_with_params(Some("rect"), params.clone());
+        let legend_ctx = theme.legend_context_with_params(Some("rect"), params.clone());
         let title_ctx = legend_ctx.child("title");
         let label_ctx = legend_ctx.child("label");
 
@@ -231,21 +251,31 @@ impl LegendRenderer for CompiledRectLegend {
         if let Some(size) = theme.font_size(&label_ctx) {
             legend_config.label_font_size = Some(size);
         }
-        if let Some(node) = config.title_font_weight.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .title_font_weight
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.title_font_weight =
-                Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
-        if let Some(node) = config.label_font_family.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .label_font_family
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             legend_config.label_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
-        if let Some(node) = config.label_font_weight.as_option().and_then(|o| o.as_ref()) {
+        if let Some(node) = config
+            .label_font_weight
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.label_font_weight =
-                Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
 
         // Use constant values from mark if available (and not the legend channel itself)

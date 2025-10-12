@@ -172,19 +172,20 @@ impl CartesianAxis {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<SceneMark, AvengerChartError> {
+        use crate::plot::compiled::expr_eval::{
+            evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
+        };
+        use crate::serialization::LogicalExprNodeExt;
         use avenger_guides::axis::{
             band::make_band_axis_marks,
             numeric::make_numeric_axis_marks,
             opts::{AxisConfig, AxisOrientation},
             point::make_point_axis_marks,
         };
-        use crate::plot::compiled::expr_eval::{
-            evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
-        };
-        use crate::serialization::LogicalExprNodeExt;
 
         // Evaluate visible expression (default to true if not set)
-        let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref()) {
+        let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref())
+        {
             let visible_expr = visible_node.to_expr(ctx)?;
             evaluate_bool_expr(&visible_expr, ctx, params).await?
         } else {
@@ -202,17 +203,18 @@ impl CartesianAxis {
         }
 
         // Evaluate position expression
-        let position = if let Some(position_node) = self.position.as_option().and_then(|o| o.as_ref()) {
-            let position_expr = position_node.to_expr(ctx)?;
-            evaluate_axis_position_expr(&position_expr, ctx, params).await?
-        } else {
-            // Default positions based on channel name
-            match channel {
-                "x" => AxisPosition::Bottom,
-                "y" => AxisPosition::Left,
-                _ => AxisPosition::Bottom,
-            }
-        };
+        let position =
+            if let Some(position_node) = self.position.as_option().and_then(|o| o.as_ref()) {
+                let position_expr = position_node.to_expr(ctx)?;
+                evaluate_axis_position_expr(&position_expr, ctx, params).await?
+            } else {
+                // Default positions based on channel name
+                match channel {
+                    "x" => AxisPosition::Bottom,
+                    "y" => AxisPosition::Left,
+                    _ => AxisPosition::Bottom,
+                }
+            };
 
         // Convert position to orientation
         let orientation = match position {
@@ -231,8 +233,7 @@ impl CartesianAxis {
         let axis_type = Some(channel);
 
         // Create context for theme queries with params
-        let axis_ctx = theme
-            .axis_context_with_params(coord_type, axis_type, params.clone());
+        let axis_ctx = theme.axis_context_with_params(coord_type, axis_type, params.clone());
         let label_ctx = axis_ctx.child("label");
         let title_ctx = axis_ctx.child("title");
 
@@ -251,12 +252,13 @@ impl CartesianAxis {
         };
 
         // Evaluate format_number expression
-        let format_number = if let Some(format_node) = self.format_number.as_option().and_then(|o| o.as_ref()) {
-            let format_expr = format_node.to_expr(ctx)?;
-            Some(evaluate_string_expr(&format_expr, ctx, params).await?)
-        } else {
-            None
-        };
+        let format_number =
+            if let Some(format_node) = self.format_number.as_option().and_then(|o| o.as_ref()) {
+                let format_expr = format_node.to_expr(ctx)?;
+                Some(evaluate_string_expr(&format_expr, ctx, params).await?)
+            } else {
+                None
+            };
 
         // Evaluate label_font_family expression
         let label_font_family = if let Some(label_font_node) =

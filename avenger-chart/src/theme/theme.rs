@@ -626,7 +626,11 @@ impl Theme {
     }
 
     /// Build a legend context with optional subtype and params
-    pub fn legend_context_with_params(&self, subtype: Option<&str>, params: IndexMap<String, datafusion_common::ScalarValue>) -> ThemeContext {
+    pub fn legend_context_with_params(
+        &self,
+        subtype: Option<&str>,
+        params: IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> ThemeContext {
         let mut legend_ctx = ThemeContext::new("legend", params);
         if let Some(t) = subtype {
             legend_ctx = legend_ctx.with_subtype(t);
@@ -640,7 +644,12 @@ impl Theme {
     }
 
     /// Build an axis context with optional coordinate and axis types and params
-    pub fn axis_context_with_params(&self, coord_type: Option<&str>, axis_type: Option<&str>, params: IndexMap<String, datafusion_common::ScalarValue>) -> ThemeContext {
+    pub fn axis_context_with_params(
+        &self,
+        coord_type: Option<&str>,
+        axis_type: Option<&str>,
+        params: IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> ThemeContext {
         let mut guide_ctx = ThemeContext::new("guide", params);
         if let Some(ct) = coord_type {
             guide_ctx = guide_ctx.with_subtype(ct);
@@ -658,7 +667,10 @@ impl Theme {
     }
 
     /// Build a title context with params
-    pub fn title_context_with_params(&self, params: IndexMap<String, datafusion_common::ScalarValue>) -> ThemeContext {
+    pub fn title_context_with_params(
+        &self,
+        params: IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> ThemeContext {
         ThemeContext::new("chart-title", params)
     }
 
@@ -668,7 +680,10 @@ impl Theme {
     }
 
     /// Build a subtitle context with params
-    pub fn subtitle_context_with_params(&self, params: IndexMap<String, datafusion_common::ScalarValue>) -> ThemeContext {
+    pub fn subtitle_context_with_params(
+        &self,
+        params: IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> ThemeContext {
         ThemeContext::new("chart-subtitle", params)
     }
 
@@ -872,8 +887,7 @@ impl Theme {
 
         // Try mark-specific first, then general mark
         let base_contexts = vec![
-            ThemeContext::new("mark", params.clone())
-                .with_subtype(mark_type),
+            ThemeContext::new("mark", params.clone()).with_subtype(mark_type),
             ThemeContext::new("mark", params),
         ];
 
@@ -1017,8 +1031,7 @@ impl Theme {
         params: &IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Option<datafusion_common::ScalarValue> {
         // Query CSS theme for mark defaults
-        let context = ThemeContext::new("mark", params.clone())
-            .with_subtype(mark_type);
+        let context = ThemeContext::new("mark", params.clone()).with_subtype(mark_type);
 
         // Convert underscore to hyphen for CSS property name
         let css_property = channel.replace('_', "-");
@@ -1523,7 +1536,13 @@ mod tests {
         let theme = Theme::from_css(css).unwrap();
 
         // Test 1: Exact match for cardinality 3
-        let range_3 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(3), &IndexMap::new());
+        let range_3 = theme.get_range_for_channel(
+            "symbol",
+            "fill",
+            RangeKind::Discrete,
+            Some(3),
+            &IndexMap::new(),
+        );
         assert!(range_3.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_3 {
             assert_eq!(values.len(), 3, "Should get 3-color palette");
@@ -1532,7 +1551,13 @@ mod tests {
         }
 
         // Test 2: Exact match for cardinality 5
-        let range_5 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(5), &IndexMap::new());
+        let range_5 = theme.get_range_for_channel(
+            "symbol",
+            "fill",
+            RangeKind::Discrete,
+            Some(5),
+            &IndexMap::new(),
+        );
         assert!(range_5.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_5 {
             assert_eq!(values.len(), 5, "Should get 5-color palette");
@@ -1543,7 +1568,13 @@ mod tests {
         // Test 3: Fallback to largest available cardinality (3) when requesting 4
         // Since we have cardinality-specific rules for 2, 3, and 5, requesting 4 should
         // fall back to 3 (the largest cardinality < 4)
-        let range_4 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(4), &IndexMap::new());
+        let range_4 = theme.get_range_for_channel(
+            "symbol",
+            "fill",
+            RangeKind::Discrete,
+            Some(4),
+            &IndexMap::new(),
+        );
         assert!(range_4.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_4 {
             assert_eq!(
@@ -1557,7 +1588,13 @@ mod tests {
 
         // Test 4: Use largest available cardinality (5) when requesting 10
         // Since we have no exact match and the largest defined is 5, use that
-        let range_10 = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, Some(10), &IndexMap::new());
+        let range_10 = theme.get_range_for_channel(
+            "symbol",
+            "fill",
+            RangeKind::Discrete,
+            Some(10),
+            &IndexMap::new(),
+        );
         assert!(range_10.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_10 {
             assert_eq!(
@@ -1570,7 +1607,13 @@ mod tests {
         }
 
         // Test 5: When cardinality is unknown, should get base palette
-        let range_none = theme.get_range_for_channel("symbol", "fill", RangeKind::Discrete, None, &IndexMap::new());
+        let range_none = theme.get_range_for_channel(
+            "symbol",
+            "fill",
+            RangeKind::Discrete,
+            None,
+            &IndexMap::new(),
+        );
         assert!(range_none.is_some());
         if let Some(ScaleRange::Discrete(values)) = range_none {
             assert_eq!(values.len(), 6, "Should get base 6-color palette");

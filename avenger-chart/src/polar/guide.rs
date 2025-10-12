@@ -1,11 +1,11 @@
 //! Polar coordinate system guide implementation
 
-use crate::plot::compiled::expr_eval::evaluate_string_expr;
 use crate::coords::extract_channel_title_from_marks;
 use crate::error::AvengerChartError;
 use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::maybe::{Maybe, MaybeOptionalExpr};
+use crate::plot::compiled::expr_eval::evaluate_string_expr;
 use crate::polar::{PolarAxis, PolarAxisType};
 use crate::theme::Theme;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -69,7 +69,8 @@ impl PolarGuide {
         use crate::serialization::LogicalExprNodeExt;
         let expr = color.into_expr();
         self.options.plot_background_color = Maybe::Set(Some(
-            LogicalExprNode::from_expr(expr).expect("Failed to serialize plot_background_color expr"),
+            LogicalExprNode::from_expr(expr)
+                .expect("Failed to serialize plot_background_color expr"),
         ));
         self
     }
@@ -244,7 +245,12 @@ impl CompiledGuide for PolarGuide {
         // First try to evaluate expression if set
         use crate::serialization::LogicalExprNodeExt;
 
-        let bg_color = if let Some(color_node) = self.options.plot_background_color.as_option().and_then(|o| o.as_ref()) {
+        let bg_color = if let Some(color_node) = self
+            .options
+            .plot_background_color
+            .as_option()
+            .and_then(|o| o.as_ref())
+        {
             if let Ok(color_expr) = color_node.to_expr(_ctx) {
                 // Evaluate the expression to get color string
                 if let Ok(color_str) = evaluate_string_expr(&color_expr, _ctx, params).await {
@@ -258,8 +264,8 @@ impl CompiledGuide for PolarGuide {
             }
         } else {
             // Fallback to theme
-            let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                .with_subtype("polar");
+            let guide_ctx =
+                crate::theme::ThemeContext::new("guide", params.clone()).with_subtype("polar");
             theme
                 .query(&guide_ctx, "background-color")
                 .and_then(|v| v.as_color_array())
@@ -334,17 +340,19 @@ impl CompiledGuide for PolarGuide {
         // Render each axis
         for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
-                let axis_marks = axis.render(
-                    channel,
-                    scale,
-                    scales,
-                    plot_width,
-                    plot_height,
-                    plot_bounds,
-                    theme,
-                    params,
-                    _ctx,
-                ).await?;
+                let axis_marks = axis
+                    .render(
+                        channel,
+                        scale,
+                        scales,
+                        plot_width,
+                        plot_height,
+                        plot_bounds,
+                        theme,
+                        params,
+                        _ctx,
+                    )
+                    .await?;
                 marks.extend(axis_marks);
             }
         }
