@@ -231,6 +231,10 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
         "#[allow(unused_imports)] use avenger_chart::prelude::*;"
     )?;
     writeln!(file, "#[allow(unused_imports)] use datafusion::prelude::*;")?;
+    writeln!(
+        file,
+        "#[allow(unused_imports)] use avenger_chart::doc::datasets;"
+    )?;
     writeln!(file, "use std::error::Error;\n")?;
 
     writeln!(
