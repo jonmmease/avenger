@@ -1,0 +1,33 @@
+[package]
+name = "avenger-chart-book-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Exclude this from the parent workspace
+[workspace]
+
+# This Cargo.toml exists solely to enable `mdbook test` to work with local crates.
+# It provides the dependencies that code examples in the book need to compile.
+
+[dependencies]
+# Local workspace crates
+avenger-chart = { path = "../" }
+
+# External dependencies used in book examples
+# Match versions from parent workspace
+datafusion = { version = "48.0.1", features = ["avro", "parquet"] }
+tokio = { version = "1.*", features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+# Any dev dependencies needed for tests
+
+[lib]
+# Dummy lib to satisfy Cargo
+path = "src/lib.rs"
+
+# Suppress warnings about unused code
+[lints.rust]
+dead_code = "allow"
+unused_variables = "allow"
+unused_imports = "allow"

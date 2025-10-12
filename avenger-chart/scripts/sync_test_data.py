@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Dict, List
 import requests
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 # Base URL for vega-datasets raw files
 VEGA_DATA_BASE = "https://raw.githubusercontent.com/vega/vega-datasets/main/data"
@@ -120,14 +122,29 @@ def convert_to_parquet(name: str, source_file_or_url: str, read_kwargs: dict,
         print(f"  ℹ  {rows} rows × {cols} columns ({size_kb:.1f} KB)")
         print(f"  ℹ  Columns: {', '.join(df.columns)}")
 
-        # Clean up object columns with mixed types (convert to string)
+        # Build schema with proper types, especially Date32 for datetime columns
+        schema_fields = []
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                # Convert to date (removes time component)
+                df[col] = df[col].dt.date
+                schema_fields.append(pa.field(col, pa.date32()))
+            elif df[col].dtype == 'object':
+                # Convert object columns to string
                 df[col] = df[col].astype(str)
+                schema_fields.append(pa.field(col, pa.string()))
+            elif df[col].dtype == 'int64':
+                schema_fields.append(pa.field(col, pa.int64()))
+            elif df[col].dtype == 'float64':
+                schema_fields.append(pa.field(col, pa.float64()))
+            else:
+                # For other types, let PyArrow infer
+                schema_fields.append(pa.field(col, pa.from_numpy_dtype(df[col].dtype)))
 
-        # Convert to Parquet
+        # Convert to Parquet with explicit schema
         print(f"  Converting to Parquet...")
-        df.to_parquet(output_path, index=False, compression="snappy")
+        table = pa.Table.from_pandas(df, schema=pa.schema(schema_fields))
+        pq.write_table(table, output_path, compression="snappy")
 
         parquet_size_kb = output_path.stat().st_size / 1024
         compression_ratio = (1 - parquet_size_kb / size_kb) * 100 if size_kb > 0 else 0

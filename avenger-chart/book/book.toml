@@ -1,0 +1,27 @@
+[book]
+title = "Avenger Chart Guide"
+authors = ["Avenger Contributors"]
+language = "en"
+multilingual = false
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/vega/avenger"
+edit-url-template = "https://github.com/vega/avenger/edit/main/avenger-chart/book/{path}"
+
+[output.html.playground]
+editable = false
+copyable = true
+
+[rust]
+edition = "2021"
+
+# Tests are run with `mdbook test`; no custom renderer needed.
+
+[preprocessor.avenger]
+command = "cargo run --quiet --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger --"

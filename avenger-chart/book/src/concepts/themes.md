@@ -1,0 +1,188 @@
+# Themes
+
+Themes control the visual presentation of a plot: typography, colors, grid lines, mark defaults, legend layout, and more. Avenger Chart themes are CSS-based, so selectors, cascading rules, and variables all work the way they do on the web.
+
+## Built-in Themes
+
+### Light (default)
+
+`Theme::light()` returns the adaptive default theme with the light color scheme selected. A plot uses this theme automatically when no explicit theme is supplied.
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# fn example() {
+let _plot = Plot::<Cartesian>::new().theme(Theme::light());
+# }
+```
+
+### Dark
+
+Switching to `Theme::dark()` selects the dark palette while keeping the same responsive CSS rules.
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
+# let ctx = SessionContext::new();
+# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
+let _plot = Plot::<Cartesian>::new()
+    .theme(Theme::dark())
+    .data(df)
+    .mark(Symbol::new().x(col("x")).y(col("y")));
+# Ok(())
+# }
+```
+
+## Extending a Theme with CSS
+
+You can append additional CSS to tweak specific elements. Because the API consumes a `Theme`, build and modify it before passing it into the plot.
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# fn example() -> Result<(), String> {
+let mut theme = Theme::light();
+theme.append_css(
+    r#"
+    legend {
+        background-color: color-mix(in srgb, white 90%, black 10%);
+        border-radius: 6px;
+        padding: 8px;
+    }
+
+    symbol {
+        stroke-width: 1.5px;
+    }
+    "#,
+)?;
+
+let _plot = Plot::<Cartesian>::new().theme(theme);
+Ok(())
+# }
+```
+
+`append_css` keeps previously appended styles, so you can layer multiple overrides if needed.
+
+## Loading a Theme from CSS
+
+To start from scratch, construct a theme directly from a CSS string.
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# fn example() -> Result<(), String> {
+let css = r#"
+    :root {
+        --bg-color: #1e1e1e;
+        --text-color: #f5f5f5;
+    }
+
+    plot {
+        background-color: var(--bg-color);
+        font-family: "Atkinson Hyperlegible Next", sans-serif;
+    }
+
+    axis label {
+        color: var(--text-color);
+    }
+
+    symbol {
+        fill: #4ec9b0;
+        stroke: #f5f5f5;
+        stroke-width: 1px;
+    }
+    "#;
+
+let theme = Theme::from_css(css)?;
+let _plot = Plot::<Cartesian>::new().theme(theme);
+Ok(())
+# }
+```
+
+Because the CSS parser runs at build time, syntax errors are surfaced immediately via the returned `Result`.
+
+## Working with CSS Selectors
+
+Themes leverage standard CSS selectors:
+
+```css
+:root {
+    --accent: #2563eb;
+}
+
+legend[type="symbol"] {
+    symbol-size: 72;
+}
+
+axis.x label {
+    font-size: 1.1rem;
+}
+
+symbol.highlighted {
+    fill: var(--accent);
+    stroke-width: 2px;
+}
+```
+
+- `:root` defines theme-wide variables (`--accent` above).
+- Attribute selectors such as `legend[type="symbol"]` let you target specific legend renderers.
+- Class selectors (`.highlighted`) apply to marks that set a matching CSS class during compilation.
+
+Inspect the generated scene graph to discover additional selectors and properties; every guide, axis component, and mark exposes CSS hooks.
+
+### Guide and Mark Subtypes
+
+Plots annotate guides, marks, and legends with descriptive attributes. You can scope styles to the coordinate system or mark type without writing additional Rust code.
+
+```css
+guide[type="cartesian"] axis title { color: #1d4ed8; }
+guide[type="polar"] axis grid { stroke: #fbbf24; opacity: 0.6; }
+
+mark[type="symbol"] { stroke-width: 1.5px; }
+mark[type="rect"][cardinality="5"] { fill-discrete: #f472b6, #ec4899, #db2777, #be185d, #9d174d; }
+```
+
+- `guide[type="cartesian"]` and `guide[type="polar"]` let you style axes and backgrounds differently per coordinate system.
+- `mark[type="symbol"]` scopes properties to a specific mark implementation. When Avenger Chart computes the number of discrete values flowing into a mark it also annotates `cardinality="N"`, enabling palette selection based on data size.
+
+### Color Utilities
+
+The CSS parser recognises modern color functions, so you can build palettes with `color-mix`, `hsl()`, `hsla()`, or `lab()`/`lch()` values:
+
+```css
+symbol {
+    fill: hsla(200, 80%, 50%, 0.75);
+    stroke: color-mix(in srgb, #1d4ed8 65%, white);
+}
+
+mark[type="rect"] {
+    fill-discrete: lab(70% 20 0), lab(70% 0 20), lab(70% -20 0);
+}
+```
+
+### Media Queries and Responsive Styling
+
+Because themes use standard CSS, you can respond to canvas size, device pixel ratio, or user-preference media queries. Combine media queries with parameters to render a single compiled plot at multiple breakpoints.
+
+```css
+/* Base styles */
+guide { background-color: transparent; }
+
+@media (width < 600px) {
+    guide { background-color: rgba(59, 130, 246, 0.12); }
+}
+
+@media (width >= 600px) and (width < 1200px) {
+    guide { background-color: rgba(34, 197, 94, 0.12); }
+}
+
+@media (width >= 1200px) {
+    guide { background-color: rgba(248, 113, 113, 0.12); }
+}
+```
+
+The media queries above adjust the plot-area background as the canvas width changes, mirroring the behaviour exercised by the visual regression tests.
+
+## Next Steps
+
+- See [Marks](./marks.md) to learn which channels a theme can style by default.
+- Review [Legends](./legends.md) to customize guide appearance with CSS selectors.
+- Explore [CSS Themes](../advanced/css-themes.md) for more comprehensive styling patterns and best practices.
