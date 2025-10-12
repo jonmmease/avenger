@@ -100,6 +100,16 @@ impl DataFrameChartHelpers for DataFrame {
                 union_dfs.push(self.clone().select(vec![
                     cast(col(field.name()), DataType::Float32).alias(col_name),
                 ])?)
+            } else if matches!(
+                field.data_type(),
+                DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _)
+            ) {
+                // Handle temporal types - keep them as-is, don't cast to Float32
+                // min/max work fine on temporal types
+                union_dfs.push(
+                    self.clone()
+                        .select(vec![col(field.name()).alias(col_name)])?,
+                )
             } else {
                 // Try to cast non-numeric columns to Float32 - this will produce NULLs for non-numeric values
                 // We'll filter those out later
@@ -122,6 +132,7 @@ impl DataFrameChartHelpers for DataFrame {
         }
 
         // Union all the DataFrames
+        // Note: If we have mixed types (e.g., Date32 and Float64), DataFusion will cast to a common type
         let union_df = union_dfs
             .iter()
             .skip(1)
@@ -399,6 +410,12 @@ impl ScalarValueHelpers for ScalarValue {
             ScalarValue::UInt16(Some(e)) => *e as f64,
             ScalarValue::UInt32(Some(e)) => *e as f64,
             ScalarValue::UInt64(Some(e)) => *e as f64,
+            ScalarValue::Date32(Some(e)) => *e as f64, // Date32 is i32 (days since epoch)
+            ScalarValue::Date64(Some(e)) => *e as f64, // Date64 is i64 (ms since epoch)
+            ScalarValue::TimestampSecond(Some(e), _) => *e as f64,
+            ScalarValue::TimestampMillisecond(Some(e), _) => *e as f64,
+            ScalarValue::TimestampMicrosecond(Some(e), _) => *e as f64,
+            ScalarValue::TimestampNanosecond(Some(e), _) => *e as f64,
             _ => {
                 return Err(DataFusionError::Internal(format!(
                     "Cannot convert {self} to f64"

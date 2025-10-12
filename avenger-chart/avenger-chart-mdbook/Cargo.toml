@@ -1,0 +1,18 @@
+[package]
+name = "avenger-chart-mdbook"
+version = "0.0.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[dependencies]
+avenger-chart = { path = ".." }
+avenger-wgpu = { path = "../../avenger-wgpu" }
+datafusion = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+serde_json = { workspace = true }
+indexmap = { workspace = true }
+palette = { workspace = true }
+pathdiff = "0.2"
+anyhow = "1.0"
+mdbook = "0.4"

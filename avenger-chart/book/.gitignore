@@ -1,0 +1,14 @@
+# mdBook build output
+book/
+
+# Backup files
+**/*.md.bak
+**/*.bk
+
+# Editor files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

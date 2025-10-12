@@ -559,9 +559,32 @@ impl<S: ScaleSpec> Scale<S> {
                     ));
                 };
 
-                let start_f32 = start_val.as_f32()?;
-                let end_f32 = end_val.as_f32()?;
-                Arc::new(Float32Array::from(vec![start_f32, end_f32])) as ArrayRef
+                // Handle temporal vs numeric domains
+                if scale_impl.domain_kind() == DomainKind::Temporal {
+                    // Preserve temporal types (Date32, Date64, Timestamp, etc.)
+                    use datafusion::arrow::array::{Date32Array, Date64Array};
+                    use datafusion::common::ScalarValue;
+                    match (start_val, end_val) {
+                        (ScalarValue::Date32(Some(s)), ScalarValue::Date32(Some(e))) => {
+                            Arc::new(Date32Array::from(vec![*s, *e])) as ArrayRef
+                        }
+                        (ScalarValue::Date64(Some(s)), ScalarValue::Date64(Some(e))) => {
+                            Arc::new(Date64Array::from(vec![*s, *e])) as ArrayRef
+                        }
+                        // Add other temporal types as needed (Timestamp, etc.)
+                        _ => {
+                            // For other temporal types or mixed, convert to i64 (common temporal representation)
+                            let start_i64 = start_val.as_f64()? as i64;
+                            let end_i64 = end_val.as_f64()? as i64;
+                            Arc::new(Date64Array::from(vec![start_i64, end_i64])) as ArrayRef
+                        }
+                    }
+                } else {
+                    // Numeric domains use Float32
+                    let start_f32 = start_val.as_f32()?;
+                    let end_f32 = end_val.as_f32()?;
+                    Arc::new(Float32Array::from(vec![start_f32, end_f32])) as ArrayRef
+                }
             }
             ScaleDefaultDomain::Discrete(values) => {
                 // Determine domain type based on scale's domain kind
