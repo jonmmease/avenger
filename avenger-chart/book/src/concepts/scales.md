@@ -10,15 +10,15 @@ Linear scales are used automatically for numeric columns:
 
 ```rust,render,ignore
 use avenger_chart::prelude::*;
-use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
 // Create data with wide value range
 let batch = RecordBatch::try_from_iter(vec![
     (
-        "x",
-        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+        "category",
+        Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E", "F"]))
             as datafusion::arrow::array::ArrayRef,
     ),
     (
@@ -35,8 +35,8 @@ Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
-            .x(col("x"))
-            .x2_with(col("x"), |c| c.band(1.0))
+            .x(col("category"))
+            .x2_with(col("category"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2_with(col("value"), |c| {
                 c.scale_with::<Linear>(|s| s.zero(true).nice(true))
