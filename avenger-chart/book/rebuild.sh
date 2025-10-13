@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Full documentation rebuild script
+# Cleans all caches and build artifacts, then rebuilds the book from scratch
+
+set -e  # Exit on error
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "🧹 Cleaning build artifacts..."
+
+# Remove the built book directory (includes .generated cache)
+if [ -d "book" ]; then
+    echo "  - Removing book/ directory"
+    rm -rf book
+fi
+
+# Remove the target directory (preprocessor builds)
+if [ -d "target" ]; then
+    echo "  - Removing target/ directory"
+    rm -rf target
+fi
+
+echo ""
+echo "🔨 Building mdbook-avenger preprocessor..."
+# Build the preprocessor first to ensure we have the latest version
+cargo build --quiet --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger
+
+echo ""
+echo "📚 Building book..."
+mdbook build
+
+echo ""
+echo "✅ Book rebuild complete!"
+echo "   Output is in: $SCRIPT_DIR/book/"
+echo ""
+echo "To serve the book locally, run:"
+echo "   cd $SCRIPT_DIR && mdbook serve"

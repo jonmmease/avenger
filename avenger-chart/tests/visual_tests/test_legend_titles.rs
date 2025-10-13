@@ -263,12 +263,5 @@ async fn test_legend_titles_doc_example() {
         );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-    assert_visual_match_default(
-        &compiled,
-        &ctx,
-        None,
-        "legend",
-        "legend_titles_doc_example",
-    )
-    .await;
+    assert_visual_match_default(&compiled, &ctx, None, "legend", "legend_titles_doc_example").await;
 }

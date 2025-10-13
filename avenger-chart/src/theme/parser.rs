@@ -236,7 +236,7 @@ impl<'i, 'a> DeclarationParser<'i> for DeclarationParserImpl<'a> {
         &mut self,
         name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
-        start: &ParserState,
+        _start: &ParserState,
     ) -> Result<(), ParseError<'i, ()>> {
         let property = name.to_string();
 

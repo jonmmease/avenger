@@ -288,7 +288,10 @@ fn test_comma_separated_selectors() {
 
     let multi1_stroke = theme.query(&multi1_ctx, "stroke");
     if let Some(ThemeValue::Color(color)) = multi1_stroke {
-        assert_eq!(color.green, 128, "First multi selector should have green stroke");
+        assert_eq!(
+            color.green, 128,
+            "First multi selector should have green stroke"
+        );
     } else {
         panic!("Expected green stroke for multi1");
     }

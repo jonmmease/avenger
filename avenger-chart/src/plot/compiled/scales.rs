@@ -750,7 +750,10 @@ impl CompiledPlot {
             )
             .await?;
 
-        Ok((ConfiguredScaleWithSpec::new(scale, configured), used_radius_domain))
+        Ok((
+            ConfiguredScaleWithSpec::new(scale, configured),
+            used_radius_domain,
+        ))
     }
 
     /// Build initial scales with estimated dimensions
@@ -1079,7 +1082,8 @@ mod tests {
                     .y(col("sepal_width"))
                     .size(150.0)
                     .fill_with(col("species"), |c| {
-                        c.scale_with::<Ordinal>(|s| s).legend(|l| l.title("Iris Species"))
+                        c.scale_with::<Ordinal>(|s| s)
+                            .legend(|l| l.title("Iris Species"))
                     }),
             );
 
@@ -1137,10 +1141,7 @@ mod tests {
             .configured()
             .numeric_interval_domain()
             .expect("numeric domain");
-        let y_scale = final_scales
-            .get("y")
-            .expect("y scale")
-            .configured();
+        let y_scale = final_scales.get("y").expect("y scale").configured();
         let (y_domain_min, y_domain_max) = y_scale.numeric_interval_domain().expect("numeric");
 
         assert!(
@@ -1160,10 +1161,7 @@ mod tests {
             "y domain maximum ({y_domain_max}) should be greater than data maximum ({max_y})"
         );
 
-        let first_mark = compiled
-            .marks()
-            .first()
-            .expect("compiled mark");
+        let first_mark = compiled.marks().first().expect("compiled mark");
         let stroke_width = first_mark
             .default_channel_value("stroke_width", &final_context)
             .and_then(|scalar| scalar.as_f32().ok())
@@ -1172,14 +1170,10 @@ mod tests {
 
         let x_scale_span = x_domain_max - x_domain_min;
         let y_scale_span = y_domain_max - y_domain_min;
-        let padding_left =
-            (min_x - x_domain_min) * final_context.plot_width / x_scale_span;
-        let padding_right =
-            (x_domain_max - max_x) * final_context.plot_width / x_scale_span;
-        let padding_bottom =
-            (min_y - y_domain_min) * final_context.plot_height / y_scale_span;
-        let padding_top =
-            (y_domain_max - max_y) * final_context.plot_height / y_scale_span;
+        let padding_left = (min_x - x_domain_min) * final_context.plot_width / x_scale_span;
+        let padding_right = (x_domain_max - max_x) * final_context.plot_width / x_scale_span;
+        let padding_bottom = (min_y - y_domain_min) * final_context.plot_height / y_scale_span;
+        let padding_top = (y_domain_max - max_y) * final_context.plot_height / y_scale_span;
 
         let tolerance = 0.5;
 
