@@ -6,59 +6,94 @@ Channels map data to visual properties. Avenger Chart provides two ways to set c
 
 Set a channel to a constant value:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("temperature"))
-    .y(col("humidity"))
-    .fill("steelblue")    // All points are blue
-    .size(100.0);         // All points are 100 square pixels
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+// Create temperature and humidity data
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "temperature",
+        Arc::new(Float64Array::from(vec![15.0, 18.0, 22.0, 25.0, 28.0, 20.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "humidity",
+        Arc::new(Float64Array::from(vec![65.0, 70.0, 55.0, 50.0, 45.0, 75.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("temperature"))
+            .y(col("humidity"))
+            .fill("steelblue")    // All points are blue
+            .size(250.0)          // All points are 250 square pixels
+    )
 ```
 
-Direct values work for both expressions and literals:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("x") + lit(10))  // Expression: shift x by 10
-    .y(lit(50.0));          // Literal expression: still scaled
-# }
-```
-
-Any `Expr` (from `col`, `lit`, arithmetic, etc.) is considered data to be scaled by the corresponding scales. Passing primitive literals (`"steelblue"`, `100.0`, `true`) sets raw values that bypass scaling.
+Direct values apply the same styling to all points in the visualization.
 
 ## Data-Driven Encoding
 
 Use `*_with()` methods to encode data with scales and legends:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("temperature"))
-    .y(col("humidity"))
-    .fill_with(col("region"), |c| {
-        c.scale(|s| {
-            s.range_colors(vec![
-                Srgba::new(0.121, 0.466, 0.705, 1.0),
-                Srgba::new(0.173, 0.627, 0.173, 1.0),
-                Srgba::new(0.882, 0.470, 0.0, 1.0),
-            ])
-        })
-        .legend(|l| l.title("Region"))
-    })
-    .size_with(col("population"), |c| {
-        c.scale(|s| s.range_interval(lit(50.0), lit(500.0)))
-            .legend(|l| l.title("Population"))
-    });
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+// Create data with region and population
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "temperature",
+        Arc::new(Float64Array::from(vec![15.0, 18.0, 22.0, 25.0, 28.0, 20.0, 16.0, 24.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "humidity",
+        Arc::new(Float64Array::from(vec![65.0, 70.0, 55.0, 50.0, 45.0, 75.0, 80.0, 60.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "region",
+        Arc::new(StringArray::from(vec!["North", "North", "South", "South", "West", "West", "North", "South"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "population",
+        Arc::new(Float64Array::from(vec![100000.0, 150000.0, 80000.0, 200000.0, 120000.0, 90000.0, 180000.0, 110000.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("temperature"))
+            .y(col("humidity"))
+            .fill_with(col("region"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Region"))
+            })
+            .size_with(col("population"), |c| {
+                c.scale(|s| s.range_interval(lit(100.0), lit(600.0)))
+                    .legend(|l| l.title("Population"))
+            })
+    )
 ```
 
 This creates:
@@ -68,41 +103,68 @@ This creates:
 
 ## Conditional Encodings
 
-Channels can branch on boolean expressions using the `when_value` and `when_scaled` helpers. They allow you to highlight subsets or swap in alternate scale inputs without rebuilding the chart.
+Channels can branch on boolean expressions using the `when_value` and `when_scaled` helpers:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# fn example() {
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::prelude::*;
+use std::sync::Arc;
+
+// Create data with status
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![10.0, 15.0, 12.0, 18.0, 14.0, 20.0, 16.0, 22.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "value",
+        Arc::new(Float64Array::from(vec![5.0, 10.0, 8.0, 15.0, 12.0, 18.0, 14.0, 20.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "status",
+        Arc::new(StringArray::from(vec!["ok", "ok", "error", "ok", "ok", "error", "ok", "ok"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
 let highlight = when(col("status").eq(lit("error")), lit(true))
     .otherwise(lit(false))
     .unwrap();
 
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("x"))
-    .y(col("y"))
-    .fill_with(col("value"), |c| {
-        c.when_value(highlight.clone(), lit("#ff6b6b"))
-            .scale_with::<Linear>(|s| {
-                s.range_colors(vec![
-                    Srgba::new(0.121, 0.466, 0.705, 1.0),
-                    Srgba::new(0.173, 0.627, 0.173, 1.0),
-                ])
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill_with(col("value"), |c| {
+                c.when_value(highlight.clone(), lit("#ff6b6b"))
+                    .scale_with::<Linear>(|s| s)
+                    .legend(|l| l.title("Value"))
             })
-            .legend(|l| l.title("Reading"))
-    })
-    .size_with(col("size"), |c| {
-        c.when_scaled(highlight, col("size") * lit(1.5))
-            .scale(|s| s.range_interval(lit(40.0), lit(160.0)))
-    });
-# }
+            .size_with(col("value"), |c| {
+                c.when_scaled(highlight, col("value") * lit(2.0))
+                    .scale(|s| s.range_interval(lit(100.0), lit(400.0)))
+            })
+    )
 ```
 
-- `when_value(condition, literal)` injects an immediate value whenever the boolean expression is true (bypassing the scale).
-- `when_scaled(condition, expr)` swaps in an alternate expression that still flows through the configured scale.
+- `when_value(condition, literal)` injects an immediate value whenever the boolean expression is true (bypassing the scale)
+- `when_scaled(condition, expr)` swaps in an alternate expression that still flows through the configured scale
 
-Chain multiple calls to build ordered fallbacks—for example, mark errors red, warnings orange, and everything else use the base scale.
+Error points appear in red and are larger, while normal points follow the color scale.
 
 ## Channel Types
 
@@ -116,20 +178,52 @@ Control spatial location. These are **scaled** by default:
 
 > Polar marks currently provide `r` and `theta`; range variants (`r2`, `theta2`) are not yet available.
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _rect = Rect::new()
-    .x(col("start_date"))
-    .x2(col("end_date"))
-    .y(col("task"));
-# }
+Example using range positions for interval marks:
+
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+// Create task schedule data
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "task",
+        Arc::new(StringArray::from(vec!["Task A", "Task B", "Task C", "Task D"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "start_day",
+        Arc::new(Float64Array::from(vec![1.0, 3.0, 2.0, 5.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "end_day",
+        Arc::new(Float64Array::from(vec![4.0, 7.0, 5.0, 8.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Rect::new()
+            .x(col("start_day"))
+            .x2(col("end_day"))
+            .y(col("task"))
+            .y2_with(col("task"), |c| c.band(1.0))
+            .fill("#3498db")
+            .corner_radius(2.0)
+    )
 ```
 
 ### Visual Channels
 
-Control appearance. Like all channels, expressions (e.g., `col(...)` or other `Expr` values) are scaled by default, while plain primitive literals bypass scaling. Use the `_with` variants to configure or disable that scaling when needed:
+Control appearance. Expressions (e.g., `col(...)`) are scaled by default, while plain primitive literals bypass scaling:
 
 - `fill` - Fill color
 - `stroke` - Stroke color
@@ -139,175 +233,215 @@ Control appearance. Like all channels, expressions (e.g., `col(...)` or other `E
 - `stroke_width` - Line width
 - `stroke_dash` - Dash pattern
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("x"))
-    .y(col("y"))
-    .fill("rgba(70, 130, 180, 0.85)")
-    .stroke("white")
-    .stroke_width(1.0);
-# }
-```
-
 ## Scale Configuration
 
-When using `*_with()`, you can configure the scale:
-
-### Linear Scales
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .size_with(col("population"), |c| {
-        c.scale(|s| s
-            .domain_interval(lit(0.0), lit(1_000_000.0))
-            .range_interval(lit(50.0), lit(500.0))
-        )
-    });
-# }
-```
+When using `*_with()`, you can configure the scale type and parameters.
 
 ### Categorical Scales
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .fill_with(col("category"), |c| {
-        c.scale(|s| {
-            s.range_colors(vec![
-                Srgba::new(0.596, 0.306, 0.639, 1.0),
-                Srgba::new(0.204, 0.596, 0.859, 1.0),
-                Srgba::new(0.984, 0.604, 0.600, 1.0),
-            ])
-        })
-    });
-# }
+Map discrete values to colors:
+
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+// Create categorical data
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![10.0, 15.0, 12.0, 18.0, 14.0, 16.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "category",
+        Arc::new(StringArray::from(vec!["A", "B", "C", "A", "B", "C"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .size(300.0)
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Category"))
+            })
+    )
 ```
 
 ### Log Scales
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x_with(col("gdp"), |c| c.scale_with::<Log>(|s| s.base(10.0)));
-# }
+Use logarithmic scaling for exponential data:
+
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+// Create exponential data
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "index",
+        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "value",
+        Arc::new(Float64Array::from(vec![10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("index"))
+            .y_with(col("value"), |c| {
+                c.scale_with::<Log>(|s| s.base(10.0))
+            })
+            .size(300.0)
+            .fill("#e74c3c")
+    )
 ```
 
-### Time Scales
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x_with(col("date"), |c| c.scale_with::<Time>(|s| s));
-# }
-```
-
-## Legends
-
-Enable legends for encoded channels:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .fill_with(col("species"), |c| {
-        c.scale(|s| {
-            s.range_colors(vec![
-                Srgba::new(0.204, 0.596, 0.859, 1.0),
-                Srgba::new(0.984, 0.604, 0.600, 1.0),
-                Srgba::new(0.169, 0.506, 0.337, 1.0),
-            ])
-        })
-        .legend(|l| l.title("Species"))
-    });
-# }
-```
-
-To drive legends, scales, or channel expressions from runtime values, combine channels with [Parameters](../advanced/parameters.md). Parameters let you compile once and render with different thresholds, color overrides, or axis behaviours without rebuilding the plot.
-
-Legends automatically display:
-- Color scales (fill/stroke)
-- Size scales
-- Shape encodings (when implemented)
+Log scales compress large ranges and make exponential relationships linear.
 
 ## Multiple Channels
 
-Encode multiple channels from the same column:
+Encode multiple channels from the same column for redundant encoding:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("x"))
-    .y(col("y"))
-    .fill_with(col("temperature"), |c| {
-        c.scale(|s| s
-            .domain_interval(lit(0.0), lit(100.0))
-            .range_interval(lit(0.0), lit(1.0))
-        )
-        .legend(|l| l.title("Temperature (color)"))
-    })
-    .size_with(col("temperature"), |c| {
-        c.scale(|s| s
-            .domain_interval(lit(0.0), lit(100.0))
-            .range_interval(lit(50.0), lit(500.0))
-        )
-        .legend(|l| l.title("Temperature (size)"))
-    });
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+// Create temperature data
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![1.0, 1.2, 1.1, 1.3, 1.2, 1.4, 1.3, 1.5]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "temperature",
+        Arc::new(Float64Array::from(vec![0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 100.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill_with(col("temperature"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .legend(|l| l.title("Temperature (color)"))
+            })
+            .size_with(col("temperature"), |c| {
+                c.scale(|s| s.range_interval(lit(100.0), lit(600.0)))
+                    .legend(|l| l.title("Temperature (size)"))
+            })
+    )
 ```
 
-This creates redundant encoding where temperature controls both color and size.
+This creates redundant encoding where temperature controls both color and size, making the pattern easier to perceive.
 
 ## Expression Channels
 
-Channels can use DataFusion expressions:
+Channels can use DataFusion expressions for computed values:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# fn example() -> Result<(), Box<dyn std::error::Error>> {
-let status = when(col("value").gt(lit(100)), lit("high"))
-    .otherwise(lit("low"))?;
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::prelude::*;
+use std::sync::Arc;
 
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("x"))
-    .y(col("y1") + col("y2"))
-    .fill_with(status, |c| {
-        c.scale(|s| {
-            s.range_colors(vec![
-                Srgba::new(0.8, 0.2, 0.2, 1.0),
-                Srgba::new(0.2, 0.4, 0.8, 1.0),
-            ])
-        })
-    });
-# Ok(())
-# }
+// Create data for expression example
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y1",
+        Arc::new(Float64Array::from(vec![10.0, 15.0, 12.0, 18.0, 14.0, 20.0, 16.0, 22.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y2",
+        Arc::new(Float64Array::from(vec![5.0, 8.0, 6.0, 12.0, 9.0, 15.0, 11.0, 18.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "value",
+        Arc::new(Float64Array::from(vec![50.0, 120.0, 80.0, 150.0, 95.0, 180.0, 110.0, 200.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+let status = when(col("value").gt(lit(100.0)), lit("high"))
+    .otherwise(lit("low"))
+    .unwrap();
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y1") + col("y2"))  // Expression: sum of two columns
+            .size(300.0)
+            .fill_with(status, |c| {    // Expression: conditional category
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Status"))
+            })
+    )
 ```
+
+DataFusion expressions enable complex data transformations within channel mappings.
 
 ## Literal vs. Column Values
 
 **Key distinction**:
 
 ```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
 # fn example() {
 let _symbol = Symbol::<Cartesian>::new()
     .x(col("date"))   // Expr -> scaled by default
@@ -322,3 +456,4 @@ All channels follow the same rule: expressions are routed through scales unless 
 - Learn about [Scales](./scales.md) in detail
 - Understand [Legends](./legends.md) configuration
 - See channel examples in [Guides](../guides/scatter-plots.md)
+- Use [Parameters](../advanced/parameters.md) for runtime control
