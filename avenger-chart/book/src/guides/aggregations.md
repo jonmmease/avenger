@@ -228,20 +228,20 @@ use datafusion::functions_aggregate::average::avg;
 use datafusion::functions_aggregate::expr_fn::*;
 use std::sync::Arc;
 
-// Data with two grouping dimensions
+// Data with two grouping dimensions and varying counts per group
 let batch = RecordBatch::try_from_iter(vec![
     (
         "region",
         Arc::new(StringArray::from(vec![
-            "North", "North", "North", "South", "South", "South",
-            "North", "North", "North", "South", "South", "South"
+            "North", "North", "South", "South", "South", "South", "South",
+            "North", "North", "North", "North", "South", "South"
         ]))
             as datafusion::arrow::array::ArrayRef,
     ),
     (
         "product",
         Arc::new(StringArray::from(vec![
-            "A", "A", "A", "A", "A", "A",
+            "A", "A", "A", "A", "A", "A", "A",
             "B", "B", "B", "B", "B", "B"
         ]))
             as datafusion::arrow::array::ArrayRef,
@@ -249,16 +249,16 @@ let batch = RecordBatch::try_from_iter(vec![
     (
         "sales",
         Arc::new(Float64Array::from(vec![
-            100.0, 120.0, 110.0, 150.0, 160.0, 140.0,
-            200.0, 220.0, 210.0, 250.0, 260.0, 240.0
+            100.0, 120.0, 150.0, 160.0, 140.0, 155.0, 145.0,
+            200.0, 220.0, 210.0, 230.0, 250.0, 260.0
         ]))
             as datafusion::arrow::array::ArrayRef,
     ),
     (
         "rating",
         Arc::new(Float64Array::from(vec![
-            4.5, 4.7, 4.6, 4.2, 4.3, 4.1,
-            4.8, 4.9, 4.7, 4.4, 4.5, 4.3
+            4.5, 4.7, 4.2, 4.3, 4.1, 4.4, 4.6,
+            4.8, 4.9, 4.7, 4.6, 4.4, 4.5
         ]))
             as datafusion::arrow::array::ArrayRef,
     ),
@@ -276,7 +276,8 @@ Plot::<Cartesian>::new()
             .x(col("region"))                     // GROUP BY region
             .y(col("product"))                    // GROUP BY product
             .size_with(count(col("sales")), |c| {  // Aggregate: COUNT
-                c.legend(|l| l.title("Count"))
+                c.scale(|s| s.range_interval(lit(400.0), lit(1200.0)))
+                    .legend(|l| l.title("Count"))
             })
             .fill_with(avg(col("rating")), |c| {   // Aggregate: AVG
                 c.legend(|l| l.title("Avg Rating"))
@@ -401,26 +402,64 @@ From `datafusion::functions_aggregate::average`:
 
 For more complex scenarios, you can also perform aggregations manually in DataFusion before passing data to the plot:
 
-```rust,no_run
+```rust,render,ignore
 use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, Int32Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::average::avg;
 use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
+use std::sync::Arc;
 
-# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+// Create sales data with year, category, region
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "year",
+        Arc::new(Int32Array::from(vec![2023, 2023, 2023, 2023, 2023, 2023, 2023, 2023, 2023, 2023, 2023, 2023]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "category",
+        Arc::new(StringArray::from(vec!["A", "A", "A", "A", "B", "B", "B", "B", "C", "C", "C", "C"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "region",
+        Arc::new(StringArray::from(vec!["North", "North", "South", "South", "North", "North", "South", "South", "North", "North", "South", "South"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "sales",
+        Arc::new(Float64Array::from(vec![100.0, 120.0, 150.0, 140.0, 200.0, 210.0, 180.0, 190.0, 300.0, 280.0, 320.0, 310.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "rating",
+        Arc::new(Float64Array::from(vec![4.5, 4.6, 4.7, 4.8, 4.2, 4.3, 4.4, 4.5, 4.8, 4.9, 4.7, 4.6]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
 // Manual aggregation with filtering
 let aggregated = df
-    .filter(col("year").eq(lit(2023)))?          // Filter first
+    .filter(col("year").eq(lit(2023)))
+    .expect("filter by year")
     .aggregate(
-        vec![col("category"), col("region")],     // Multiple GROUP BY
+        vec![col("category")],
         vec![
             sum(col("sales")).alias("total_sales"),
             avg(col("rating")).alias("avg_rating"),
             count(lit(1)).alias("count"),
         ]
-    )?
-    .filter(col("count").gt(lit(10)))?;          // HAVING clause
+    )
+    .expect("aggregate")
+    .filter(col("count").gt(lit(2)))
+    .expect("filter by count");
 
-let _plot = Plot::<Cartesian>::new()
+Plot::<Cartesian>::new()
     .data(aggregated)
     .mark(
         Rect::new()
@@ -428,9 +467,10 @@ let _plot = Plot::<Cartesian>::new()
             .x2_with(col(":x"), |c| c.band(1.0))  // Can use :x with pre-aggregated data
             .y(lit(0.0))
             .y2(col("total_sales"))              // Already aggregated
-    );
-# Ok(())
-# }
+            .fill_with(col("avg_rating"), |c| {
+                c.legend(|l| l.title("Avg Rating"))
+            })
+    )
 ```
 
 This approach gives you full control over:
