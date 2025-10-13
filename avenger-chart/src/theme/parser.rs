@@ -12,6 +12,7 @@ use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
     color::{OPAQUE, parse_hash_color},
+    parse_important,
 };
 use indexmap::IndexMap;
 use selectors::parser::{ParseRelative, Parser as SelectorParser, SelectorList};
@@ -222,7 +223,7 @@ impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
 
 /// Internal struct for parsing declarations
 struct DeclarationParserImpl<'a> {
-    declarations: IndexMap<String, ThemeValue>,
+    declarations: IndexMap<String, crate::theme::theme::Declaration>,
     unsupported_units: &'a RefCell<Vec<String>>,
 }
 
@@ -235,27 +236,43 @@ impl<'i, 'a> DeclarationParser<'i> for DeclarationParserImpl<'a> {
         &mut self,
         name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
-        _start: &ParserState,
+        start: &ParserState,
     ) -> Result<(), ParseError<'i, ()>> {
         let property = name.to_string();
 
-        // Always try to parse as comma-separated list
-        let values =
-            input.parse_comma_separated(|p| parse_single_value(p, self.unsupported_units))?;
-
-        // Store based on number of values
-        match values.len() {
-            0 => return Err(input.new_custom_error(())),
-            1 => {
-                // Single value - store directly
-                self.declarations
-                    .insert(property, values.into_iter().next().unwrap());
-            }
-            _ => {
-                // Multiple values - store as list
-                self.declarations.insert(property, ThemeValue::List(values));
+        // Parse values manually, stopping at !important or end of input
+        let mut values = Vec::new();
+        loop {
+            // Try to parse a value
+            match parse_single_value(input, self.unsupported_units) {
+                Ok(value) => {
+                    values.push(value);
+                    // Check if there's a comma (indicating more values)
+                    if input.try_parse(|i| i.expect_comma()).is_err() {
+                        // No comma, we're done parsing values
+                        break;
+                    }
+                    // Comma found, continue to next value
+                }
+                Err(_) => {
+                    // No more values to parse
+                    break;
+                }
             }
         }
+
+        // Check for !important flag using cssparser's parse_important
+        let important = input.try_parse(parse_important).is_ok();
+
+        // Store based on number of values
+        let value = match values.len() {
+            0 => return Err(input.new_custom_error(())),
+            1 => values.into_iter().next().unwrap(),
+            _ => ThemeValue::List(values),
+        };
+
+        let declaration = crate::theme::theme::Declaration::new(value, important);
+        self.declarations.insert(property, declaration);
 
         Ok(())
     }
