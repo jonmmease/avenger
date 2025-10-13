@@ -84,11 +84,12 @@ theme.append_css(
     legend background {
         fill: color-mix(in srgb, white 90%, black 10%);
         stroke: #64748b;
-        corner-radius: 6;
-        padding: 8;
+        stroke-width: 1px;
+        corner-radius: 6px;
+        padding: 8px;
     }
 
-    symbol {
+    mark[type="symbol"] {
         stroke-width: 1.5px;
         stroke: #1e293b;
     }
@@ -146,7 +147,7 @@ let css = r#"
         stroke: var(--text-color);
     }
 
-    symbol {
+    mark[type="symbol"] {
         fill: var(--accent);
         stroke: var(--text-color);
         stroke-width: 1px;
@@ -301,7 +302,7 @@ theme.append_css(
             hsla(160, 70%, 45%, 0.75);
     }
 
-    symbol {
+    mark[type="symbol"] {
         stroke: color-mix(in srgb, #1e293b 65%, white);
         stroke-width: 1.5px;
     }
