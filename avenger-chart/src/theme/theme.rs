@@ -340,9 +340,9 @@ impl Theme {
 
     /// Extract CSS variables from a rule
     fn extract_variables(rule: &CompiledRule, variables: &mut IndexMap<String, ThemeValue>) {
-        for (key, value) in &rule.declarations {
+        for (key, declaration) in &rule.declarations {
             if key.starts_with("--") {
-                variables.insert(key.clone(), value.clone());
+                variables.insert(key.clone(), declaration.value.clone());
             }
         }
     }
@@ -537,11 +537,24 @@ impl Theme {
         // Sort by specificity and source order (higher specificity should win, then later rules)
         matches.sort_by_key(|r| (r.specificity, r.source_order));
 
-        // Find the property value - iterate from highest specificity
+        // CSS cascade: !important declarations win over non-important declarations
+        // Search important declarations first (from highest specificity)
         for rule in matches.iter().rev() {
-            if let Some(value) = rule.declarations.get(property) {
-                // Resolve the value with params from context
-                return Some(self.resolve_theme_value(value.clone(), &context.params, 0));
+            if let Some(declaration) = rule.declarations.get(property) {
+                if declaration.important {
+                    // Resolve the value with params from context
+                    return Some(self.resolve_theme_value(declaration.value.clone(), &context.params, 0));
+                }
+            }
+        }
+
+        // If no important declaration found, search non-important declarations
+        for rule in matches.iter().rev() {
+            if let Some(declaration) = rule.declarations.get(property) {
+                if !declaration.important {
+                    // Resolve the value with params from context
+                    return Some(self.resolve_theme_value(declaration.value.clone(), &context.params, 0));
+                }
             }
         }
 
@@ -604,9 +617,9 @@ impl Theme {
         // Iterate in reverse to respect cascading order (last rule wins)
         for rule in self.rules.iter().rev() {
             if Self::is_root_selector(rule) {
-                if let Some(font_size_value) = rule.declarations.get("font-size") {
+                if let Some(declaration) = rule.declarations.get("font-size") {
                     // Resolve variables in the font-size value (params override CSS variables)
-                    let resolved = self.resolve_theme_value(font_size_value.clone(), params, 0);
+                    let resolved = self.resolve_theme_value(declaration.value.clone(), params, 0);
                     // Use DEFAULT_BASE_FONT_SIZE for bootstrap to avoid circular dependency
                     // Pass params here even though they're empty during construction
                     if let Some(size) = resolved.as_font_size(params, DEFAULT_BASE_FONT_SIZE) {
@@ -1179,13 +1192,26 @@ impl<'de> Deserialize<'de> for Theme {
     }
 }
 
+/// A CSS declaration with its value and importance flag
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Declaration {
+    pub(crate) value: ThemeValue,
+    pub(crate) important: bool,
+}
+
+impl Declaration {
+    pub fn new(value: ThemeValue, important: bool) -> Self {
+        Self { value, important }
+    }
+}
+
 /// A compiled CSS rule with selector and declarations
 #[derive(Debug, Clone)]
 pub(crate) struct CompiledRule {
     pub(crate) selector: selectors::parser::Selector<crate::theme::selector_impl::ChartSelectors>,
     pub(crate) specificity: u32,
     pub(crate) source_order: usize,
-    pub(crate) declarations: IndexMap<String, ThemeValue>,
+    pub(crate) declarations: IndexMap<String, Declaration>,
     pub(crate) media_condition: Option<crate::theme::media_query::MediaCondition>,
 }
 
