@@ -223,89 +223,67 @@ use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-// Create separate data for bars and symbols
-let bar_batch = RecordBatch::try_from_iter(vec![
+// Create simple data
+let batch = RecordBatch::try_from_iter(vec![
     (
-        "bar_category",
+        "category",
         Arc::new(StringArray::from(vec!["A", "B", "C"]))
             as datafusion::arrow::array::ArrayRef,
     ),
     (
-        "bar_value",
+        "value",
         Arc::new(Float64Array::from(vec![25.0, 40.0, 35.0]))
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
 .expect("create batch");
 
-let symbol_batch = RecordBatch::try_from_iter(vec![
-    (
-        "symbol_category",
-        Arc::new(StringArray::from(vec!["A", "B", "C"]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-    (
-        "symbol_value",
-        Arc::new(Float64Array::from(vec![25.0, 40.0, 35.0]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-])
-.expect("create batch");
-
-let bar_df = ctx.read_batch(bar_batch).expect("read batch");
-let symbol_df = ctx.read_batch(symbol_batch).expect("read batch");
+let df = ctx.read_batch(batch).expect("read batch");
 
 let mut theme = Theme::light();
 theme.append_css(
     r#"
-    /* Symbols get pink/magenta palette and orange stroke */
+    /* Symbols get pink fill and orange stroke */
     mark[type="symbol"] {
+        fill: #f472b6;
+        stroke: #f97316;
         stroke-width: 3px;
-        stroke: #f97316;  /* Bright orange stroke */
-        fill-discrete: #f472b6, #ec4899, #be185d;  /* Pink scale */
     }
 
-    /* Rects get blue palette (no orange stroke) */
+    /* Rects get blue fill */
     mark[type="rect"] {
-        fill-discrete: #60a5fa, #3b82f6, #2563eb;  /* Blue scale */
+        fill: #3b82f6;
     }
     "#,
 )?;
 
 Plot::<Cartesian>::new()
     .theme(theme)
-    .title("Mark Type Selectors with Separate Scales")
-    .subtitle("Different data columns create separate scales")
+    .data(df.clone())
+    .title("Mark Type Selectors")
+    .subtitle("CSS targets different mark types with different styles")
     .mark(
         Rect::new()
-            .data(bar_df)
-            .x_with(col("bar_category"), |c| {
+            .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| s.padding_inner(0.3))
             })
-            .x2_with(col("bar_category"), |c| c.band(1.0))
+            .x2_with(col("category"), |c| c.band(1.0))
             .y(lit(0.0))
-            .y2(col("bar_value"))
-            .fill_with(col("bar_category"), |c| {
-                c.legend(|l| l.title("Bars"))
-            })
+            .y2(col("value"))
     )
     .mark(
         Symbol::new()
-            .data(symbol_df)
-            .x_with(col("symbol_category"), |c| {
+            .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| s.padding_inner(0.3))
             })
-            .y(col("symbol_value"))
+            .y(col("value"))
             .size(300.0)
-            .fill_with(col("symbol_category"), |c| {
-                c.legend(|l| l.title("Symbols"))
-            })
     )
 ```
 
 - `guide[type="cartesian"]` and `guide[type="polar"]` let you style axes and backgrounds differently per coordinate system.
 - `mark[type="symbol"]` and `mark[type="rect"]` scope properties to specific mark types.
-- Using different column names (`bar_category` vs `symbol_category`) creates separate color scales, allowing each mark type to have its own palette.
+- Static colors from CSS apply to all instances of each mark type.
 
 ### Color Utilities
 
