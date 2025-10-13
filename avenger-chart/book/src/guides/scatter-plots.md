@@ -1,23 +1,29 @@
 # Scatter Plots
 
-Scatter plots visualize the relationship between two quantitative variables. This guide covers basic scatter plots and various enhancements.
+Scatter plots visualize the relationship between two quantitative variables. This guide covers basic scatter plots and various enhancements using the Iris dataset.
 
 ## Basic Scatter Plot
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::scatter_quadrants(&ctx))
+    .data(df)
     .mark(
         Symbol::new()
-            .x(col("x"))
-            .y(col("y"))
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
     )
 ```
 
-This creates a simple scatter plot with circles at default size.
-
+This creates a simple scatter plot with circles at default size showing the relationship between sepal length and width.
 
 ## Customizing Appearance
 
@@ -26,14 +32,21 @@ This creates a simple scatter plot with circles at default size.
 Set a fixed size for all points:
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::scatter_quadrants(&ctx))
+    .data(df)
     .mark(
         Symbol::new()
-            .x(col("x"))
-            .y(col("y"))
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
             .size(200.0)  // Size in square pixels
     )
 ```
@@ -43,14 +56,21 @@ Plot::<Cartesian>::new()
 Choose different shapes:
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::scatter_quadrants(&ctx))
+    .data(df)
     .mark(
         Symbol::new()
-            .x(col("x"))
-            .y(col("y"))
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
             .size(150.0)
             .shape("square")
     )
@@ -63,14 +83,21 @@ Available shape names include: `"circle"`, `"square"`, `"cross"`, `"diamond"`, `
 Set fill and stroke:
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::scatter_quadrants(&ctx))
+    .data(df)
     .mark(
         Symbol::new()
-            .x(col("x"))
-            .y(col("y"))
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
             .size(120.0)
             .fill("#ff6b6b")      // Coral red
             .stroke("#2c3e50")    // Dark slate
@@ -80,69 +107,90 @@ Plot::<Cartesian>::new()
 
 ## Encoding with Color
 
-Map a categorical variable to color:
+Map the species categorical variable to color:
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::categorical_bars(&ctx))
+    .data(df)
     .mark(
         Symbol::new()
-            .x(col("value"))
-            .y(col("value"))
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
             .size(180.0)
-            .fill_with(col("category"), |c| {
+            .fill_with(col("species"), |c| {
                 c.scale_with::<Ordinal>(|s| s)
-                    .legend(|l| l.title("Category"))
+                    .legend(|l| l.title("Species"))
             })
     )
 ```
 
-This creates a scatter plot where each category has a different color.
+This creates a scatter plot where each species has a different color.
 
 ## Encoding with Size
 
-Map a quantitative variable to size:
+Map petal length to size:
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::categorical_bars(&ctx))
+    .data(df)
     .mark(
         Symbol::new()
-            .x(col("value"))
-            .y(col("value"))
-            .size_with(col("value"), |c| {
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size_with(col("petal_length"), |c| {
                 c.scale(|s| s.range_interval(lit(80.0), lit(300.0)))
-                    .legend(|l| l.title("Value"))
+                    .legend(|l| l.title("Petal Length"))
             })
     )
 ```
 
-This creates a bubble chart where larger circles represent larger values.
+This creates a bubble chart where larger circles represent longer petals.
 
 ## Multiple Encodings
 
 Combine color and size encoding:
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::categorical_bars(&ctx))
+    .data(df)
     .mark(
         Symbol::new()
-            .x(col("value"))
-            .y(col("value"))
-            .fill_with(col("category"), |c| {
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .fill_with(col("species"), |c| {
                 c.scale_with::<Ordinal>(|s| s)
-                    .legend(|l| l.title("Category"))
+                    .legend(|l| l.title("Species"))
             })
-            .size_with(col("value"), |c| {
+            .size_with(col("petal_length"), |c| {
                 c.scale(|s| s.range_interval(lit(80.0), lit(280.0)))
-                    .legend(|l| l.title("Value"))
+                    .legend(|l| l.title("Petal Length"))
             })
     )
 ```
@@ -152,14 +200,21 @@ Plot::<Cartesian>::new()
 The current API does not expose an opacity channel for symbols yet. A common pattern is to encode density through fill colors using alpha values:
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::scatter_quadrants(&ctx))
+    .data(df)
     .mark(
         Symbol::new()
-            .x(col("x"))
-            .y(col("y"))
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
             .size(250.0)
             .fill("#4682b480")  // hex RGBA with transparency
     )
@@ -172,15 +227,22 @@ Position scales automatically expand so the full symbol geometry stays inside th
 With nice scales enabled (rounded tick values):
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::scatter_quadrants(&ctx))
+    .data(df)
     .title("Nice Scales (Rounded Ticks)")
     .mark(
         Symbol::new()
-            .x_with(col("x"), |c| c.scale_with::<Linear>(|s| s.nice(true)))
-            .y_with(col("y"), |c| c.scale_with::<Linear>(|s| s.nice(true)))
+            .x_with(col("sepal_length"), |c| c.scale_with::<Linear>(|s| s.nice(true)))
+            .y_with(col("sepal_width"), |c| c.scale_with::<Linear>(|s| s.nice(true)))
             .size(140.0)
     )
 ```
@@ -188,15 +250,22 @@ Plot::<Cartesian>::new()
 With nice scales disabled (tight to data):
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::scatter_quadrants(&ctx))
+    .data(df)
     .title("Precise Scales (Tight to Data)")
     .mark(
         Symbol::new()
-            .x_with(col("x"), |c| c.scale_with::<Linear>(|s| s.nice(false)))
-            .y_with(col("y"), |c| c.scale_with::<Linear>(|s| s.nice(false)))
+            .x_with(col("sepal_length"), |c| c.scale_with::<Linear>(|s| s.nice(false)))
+            .y_with(col("sepal_width"), |c| c.scale_with::<Linear>(|s| s.nice(false)))
             .size(140.0)
     )
 ```
@@ -248,15 +317,22 @@ Plot::<Cartesian>::new()
 Add descriptive titles to axes and the overall plot:
 
 ```rust,render,ignore
-# use avenger_chart::prelude::*;
-# use avenger_chart::doc::datasets;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 Plot::<Cartesian>::new()
-    .data(datasets::categorical_bars(&ctx))
-    .title("Category Values")
+    .data(df)
+    .title("Iris Sepal Measurements")
     .mark(
         Symbol::new()
-            .x_with(col("value"), |c| c.axis(|a| a.title("Measured Value")))
-            .y_with(col("value"), |c| c.axis(|a| a.title("Y Position")))
+            .x_with(col("sepal_length"), |c| c.axis(|a| a.title("Sepal Length (cm)")))
+            .y_with(col("sepal_width"), |c| c.axis(|a| a.title("Sepal Width (cm)")))
             .size(150.0)
     )
 ```
