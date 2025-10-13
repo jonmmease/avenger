@@ -82,11 +82,11 @@ let mut theme = Theme::light();
 theme.append_css(
     r#"
     legend background {
-        fill: color-mix(in srgb, white 90%, black 10%);
-        stroke: #64748b;
-        stroke-width: 1px;
-        corner-radius: 6px;
-        padding: 8px;
+        fill: #f0f9ff;  /* Light blue background */
+        stroke: #3b82f6;  /* Blue border */
+        stroke-width: 2px;
+        corner-radius: 8px;
+        padding: 10px;
     }
 
     mark[type="symbol"] {
