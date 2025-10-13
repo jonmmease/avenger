@@ -170,11 +170,13 @@ Error points appear in red and are larger, while normal points follow the color 
 
 ### Position Channels
 
-Control spatial location. These are **scaled** by default:
+Control spatial location:
 
 - `x`, `y` - Primary position (Cartesian)
 - `x2`, `y2` - Secondary position for ranges
 - `r`, `theta` - Polar coordinates
+
+Position channels follow the same scaling rules as all other channels: expressions (e.g., `col("date")` or `lit(100)`) are scaled, while primitive literals (e.g., `50.0`) bypass scaling.
 
 > Polar marks currently provide `r` and `theta`; range variants (`r2`, `theta2`) are not yet available.
 
