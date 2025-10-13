@@ -243,16 +243,16 @@ let df = ctx.read_batch(batch).expect("read batch");
 let mut theme = Theme::light();
 theme.append_css(
     r#"
-    /* Symbols get pink fill and orange stroke */
-    mark[type="symbol"] {
-        fill: #f472b6;
-        stroke: #f97316;
+    /* All marks get deep orange stroke and teal fill */
+    mark {
+        stroke: #ff5722;  /* Deep orange */
         stroke-width: 3px;
+        fill: #14b8a6;  /* Teal */
     }
 
-    /* Rects get blue fill */
-    mark[type="rect"] {
-        fill: #3b82f6;
+    /* Symbols override with pink fill */
+    mark[type="symbol"] {
+        fill: #f472b6;  /* Pink */
     }
     "#,
 )?;
@@ -261,7 +261,7 @@ Plot::<Cartesian>::new()
     .theme(theme)
     .data(df.clone())
     .title("Mark Type Selectors")
-    .subtitle("CSS targets different mark types with different styles")
+    .subtitle("Universal mark styles with type-specific overrides")
     .mark(
         Rect::new()
             .x_with(col("category"), |c| {
@@ -282,8 +282,9 @@ Plot::<Cartesian>::new()
 ```
 
 - `guide[type="cartesian"]` and `guide[type="polar"]` let you style axes and backgrounds differently per coordinate system.
-- `mark[type="symbol"]` and `mark[type="rect"]` scope properties to specific mark types.
-- Static colors from CSS apply to all instances of each mark type.
+- `mark` selector applies to all mark types (universal styles for stroke and base fill).
+- `mark[type="symbol"]` overrides the fill for symbols only, demonstrating CSS specificity and cascading.
+- Rects inherit the teal fill, symbols get pink, but both share the deep orange stroke.
 
 ### Color Utilities
 
