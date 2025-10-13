@@ -107,7 +107,13 @@ Plot::<Cartesian>::new()
             .size(200.0)
             .fill_with(col("species"), |c| {
                 c.scale_with::<Ordinal>(|s| s)
-                    .legend(|l| l.title("Species"))
+                    .legend(|l| {
+                        l.title("Species")
+                            .background_fill("#f0f9ff")
+                            .background_stroke("#3b82f6")
+                            .background_corner_radius(8.0)
+                            .background_padding(10.0)
+                    })
             })
     )
 ```
@@ -129,27 +135,25 @@ let df = ctx
     .expect("load iris dataset");
 
 let css = r#"
-    :root {
-        --bg-color: #1e1e1e;
-        --text-color: #f5f5f5;
-        --accent: #4ec9b0;
-    }
-
     canvas {
-        background-color: var(--bg-color);
+        background-color: #1e1e1e;
     }
 
-    axis label, axis title, chart-title, chart-subtitle {
-        color: var(--text-color);
+    axis label, axis title {
+        color: #f5f5f5;
+    }
+
+    chart-title, chart-subtitle {
+        color: #f5f5f5;
     }
 
     axis line, axis tick, axis domain {
-        stroke: var(--text-color);
+        stroke: #f5f5f5;
     }
 
     mark[type="symbol"] {
-        fill: var(--accent);
-        stroke: var(--text-color);
+        fill: #4ec9b0;
+        stroke: #f5f5f5;
         stroke-width: 1px;
     }
     "#;
