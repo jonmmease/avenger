@@ -23,6 +23,21 @@ mdbook build
 
 Output will be in `book/book/`.
 
+### Clean Rebuild
+
+For a complete rebuild with all caches cleared (recommended when images need updating):
+
+```bash
+cd avenger-chart/book
+./rebuild.sh
+```
+
+This script:
+- Removes all build artifacts and caches
+- Rebuilds the preprocessor
+- Regenerates all images
+- Builds the book from scratch
+
 ### Validate Code Examples
 
 The Markdown snippets are mirrored into the `avenger-chart-mdbook` harness crate so they can be compiled against the workspace sources. Run the doctests with:

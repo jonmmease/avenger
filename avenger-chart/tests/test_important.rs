@@ -56,7 +56,10 @@ fn test_important_vs_important() {
     if let Some(ThemeValue::Color(color)) = fill {
         assert_eq!(color.red, 0);
         assert_eq!(color.green, 0);
-        assert_eq!(color.blue, 255, "Expected blue from higher specificity !important");
+        assert_eq!(
+            color.blue, 255,
+            "Expected blue from higher specificity !important"
+        );
     } else {
         panic!("Expected color value, got {:?}", fill);
     }
@@ -82,7 +85,10 @@ fn test_important_source_order() {
 
     // Should get 0.8 because later rule wins
     if let Some(ThemeValue::Number(value)) = opacity {
-        assert!((value - 0.8).abs() < 0.01, "Expected 0.8 from later !important");
+        assert!(
+            (value - 0.8).abs() < 0.01,
+            "Expected 0.8 from later !important"
+        );
     } else {
         panic!("Expected number value, got {:?}", opacity);
     }
@@ -205,7 +211,10 @@ fn test_important_with_multiple_properties() {
     if let Some(ThemeValue::Color(color)) = fill {
         assert_eq!(color.red, 0);
         assert_eq!(color.green, 0);
-        assert_eq!(color.blue, 255, "fill should be blue from higher specificity !important");
+        assert_eq!(
+            color.blue, 255,
+            "fill should be blue from higher specificity !important"
+        );
     } else {
         panic!("Expected fill color");
     }

@@ -243,14 +243,14 @@ let df = ctx.read_batch(batch).expect("read batch");
 let mut theme = Theme::light();
 theme.append_css(
     r#"
-    /* Both mark types get deep orange stroke and teal fill */
-    mark[type="symbol"], mark[type="rect"] {
-        stroke: #ff5722;  /* Deep orange */
-        stroke-width: 3px;
+    /* Universal mark selector sets stroke for all marks using !important */
+    mark {
+        stroke: #ff5722 !important;  /* Deep orange */
+        stroke-width: 3px !important;
         fill: #14b8a6;  /* Teal */
     }
 
-    /* Symbols override with pink fill */
+    /* Type-specific selector overrides fill (higher specificity wins for non-!important) */
     mark[type="symbol"] {
         fill: #f472b6;  /* Pink */
     }
@@ -260,8 +260,8 @@ theme.append_css(
 Plot::<Cartesian>::new()
     .theme(theme)
     .data(df.clone())
-    .title("Mark Type Selectors")
-    .subtitle("Universal mark styles with type-specific overrides")
+    .title("CSS !important and Specificity")
+    .subtitle("Using !important to apply universal styles across mark types")
     .mark(
         Rect::new()
             .x_with(col("category"), |c| {
@@ -281,10 +281,10 @@ Plot::<Cartesian>::new()
     )
 ```
 
-- CSS specificity: `mark[type="symbol"]` has higher specificity than `mark` because of the attribute selector.
-- The comma-separated selector `mark[type="symbol"], mark[type="rect"]` applies shared styles (stroke and base fill).
-- The second `mark[type="symbol"]` rule overrides just the fill, demonstrating CSS cascading.
-- Result: rects keep teal fill, symbols get pink fill, both have deep orange stroke.
+- CSS `!important`: The `mark` selector uses `!important` for stroke properties, allowing it to override higher-specificity rules.
+- Without `!important`, the `mark[type="symbol"]` selector (higher specificity) would normally override the `mark` selector.
+- The fill property doesn't use `!important`, so normal CSS specificity applies: symbols get pink fill from the type-specific rule.
+- Result: both mark types get deep orange stroke from `!important`, rects keep teal fill, symbols get pink fill.
 
 ### Color Utilities
 

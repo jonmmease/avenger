@@ -884,8 +884,7 @@ impl CompiledPlot {
             configured_non_positional,
             configured_positional,
             radius_sensitive_scales,
-        ) =
-            self.build_initial_scales(&initial_context).await?;
+        ) = self.build_initial_scales(&initial_context).await?;
 
         // Merge configured scales for layout computation
         let mut initial_configured_scales = configured_non_positional.clone();

@@ -543,7 +543,11 @@ impl Theme {
             if let Some(declaration) = rule.declarations.get(property) {
                 if declaration.important {
                     // Resolve the value with params from context
-                    return Some(self.resolve_theme_value(declaration.value.clone(), &context.params, 0));
+                    return Some(self.resolve_theme_value(
+                        declaration.value.clone(),
+                        &context.params,
+                        0,
+                    ));
                 }
             }
         }
@@ -553,7 +557,11 @@ impl Theme {
             if let Some(declaration) = rule.declarations.get(property) {
                 if !declaration.important {
                     // Resolve the value with params from context
-                    return Some(self.resolve_theme_value(declaration.value.clone(), &context.params, 0));
+                    return Some(self.resolve_theme_value(
+                        declaration.value.clone(),
+                        &context.params,
+                        0,
+                    ));
                 }
             }
         }
