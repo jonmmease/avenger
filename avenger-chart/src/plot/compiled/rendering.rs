@@ -879,7 +879,12 @@ impl CompiledPlot {
             merged_params.clone(),
         );
 
-        let (initial_scales, configured_non_positional, configured_positional) =
+        let (
+            initial_scales,
+            configured_non_positional,
+            configured_positional,
+            radius_sensitive_scales,
+        ) =
             self.build_initial_scales(&initial_context).await?;
 
         // Merge configured scales for layout computation
@@ -918,6 +923,7 @@ impl CompiledPlot {
                 &initial_scales,
                 &configured_non_positional,
                 &final_context,
+                &radius_sensitive_scales,
             )
             .await?;
 
