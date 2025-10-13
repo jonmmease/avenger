@@ -435,22 +435,52 @@ During compilation, Avenger Chart merges channel-level scale requests with plot-
 
 ### Padding
 
-Control spacing for band and point scales:
+Control spacing for band scales with inner and outer padding:
 
-```rust,no_run
+```rust,render,ignore
 use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
 
-# fn example() {
-// Band scale with inner and outer padding
-let _config = Band::default()
-    .padding_inner(0.1)   // Gap between bars (10% of band width)
-    .padding_outer(0.05); // Space at edges (5% of band width)
+// Create data for padding demonstration
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "category",
+        Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "value",
+        Arc::new(Float64Array::from(vec![25.0, 40.0, 30.0, 55.0, 35.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
 
-// Point scale with symmetric padding
-let _config = Point::default()
-    .padding(0.5);  // Space at both ends (50% of step)
-# }
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .title("Band Scale with Custom Padding")
+    .mark(
+        Rect::new()
+            .x_with(col("category"), |c| {
+                c.scale_with::<Band>(|s| {
+                    s.padding_inner(0.3)   // 30% gap between bars
+                        .padding_outer(0.1)  // 10% space at edges
+                })
+            })
+            .x2_with(col("category"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(col("value"))
+            .fill("#9b59b6")
+    )
 ```
+
+Options:
+- `padding_inner` - Gap between bars as fraction of band width (0.0 = no gap, 1.0 = bar width)
+- `padding_outer` - Space at edges as fraction of band width
 
 ### Unknown Values
 
