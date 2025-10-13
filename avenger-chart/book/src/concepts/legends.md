@@ -351,25 +351,66 @@ Format strings follow standard number formatting patterns (e.g., `.2f` for two d
 
 ## Legend Ordering
 
-Legends appear in the order channels are defined:
+Legends appear in the order channels are defined. Here's an example with color defined before size:
 
-```rust,no_run
+```rust,render,ignore
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 // Color legend appears first, then size
-# fn example1() {
-let _symbol = Symbol::<Cartesian>::new()
-    .fill_with(col("species"), |c| c.legend(|l| l.title("Species")))
-    .size_with(col("weight"), |c| c.legend(|l| l.title("Weight")));
-# }
+Plot::<Cartesian>::new()
+    .data(df)
+    .title("Color First, Then Size")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+            .size_with(col("petal_length"), |c| {
+                c.scale(|s| s.range_interval(lit(80.0), lit(280.0)))
+                    .legend(|l| l.title("Petal Length"))
+            })
+    )
+```
+
+And here's the same plot with size defined before color:
+
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
 
 // Size legend appears first, then color
-# fn example2() {
-let _symbol = Symbol::<Cartesian>::new()
-    .size_with(col("weight"), |c| c.legend(|l| l.title("Weight")))
-    .fill_with(col("species"), |c| c.legend(|l| l.title("Species")));
-# }
+Plot::<Cartesian>::new()
+    .data(df)
+    .title("Size First, Then Color")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size_with(col("petal_length"), |c| {
+                c.scale(|s| s.range_interval(lit(80.0), lit(280.0)))
+                    .legend(|l| l.title("Petal Length"))
+            })
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    )
 ```
 
 ## Legend Styling
