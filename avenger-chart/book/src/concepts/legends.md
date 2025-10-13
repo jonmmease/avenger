@@ -4,61 +4,64 @@ Legends provide visual keys that explain how data is encoded in your visualizati
 
 ## Enabling Legends
 
-Configure legends via the channel builder closure:
+Configure legends via the channel builder closure with `.legend()`:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# fn example() {
-let _plot = Plot::<Cartesian>::new().mark(
-    Symbol::new()
-        .x(col("gdp"))
-        .y(col("life_expectancy"))
-        .fill_with(col("continent"), |c| {
-            c.scale(|s| {
-                s.range_colors(vec![
-                    Srgba::new(0.121, 0.466, 0.705, 1.0),
-                    Srgba::new(0.173, 0.627, 0.173, 1.0),
-                    Srgba::new(0.882, 0.470, 0.0, 1.0),
-                ])
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
             })
-            .legend(|l| l.title("Continent"))
-        })
-        .size_with(col("population"), |c| {
-            c.scale(|s| {
-                s.domain_interval(lit(0.0), lit(1_000_000.0))
-                    .range_interval(lit(50.0), lit(500.0))
+            .size_with(col("petal_length"), |c| {
+                c.scale(|s| s.range_interval(lit(80.0), lit(300.0)))
+                    .legend(|l| l.title("Petal Length (cm)"))
             })
-            .legend(|l| l.title("Population"))
-        }),
-);
-# }
+    )
 ```
 
-This creates two legend entries: one for color and one for size.
+This creates two legend entries: one for color (species) and one for size (petal length).
 
 ## Legend Titles
 
-Customize legend titles:
+Customize legend titles with `.title()`:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .fill_with(col("continent"), |c| {
-        c.scale(|s| {
-            s.range_colors(vec![
-                Srgba::new(0.596, 0.306, 0.639, 1.0),
-                Srgba::new(0.204, 0.596, 0.859, 1.0),
-                Srgba::new(0.984, 0.604, 0.600, 1.0),
-            ])
-        })
-        .legend(|l| l.title("Geographic Region"))
-    });
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .title("Custom Legend Titles")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(150.0)
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Iris Species"))  // Custom title
+            })
+    )
 ```
 
 **Default**: If no title is provided, Avenger Chart uses the referenced column name when possible, or falls back to the channel name.
@@ -67,110 +70,166 @@ let _symbol = Symbol::<Cartesian>::new()
 
 ### Categorical Legends
 
-For discrete values:
+For discrete values, legends display colored markers for each category:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .fill_with(col("species"), |c| {
-        c.scale(|s| {
-            s.range_colors(vec![
-                Srgba::new(0.121, 0.466, 0.705, 1.0),
-                Srgba::new(0.173, 0.627, 0.173, 1.0),
-                Srgba::new(0.882, 0.470, 0.0, 1.0),
-            ])
-        })
-        .legend(|l| l.visible(true))
-    });
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("petal_length"))
+            .y(col("petal_width"))
+            .size(180.0)
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    )
 ```
 
 Displays:
-- Colored squares/circles for each category
+- Colored circles for each category
 - Category labels
+- Title
 
-### Continuous Legends
+### Continuous Legends (Colorbars)
 
-For quantitative scales:
+For quantitative color scales, legends display as gradient colorbars:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use palette::Srgba;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .fill_with(col("temperature"), |c| {
-        c.scale(|s| s
-            .domain_interval(lit(0.0), lit(100.0))
-            .range_colors(vec![
-                Srgba::new(0.267, 0.004, 0.329, 1.0),
-                Srgba::new(0.255, 0.295, 0.741, 1.0),
-                Srgba::new(0.993, 0.906, 0.144, 1.0),
-            ])
-        )
-        .legend(|l| l.visible(true))
-    });
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(180.0)
+            .fill_with(col("petal_length"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .legend(|l| l.title("Petal Length (cm)"))
+            })
+    )
 ```
 
 Displays:
-- Color gradient bar
+- Vertical color gradient bar
 - Domain values at endpoints
-- Optional tick marks
+- Title
 
 ### Size Legends
 
-For symbol sizes:
+For symbol sizes, legends show circles at representative sizes:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .size_with(col("population"), |c| {
-        c.scale(|s| s
-            .domain_interval(lit(0.0), lit(1_000_000.0))
-            .range_interval(lit(50.0), lit(500.0))
-        )
-        .legend(|l| l.visible(true))
-    });
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .fill("#3498db")
+            .size_with(col("petal_length"), |c| {
+                c.scale(|s| s.range_interval(lit(80.0), lit(350.0)))
+                    .legend(|l| l.title("Petal Length (cm)"))
+            })
+    )
 ```
 
 Displays:
 - Circles at representative sizes
 - Corresponding data values
+- Title
 
-## Legend Position
+## Multiple Legends
 
-Control where legends appear:
+When multiple channels have legends, they stack in the legend area:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# use palette::Srgba;
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let _plot = Plot::<Cartesian>::new()
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
-            .fill_with(col("category"), |c| {
-                c.scale(|s| s.range_colors(vec![
-                    Srgba::new(0.121, 0.466, 0.705, 1.0),
-                    Srgba::new(0.173, 0.627, 0.173, 1.0),
-                    Srgba::new(0.882, 0.470, 0.0, 1.0),
-                ]))
-                .legend(|l| l.title("Category"))
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+            .size_with(col("petal_length"), |c| {
+                c.scale(|s| s.range_interval(lit(80.0), lit(280.0)))
+                    .legend(|l| l.title("Petal Length"))
+            })
+            .shape_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species (shape)"))
             })
     )
-    .legend("fill", |legend| legend.position(LegendPosition::Right));
-# Ok(())
-# }
+```
+
+This creates three separate legend sections stacked vertically on the right side.
+
+## Legend Position
+
+Control where legends appear with `.position()`:
+
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(150.0)
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species").position(LegendPosition::Top))
+            })
+    )
 ```
 
 **Available positions**:
@@ -179,27 +238,31 @@ let _plot = Plot::<Cartesian>::new()
 - `Top` - Above the plot
 - `Bottom` - Below the plot
 
-### Colorbar Legends
+## Colorbar Styling
 
-Continuous color encodings render as colorbars. You configure them the same way as other legends, but the `Legend` builder also exposes colorbar-specific options such as background, padding, and gradient thickness.
+Continuous color encodings render as colorbars. You can customize their appearance:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("matrix.csv", CsvReadOptions::new()).await?;
-let _plot = Plot::<Cartesian>::new()
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
-            .x(col("x"))
-            .y(col("y"))
-            .fill_with(col("temperature"), |c| {
-                c.scale(|s| s)
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(180.0)
+            .fill_with(col("petal_length"), |c| {
+                c.scale_with::<Linear>(|s| s)
                     .legend(|l| {
-                        l.title("Temperature (°C)")
-                            .position(LegendPosition::Left)
+                        l.title("Petal Length (cm)")
                             .background_fill("#f3f4f6")
                             .background_stroke("#9ca3af")
                             .background_corner_radius(6.0)
@@ -207,137 +270,119 @@ let _plot = Plot::<Cartesian>::new()
                             .gradient_thickness(18.0)
                     })
             })
-            .size(90.0),
-    );
-# Ok(())
-# }
+    )
 ```
 
-Colorbars honor the same four positions (`Top`, `Right`, `Bottom`, `Left`) and inherit typography from the theme's `legend[type="colorbar"]` selector. Use `gradient_thickness` to adjust their width/height, and `background_*` properties to add cards or gutters behind the bar.
+Colorbar options:
+- `gradient_thickness` - Width/height of the gradient bar
+- `background_fill` - Background color
+- `background_stroke` - Border color
+- `background_corner_radius` - Rounded corners
+- `background_padding` - Padding around the gradient
 
-## Multiple Legends
+## Selective Legends
 
-When multiple channels have legends, they stack in the legend area:
+Disable legends for specific channels with `.visible(false)`:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("x"))
-    .y(col("y"))
-    .fill_with(col("species"), |c| c.legend(|l| l.title("Species")))
-    .shape_with(col("gender"), |c| c.legend(|l| l.title("Gender")))
-    .size_with(col("weight"), |c| c.legend(|l| l.title("Weight (kg)")));
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .title("Legend for Color Only")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species").visible(true))  // Show
+            })
+            .size_with(col("petal_length"), |c| {
+                c.scale(|s| s.range_interval(lit(80.0), lit(280.0)))
+                    .legend(|l| l.visible(false))  // Hide
+            })
+    )
 ```
 
-This creates three separate legend sections.
+Only the color legend appears; size variation is visible but not explained in the legend.
 
 ## Legend Formatting
 
 ### Number Formatting
 
-For continuous scales:
+For continuous scales, format legend values:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-# let _symbol =
-Symbol::<Cartesian>::new()
-    .fill_with(col("value"), |c| {
-        c.scale_with::<Linear>(|s| s)
-            .legend(|l| l.visible(true).format_number(".2f"))
-    });
-# }
-```
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
 
-Format strings follow the same patterns as axis labels.
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
 
-### Custom Labels
-
-Legend label customization is planned but not yet exposed.
-
-
-## Legend Styling
-
-Legends inherit styling from the current theme:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let _plot = Plot::<Cartesian>::new()
-    .theme(Theme::dark())
+Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
-            .fill_with(col("category"), |c| c.legend(|l| l.visible(true)))
-    );
-# Ok(())
-# }
-```
-
-See [Themes](./themes.md) for customization options.
-
-## Selective Legends
-
-Disable legends for specific channels:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("x"))
-    .y(col("y"))
-    .fill_with(col("category"), |c| c
-        .legend(|l| l.visible(true))      // Show legend
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(180.0)
+            .fill_with(col("petal_length"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .legend(|l| {
+                        l.title("Petal Length")
+                            .format_number(".2f")  // Two decimal places
+                    })
+            })
     )
-    .size_with(col("value"), |c| c
-        .legend(|l| l.visible(false))     // Hide legend
-    );
-# }
 ```
+
+Format strings follow standard number formatting patterns (e.g., `.2f` for two decimal places, `.2s` for SI notation).
 
 ## Legend Ordering
 
-Legends appear in the order they're defined:
+Legends appear in the order channels are defined:
 
 ```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
 // Color legend appears first, then size
 # fn example1() {
 let _symbol = Symbol::<Cartesian>::new()
-    .fill_with(col("species"), |c| c.legend(|l| l.visible(true)))
-    .size_with(col("weight"), |c| c.legend(|l| l.visible(true)));
+    .fill_with(col("species"), |c| c.legend(|l| l.title("Species")))
+    .size_with(col("weight"), |c| c.legend(|l| l.title("Weight")));
 # }
 
 // Size legend appears first, then color
 # fn example2() {
 let _symbol = Symbol::<Cartesian>::new()
-    .size_with(col("weight"), |c| c.legend(|l| l.visible(true)))
-    .fill_with(col("species"), |c| c.legend(|l| l.visible(true)));
+    .size_with(col("weight"), |c| c.legend(|l| l.title("Weight")))
+    .fill_with(col("species"), |c| c.legend(|l| l.title("Species")));
 # }
 ```
+
+## Legend Styling
+
+Legends inherit styling from the current theme. See [Themes](./themes.md) for customization options.
 
 ## Interactive Legends
 
 **Planned feature**: Click legend entries to filter data or highlight marks.
 
-## Legend Layout Options
-
-Legend layout configuration will be surfaced alongside the future legend builder enhancements.
-
-
 ## Hiding All Legends
 
-Global legend toggles are not yet available; hide legends per-channel via the builder (e.g. `legend(|l| l.visible(false))`).
-
+Global legend toggles are not yet available; hide legends per-channel via `.legend(|l| l.visible(false))`.
 
 ## Next Steps
 
