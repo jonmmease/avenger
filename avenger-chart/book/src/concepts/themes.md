@@ -81,10 +81,11 @@ let df = ctx
 let mut theme = Theme::light();
 theme.append_css(
     r#"
-    legend {
-        background-color: color-mix(in srgb, white 90%, black 10%);
-        border-radius: 6px;
-        padding: 8px;
+    legend background {
+        fill: color-mix(in srgb, white 90%, black 10%);
+        stroke: #64748b;
+        corner-radius: 6;
+        padding: 8;
     }
 
     symbol {
@@ -133,7 +134,7 @@ let css = r#"
         --accent: #4ec9b0;
     }
 
-    plot {
+    canvas {
         background-color: var(--bg-color);
     }
 
@@ -141,7 +142,7 @@ let css = r#"
         color: var(--text-color);
     }
 
-    axis line, axis tick {
+    axis line, axis tick, axis domain {
         stroke: var(--text-color);
     }
 
@@ -200,12 +201,46 @@ Inspect the generated scene graph to discover additional selectors and propertie
 
 Plots annotate guides, marks, and legends with descriptive attributes. You can scope styles to the coordinate system or mark type without writing additional Rust code.
 
-```css
-guide[type="cartesian"] axis title { color: #1d4ed8; }
-guide[type="polar"] axis grid { stroke: #fbbf24; opacity: 0.6; }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
 
-mark[type="symbol"] { stroke-width: 1.5px; }
-mark[type="rect"][cardinality="5"] { fill-discrete: #f472b6, #ec4899, #db2777, #be185d, #9d174d; }
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+let mut theme = Theme::light();
+theme.append_css(
+    r#"
+    /* Target all symbols in the plot */
+    mark[type="symbol"] {
+        stroke-width: 1.5px;
+        stroke: #1e293b;
+    }
+
+    /* Cardinality-based palette - iris has 3 species */
+    mark[type="symbol"][cardinality="3"] {
+        fill-discrete: #f472b6, #ec4899, #be185d;
+    }
+    "#,
+)?;
+
+Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .title("Mark Type and Cardinality Selectors")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(200.0)
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    )
 ```
 
 - `guide[type="cartesian"]` and `guide[type="polar"]` let you style axes and backgrounds differently per coordinate system.
@@ -215,39 +250,103 @@ mark[type="rect"][cardinality="5"] { fill-discrete: #f472b6, #ec4899, #db2777, #
 
 The CSS parser recognises modern color functions, so you can build palettes with `color-mix`, `hsl()`, `hsla()`, or `lab()`/`lch()` values:
 
-```css
-symbol {
-    fill: hsla(200, 80%, 50%, 0.75);
-    stroke: color-mix(in srgb, #1d4ed8 65%, white);
-}
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
 
-mark[type="rect"] {
-    fill-discrete: lab(70% 20 0), lab(70% 0 20), lab(70% -20 0);
-}
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+let mut theme = Theme::light();
+theme.append_css(
+    r#"
+    /* Modern color functions with transparency and mixing */
+    mark[type="symbol"][cardinality="3"] {
+        fill-discrete:
+            hsla(200, 80%, 50%, 0.75),
+            hsla(30, 90%, 55%, 0.75),
+            hsla(160, 70%, 45%, 0.75);
+    }
+
+    symbol {
+        stroke: color-mix(in srgb, #1e293b 65%, white);
+        stroke-width: 1.5px;
+    }
+    "#,
+)?;
+
+Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .title("Modern Color Functions")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(200.0)
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    )
 ```
 
 ### Media Queries and Responsive Styling
 
 Because themes use standard CSS, you can respond to canvas size, device pixel ratio, or user-preference media queries. Combine media queries with parameters to render a single compiled plot at multiple breakpoints.
 
-```css
-/* Base styles */
-guide { background-color: transparent; }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
 
-@media (width < 600px) {
-    guide { background-color: rgba(59, 130, 246, 0.12); }
-}
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
 
-@media (width >= 600px) and (width < 1200px) {
-    guide { background-color: rgba(34, 197, 94, 0.12); }
-}
+let css = r#"
+    /* Base styles */
+    guide { background-color: transparent; }
 
-@media (width >= 1200px) {
-    guide { background-color: rgba(248, 113, 113, 0.12); }
-}
+    /* Small screens - blue tint */
+    @media (width < 600px) {
+        guide { background-color: rgba(59, 130, 246, 0.12); }
+    }
+
+    /* Medium screens - green tint */
+    @media (width >= 600px) and (width < 1200px) {
+        guide { background-color: rgba(34, 197, 94, 0.12); }
+    }
+
+    /* Large screens - red tint */
+    @media (width >= 1200px) {
+        guide { background-color: rgba(248, 113, 113, 0.12); }
+    }
+"#;
+
+let theme = Theme::from_css(css)?;
+Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .title("Responsive Styling with Media Queries")
+    .subtitle("Plot area background changes based on width")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(150.0)
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    )
 ```
 
-The media queries above adjust the plot-area background as the canvas width changes, mirroring the behaviour exercised by the visual regression tests.
+The media queries above adjust the plot-area background as the canvas width changes. The rendered example shows the medium width breakpoint (green tint). See [Parameters](../advanced/parameters.md) for how to render the same compiled plot at multiple sizes.
 
 ## Next Steps
 
