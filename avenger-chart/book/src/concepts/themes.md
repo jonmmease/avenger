@@ -138,7 +138,7 @@ let css = r#"
         background-color: var(--bg-color);
     }
 
-    axis label, axis title, plot title {
+    axis label, axis title, chart-title, chart-subtitle {
         color: var(--text-color);
     }
 
@@ -204,23 +204,37 @@ Plots annotate guides, marks, and legends with descriptive attributes. You can s
 ```rust,render,ignore
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
 
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
-let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
-    .await
-    .expect("load iris dataset");
+// Create mixed data for both symbols and bars
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "category",
+        Arc::new(StringArray::from(vec!["A", "B", "C"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "value",
+        Arc::new(Float64Array::from(vec![25.0, 40.0, 35.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
 
 let mut theme = Theme::light();
 theme.append_css(
     r#"
-    /* Target all symbols in the plot */
+    /* Target ONLY symbols - bars remain unaffected */
     mark[type="symbol"] {
-        stroke-width: 1.5px;
-        stroke: #1e293b;
+        stroke-width: 3px;
+        stroke: #f97316;  /* Bright orange stroke */
     }
 
-    /* Cardinality-based palette - iris has 3 species */
+    /* Cardinality-based palette for symbols only */
     mark[type="symbol"][cardinality="3"] {
         fill-discrete: #f472b6, #ec4899, #be185d;
     }
@@ -229,16 +243,32 @@ theme.append_css(
 
 Plot::<Cartesian>::new()
     .theme(theme)
-    .data(df)
-    .title("Mark Type and Cardinality Selectors")
+    .data(df.clone())
+    .title("Mark Type Selectors")
+    .subtitle("Orange strokes apply only to symbols, not bars")
+    .mark(
+        Rect::new()
+            .x_with(col("category"), |c| {
+                c.scale_with::<Band>(|s| s.padding_inner(0.3))
+            })
+            .x2_with(col("category"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(col("value"))
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.visible(false))
+            })
+    )
     .mark(
         Symbol::new()
-            .x(col("sepal_length"))
-            .y(col("sepal_width"))
-            .size(200.0)
-            .fill_with(col("species"), |c| {
+            .x_with(col("category"), |c| {
+                c.scale_with::<Band>(|s| s.padding_inner(0.3))
+            })
+            .y(col("value"))
+            .size(300.0)
+            .fill_with(col("category"), |c| {
                 c.scale_with::<Ordinal>(|s| s)
-                    .legend(|l| l.title("Species"))
+                    .legend(|l| l.title("Category"))
             })
     )
 ```
