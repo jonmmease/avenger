@@ -8,38 +8,76 @@ Themes control the visual presentation of a plot: typography, colors, grid lines
 
 `Theme::light()` returns the adaptive default theme with the light color scheme selected. A plot uses this theme automatically when no explicit theme is supplied.
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# fn example() {
-let _plot = Plot::<Cartesian>::new().theme(Theme::light());
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
+    .theme(Theme::light())
+    .data(df)
+    .title("Light Theme (Default)")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(180.0)
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    )
 ```
 
 ### Dark
 
 Switching to `Theme::dark()` selects the dark palette while keeping the same responsive CSS rules.
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let _plot = Plot::<Cartesian>::new()
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
     .theme(Theme::dark())
     .data(df)
-    .mark(Symbol::new().x(col("x")).y(col("y")));
-# Ok(())
-# }
+    .title("Dark Theme")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(180.0)
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    )
 ```
 
 ## Extending a Theme with CSS
 
 You can append additional CSS to tweak specific elements. Because the API consumes a `Theme`, build and modify it before passing it into the plot.
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# fn example() -> Result<(), String> {
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 let mut theme = Theme::light();
 theme.append_css(
     r#"
@@ -51,13 +89,25 @@ theme.append_css(
 
     symbol {
         stroke-width: 1.5px;
+        stroke: #1e293b;
     }
     "#,
 )?;
 
-let _plot = Plot::<Cartesian>::new().theme(theme);
-Ok(())
-# }
+Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .title("Extended Theme with Custom CSS")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(200.0)
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    )
 ```
 
 `append_css` keeps previously appended styles, so you can layer multiple overrides if needed.
@@ -66,35 +116,53 @@ Ok(())
 
 To start from scratch, construct a theme directly from a CSS string.
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# fn example() -> Result<(), String> {
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
 let css = r#"
     :root {
         --bg-color: #1e1e1e;
         --text-color: #f5f5f5;
+        --accent: #4ec9b0;
     }
 
     plot {
         background-color: var(--bg-color);
-        font-family: "Atkinson Hyperlegible Next", sans-serif;
     }
 
-    axis label {
+    axis label, axis title, plot title {
         color: var(--text-color);
     }
 
+    axis line, axis tick {
+        stroke: var(--text-color);
+    }
+
     symbol {
-        fill: #4ec9b0;
-        stroke: #f5f5f5;
+        fill: var(--accent);
+        stroke: var(--text-color);
         stroke-width: 1px;
     }
     "#;
 
 let theme = Theme::from_css(css)?;
-let _plot = Plot::<Cartesian>::new().theme(theme);
-Ok(())
-# }
+Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .title("Custom Theme from CSS")
+    .mark(
+        Symbol::new()
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .size(180.0)
+    )
 ```
 
 Because the CSS parser runs at build time, syntax errors are surfaced immediately via the returned `Result`.
