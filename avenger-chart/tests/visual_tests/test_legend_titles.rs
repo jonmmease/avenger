@@ -236,3 +236,39 @@ async fn test_legend_with_title_and_background() {
     )
     .await;
 }
+
+/// Test that exactly matches the documentation example (concepts/legends.md render01)
+/// This should show symbols not being clipped at edges with legend present
+#[tokio::test]
+async fn test_legend_titles_doc_example() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .title("Custom Legend Titles")
+        .mark(
+            Symbol::new()
+                .x(col("sepal_length"))
+                .y(col("sepal_width"))
+                .size(150.0)
+                .fill_with(col("species"), |c| {
+                    c.scale_with::<Ordinal>(|s| s)
+                        .legend(|l| l.title("Iris Species"))
+                }),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "legend",
+        "legend_titles_doc_example",
+    )
+    .await;
+}

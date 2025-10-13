@@ -540,7 +540,8 @@ impl CompiledPlot {
         name: &str,
         context: &crate::render::RenderContext,
         configured_non_positional: Option<&HashMap<String, ConfiguredScaleWithSpec>>,
-    ) -> Result<ConfiguredScaleWithSpec, AvengerChartError> {
+    ) -> Result<(ConfiguredScaleWithSpec, bool), AvengerChartError> {
+        let mut used_radius_domain = false;
         // Process domain with radius if applicable
         if scale
             .domain
@@ -583,6 +584,7 @@ impl CompiledPlot {
 
                     if !data_expressions_with_radius.is_empty() && has_radius {
                         // Use the preserialized method to avoid re-serialization hang (DataFusion Issue #2659)
+                        used_radius_domain = true;
                         scale = scale.domain_data_fields_with_radius_preserialized(
                             data_expressions_with_radius,
                         );
@@ -748,7 +750,7 @@ impl CompiledPlot {
             )
             .await?;
 
-        Ok(ConfiguredScaleWithSpec::new(scale, configured))
+        Ok((ConfiguredScaleWithSpec::new(scale, configured), used_radius_domain))
     }
 
     /// Build initial scales with estimated dimensions
@@ -760,6 +762,7 @@ impl CompiledPlot {
             HashMap<String, Scale>,
             HashMap<String, ConfiguredScaleWithSpec>,
             HashMap<String, ConfiguredScaleWithSpec>,
+            HashSet<String>,
         ),
         AvengerChartError,
     > {
@@ -813,7 +816,7 @@ impl CompiledPlot {
         // Build configured non-positional scales first (they don't depend on plot dimensions)
         let mut configured_non_positional = HashMap::new();
         for (name, scale) in non_positional_scales {
-            let configured = self
+            let (configured, _) = self
                 .build_configured_scale_with_radius_context(
                     scale, &name, context, None, // No radius context for non-positional scales
                 )
@@ -821,10 +824,12 @@ impl CompiledPlot {
             configured_non_positional.insert(name, configured);
         }
 
+        let mut radius_sensitive_scales = HashSet::new();
+
         // Build configured positional scales with estimated dimensions
         let mut configured_positional = HashMap::new();
         for (name, scale) in positional_scales {
-            let configured = self
+            let (configured, used_radius) = self
                 .build_configured_scale_with_radius_context(
                     scale,
                     &name,
@@ -832,6 +837,9 @@ impl CompiledPlot {
                     Some(&configured_non_positional),
                 )
                 .await?;
+            if used_radius {
+                radius_sensitive_scales.insert(name.clone());
+            }
             configured_positional.insert(name, configured);
         }
 
@@ -839,6 +847,7 @@ impl CompiledPlot {
             initial_scales,
             configured_non_positional,
             configured_positional,
+            radius_sensitive_scales,
         ))
     }
 
@@ -848,6 +857,7 @@ impl CompiledPlot {
         initial_scales: &HashMap<String, Scale>,
         configured_non_positional: &HashMap<String, ConfiguredScaleWithSpec>,
         context: &crate::render::RenderContext,
+        radius_sensitive_scales: &HashSet<String>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         let mut final_configured_scales = configured_non_positional.clone();
 
@@ -867,9 +877,21 @@ impl CompiledPlot {
                 .any(|ch| name == ch || name == &format!("{}2", ch));
 
             if is_positional {
-                let configured = self
+                let base_scale = if radius_sensitive_scales.contains(name) {
+                    self.build_scale(
+                        name,
+                        context.plot_width as f64,
+                        context.plot_height as f64,
+                        &context.session_context,
+                        &context.params,
+                    )?
+                } else {
+                    scale.clone()
+                };
+
+                let (configured, _) = self
                     .build_configured_scale_with_radius_context(
-                        scale.clone(),
+                        base_scale,
                         name,
                         context,
                         Some(configured_non_positional),
@@ -903,5 +925,279 @@ impl CompiledPlot {
             DataType::Dictionary(_, value_type) => Self::is_numeric_type(value_type),
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+    use crate::render::RenderContext;
+    use datafusion::arrow::array::Float64Array;
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::arrow::record_batch::RecordBatch;
+    use datafusion::prelude::SessionContext;
+    use indexmap::IndexMap;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn symbol_constant_size_expands_domain() {
+        let ctx = SessionContext::new();
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("x", DataType::Float64, false),
+            Field::new("y", DataType::Float64, false),
+        ]));
+
+        let x_values = Float64Array::from(vec![0.0, 2.0, 10.0]);
+        let y_values = Float64Array::from(vec![1.0, 3.0, 5.0]);
+
+        let batch =
+            RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)]).unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+
+        let plot = Plot::<Cartesian>::new().data(df).mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(400.0)
+                .fill("#4682b4"),
+        );
+
+        let compiled = plot.compile(&ctx).await.expect("compile plot");
+
+        let render_context = RenderContext::new(
+            compiled.get_theme(),
+            400.0,
+            300.0,
+            Arc::new(ctx.clone()),
+            IndexMap::new(),
+        );
+
+        let (_, _, positional_scales, _) = compiled
+            .build_initial_scales(&render_context)
+            .await
+            .expect("build initial scales");
+
+        let (domain_min, domain_max) = positional_scales
+            .get("x")
+            .expect("x scale")
+            .configured()
+            .numeric_interval_domain()
+            .expect("numeric domain");
+
+        assert!(
+            domain_min < 0.0,
+            "domain_min should be less than data minimum (0.0), got {}",
+            domain_min
+        );
+        assert!(
+            domain_max > 10.0,
+            "domain_max should be greater than data maximum (10.0), got {}",
+            domain_max
+        );
+
+        let (y_min, y_max) = positional_scales
+            .get("y")
+            .expect("y scale")
+            .configured()
+            .numeric_interval_domain()
+            .expect("numeric domain");
+
+        assert!(
+            y_min < 1.0,
+            "y_min should be less than data minimum (1.0), got {}",
+            y_min
+        );
+        assert!(
+            y_max > 5.0,
+            "y_max should be greater than data maximum (5.0), got {}",
+            y_max
+        );
+    }
+
+    #[tokio::test]
+    async fn legend_titles_radius_padding_matches_data() {
+        use crate::utils::ScalarValueHelpers;
+        use datafusion::arrow::array::Float64Array;
+        use datafusion::prelude::*;
+
+        let ctx = SessionContext::new();
+        let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+        let df = ctx
+            .read_parquet(iris_path, ParquetReadOptions::default())
+            .await
+            .expect("load iris dataset");
+
+        let projected = df
+            .clone()
+            .select(vec![col("sepal_length"), col("sepal_width")])
+            .expect("project columns")
+            .collect()
+            .await
+            .expect("collect samples");
+
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+
+        for batch in &projected {
+            let x_array = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .expect("x array");
+            let y_array = batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .expect("y array");
+
+            for value in x_array.iter().flatten() {
+                min_x = min_x.min(value);
+                max_x = max_x.max(value);
+            }
+            for value in y_array.iter().flatten() {
+                min_y = min_y.min(value);
+                max_y = max_y.max(value);
+            }
+        }
+
+        let min_x = min_x as f32;
+        let max_x = max_x as f32;
+        let min_y = min_y as f32;
+        let max_y = max_y as f32;
+
+        let plot_df = df;
+
+        let plot = Plot::<Cartesian>::new()
+            .data(plot_df)
+            .title("Custom Legend Titles")
+            .mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(150.0)
+                    .fill_with(col("species"), |c| {
+                        c.scale_with::<Ordinal>(|s| s).legend(|l| l.title("Iris Species"))
+                    }),
+            );
+
+        let compiled = plot.compile(&ctx).await.expect("compile plot");
+
+        let theme = compiled.get_theme();
+
+        let initial_context = RenderContext::new(
+            theme.clone(),
+            400.0,
+            300.0,
+            Arc::new(ctx.clone()),
+            IndexMap::new(),
+        );
+
+        let (
+            initial_scales,
+            configured_non_positional,
+            _configured_positional,
+            radius_sensitive_scales,
+        ) = compiled
+            .build_initial_scales(&initial_context)
+            .await
+            .expect("build initial scales");
+        assert!(
+            radius_sensitive_scales.contains("x"),
+            "x scale should be flagged as radius-sensitive"
+        );
+        assert!(
+            radius_sensitive_scales.contains("y"),
+            "y scale should be flagged as radius-sensitive"
+        );
+
+        let final_context = RenderContext::new(
+            theme.clone(),
+            220.0,
+            300.0,
+            Arc::new(ctx.clone()),
+            IndexMap::new(),
+        );
+
+        let final_scales = compiled
+            .rebuild_scales_with_final_dimensions(
+                &initial_scales,
+                &configured_non_positional,
+                &final_context,
+                &radius_sensitive_scales,
+            )
+            .await
+            .expect("rebuild final positional scales");
+
+        let (x_domain_min, x_domain_max) = final_scales
+            .get("x")
+            .expect("x scale")
+            .configured()
+            .numeric_interval_domain()
+            .expect("numeric domain");
+        let y_scale = final_scales
+            .get("y")
+            .expect("y scale")
+            .configured();
+        let (y_domain_min, y_domain_max) = y_scale.numeric_interval_domain().expect("numeric");
+
+        assert!(
+            x_domain_min < min_x,
+            "x domain minimum ({x_domain_min}) should be less than data minimum ({min_x})"
+        );
+        assert!(
+            x_domain_max > max_x,
+            "x domain maximum ({x_domain_max}) should be greater than data maximum ({max_x})"
+        );
+        assert!(
+            y_domain_min < min_y,
+            "y domain minimum ({y_domain_min}) should be less than data minimum ({min_y})"
+        );
+        assert!(
+            y_domain_max > max_y,
+            "y domain maximum ({y_domain_max}) should be greater than data maximum ({max_y})"
+        );
+
+        let first_mark = compiled
+            .marks()
+            .first()
+            .expect("compiled mark");
+        let stroke_width = first_mark
+            .default_channel_value("stroke_width", &final_context)
+            .and_then(|scalar| scalar.as_f32().ok())
+            .unwrap_or(1.0);
+        let radius_px = 150.0_f32.sqrt() * 0.5 + stroke_width / 2.0;
+
+        let x_scale_span = x_domain_max - x_domain_min;
+        let y_scale_span = y_domain_max - y_domain_min;
+        let padding_left =
+            (min_x - x_domain_min) * final_context.plot_width / x_scale_span;
+        let padding_right =
+            (x_domain_max - max_x) * final_context.plot_width / x_scale_span;
+        let padding_bottom =
+            (min_y - y_domain_min) * final_context.plot_height / y_scale_span;
+        let padding_top =
+            (y_domain_max - max_y) * final_context.plot_height / y_scale_span;
+
+        let tolerance = 0.5;
+
+        assert!(
+            padding_left + tolerance >= radius_px,
+            "x left padding {padding_left} smaller than radius {radius_px}"
+        );
+        assert!(
+            padding_right + tolerance >= radius_px,
+            "x right padding {padding_right} smaller than radius {radius_px}"
+        );
+        assert!(
+            padding_bottom + tolerance >= radius_px,
+            "y bottom padding {padding_bottom} smaller than radius {radius_px}"
+        );
+        assert!(
+            padding_top + tolerance >= radius_px,
+            "y top padding {padding_top} smaller than radius {radius_px}"
+        );
     }
 }

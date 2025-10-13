@@ -271,12 +271,13 @@ impl CompiledMark for CompiledCartesianSymbol {
                     eprintln!("  stroke_width_expr: {:?}", stroke_width_expr);
                 }
 
-                // For symbols: radius = sqrt(area) * 0.5 + stroke_width / 2
+                // For symbols: radius = sqrt(area) * 0.5 + stroke_width / 2 + 4px
                 // The size channel represents the area of the bounding square
                 // The base circle SVG path has radius 0.5 for a unit square (size=1)
                 // Add half the stroke width since stroke extends both inward and outward
                 use datafusion::functions::expr_fn::sqrt;
-                let radius_expr = sqrt(size_expr) * lit(0.5) + stroke_width_expr / lit(2.0);
+                let radius_expr =
+                    sqrt(size_expr) * lit(0.5) + stroke_width_expr / lit(2.0) + lit(4.0);
 
                 use crate::serialization::LogicalExprNodeExt;
                 use datafusion_proto::protobuf::LogicalExprNode;
