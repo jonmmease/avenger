@@ -148,40 +148,27 @@ impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
         _start: &ParserState,
         input: &mut Parser<'i, 't>,
     ) -> Result<RuleOrRules, ParseError<'i, ()>> {
-        // Handle :root specially
-        let (selector, specificity) = if selector_str == ":root" {
-            // Create a universal selector for :root
+        // Parse selector list
+        let selector_list = if selector_str == ":root" {
+            // Handle :root specially - create a universal selector
             let mut selector_input = ParserInput::new("*");
             let mut selector_parser = Parser::new(&mut selector_input);
-            let selector_list = SelectorList::parse(
+            SelectorList::parse(
                 &ChartSelectorParser,
                 &mut selector_parser,
                 ParseRelative::No,
             )
-            .map_err(|_| input.new_custom_error(()))?;
-            let selector = selector_list
-                .slice()
-                .first()
-                .ok_or_else(|| input.new_custom_error(()))?
-                .clone();
-            (selector, 0)
+            .map_err(|_| input.new_custom_error(()))?
         } else {
             // Parse selector using selectors crate
             let mut selector_input = ParserInput::new(&selector_str);
             let mut selector_parser = Parser::new(&mut selector_input);
-            let selector_list = SelectorList::parse(
+            SelectorList::parse(
                 &ChartSelectorParser,
                 &mut selector_parser,
                 ParseRelative::No,
             )
-            .map_err(|_| input.new_custom_error(()))?;
-            let selector = selector_list
-                .slice()
-                .first()
-                .ok_or_else(|| input.new_custom_error(()))?
-                .clone();
-            let specificity = selector.specificity();
-            (selector, specificity)
+            .map_err(|_| input.new_custom_error(()))?
         };
 
         // Parse declarations using RuleBodyParser
@@ -199,13 +186,37 @@ impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
             return Err(err);
         }
 
-        Ok(RuleOrRules::Rule(CompiledRule {
-            selector,
-            specificity,
-            source_order: 0, // Will be set later
-            declarations: declaration_parser.declarations,
-            media_condition: None, // No media query for now (will be added in parse_stylesheet)
-        }))
+        // Create one rule per selector in the selector list
+        let selectors = selector_list.slice();
+        if selectors.is_empty() {
+            return Err(input.new_custom_error(()));
+        }
+
+        let rules: Vec<CompiledRule> = selectors
+            .iter()
+            .map(|selector| {
+                let specificity = if selector_str == ":root" {
+                    0
+                } else {
+                    selector.specificity()
+                };
+
+                CompiledRule {
+                    selector: selector.clone(),
+                    specificity,
+                    source_order: 0, // Will be set later
+                    declarations: declaration_parser.declarations.clone(),
+                    media_condition: None, // No media query for now (will be added in parse_stylesheet)
+                }
+            })
+            .collect();
+
+        // Return single rule or multiple rules
+        if rules.len() == 1 {
+            Ok(RuleOrRules::Rule(rules.into_iter().next().unwrap()))
+        } else {
+            Ok(RuleOrRules::Rules(rules))
+        }
     }
 }
 
