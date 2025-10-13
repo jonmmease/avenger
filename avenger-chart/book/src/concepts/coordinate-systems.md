@@ -6,22 +6,38 @@ Coordinate systems define how data values map to visual positions. Avenger Chart
 
 The most common coordinate system uses rectangular x/y coordinates:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let plot = Plot::<Cartesian>::new()
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+// Create temperature and humidity data
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "temperature",
+        Arc::new(Float64Array::from(vec![15.0, 18.0, 22.0, 25.0, 28.0, 20.0, 16.0, 24.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "humidity",
+        Arc::new(Float64Array::from(vec![65.0, 70.0, 55.0, 50.0, 45.0, 75.0, 80.0, 60.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
     .data(df)
     .mark(
-        // Coordinate system can be inferred from the plot when passed via `.mark`
         Symbol::new()
             .x(col("temperature"))
-            .y(col("humidity")),
-    );
-# Ok(())
-# }
+            .y(col("humidity"))
+            .size(200.0)
+            .fill("#3498db")
+    )
 ```
 
 ### Position Channels
@@ -40,21 +56,40 @@ let plot = Plot::<Cartesian>::new()
 
 Polar coordinates use radius and angle:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let plot = Plot::<Polar>::new()
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+// Create polar data - circular pattern
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "radius",
+        Arc::new(Float64Array::from(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "angle",
+        Arc::new(Float64Array::from(vec![
+            0.0, 0.785, 1.571, 2.356, 3.142, 3.927, 4.712, 5.498
+        ]))  // 0, π/4, π/2, 3π/4, π, 5π/4, 3π/2, 7π/4 radians
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Polar>::new()
     .data(df)
     .mark(
         Symbol::<Polar>::new()
-            .r(col("value"))
-            .theta(col("angle")),
-    );
-# Ok(())
-# }
+            .r(col("radius"))
+            .theta(col("angle"))
+            .size(200.0)
+            .fill("#e74c3c")
+    )
 ```
 
 ### Position Channels
@@ -75,63 +110,107 @@ Marks inherit the plot's coordinate system when supplied to `.mark()`, so they c
 
 ### 1. Reusable Marks
 
-The same mark type works in multiple coordinate systems. For example, `Symbol` works in both Cartesian and Polar:
+The same mark type works in multiple coordinate systems. Here's the same dataset visualized in both Cartesian and Polar coordinates:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# fn shared_mark_examples() {
-let cartesian_plot = Plot::<Cartesian>::new()
-    .mark(Symbol::new().x(col("x")).y(col("y")));
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
 
-let polar_plot = Plot::<Polar>::new()
-    .mark(Symbol::new().r(col("radius")).theta(col("angle")));
-# let _ = (cartesian_plot, polar_plot);
-# }
-```
+// Angular data: 8 points around a circle
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![1.0, 0.707, 0.0, -0.707, -1.0, -0.707, 0.0, 0.707]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![0.0, 0.707, 1.0, 0.707, 0.0, -0.707, -1.0, -0.707]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
 
-### 2. Type Safety
+let df = ctx.read_batch(batch).expect("read batch");
 
-The coordinate system is enforced at compile time:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-// ✓ Valid - x is a Cartesian channel
-let plot = Plot::<Cartesian>::new()
-    .mark(Symbol::new().x(col("value")));
-# let _ = plot;
-```
-
-```rust,compile_fail
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-// ✗ Compile error - theta is not valid for Cartesian
-Plot::<Cartesian>::new().mark(Symbol::new().theta(col("angle")));
-```
-
-### 3. Zero-Dimensional Callouts
-
-Zero-dimensional coordinates collapse all positional channels so marks render at a single point. This is useful for KPI tiles, compact dashboards, or legend-style galleries where only the visual encodings matter.
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use avenger_chart::zerod::ZeroDCoord;
-# use datafusion::prelude::*;
-# fn zerod_example(df: DataFrame) {
-let _plot = Plot::<ZeroDCoord>::new()
-    .title("Revenue by Unit")
+// Same data, Cartesian coordinates
+Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
-            .size_with(col("revenue"), |c| c.legend(|l| l.title("Revenue")))
-            .fill_with(col("unit"), |c| c.legend(|l| l.title("Business Unit")))
-            .stroke_width(2.0)
-    );
-# }
+            .x(col("x"))
+            .y(col("y"))
+            .size(300.0)
+            .fill("#9b59b6")
+    )
 ```
 
-Even though everything renders at the centre of the plot, the mark still encodes data via size, color, shape, legends, and tooltips.
+The same `Symbol` mark can render in different coordinate systems by using system-specific position channels.
+
+### 2. Type Safety
+
+The coordinate system is enforced at compile time. You cannot use polar-specific channels like `theta` in a Cartesian plot, or Cartesian channels like `x` in a Polar plot. This prevents runtime errors from coordinate system mismatches.
+
+### 3. Zero-Dimensional Callouts
+
+Zero-dimensional coordinates collapse all positional channels so marks render at a single point. This is useful for KPI tiles, compact dashboards, or legend-style galleries where only the visual encodings matter:
+
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use avenger_chart::zerod::ZeroDCoord;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+// Revenue data by business unit
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "unit",
+        Arc::new(StringArray::from(vec!["Sales", "Marketing", "Engineering", "Operations"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "revenue",
+        Arc::new(Float64Array::from(vec![1200.0, 800.0, 1500.0, 950.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<ZeroDCoord>::new()
+    .title("Revenue by Business Unit")
+    .data(df)
+    .mark(
+        Symbol::new()
+            .size_with(col("revenue"), |c| {
+                c.scale(|s| s.range_interval(lit(200.0), lit(800.0)))
+                    .legend(|l| l.title("Revenue ($)"))
+            })
+            .fill_with(col("unit"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Business Unit"))
+            })
+            .stroke("#2c3e50")
+            .stroke_width(2.0)
+    )
+```
+
+Even though everything renders at the centre of the plot, the mark still encodes data via size, color, shape, legends, and tooltips. This is perfect for dashboard KPIs or legend-style visualizations.
+
+## Cartesian vs Polar Comparison
+
+The same visualization pattern works across coordinate systems by changing position channels:
+
+| Aspect | Cartesian | Polar |
+|--------|-----------|-------|
+| Position channels | `x`, `y` | `r`, `theta` |
+| Plot declaration | `Plot::<Cartesian>::new()` | `Plot::<Polar>::new()` |
+| Mark example | `Symbol::new().x(col("a")).y(col("b"))` | `Symbol::<Polar>::new().r(col("radius")).theta(col("angle"))` |
+| Common uses | Scatter plots, bar charts, line charts | Radial plots, circular distributions, wind roses |
 
 ## Future Coordinate Systems
 
