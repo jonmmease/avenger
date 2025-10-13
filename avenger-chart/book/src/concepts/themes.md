@@ -107,18 +107,13 @@ Plot::<Cartesian>::new()
             .size(200.0)
             .fill_with(col("species"), |c| {
                 c.scale_with::<Ordinal>(|s| s)
-                    .legend(|l| {
-                        l.title("Species")
-                            .background_fill("#f0f9ff")
-                            .background_stroke("#3b82f6")
-                            .background_corner_radius(8.0)
-                            .background_padding(10.0)
-                    })
+                    .legend(|l| l.title("Species"))
             })
     )
 ```
 
 `append_css` keeps previously appended styles, so you can layer multiple overrides if needed.
+In the rendered example above the legend background is styled purely through CSS, so the mark configuration only declares the legend title.
 
 ## Loading a Theme from CSS
 
@@ -135,26 +130,41 @@ let df = ctx
     .expect("load iris dataset");
 
 let css = r#"
-    canvas {
-        background-color: #1e1e1e;
-    }
-
-    axis label, axis title {
-        color: #f5f5f5;
+    canvas, plot, guide {
+        background-color: #111827;
     }
 
     chart-title, chart-subtitle {
-        color: #f5f5f5;
+        color: #f8fafc;
     }
 
-    axis line, axis tick, axis domain {
-        stroke: #f5f5f5;
+    axis label, axis title {
+        color: #f8fafc;
+    }
+
+    axis domain, axis tick {
+        stroke: #f8fafc;
+    }
+
+    axis grid {
+        stroke: #334155;
+    }
+
+    legend label, legend title {
+        color: #f8fafc;
+    }
+
+    legend background {
+        fill: #0f172a;
+        stroke: #f8fafc;
+        stroke-width: 1px;
+        padding: 8px;
     }
 
     mark[type="symbol"] {
         fill: #4ec9b0;
-        stroke: #f5f5f5;
-        stroke-width: 1px;
+        stroke: #f8fafc;
+        stroke-width: 1.5px;
     }
     "#;
 
@@ -239,8 +249,8 @@ theme.append_css(
         stroke: #f97316;  /* Bright orange stroke */
     }
 
-    /* Cardinality-based palette for symbols only */
-    mark[type="symbol"][cardinality="3"] {
+    /* Custom palette applies to all marks using "category" fill */
+    mark {
         fill-discrete: #f472b6, #ec4899, #be185d;
     }
     "#,
@@ -260,8 +270,7 @@ Plot::<Cartesian>::new()
             .y(lit(0.0))
             .y2(col("value"))
             .fill_with(col("category"), |c| {
-                c.scale_with::<Ordinal>(|s| s)
-                    .legend(|l| l.visible(false))
+                c.legend(|l| l.visible(false))
             })
     )
     .mark(
@@ -272,14 +281,13 @@ Plot::<Cartesian>::new()
             .y(col("value"))
             .size(300.0)
             .fill_with(col("category"), |c| {
-                c.scale_with::<Ordinal>(|s| s)
-                    .legend(|l| l.title("Category"))
+                c.legend(|l| l.title("Category"))
             })
     )
 ```
 
 - `guide[type="cartesian"]` and `guide[type="polar"]` let you style axes and backgrounds differently per coordinate system.
-- `mark[type="symbol"]` scopes properties to a specific mark implementation. When Avenger Chart computes the number of discrete values flowing into a mark it also annotates `cardinality="N"`, enabling palette selection based on data size.
+- `mark[type="symbol"]` scopes properties like stroke to a specific mark implementation. Both symbol and rect marks use the `fill-discrete` palette since they share the same fill scale for the "category" column.
 
 ### Color Utilities
 
@@ -299,14 +307,11 @@ let mut theme = Theme::light();
 theme.append_css(
     r#"
     /* Modern color functions with transparency and mixing */
-    mark[type="symbol"][cardinality="3"] {
+    mark[type="symbol"] {
         fill-discrete:
             hsla(200, 80%, 50%, 0.75),
             hsla(30, 90%, 55%, 0.75),
             hsla(160, 70%, 45%, 0.75);
-    }
-
-    mark[type="symbol"] {
         stroke: color-mix(in srgb, #1e293b 65%, white);
         stroke-width: 1.5px;
     }
