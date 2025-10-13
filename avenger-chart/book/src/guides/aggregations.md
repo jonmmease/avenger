@@ -1,428 +1,446 @@
 # Aggregations
 
-Aggregations summarize data by grouping and computing statistics. This guide shows how to use DataFusion's aggregation capabilities with Avenger Chart.
+Aggregations summarize data by grouping and computing statistics. Avenger Chart provides a convenient syntax for performing aggregations directly in channel expressions.
 
-## DataFusion Aggregations
+## Aggregate Encodings
 
-Currently, you perform aggregations in DataFusion before passing data to Avenger Chart:
+Use aggregate functions like `sum()`, `avg()`, or `count()` directly in channel expressions. Avenger Chart automatically groups by non-aggregated columns:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let aggregated = df.aggregate(
-    vec![col("category")],           // Group by
-    vec![sum(col("sales")).alias("total_sales")]  // Aggregate
-)?;
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::expr_fn::*;
+use datafusion::prelude::*;
+use std::sync::Arc;
 
-let _plot = Plot::<Cartesian>::new()
-    .data(aggregated)
+// Create data with multiple rows per category
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "category",
+        Arc::new(StringArray::from(vec!["A", "A", "B", "B", "C", "C"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "sales",
+        Arc::new(Float64Array::from(vec![100.0, 150.0, 200.0, 180.0, 120.0, 140.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+// Use sum() in a channel - automatic aggregation by category!
+Plot::<Cartesian>::new()
+    .data(df)
     .mark(
         Rect::new()
-            .x(col("category"))
+            .x(col("category"))                  // Non-aggregated: GROUP BY
+            .x2_with(col("category"), |c| c.band(1.0))
             .y(lit(0.0))
-            .y2(col("total_sales"))
-    );
-# Ok(())
-# }
+            .y2(sum(col("sales")))               // Aggregated: SUM
+            .fill("#3498db")
+    )
 ```
 
-## Common Aggregation Functions
+When you use `sum(col("sales"))` in the `y2` channel, Avenger Chart:
+1. Detects the aggregate function
+2. Groups by non-aggregated columns (`category`)
+3. Computes `SUM(sales)` for each group
 
-### Count
+This is equivalent to SQL: `SELECT category, SUM(sales) FROM data GROUP BY category`
 
-Count rows in each group:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let aggregated = df.aggregate(
-    vec![col("category")],
-    vec![count(lit(1)).alias("count")]
-)?;
-# Ok(())
-# }
-```
+## Common Aggregate Functions
 
 ### Sum
 
-Sum values in each group:
+Total values per group:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let aggregated = df.aggregate(
-    vec![col("region")],
-    vec![sum(col("revenue")).alias("total_revenue")]
-)?;
-# Ok(())
-# }
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::expr_fn::*;
+use std::sync::Arc;
+
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "region",
+        Arc::new(StringArray::from(vec!["North", "North", "South", "South", "West", "West"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "revenue",
+        Arc::new(Float64Array::from(vec![1200.0, 1500.0, 1800.0, 2100.0, 900.0, 1100.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Rect::new()
+            .x(col("region"))
+            .x2_with(col("region"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(sum(col("revenue")))
+            .fill("#e74c3c")
+    )
 ```
 
 ### Average (Mean)
 
-Compute average:
+Compute averages per group:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let aggregated = df.aggregate(
-    vec![col("country")],
-    vec![avg(col("temperature")).alias("avg_temp")]
-)?;
-# Ok(())
-# }
-```
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::average::avg;
+use std::sync::Arc;
 
-### Min and Max
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "country",
+        Arc::new(StringArray::from(vec!["USA", "USA", "UK", "UK", "Japan", "Japan"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "temperature",
+        Arc::new(Float64Array::from(vec![15.0, 18.0, 12.0, 14.0, 20.0, 22.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
 
-Find minimum and maximum:
+let df = ctx.read_batch(batch).expect("read batch");
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let aggregated = df.aggregate(
-    vec![col("year")],
-    vec![
-        min(col("price")).alias("min_price"),
-        max(col("price")).alias("max_price"),
-    ]
-)?;
-# Ok(())
-# }
-```
-
-### Standard Deviation
-
-Compute standard deviation:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let aggregated = df.aggregate(
-    vec![col("group")],
-    vec![stddev(col("value")).alias("std_dev")]
-)?;
-# Ok(())
-# }
-```
-
-## Multiple Aggregations
-
-Compute multiple statistics in one operation:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let stats = df.aggregate(
-    vec![col("species")],
-    vec![
-        count(lit(1)).alias("count"),
-        avg(col("sepal_length")).alias("avg_length"),
-        min(col("sepal_length")).alias("min_length"),
-        max(col("sepal_length")).alias("max_length"),
-    ]
-)?;
-# Ok(())
-# }
-```
-
-## Multi-Column Grouping
-
-Group by multiple columns:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let aggregated = df.aggregate(
-    vec![col("year"), col("quarter")],
-    vec![sum(col("sales")).alias("total_sales")]
-)?;
-# Ok(())
-# }
-```
-
-## Histograms
-
-Create histograms by binning:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# use datafusion::functions::math::expr_fn::floor;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-// Bin data using floor division
-let binned = df
-    .with_column(
-        "bin",
-        floor(col("value") / lit(10.0)) * lit(10.0)
-    )?;
-
-// Count per bin
-let histogram = binned.aggregate(
-    vec![col("bin")],
-    vec![count(lit(1)).alias("count")]
-)?;
-
-// Visualize
-let plot = Plot::<Cartesian>::new()
-    .data(histogram)
+Plot::<Cartesian>::new()
+    .data(df)
     .mark(
         Rect::new()
-            .x(col("bin"))
-            .x2(col("bin") + lit(10.0))
+            .x(col("country"))
+            .x2_with(col("country"), |c| c.band(1.0))
             .y(lit(0.0))
-            .y2(col("count"))
-    );
-# Ok(())
-# }
+            .y2(avg(col("temperature")))
+            .fill("#2ecc71")
+    )
 ```
 
-## Future: Built-in Transform System
+### Count
 
-A built-in transform system is planned for future releases:
+Count rows per group:
 
-```rust,ignore
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-// Future API - not yet implemented
-Rect::new()
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::StringArray;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::expr_fn::*;
+use std::sync::Arc;
+
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "status",
+        Arc::new(StringArray::from(vec!["Active", "Active", "Active", "Pending", "Pending", "Complete"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+Plot::<Cartesian>::new()
     .data(df)
-    .transform(  // Transform system not yet implemented
-        Bin::x("price")
-            .bins(20)
-            .aggregate(count(lit(1)))
+    .mark(
+        Rect::new()
+            .x(col("status"))
+            .x2_with(col("status"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(count(col("status")))
+            .fill("#9b59b6")
     )
-# ;
-# Ok(())
-# }
 ```
 
-See [transform-system.md](../../docs/future-work/transform-system.md) for the design.
+## Multiple Aggregate Encodings
 
-## Aggregated Scatter Plots
+Use different aggregate functions in different channels:
 
-Visualize aggregated statistics:
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::average::avg;
+use datafusion::functions_aggregate::expr_fn::*;
+use std::sync::Arc;
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let stats = df.aggregate(
-    vec![col("species")],
-    vec![
-        avg(col("sepal_length")).alias("mean_length"),
-        stddev(col("sepal_length")).alias("std_length"),
-    ]
-)?;
+// Multiple values per category
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "category",
+        Arc::new(StringArray::from(vec!["A", "A", "A", "B", "B", "B", "C", "C", "C"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "sales",
+        Arc::new(Float64Array::from(vec![100.0, 150.0, 200.0, 80.0, 120.0, 160.0, 200.0, 250.0, 300.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "profit",
+        Arc::new(Float64Array::from(vec![20.0, 30.0, 40.0, 15.0, 25.0, 35.0, 40.0, 50.0, 60.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+// Height from sum(sales), color from avg(profit)
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Rect::new()
+            .x(col("category"))
+            .x2_with(col("category"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(sum(col("sales")))              // SUM for height
+            .fill_with(avg(col("profit")), |c| {  // AVG for color
+                c.legend(|l| l.title("Avg Profit"))
+            })
+    )
+```
+
+Both `sum(col("sales"))` and `avg(col("profit"))` are computed for each group defined by `category`.
+
+## Multi-Dimensional Aggregations
+
+Group by multiple columns using Symbol plots:
+
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::average::avg;
+use datafusion::functions_aggregate::expr_fn::*;
+use std::sync::Arc;
+
+// Data with two grouping dimensions
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "region",
+        Arc::new(StringArray::from(vec![
+            "North", "North", "North", "South", "South", "South",
+            "North", "North", "North", "South", "South", "South"
+        ]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "product",
+        Arc::new(StringArray::from(vec![
+            "A", "A", "A", "A", "A", "A",
+            "B", "B", "B", "B", "B", "B"
+        ]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "sales",
+        Arc::new(Float64Array::from(vec![
+            100.0, 120.0, 110.0, 150.0, 160.0, 140.0,
+            200.0, 220.0, 210.0, 250.0, 260.0, 240.0
+        ]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "rating",
+        Arc::new(Float64Array::from(vec![
+            4.5, 4.7, 4.6, 4.2, 4.3, 4.1,
+            4.8, 4.9, 4.7, 4.4, 4.5, 4.3
+        ]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+// Groups by BOTH region AND product
+Plot::<Cartesian>::new()
+    .canvas_size(500.0, 300.0)
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("region"))                     // GROUP BY region
+            .y(col("product"))                    // GROUP BY product
+            .size_with(count(col("sales")), |c| {  // Aggregate: COUNT
+                c.legend(|l| l.title("Count"))
+            })
+            .fill_with(avg(col("rating")), |c| {   // Aggregate: AVG
+                c.legend(|l| l.title("Avg Rating"))
+            })
+    )
+```
+
+## Full-Table Aggregation
+
+Aggregate all rows with no grouping:
+
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::functions_aggregate::expr_fn::*;
+use datafusion::prelude::*;
+use std::sync::Arc;
+
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "values",
+        Arc::new(Float64Array::from(vec![10.0, 20.0, 30.0, 40.0, 50.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+.expect("create batch");
+
+let df = ctx.read_batch(batch).expect("read batch");
+
+// Add constant column for x position
+let df = df.with_column("label", lit("Total")).unwrap();
+
+// Single bar showing total
+Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Rect::new()
+            .x(col("label"))                 // Constant column
+            .x2_with(col("label"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(sum(col("values")))          // Sum all rows
+            .fill("#3498db")
+    )
+```
+
+## Real-World Example: Movies Dataset
+
+```rust,render,ignore
+use avenger_chart::prelude::*;
+use datafusion::functions_aggregate::average::avg;
+use datafusion::prelude::*;
+
+# let movies_path = format!("{}/../tests/data/movies.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(movies_path, ParquetReadOptions::default())
+    .await
+    .expect("load movies dataset");
+
+// Filter to non-null ratings
+let df = df
+    .filter(
+        col("MPAA Rating")
+            .is_not_null()
+            .and(col("IMDB Rating").is_not_null())
+    )
+    .expect("filter");
 
 Plot::<Cartesian>::new()
-    .data(stats)
+    .data(df)
     .mark(
-        Symbol::<Cartesian>::new()
-            .x(col("species"))
-            .y(col("mean_length"))
-            .size(200.0)
+        Rect::new()
+            .x(col("MPAA Rating"))
+            .x2_with(col("MPAA Rating"), |c| c.band(1.0))
+            .y_with(lit(0.0), |c| c.axis(|a| a.format(".2s")))
+            .y2(avg(col("Worldwide Gross")))      // Average gross by rating
+            .fill_with(avg(col("IMDB Rating")), |c| {  // Color by avg IMDB
+                c.legend(|l| l.title("Avg IMDB Rating"))
+            })
     )
-    // Future: Add error bars with Rule marks
-# ;
-# Ok(())
-# }
 ```
 
-## Time-Based Aggregations
+## How It Works
 
-Aggregate by time periods:
+When you use an aggregate function in a channel expression:
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-// Assume date_trunc function is available
-let monthly = df
-    .with_column(
-        "month",
-        // Use appropriate date truncation
-        col("date")
-    )?
-    .aggregate(
-        vec![col("month")],
-        vec![avg(col("temperature")).alias("avg_temp")]
-    )?;
+1. **Detection**: Avenger Chart scans all channel expressions
+2. **Grouping**: Non-aggregated columns become GROUP BY dimensions
+3. **Aggregation**: Aggregate functions are computed per group
+4. **Evaluation**: Results are used for mark positioning/styling
 
-Plot::<Cartesian>::new()
-    .data(monthly)
-    .mark(
-        Line::new()
-            .x_with(col("month"), |c| c.scale_with::<Time>(|s| s))
-            .y(col("avg_temp"))
-    )
-# ;
-# Ok(())
-# }
+Example:
+```rust
+Rect::new()
+    .x(col("category"))      // Non-aggregated → GROUP BY category
+    .y2(sum(col("sales")))   // Aggregated → SUM(sales)
+    .fill_with(avg(col("profit")), ...) // Aggregated → AVG(profit)
 ```
 
-## Percentiles
-
-Compute percentiles:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-// DataFusion supports percentile approximation
-let percentiles = df.aggregate(
-    vec![col("category")],
-    vec![
-        approx_percentile_cont(col("value").sort(true, false), lit(0.25), None).alias("p25"),
-        approx_percentile_cont(col("value").sort(true, false), lit(0.50), None).alias("p50"),
-        approx_percentile_cont(col("value").sort(true, false), lit(0.75), None).alias("p75"),
-    ]
-)?;
-# Ok(())
-# }
+Becomes equivalent to:
+```sql
+SELECT category, SUM(sales), AVG(profit)
+FROM data
+GROUP BY category
 ```
 
-## Filtering Before Aggregation
+## Available Aggregate Functions
 
-Filter data before aggregating:
+From `datafusion::functions_aggregate::expr_fn`:
+- `sum(expr)` - Sum values
+- `count(expr)` - Count non-null values
+- `min(expr)` - Minimum value
+- `max(expr)` - Maximum value
+- `stddev(expr)` - Standard deviation
+- `variance(expr)` - Variance
+- `approx_percentile_cont(expr, percentile, None)` - Approximate percentile
 
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let filtered = df.filter(col("year").eq(lit(2023)))?;
+From `datafusion::functions_aggregate::average`:
+- `avg(expr)` - Average (mean)
 
-let aggregated = filtered.aggregate(
-    vec![col("category")],
-    vec![sum(col("sales")).alias("total_sales")]
-)?;
-# Ok(())
-# }
-```
+## Manual DataFusion Aggregation
 
-## Filtering After Aggregation
-
-Filter aggregated results (HAVING clause):
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::functions_aggregate::expr_fn::*;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let aggregated = df.aggregate(
-    vec![col("category")],
-    vec![count(lit(1)).alias("count")]
-)?;
-
-let filtered = aggregated.filter(col("count").gt(lit(100)))?;
-# Ok(())
-# }
-```
-
-## Complete Example
+For more complex scenarios, you can also perform aggregations manually in DataFusion before passing data to the plot:
 
 ```rust,no_run
 use avenger_chart::prelude::*;
 use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
 
-let ctx = SessionContext::new();
-let movies_path = format!(
-    "{}/../tests/data/movies.parquet",
-    env!("CARGO_MANIFEST_DIR")
-);
-let df = ctx
-    .read_parquet(movies_path, ParquetReadOptions::default())
-    .await
-    .expect("load movies dataset");
-
-let by_year = df
+# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+// Manual aggregation with filtering
+let aggregated = df
+    .filter(col("year").eq(lit(2023)))?          // Filter first
     .aggregate(
-        vec![col("year")],
+        vec![col("category"), col("region")],     // Multiple GROUP BY
         vec![
+            sum(col("sales")).alias("total_sales"),
             avg(col("rating")).alias("avg_rating"),
-            count(lit(1)).alias("num_movies"),
-        ],
-    )
-    .expect("aggregate movies by year");
+            count(lit(1)).alias("count"),
+        ]
+    )?
+    .filter(col("count").gt(lit(10)))?;          // HAVING clause
 
-let filtered = by_year
-    .filter(col("num_movies").gt_eq(lit(10)))
-    .expect("filter by movie count");
-
-let plot = Plot::<Cartesian>::new()
-    .data(filtered)
+let _plot = Plot::<Cartesian>::new()
+    .data(aggregated)
     .mark(
-        Symbol::<Cartesian>::new()
-            .x(col("year"))
-            .y(col("avg_rating"))
-            .size_with(col("num_movies"), |c| {
-                c.scale(|s| s
-                    .domain_interval(lit(0.0), lit(100.0))
-                    .range_interval(lit(50.0), lit(500.0))
-                )
-                .legend(|l| l.title("Number of Movies"))
-            })
-            .fill("#4682b4")
+        Rect::new()
+            .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))  // Can use :x with pre-aggregated data
+            .y(lit(0.0))
+            .y2(col("total_sales"))              // Already aggregated
     );
-
-plot
+# Ok(())
+# }
 ```
+
+This approach gives you full control over:
+- Pre-aggregation filtering (WHERE clause)
+- Complex grouping logic
+- Post-aggregation filtering (HAVING clause)
+- Multiple aggregation passes
 
 ## Next Steps
 
-- Explore the future [Transform System](../../docs/future-work/transform-system.md)
+- Learn about [Bar Charts](./bar-charts.md) for categorical comparisons
+- Explore [Scatter Plots](./scatter-plots.md) for relationship visualization
 - See [DataFusion documentation](https://docs.rs/datafusion) for more aggregation functions
