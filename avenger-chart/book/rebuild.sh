@@ -10,10 +10,16 @@ cd "$SCRIPT_DIR"
 
 echo "🧹 Cleaning build artifacts..."
 
-# Remove the built book directory (includes .generated cache)
+# Remove the built book directory
 if [ -d "book" ]; then
     echo "  - Removing book/ directory"
     rm -rf book
+fi
+
+# Remove generated images in source (to ensure clean regeneration)
+if [ -d "src/.generated" ]; then
+    echo "  - Removing src/.generated/ directory"
+    rm -rf src/.generated
 fi
 
 # Remove the target directory (preprocessor builds)
