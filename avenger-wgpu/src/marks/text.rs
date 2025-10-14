@@ -114,8 +114,8 @@ where
 
             // Update extent
             self.extent = Extent3d {
-                width: limits.max_texture_dimension_1d.min(256),
-                height: limits.max_texture_dimension_2d.min(256),
+                width: limits.max_texture_dimension_1d.min(2048),
+                height: limits.max_texture_dimension_2d.min(2048),
                 depth_or_array_layers: 1,
             };
 
