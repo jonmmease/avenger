@@ -13,6 +13,7 @@ default-theme = "light"
 preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/vega/avenger"
 edit-url-template = "https://github.com/vega/avenger/edit/main/avenger-chart/book/{path}"
+additional-css = ["custom.css"]
 
 [output.html.playground]
 editable = false
