@@ -21,24 +21,37 @@ Avenger Chart follows these core principles:
 
 ## Quick Example
 
-```rust,no_run
+Here's a simple scatter plot using the famous iris dataset:
+
+```rust,render,ignore
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = datafusion::execution::context::SessionContext::new();
-# let df = ctx.read_csv("data.csv", datafusion::prelude::CsvReadOptions::default()).await?;
-let plot = Plot::<Cartesian>::new()
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    .expect("load iris dataset");
+
+Plot::<Cartesian>::new()
     .data(df)
+    .title("Iris Dataset")
     .mark(
         Symbol::new()
-            .x(col("gdp_per_capita"))
-            .y(col("life_expectancy"))
-            .fill_with(col("continent"), |c| c.legend(|l| l.title("Continent")))
-    );
-# Ok(())
-# }
+            .x(col("sepal_length"))
+            .y(col("sepal_width"))
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    )
 ```
+
+This example demonstrates:
+- Loading data from Parquet files
+- Creating a scatter plot with `Symbol` marks
+- Mapping columns to visual channels (x, y, fill)
+- Customizing color scales and legends
 
 ## Next Steps
 
