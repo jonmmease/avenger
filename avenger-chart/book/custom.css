@@ -1,0 +1,7 @@
+/* Custom styles for Avenger Chart documentation */
+
+/* Add light grey border to all rendered plot images */
+img[alt="Rendered plot"] {
+    border: 1px solid #ddd;
+    box-sizing: border-box;
+}
