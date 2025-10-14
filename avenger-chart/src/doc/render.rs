@@ -22,7 +22,7 @@ pub async fn render_compiled_plot_to_png(
     ctx: &SessionContext,
     output: impl AsRef<Path>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let renderer = WgpuRenderer::new().with_scale(3.0);
+    let renderer = WgpuRenderer::new().with_scale(4.0);
     renderer
         .write_png(compiled, ctx, None, output)
         .await
