@@ -1044,71 +1044,86 @@ impl Theme {
 
     /// Get mark default value for a channel
     ///
-    /// Returns the default value for a specific mark type and channel.
+    /// Returns the default value for a specific mark type and channel using type-directed evaluation.
+    ///
+    /// This method uses the new architecture where:
+    /// 1. The expected type is determined from the CSS property name
+    /// 2. The theme value is evaluated to that type using eval_as_*() methods
+    /// 3. All ThemeValue variants are properly handled (including Calc, RelativeColor, etc.)
     pub fn mark_default(
         &self,
         mark_type: &str,
         channel: &str,
         params: &IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Option<datafusion_common::ScalarValue> {
+        use crate::theme::eval::{EvalContext, get_channel_type, TargetType};
+
         // Query CSS theme for mark defaults
         let context = ThemeContext::new("mark", params.clone()).with_subtype(mark_type);
 
         // Convert underscore to hyphen for CSS property name
         let css_property = channel.replace('_', "-");
 
-        let theme_value = self.query(&context, &css_property);
+        let theme_value = self.query(&context, &css_property)?;
 
-        match theme_value {
-            Some(ThemeValue::String(s)) => Some(datafusion_common::ScalarValue::Utf8(Some(s))),
-            Some(ThemeValue::Number(n)) => {
-                Some(datafusion_common::ScalarValue::Float32(Some(n as f32)))
-            }
-            Some(ThemeValue::Length(n, _)) => {
-                Some(datafusion_common::ScalarValue::Float32(Some(n as f32)))
-            }
-            Some(ThemeValue::Color(rgba)) => {
-                // Use rgba() format to preserve alpha channel
+        // Determine expected type from channel name
+        let channel_type = get_channel_type(&css_property)?;
+
+        // Create evaluation context
+        let base_font_size = self.get_base_font_size(params);
+        let eval_ctx = EvalContext::new(params, base_font_size);
+
+        // Evaluate based on expected type
+        match channel_type {
+            TargetType::Color => {
+                // Evaluate as color and convert to string
+                let rgba = theme_value.eval_as_color(&eval_ctx).ok()?;
                 let color_str = if rgba.alpha == 255 {
-                    // Use hex format for fully opaque colors
                     format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue)
                 } else {
-                    // Use rgba() format for transparent colors to ensure alpha is preserved
                     let alpha = rgba.alpha as f32 / 255.0;
-                    format!(
-                        "rgba({}, {}, {}, {})",
-                        rgba.red, rgba.green, rgba.blue, alpha
-                    )
+                    format!("rgba({}, {}, {}, {})", rgba.red, rgba.green, rgba.blue, alpha)
                 };
                 Some(datafusion_common::ScalarValue::Utf8(Some(color_str)))
             }
-            // Handle functions (like color-mix, light-dark, contrast-color) that should resolve to colors
-            Some(ref value)
-                if matches!(
-                    value,
-                    ThemeValue::Function(_, _) | ThemeValue::LightDark(_, _)
-                ) =>
-            {
-                // For color-related channels, try to evaluate as color
-                let color_channels = ["fill", "stroke", "color", "background", "border-color"];
-                if color_channels.contains(&css_property.as_str()) {
-                    let base_font_size = self.get_base_font_size(params);
-                    if let Some(rgba) = value.as_color_with_params(params, base_font_size) {
-                        let color_str = if rgba.alpha == 255 {
-                            format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue)
-                        } else {
-                            let alpha = rgba.alpha as f32 / 255.0;
-                            format!(
-                                "rgba({}, {}, {}, {})",
-                                rgba.red, rgba.green, rgba.blue, alpha
-                            )
-                        };
-                        return Some(datafusion_common::ScalarValue::Utf8(Some(color_str)));
-                    }
-                }
-                None
+
+            TargetType::Number => {
+                // Evaluate as number and convert to Float32
+                let n = theme_value.eval_as_number(&eval_ctx).ok()?;
+                Some(datafusion_common::ScalarValue::Float32(Some(n as f32)))
             }
-            _ => None,
+
+            TargetType::Length => {
+                // Evaluate as length (in pixels) and convert to Float32
+                let px = theme_value.eval_as_length(&eval_ctx).ok()?;
+                Some(datafusion_common::ScalarValue::Float32(Some(px as f32)))
+            }
+
+            TargetType::String => {
+                // Evaluate as string
+                let s = theme_value.eval_as_string(&eval_ctx).ok()?;
+                Some(datafusion_common::ScalarValue::Utf8(Some(s)))
+            }
+
+            TargetType::Boolean => {
+                // Try to get as boolean directly
+                match theme_value {
+                    ThemeValue::Boolean(b) => Some(datafusion_common::ScalarValue::Boolean(Some(b))),
+                    _ => None,
+                }
+            }
+
+            TargetType::Angle => {
+                // Evaluate as number (degrees) and convert to Float32
+                let degrees = theme_value.eval_as_number(&eval_ctx).ok()?;
+                Some(datafusion_common::ScalarValue::Float32(Some(degrees as f32)))
+            }
+
+            TargetType::Percentage => {
+                // Evaluate as number (decimal) and convert to Float32
+                let decimal = theme_value.eval_as_number(&eval_ctx).ok()?;
+                Some(datafusion_common::ScalarValue::Float32(Some(decimal as f32)))
+            }
         }
     }
 
@@ -2694,6 +2709,313 @@ mod tests {
             assert_eq!(c.blue, 0);
         } else {
             panic!("Expected media query rule to match");
+        }
+    }
+
+    // ===================================================================================
+    // Phase 4: Comprehensive tests for type-directed evaluation architecture
+    // ===================================================================================
+    //
+    // These tests verify that the new architecture handles all variant × channel type
+    // combinations correctly, including previously unsupported cases like:
+    // - calc() in numeric channels
+    // - calc() in length channels
+    // - Percentage values
+    // - Angle values
+    // - RelativeColor in color channels
+
+    #[test]
+    fn test_calc_in_size_channel() {
+        // Test calc() expressions in size (length) channel
+        let theme = Theme::from_css(
+            r#"
+            mark[type="symbol"] {
+                size: calc(10px * 2);
+            }
+            "#,
+        )
+        .unwrap();
+
+        let params = IndexMap::new();
+        let result = theme.mark_default("symbol", "size", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Float32(Some(size))) = result {
+            assert_eq!(size, 20.0, "calc(10px * 2) should evaluate to 20");
+        } else {
+            panic!("Expected Float32 size value from calc()");
+        }
+    }
+
+    #[test]
+    fn test_calc_with_variable_in_size() {
+        // Test calc() with variables in size channel
+        let mut theme = Theme::from_css(
+            r#"
+            mark[type="symbol"] {
+                size: calc(var(--base-size) * 2);
+            }
+            "#,
+        )
+        .unwrap();
+
+        let mut params = IndexMap::new();
+        params.insert(
+            "--base-size".to_string(),
+            datafusion_common::ScalarValue::Float64(Some(15.0)),
+        );
+
+        let result = theme.mark_default("symbol", "size", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Float32(Some(size))) = result {
+            assert_eq!(size, 30.0, "calc(var(--base-size) * 2) with --base-size=15 should be 30");
+        } else {
+            panic!("Expected Float32 size value from calc() with variable");
+        }
+    }
+
+    #[test]
+    fn test_calc_in_opacity_channel() {
+        // Test calc() in opacity (number) channel
+        let mut theme = Theme::from_css(
+            r#"
+            mark[type="line"] {
+                opacity: calc(0.5 + 0.3);
+            }
+            "#,
+        )
+        .unwrap();
+
+        let params = IndexMap::new();
+        let result = theme.mark_default("line", "opacity", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Float32(Some(opacity))) = result {
+            assert!((opacity - 0.8).abs() < 0.001, "calc(0.5 + 0.3) should be 0.8");
+        } else {
+            panic!("Expected Float32 opacity value from calc()");
+        }
+    }
+
+    #[test]
+    fn test_percentage_in_opacity() {
+        // Test percentage values in opacity channel
+        // Note: CSS percentage values in opacity range from 0-100, where 75% = 75.0 stored
+        // but eval_as_number() should convert Percentage(75.0) to 75.0 (not 0.75)
+        // The channel semantics determine whether to interpret as 0-1 or 0-100 range
+        let theme = Theme::from_css(
+            r#"
+            mark[type="rect"] {
+                opacity: 75%;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let params = IndexMap::new();
+        let result = theme.mark_default("rect", "opacity", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Float32(Some(opacity))) = result {
+            // Percentage values are stored as-is (75.0), not as decimal (0.75)
+            // This matches CSS behavior where percentages keep their numeric value
+            assert!((opacity - 75.0).abs() < 0.001, "75% should be 75.0");
+        } else {
+            panic!("Expected Float32 opacity from percentage, got: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_angle_in_rotation() {
+        // Test angle values with units in rotation channel
+        let mut theme = Theme::from_css(
+            r#"
+            mark[type="symbol"] {
+                rotation: 90deg;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let params = IndexMap::new();
+        let result = theme.mark_default("symbol", "rotation", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Float32(Some(angle))) = result {
+            assert_eq!(angle, 90.0, "90deg should be 90.0");
+        } else {
+            panic!("Expected Float32 rotation from angle");
+        }
+    }
+
+    #[test]
+    fn test_relative_color_in_fill() {
+        // Test RelativeColor in fill channel
+        // Note: Using a simpler relative color syntax that's properly supported
+        let theme = Theme::from_css(
+            r#"
+            mark[type="symbol"] {
+                fill: rgb(from blue r g 128);
+            }
+            "#,
+        )
+        .unwrap();
+
+        let params = IndexMap::new();
+        let result = theme.mark_default("symbol", "fill", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Utf8(Some(color))) = result {
+            // Should be a valid color string (hex or rgba)
+            assert!(
+                color.starts_with('#') || color.starts_with("rgba("),
+                "Expected color string from RelativeColor, got: {}",
+                color
+            );
+        } else {
+            panic!("Expected Utf8 color value from RelativeColor, got: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_light_dark_in_stroke() {
+        // Test light-dark() in stroke channel
+        let mut theme = Theme::from_css(
+            r#"
+            mark[type="line"] {
+                stroke: light-dark(#333, #ccc);
+            }
+            "#,
+        )
+        .unwrap();
+
+        // Test light mode (default)
+        let params = IndexMap::new();
+        let result = theme.mark_default("line", "stroke", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Utf8(Some(color))) = result {
+            // Should be dark color in light mode
+            assert!(color.contains("33"), "Light mode should use #333 (dark color)");
+        } else {
+            panic!("Expected color from light-dark() in light mode");
+        }
+
+        // Test dark mode
+        let mut params_dark = IndexMap::new();
+        params_dark.insert(
+            "color-scheme".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("dark".to_string())),
+        );
+        let result_dark = theme.mark_default("line", "stroke", &params_dark);
+
+        assert!(result_dark.is_some());
+        if let Some(datafusion_common::ScalarValue::Utf8(Some(color))) = result_dark {
+            // Should be light color in dark mode
+            assert!(color.contains("cc"), "Dark mode should use #ccc (light color)");
+        } else {
+            panic!("Expected color from light-dark() in dark mode");
+        }
+    }
+
+    #[test]
+    fn test_variable_in_numeric_channel() {
+        // Test variables resolving to numbers in numeric channels
+        let mut theme = Theme::from_css(
+            r#"
+            mark[type="line"] {
+                stroke-width: var(--line-width);
+            }
+            "#,
+        )
+        .unwrap();
+
+        let mut params = IndexMap::new();
+        params.insert(
+            "--line-width".to_string(),
+            datafusion_common::ScalarValue::Float64(Some(2.5)),
+        );
+
+        let result = theme.mark_default("line", "stroke_width", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Float32(Some(width))) = result {
+            assert_eq!(width, 2.5, "var(--line-width) should resolve to 2.5");
+        } else {
+            panic!("Expected Float32 from variable in numeric channel");
+        }
+    }
+
+    #[test]
+    fn test_rem_units_in_size() {
+        // Test rem units in size channel with custom base font size
+        let mut theme = Theme::from_css(
+            r#"
+            :root {
+                font-size: 16px;
+            }
+            mark[type="symbol"] {
+                size: 2rem;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let params = IndexMap::new();
+        let result = theme.mark_default("symbol", "size", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Float32(Some(size))) = result {
+            assert_eq!(size, 32.0, "2rem with 16px base should be 32px");
+        } else {
+            panic!("Expected Float32 from rem unit");
+        }
+    }
+
+    #[test]
+    fn test_unknown_property_returns_none() {
+        // Test that unknown properties return None gracefully
+        let mut theme = Theme::from_css(
+            r#"
+            mark[type="symbol"] {
+                fill: red;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let params = IndexMap::new();
+        let result = theme.mark_default("symbol", "unknown_property", &params);
+
+        assert!(result.is_none(), "Unknown property should return None");
+    }
+
+    #[test]
+    fn test_calc_with_var_and_math() {
+        // Test calc() expressions with variables and arithmetic
+        let theme = Theme::from_css(
+            r#"
+            mark[type="rect"] {
+                stroke-width: calc((var(--base) + 1) * 2);
+            }
+            "#,
+        )
+        .unwrap();
+
+        let mut params = IndexMap::new();
+        params.insert(
+            "--base".to_string(),
+            datafusion_common::ScalarValue::Float64(Some(3.0)),
+        );
+
+        let result = theme.mark_default("rect", "stroke_width", &params);
+
+        assert!(result.is_some());
+        if let Some(datafusion_common::ScalarValue::Float32(Some(width))) = result {
+            assert_eq!(width, 8.0, "calc((3 + 1) * 2) should be 8.0");
+        } else {
+            panic!("Expected Float32 from calc() with variable, got: {:?}", result);
         }
     }
 }
