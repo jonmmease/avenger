@@ -50,6 +50,7 @@ struct RenderBlock {
     slug: String,
     fn_ident: String,
     code: String,
+    image_count: usize, // 1 for single Plot, N for tuple of N RenderResults
 }
 
 fn collect_markdown(
@@ -79,13 +80,14 @@ fn collect_markdown(
             for code in extract_render_blocks(&content) {
                 let slug = make_slug(&rel, fence_counter);
                 let fn_ident = make_fn_ident(&slug);
-                let code = ensure_returns_plot(&code);
+                let (processed_code, image_count) = process_render_code(&code);
                 render_blocks.push(RenderBlock {
                     rel_path: rel.clone(),
                     fence_index: fence_counter,
                     slug,
                     fn_ident,
-                    code,
+                    code: processed_code,
+                    image_count,
                 });
                 fence_counter += 1;
             }
@@ -195,6 +197,38 @@ fn is_render_fence(info: &str) -> bool {
     saw_rust && saw_render
 }
 
+/// Process render code block and detect if it returns a tuple of RenderResults.
+/// Returns (processed_code, image_count) where image_count is 1 for single Plot
+/// or N for tuple of N RenderResults.
+fn process_render_code(code: &str) -> (String, usize) {
+    let body = code.trim_end();
+
+    // Find the last non-empty, non-comment line
+    let last_line = body
+        .lines()
+        .rev()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty() && !l.starts_with("//"))
+        .unwrap_or("");
+
+    // Check if it's a tuple by looking for pattern like (result1, result2, ...)
+    // Simple heuristic: starts with '(' and contains at least one comma
+    if last_line.starts_with('(') && last_line.contains(',') {
+        // Count commas to estimate tuple size (rough heuristic)
+        let comma_count = last_line.matches(',').count();
+        let image_count = comma_count + 1;
+
+        let mut processed = body.to_string();
+        if !processed.ends_with('\n') {
+            processed.push('\n');
+        }
+        return (processed, image_count);
+    }
+
+    // Not a tuple - process as single Plot
+    (ensure_returns_plot(code), 1)
+}
+
 fn ensure_returns_plot(code: &str) -> String {
     let mut body = code.trim_end().to_string();
     let mut needs_append = false;
@@ -225,7 +259,10 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
     writeln!(file, "use std::path::Path;")?;
     writeln!(file, "use std::boxed::Box;")?;
     writeln!(file, "use tokio::runtime::Runtime;")?;
-    writeln!(file, "use avenger_chart::doc::render::render_plot_to_png;")?;
+    writeln!(
+        file,
+        "use avenger_chart::doc::render::{{render_plot_to_png, render_result_to_png}};"
+    )?;
     writeln!(
         file,
         "#[allow(unused_imports)] use avenger_chart::prelude::*;"
@@ -235,11 +272,16 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
         file,
         "#[allow(unused_imports)] use avenger_chart::doc::datasets;"
     )?;
+    writeln!(file, "#[allow(unused_imports)] use indexmap::IndexMap;")?;
+    writeln!(
+        file,
+        "#[allow(unused_imports)] use datafusion::common::ScalarValue;"
+    )?;
     writeln!(file, "use std::error::Error;\n")?;
 
     writeln!(
         file,
-        "pub struct RenderEntry {{\n    pub slug: &'static str,\n    pub markdown_path: &'static str,\n    pub fence_index: usize,\n    pub render: fn(&Path) -> Result<(), Box<dyn Error + Send + Sync + 'static>>,\n}}\n"
+        "pub struct RenderEntry {{\n    pub slug: &'static str,\n    pub markdown_path: &'static str,\n    pub fence_index: usize,\n    pub image_count: usize,\n    pub render: fn(&Path) -> Result<(), Box<dyn Error + Send + Sync + 'static>>,\n}}\n"
     )?;
 
     for snippet in snippets {
@@ -251,13 +293,62 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
         writeln!(file, "    let runtime = Runtime::new()?;")?;
         writeln!(file, "    runtime.block_on(async {{")?;
         writeln!(file, "        let ctx = SessionContext::new();")?;
-        writeln!(file, "        let plot = {{")?;
-        for line in snippet.code.lines() {
-            let normalized = normalize_hidden_line(line);
-            writeln!(file, "            {}", normalized)?;
+
+        if snippet.image_count == 1 {
+            // Single Plot - original behavior
+            writeln!(file, "        let plot = {{")?;
+            for line in snippet.code.lines() {
+                let normalized = normalize_hidden_line(line);
+                writeln!(file, "            {}", normalized)?;
+            }
+            writeln!(file, "        }};")?;
+            writeln!(
+                file,
+                "        let output_path = output.with_extension(\"png\");"
+            )?;
+            writeln!(
+                file,
+                "        render_plot_to_png(&ctx, plot, output_path).await"
+            )?;
+        } else {
+            // Tuple of RenderResults - new behavior
+            writeln!(file, "        let results = {{")?;
+            for line in snippet.code.lines() {
+                let normalized = normalize_hidden_line(line);
+                writeln!(file, "            {}", normalized)?;
+            }
+            writeln!(file, "        }};")?;
+            writeln!(file)?;
+            writeln!(file, "        // Unpack tuple and render each result")?;
+            writeln!(file, "        let tuple = (")?;
+            for i in 0..snippet.image_count {
+                if i < snippet.image_count - 1 {
+                    writeln!(file, "            &results.{},", i)?;
+                } else {
+                    writeln!(file, "            &results.{}", i)?;
+                }
+            }
+            writeln!(file, "        );")?;
+            writeln!(file)?;
+            writeln!(
+                file,
+                "        let base_path = output.to_str().expect(\"valid path\");"
+            )?;
+            for i in 0..snippet.image_count {
+                writeln!(
+                    file,
+                    "        let img_path_{} = format!(\"{{}}_{:02}.png\", base_path);",
+                    i, i
+                )?;
+                writeln!(
+                    file,
+                    "        render_result_to_png(tuple.{}, &img_path_{}).await?;",
+                    i, i
+                )?;
+            }
+            writeln!(file, "        Ok(())")?;
         }
-        writeln!(file, "        }};")?;
-        writeln!(file, "        render_plot_to_png(&ctx, plot, output).await")?;
+
         writeln!(file, "    }})")?;
         writeln!(file, "}}\n")?;
     }
@@ -266,10 +357,11 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
     for snippet in snippets {
         writeln!(
             file,
-            "    RenderEntry {{ slug: \"{}\", markdown_path: \"{}\", fence_index: {}, render: {} }},",
+            "    RenderEntry {{ slug: \"{}\", markdown_path: \"{}\", fence_index: {}, image_count: {}, render: {} }},",
             snippet.slug,
             snippet.rel_path,
             snippet.fence_index,
+            snippet.image_count,
             snippet.fn_ident
         )?;
     }

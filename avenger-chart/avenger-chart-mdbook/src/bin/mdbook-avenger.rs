@@ -120,10 +120,23 @@ impl<'a> AvengerBookProcessor<'a> {
 
 fn render_all(images_dir: &Path, src_dir: &Path) -> Result<()> {
     for entry in RENDER_ENTRIES {
-        let output = images_dir.join(format!("{}.png", entry.slug));
         let source = src_dir.join(&entry.markdown_path);
-        if needs_render(&output, &source)? {
-            (entry.render)(&output).map_err(|err| match err.downcast::<AvengerWgpuError>() {
+
+        // Check if any of the output images need rendering
+        let needs_render = if entry.image_count == 1 {
+            let output = images_dir.join(format!("{}.png", entry.slug));
+            needs_render(&output, &source)?
+        } else {
+            // For tuples, check if any of the images need rendering
+            (0..entry.image_count).any(|i| {
+                let output = images_dir.join(format!("{}_{:02}.png", entry.slug, i));
+                needs_render(&output, &source).unwrap_or(true)
+            })
+        };
+
+        if needs_render {
+            let output_base = images_dir.join(&entry.slug);
+            (entry.render)(&output_base).map_err(|err| match err.downcast::<AvengerWgpuError>() {
                 Ok(avenger_err) => match *avenger_err {
                     AvengerWgpuError::MakeWgpuAdapterError => anyhow!(
                         "failed to render snippet {}: {}\n\
@@ -216,16 +229,28 @@ fn insert_image_if_needed(
         }
     }
 
-    let image_path = images_dir.join(format!("{}.png", entry.slug));
-    let relative = if let Some(chapter_dir) = chapter_dir {
-        diff_paths(&image_path, chapter_dir).unwrap_or_else(|| image_path.clone())
-    } else {
-        image_path.clone()
-    };
-
-    let rel_str = relative.to_string_lossy().replace('\\', "/");
+    // Insert all images for this entry
     output.push(String::new());
-    output.push(format!("![Rendered plot]({})", rel_str));
+    for i in 0..entry.image_count {
+        let image_filename = if entry.image_count == 1 {
+            format!("{}.png", entry.slug)
+        } else {
+            format!("{}_{:02}.png", entry.slug, i)
+        };
+
+        let image_path = images_dir.join(&image_filename);
+        let relative = if let Some(chapter_dir) = chapter_dir {
+            diff_paths(&image_path, chapter_dir).unwrap_or_else(|| image_path.clone())
+        } else {
+            image_path.clone()
+        };
+
+        let rel_str = relative.to_string_lossy().replace('\\', "/");
+        output.push(format!("![Rendered plot]({})", rel_str));
+        if i < entry.image_count - 1 {
+            output.push(String::new());
+        }
+    }
     output.push(String::new());
     Ok(())
 }
