@@ -1,40 +1,22 @@
-use datafusion::prelude::SessionContext;
 use std::path::Path;
 
-use crate::coords::CoordinateSystem;
-use crate::plot::CompiledPlot;
-use crate::prelude::*;
-use crate::render::WgpuRenderer;
 use crate::render::types::EvaluatedPlot;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
 
-/// Render a plot directly to a PNG file using the WGPU backend.
-pub async fn render_plot_to_png<C: CoordinateSystem + 'static>(
-    ctx: &SessionContext,
-    plot: Plot<C>,
-    output: impl AsRef<Path>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let compiled = plot.compile(ctx).await?;
-    render_compiled_plot_to_png(&compiled, ctx, output).await
-}
-
-/// Render a compiled plot to PNG, writing to the provided path.
-pub async fn render_compiled_plot_to_png(
-    compiled: &CompiledPlot,
-    ctx: &SessionContext,
-    output: impl AsRef<Path>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let renderer = WgpuRenderer::new().with_scale(4.0);
-    renderer
-        .write_png(compiled, ctx, None, output)
-        .await
-        .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync + 'static>)
-}
-
 /// Render an EvaluatedPlot directly to PNG, writing to the provided path.
 ///
-/// This is useful for rendering multiple parameter variations from a single compiled plot:
+/// This is the primary function for rendering plots in documentation examples.
+/// It renders at 4x scale for crisp output.
+///
+/// # Example
+/// ```ignore
+/// let compiled = plot.compile(&ctx).await?;
+/// let evaluated = compiled.evaluate(&ctx, None).await?;
+/// render_evaluated_plot_to_png(&evaluated, "output.png").await?;
+/// ```
+///
+/// For multiple parameter variations:
 /// ```ignore
 /// let compiled = plot.compile(&ctx).await?;
 /// let result1 = compiled.evaluate(&ctx, None).await?;

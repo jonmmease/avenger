@@ -1,4 +1,4 @@
-use avenger_chart::doc::render::render_plot_to_png;
+use avenger_chart::doc::render::render_evaluated_plot_to_png;
 use avenger_chart::param::Param;
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Date32Array, Float64Array, StringArray};
@@ -138,9 +138,13 @@ async fn test_time_scale_with_stocks_parquet() -> Result<(), Box<dyn std::error:
                 }),
         );
 
-    // Render to PNG like mdbook does
+    // Compile and evaluate the plot
+    let compiled = plot.compile(&ctx).await?;
+    let evaluated = compiled.evaluate(&ctx, None).await?;
+
+    // Render to PNG
     let output_path = PathBuf::from("/tmp/test_stocks_time_scale.png");
-    render_plot_to_png(&ctx, plot, &output_path)
+    render_evaluated_plot_to_png(&evaluated, &output_path)
         .await
         .map_err(|e| format!("Render error: {}", e))?;
 

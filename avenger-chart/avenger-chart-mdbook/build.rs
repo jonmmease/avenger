@@ -187,19 +187,22 @@ fn is_render_fence(info: &str) -> bool {
     let normalized = info.replace(',', " ");
     let mut saw_rust = false;
     let mut saw_render = false;
+    let mut saw_ignore = false;
     for token in normalized.split_whitespace() {
         match token {
             "rust" | "" => saw_rust = true,
             "render" => saw_render = true,
+            "ignore" => saw_ignore = true,
             _ => {}
         }
     }
-    saw_rust && saw_render
+    saw_rust && saw_render && !saw_ignore
 }
 
-/// Process render code block and detect if it returns a tuple of EvaluatedPlots.
-/// Returns (processed_code, image_count) where image_count is 1 for single Plot
-/// or N for tuple of N EvaluatedPlots.
+/// Process render code block and detect if it returns a single EvaluatedPlot
+/// or a tuple of EvaluatedPlots.
+/// Returns (processed_code, image_count) where image_count is 1 for single
+/// EvaluatedPlot or N for tuple of N EvaluatedPlots.
 fn process_render_code(code: &str) -> (String, usize) {
     let body = code.trim_end();
 
@@ -225,32 +228,12 @@ fn process_render_code(code: &str) -> (String, usize) {
         return (processed, image_count);
     }
 
-    // Not a tuple - process as single Plot
-    (ensure_returns_plot(code), 1)
-}
-
-fn ensure_returns_plot(code: &str) -> String {
-    let mut body = code.trim_end().to_string();
-    let mut needs_append = false;
-
-    if let Some(last_non_empty) = body.lines().rev().find(|line| !line.trim().is_empty()) {
-        if last_non_empty.trim_end().ends_with(';') {
-            needs_append = true;
-        }
+    // Single EvaluatedPlot - ensure it ends with the variable name
+    let mut processed = body.to_string();
+    if !processed.ends_with('\n') {
+        processed.push('\n');
     }
-
-    if needs_append {
-        if body.contains("let _plot") {
-            body.push_str("\n_plot");
-        } else if body.contains("let plot") {
-            body.push_str("\nplot");
-        }
-    }
-
-    if !body.ends_with('\n') {
-        body.push('\n');
-    }
-    body
+    (processed, 1)
 }
 
 fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Result<()> {
@@ -261,7 +244,7 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
     writeln!(file, "use tokio::runtime::Runtime;")?;
     writeln!(
         file,
-        "use avenger_chart::doc::render::{{render_plot_to_png, render_evaluated_plot_to_png}};"
+        "use avenger_chart::doc::render::render_evaluated_plot_to_png;"
     )?;
     writeln!(
         file,
@@ -295,9 +278,8 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
         writeln!(file, "    runtime.block_on(async {{")?;
 
         if snippet.image_count == 1 {
-            // Single Plot - original behavior
-            writeln!(file, "        let ctx = SessionContext::new();")?;
-            writeln!(file, "        let plot = {{")?;
+            // Single EvaluatedPlot
+            writeln!(file, "        let evaluated = {{")?;
             for line in snippet.code.lines() {
                 let normalized = normalize_hidden_line(line);
                 writeln!(file, "            {}", normalized)?;
@@ -309,10 +291,10 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
             )?;
             writeln!(
                 file,
-                "        render_plot_to_png(&ctx, plot, output_path).await"
+                "        render_evaluated_plot_to_png(&evaluated, output_path).await"
             )?;
         } else {
-            // Tuple of EvaluatedPlots - new behavior (ctx not needed)
+            // Tuple of EvaluatedPlots
             writeln!(file, "        let results = {{")?;
             for line in snippet.code.lines() {
                 let normalized = normalize_hidden_line(line);
