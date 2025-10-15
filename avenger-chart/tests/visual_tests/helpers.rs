@@ -35,11 +35,11 @@ async fn render_compiled_plot_with_serialization(
     ctx: &datafusion::prelude::SessionContext,
     params: Option<IndexMap<String, ScalarValue>>,
 ) -> (RgbaImage, RgbaImage) {
-    // Render directly first
+    // Evaluate directly first
     let direct_result = compiled
-        .render(ctx, params.clone())
+        .evaluate(ctx, params.clone())
         .await
-        .expect("Failed to render plot directly");
+        .expect("Failed to evaluate plot directly");
 
     // Perform serialization round-trip through bincode
     let serialized =
@@ -48,11 +48,11 @@ async fn render_compiled_plot_with_serialization(
     let deserialized: CompiledPlot =
         bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode");
 
-    // Render from the deserialized plot
+    // Evaluate from the deserialized plot
     let bincode_result = deserialized
-        .render(ctx, params)
+        .evaluate(ctx, params)
         .await
-        .expect("Failed to render plot after bincode deserialization");
+        .expect("Failed to evaluate plot after bincode deserialization");
 
     // Log if dimensions differ (but don't panic - serialization might change some aspects)
     if direct_result.scene_graph.width != bincode_result.scene_graph.width

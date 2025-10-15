@@ -8,21 +8,24 @@ use datafusion::scalar::ScalarValue;
 use image::RgbaImage;
 use indexmap::IndexMap;
 
-/// Helper function to render compiled plot with specific params
+/// Helper function to evaluate compiled plot with specific params
 async fn render_compiled_plot(
     compiled: &avenger_chart::plot::CompiledPlot,
     ctx: &datafusion::prelude::SessionContext,
     params: Option<IndexMap<String, ScalarValue>>,
 ) -> RgbaImage {
-    // Render with the specified params
-    let result = compiled
-        .render(ctx, params)
+    // Evaluate with the specified params
+    let evaluated_plot = compiled
+        .evaluate(ctx, params)
         .await
-        .expect("Failed to render plot");
+        .expect("Failed to evaluate plot");
 
     // Create canvas and render to image
     let dimensions = CanvasDimensions {
-        size: [result.scene_graph.width, result.scene_graph.height],
+        size: [
+            evaluated_plot.scene_graph.width,
+            evaluated_plot.scene_graph.height,
+        ],
         scale: DEFAULT_SCALE,
     };
 
@@ -31,7 +34,7 @@ async fn render_compiled_plot(
         .expect("Failed to create canvas");
 
     canvas
-        .set_scene(&result.scene_graph)
+        .set_scene(&evaluated_plot.scene_graph)
         .expect("Failed to set scene");
 
     canvas.render().await.expect("Failed to render image")

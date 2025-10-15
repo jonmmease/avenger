@@ -130,9 +130,7 @@ pub enum EvalError {
 
     /// Variable not found in parameters
     /// Example: var(--missing) when --missing not in params
-    VariableNotFound {
-        variable_name: String,
-    },
+    VariableNotFound { variable_name: String },
 
     /// Variable exists but has wrong type
     /// Example: var(--size) used as color when --size is a number
@@ -151,15 +149,11 @@ pub enum EvalError {
 
     /// Calc expression evaluation failed
     /// Example: calc(100% + 20px) without parent size context
-    CalcError {
-        error: String,
-    },
+    CalcError { error: String },
 
     /// Relative color evaluation failed
     /// Example: oklch(from blue ...) with invalid origin
-    RelativeColorError {
-        error: String,
-    },
+    RelativeColorError { error: String },
 
     /// Unsupported variant for requested type
     /// Example: Initial/Inherit/None values
@@ -172,7 +166,11 @@ pub enum EvalError {
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EvalError::TypeMismatch { variant, expected_type, value_description } => {
+            EvalError::TypeMismatch {
+                variant,
+                expected_type,
+                value_description,
+            } => {
                 write!(
                     f,
                     "Cannot convert {} variant to {}: {}",
@@ -182,14 +180,21 @@ impl fmt::Display for EvalError {
             EvalError::VariableNotFound { variable_name } => {
                 write!(f, "CSS variable not found: {}", variable_name)
             }
-            EvalError::VariableTypeMismatch { variable_name, expected_type, actual_type } => {
+            EvalError::VariableTypeMismatch {
+                variable_name,
+                expected_type,
+                actual_type,
+            } => {
                 write!(
                     f,
                     "CSS variable {} has type {} but {} expected",
                     variable_name, actual_type, expected_type
                 )
             }
-            EvalError::FunctionError { function_name, error } => {
+            EvalError::FunctionError {
+                function_name,
+                error,
+            } => {
                 write!(f, "Function {}() failed: {}", function_name, error)
             }
             EvalError::CalcError { error } => {
@@ -198,7 +203,10 @@ impl fmt::Display for EvalError {
             EvalError::RelativeColorError { error } => {
                 write!(f, "Relative color evaluation failed: {}", error)
             }
-            EvalError::Unsupported { variant, expected_type } => {
+            EvalError::Unsupported {
+                variant,
+                expected_type,
+            } => {
                 write!(
                     f,
                     "{} variant cannot be evaluated as {}",
@@ -332,23 +340,23 @@ pub fn get_channel_type(property: &str) -> Option<TargetType> {
 
     match base_property {
         // Color properties
-        "fill" | "stroke" | "color" | "background" | "border-color"
-        | "glow-color" | "shadow-color" => Some(TargetType::Color),
+        "fill" | "stroke" | "color" | "background" | "border-color" | "glow-color"
+        | "shadow-color" => Some(TargetType::Color),
 
         // Number properties (0.0-1.0 or unitless)
         "opacity" | "font-weight" => Some(TargetType::Number),
 
         // Length properties (px, rem → px)
-        "size" | "stroke-width" | "font-size" | "padding" | "margin"
-        | "corner-radius" | "width" | "height" | "min-width" | "max-width"
-        | "min-height" | "max-height" | "gap" | "border-width"
-        | "line-height" | "letter-spacing" | "indent" | "offset"
+        "size" | "stroke-width" | "font-size" | "padding" | "margin" | "corner-radius"
+        | "width" | "height" | "min-width" | "max-width" | "min-height" | "max-height" | "gap"
+        | "border-width" | "line-height" | "letter-spacing" | "indent" | "offset"
         | "blur-radius" | "spread-radius" => Some(TargetType::Length),
 
         // String properties
-        "font-family" | "text-anchor" | "font-style" | "font-variant"
-        | "text-decoration" | "align" | "baseline" | "shape"
-        | "cursor" | "overflow" | "display" => Some(TargetType::String),
+        "font-family" | "text-anchor" | "font-style" | "font-variant" | "text-decoration"
+        | "align" | "baseline" | "shape" | "cursor" | "overflow" | "display" => {
+            Some(TargetType::String)
+        }
 
         // Boolean properties
         "visible" => Some(TargetType::Boolean),
@@ -364,7 +372,6 @@ pub fn get_channel_type(property: &str) -> Option<TargetType> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion_common::ScalarValue;
     use indexmap::IndexMap;
 
     #[test]
@@ -379,7 +386,12 @@ mod tests {
     #[test]
     fn test_eval_context_with_origin() {
         let params = IndexMap::new();
-        let origin = CssRgba { red: 255, green: 0, blue: 0, alpha: 255 };
+        let origin = CssRgba {
+            red: 255,
+            green: 0,
+            blue: 0,
+            alpha: 255,
+        };
         let ctx = EvalContext::with_origin_color(&params, 16.0, origin);
 
         assert_eq!(ctx.origin_color, Some(origin));
@@ -407,10 +419,18 @@ mod tests {
 
         assert_eq!(variant_name(&ThemeValue::Number(42.0)), "Number");
         assert_eq!(
-            variant_name(&ThemeValue::Color(CssRgba { red: 255, green: 0, blue: 0, alpha: 255 })),
+            variant_name(&ThemeValue::Color(CssRgba {
+                red: 255,
+                green: 0,
+                blue: 0,
+                alpha: 255
+            })),
             "Color"
         );
-        assert_eq!(variant_name(&ThemeValue::Variable("--accent".to_string())), "Variable");
+        assert_eq!(
+            variant_name(&ThemeValue::Variable("--accent".to_string())),
+            "Variable"
+        );
 
         // Test with ScalarValue to avoid unused import warning
         let _v = ScalarValue::Utf8(Some("test".to_string()));
@@ -426,7 +446,10 @@ mod tests {
 
         // Scale ranges
         assert_eq!(get_channel_type("fill-discrete"), Some(TargetType::Color));
-        assert_eq!(get_channel_type("stroke-continuous"), Some(TargetType::Color));
+        assert_eq!(
+            get_channel_type("stroke-continuous"),
+            Some(TargetType::Color)
+        );
     }
 
     #[test]
@@ -435,8 +458,14 @@ mod tests {
         assert_eq!(get_channel_type("font-weight"), Some(TargetType::Number));
 
         // Scale ranges
-        assert_eq!(get_channel_type("opacity-discrete"), Some(TargetType::Number));
-        assert_eq!(get_channel_type("opacity-continuous"), Some(TargetType::Number));
+        assert_eq!(
+            get_channel_type("opacity-discrete"),
+            Some(TargetType::Number)
+        );
+        assert_eq!(
+            get_channel_type("opacity-continuous"),
+            Some(TargetType::Number)
+        );
     }
 
     #[test]
@@ -452,7 +481,10 @@ mod tests {
 
         // Scale ranges
         assert_eq!(get_channel_type("size-discrete"), Some(TargetType::Length));
-        assert_eq!(get_channel_type("stroke-width-continuous"), Some(TargetType::Length));
+        assert_eq!(
+            get_channel_type("stroke-width-continuous"),
+            Some(TargetType::Length)
+        );
     }
 
     #[test]
@@ -489,6 +521,9 @@ mod tests {
     fn test_get_channel_type_custom_channels() {
         // Custom channels with standard suffixes should work
         assert_eq!(get_channel_type("glow-color"), Some(TargetType::Color));
-        assert_eq!(get_channel_type("glow-color-discrete"), Some(TargetType::Color));
+        assert_eq!(
+            get_channel_type("glow-color-discrete"),
+            Some(TargetType::Color)
+        );
     }
 }
