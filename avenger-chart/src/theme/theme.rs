@@ -1082,6 +1082,32 @@ impl Theme {
                 };
                 Some(datafusion_common::ScalarValue::Utf8(Some(color_str)))
             }
+            // Handle functions (like color-mix, light-dark, contrast-color) that should resolve to colors
+            Some(ref value)
+                if matches!(
+                    value,
+                    ThemeValue::Function(_, _) | ThemeValue::LightDark(_, _)
+                ) =>
+            {
+                // For color-related channels, try to evaluate as color
+                let color_channels = ["fill", "stroke", "color", "background", "border-color"];
+                if color_channels.contains(&css_property.as_str()) {
+                    let base_font_size = self.get_base_font_size(params);
+                    if let Some(rgba) = value.as_color_with_params(params, base_font_size) {
+                        let color_str = if rgba.alpha == 255 {
+                            format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue)
+                        } else {
+                            let alpha = rgba.alpha as f32 / 255.0;
+                            format!(
+                                "rgba({}, {}, {}, {})",
+                                rgba.red, rgba.green, rgba.blue, alpha
+                            )
+                        };
+                        return Some(datafusion_common::ScalarValue::Utf8(Some(color_str)));
+                    }
+                }
+                None
+            }
             _ => None,
         }
     }
@@ -1540,6 +1566,62 @@ mod tests {
             }
             other => panic!("Expected List, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_color_mix_in_stroke_with_var() {
+        // Test that color-mix() with var() works in stroke property
+        let css = r#"
+            mark {
+                fill: var(--accent);
+                stroke: color-mix(in srgb, var(--accent) 60%, black);
+            }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to parse CSS");
+
+        let mut params = IndexMap::new();
+        params.insert(
+            "--accent".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("#2563eb".into())),
+        );
+
+        let ctx = ThemeContext::new("mark", params.clone());
+
+        let fill = theme.fill_color(&ctx);
+        assert!(fill.is_some(), "fill with var(--accent) should work");
+
+        let stroke = theme.stroke_color(&ctx);
+        assert!(
+            stroke.is_some(),
+            "stroke with color-mix(var(--accent)) should work"
+        );
+
+        // Verify the stroke is darker than fill (mixed with black)
+        let fill_rgba = fill.unwrap();
+        let stroke_rgba = stroke.unwrap();
+        assert!(
+            stroke_rgba[0] < fill_rgba[0],
+            "Stroke red component should be darker (less than fill)"
+        );
+
+        // Verify color-mix computed correctly: color-mix(in srgb, #2563eb 60%, black 40%)
+        // #2563eb = rgb(37, 99, 235) => 60% should give approximately (0.087, 0.233, 0.553)
+        assert!(
+            (stroke_rgba[0] - 0.087).abs() < 0.02,
+            "Red should be ~0.087, got {}",
+            stroke_rgba[0]
+        );
+        assert!(
+            (stroke_rgba[1] - 0.233).abs() < 0.02,
+            "Green should be ~0.233, got {}",
+            stroke_rgba[1]
+        );
+        assert!(
+            (stroke_rgba[2] - 0.553).abs() < 0.02,
+            "Blue should be ~0.553, got {}",
+            stroke_rgba[2]
+        );
     }
 
     #[test]
