@@ -368,7 +368,10 @@ impl ThemeValue {
     /// let color_value = ThemeValue::Variable("--accent".to_string());
     /// let rgba = color_value.eval_as_color(&ctx)?;
     /// ```
-    pub fn eval_as_color(&self, ctx: &super::eval::EvalContext) -> Result<CssRgba, super::eval::EvalError> {
+    pub fn eval_as_color(
+        &self,
+        ctx: &super::eval::EvalContext,
+    ) -> Result<CssRgba, super::eval::EvalError> {
         use super::eval::{EvalError, TargetType, variant_name};
 
         match self {
@@ -376,21 +379,22 @@ impl ThemeValue {
             ThemeValue::Color(rgba) => Ok(*rgba),
 
             // String that might be a color name or hex
-            ThemeValue::String(s) => {
-                parse_color_string(s).ok_or_else(|| EvalError::TypeMismatch {
-                    variant: "String".to_string(),
-                    expected_type: TargetType::Color,
-                    value_description: format!("\"{}\" is not a valid color", s),
-                })
-            }
+            ThemeValue::String(s) => parse_color_string(s).ok_or_else(|| EvalError::TypeMismatch {
+                variant: "String".to_string(),
+                expected_type: TargetType::Color,
+                value_description: format!("\"{}\" is not a valid color", s),
+            }),
 
             // CSS variable - look up in params and recursively evaluate
             ThemeValue::Variable(name) => {
                 use datafusion_common::ScalarValue;
 
-                let scalar_value = ctx.params.get(name).ok_or_else(|| EvalError::VariableNotFound {
-                    variable_name: name.clone(),
-                })?;
+                let scalar_value =
+                    ctx.params
+                        .get(name)
+                        .ok_or_else(|| EvalError::VariableNotFound {
+                            variable_name: name.clone(),
+                        })?;
 
                 match scalar_value {
                     ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => {
@@ -409,37 +413,37 @@ impl ThemeValue {
             }
 
             // Function calls (color-mix, contrast-color)
-            ThemeValue::Function(name, args) => {
-                match name.as_str() {
-                    "color-mix" => {
-                        use super::color_mix::resolve_color_mix_with_params;
-                        resolve_color_mix_with_params(args, ctx.params, ctx.base_font_size)
-                            .ok_or_else(|| EvalError::FunctionError {
-                                function_name: "color-mix".to_string(),
-                                error: "Failed to evaluate color-mix()".to_string(),
-                            })
-                    }
-                    "contrast-color" => {
-                        use super::contrast_color::resolve_contrast_color_with_params;
-                        resolve_contrast_color_with_params(args, ctx.params, ctx.base_font_size)
-                            .ok_or_else(|| EvalError::FunctionError {
-                                function_name: "contrast-color".to_string(),
-                                error: "Failed to evaluate contrast-color()".to_string(),
-                            })
-                    }
-                    _ => Err(EvalError::FunctionError {
-                        function_name: name.clone(),
-                        error: format!("Unknown color function: {}()", name),
-                    }),
+            ThemeValue::Function(name, args) => match name.as_str() {
+                "color-mix" => {
+                    use super::color_mix::resolve_color_mix_with_params;
+                    resolve_color_mix_with_params(args, ctx.params, ctx.base_font_size).ok_or_else(
+                        || EvalError::FunctionError {
+                            function_name: "color-mix".to_string(),
+                            error: "Failed to evaluate color-mix()".to_string(),
+                        },
+                    )
                 }
-            }
+                "contrast-color" => {
+                    use super::contrast_color::resolve_contrast_color_with_params;
+                    resolve_contrast_color_with_params(args, ctx.params, ctx.base_font_size)
+                        .ok_or_else(|| EvalError::FunctionError {
+                            function_name: "contrast-color".to_string(),
+                            error: "Failed to evaluate contrast-color()".to_string(),
+                        })
+                }
+                _ => Err(EvalError::FunctionError {
+                    function_name: name.clone(),
+                    error: format!("Unknown color function: {}()", name),
+                }),
+            },
 
             // light-dark() - theme-aware color selection
             ThemeValue::LightDark(light, dark) => {
                 use datafusion_common::ScalarValue;
 
                 // Check color-scheme param to decide which value to use
-                let use_dark = ctx.params
+                let use_dark = ctx
+                    .params
                     .get("color-scheme")
                     .and_then(|v| match v {
                         ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => {
@@ -465,11 +469,12 @@ impl ThemeValue {
                 use crate::color::types::AbsoluteColor;
 
                 // 1. Resolve origin color recursively
-                let origin_rgba = origin.eval_as_color(ctx).map_err(|e| {
-                    EvalError::RelativeColorError {
-                        error: format!("Failed to resolve origin color: {}", e),
-                    }
-                })?;
+                let origin_rgba =
+                    origin
+                        .eval_as_color(ctx)
+                        .map_err(|e| EvalError::RelativeColorError {
+                            error: format!("Failed to resolve origin color: {}", e),
+                        })?;
 
                 let mut origin_abs = AbsoluteColor::from_css_rgba(&origin_rgba);
 
@@ -521,7 +526,8 @@ impl ThemeValue {
                 Err(EvalError::TypeMismatch {
                     variant: "Calc".to_string(),
                     expected_type: TargetType::Color,
-                    value_description: "calc() expressions cannot be evaluated as colors".to_string(),
+                    value_description: "calc() expressions cannot be evaluated as colors"
+                        .to_string(),
                 })
             }
 
@@ -553,7 +559,10 @@ impl ThemeValue {
     ///
     /// # Errors
     /// Returns EvalError for non-numeric variants or evaluation failures
-    pub fn eval_as_number(&self, ctx: &super::eval::EvalContext) -> Result<f64, super::eval::EvalError> {
+    pub fn eval_as_number(
+        &self,
+        ctx: &super::eval::EvalContext,
+    ) -> Result<f64, super::eval::EvalError> {
         use super::eval::{EvalError, TargetType, variant_name};
 
         match self {
@@ -569,9 +578,12 @@ impl ThemeValue {
             ThemeValue::Variable(name) => {
                 use datafusion_common::ScalarValue;
 
-                let scalar_value = ctx.params.get(name).ok_or_else(|| EvalError::VariableNotFound {
-                    variable_name: name.clone(),
-                })?;
+                let scalar_value =
+                    ctx.params
+                        .get(name)
+                        .ok_or_else(|| EvalError::VariableNotFound {
+                            variable_name: name.clone(),
+                        })?;
 
                 match scalar_value {
                     ScalarValue::Float64(Some(v)) => Ok(*v),
@@ -630,7 +642,10 @@ impl ThemeValue {
     ///
     /// # Errors
     /// Returns EvalError for non-length variants or evaluation failures
-    pub fn eval_as_length(&self, ctx: &super::eval::EvalContext) -> Result<f64, super::eval::EvalError> {
+    pub fn eval_as_length(
+        &self,
+        ctx: &super::eval::EvalContext,
+    ) -> Result<f64, super::eval::EvalError> {
         use super::eval::{EvalError, TargetType, variant_name};
 
         match self {
@@ -643,9 +658,12 @@ impl ThemeValue {
             ThemeValue::Variable(name) => {
                 use datafusion_common::ScalarValue;
 
-                let scalar_value = ctx.params.get(name).ok_or_else(|| EvalError::VariableNotFound {
-                    variable_name: name.clone(),
-                })?;
+                let scalar_value =
+                    ctx.params
+                        .get(name)
+                        .ok_or_else(|| EvalError::VariableNotFound {
+                            variable_name: name.clone(),
+                        })?;
 
                 match scalar_value {
                     ScalarValue::Float64(Some(v)) => Ok(*v),
@@ -673,9 +691,12 @@ impl ThemeValue {
                     })?;
 
                 // CalcLeaf has as_length_px() method which converts to pixels
-                resolved.as_length_px(ctx.base_font_size).ok_or_else(|| EvalError::CalcError {
-                    error: format!("calc() did not resolve to a length: {:?}", resolved),
-                }).map(|v| v as f64)
+                resolved
+                    .as_length_px(ctx.base_font_size)
+                    .ok_or_else(|| EvalError::CalcError {
+                        error: format!("calc() did not resolve to a length: {:?}", resolved),
+                    })
+                    .map(|v| v as f64)
             }
 
             ThemeValue::Initial | ThemeValue::Inherit | ThemeValue::None => {
@@ -702,7 +723,10 @@ impl ThemeValue {
     ///
     /// # Errors
     /// Returns EvalError for unsupported variants or evaluation failures
-    pub fn eval_as_string(&self, ctx: &super::eval::EvalContext) -> Result<String, super::eval::EvalError> {
+    pub fn eval_as_string(
+        &self,
+        ctx: &super::eval::EvalContext,
+    ) -> Result<String, super::eval::EvalError> {
         use super::eval::{EvalError, TargetType, variant_name};
 
         match self {
@@ -712,9 +736,12 @@ impl ThemeValue {
             ThemeValue::Variable(name) => {
                 use datafusion_common::ScalarValue;
 
-                let scalar_value = ctx.params.get(name).ok_or_else(|| EvalError::VariableNotFound {
-                    variable_name: name.clone(),
-                })?;
+                let scalar_value =
+                    ctx.params
+                        .get(name)
+                        .ok_or_else(|| EvalError::VariableNotFound {
+                            variable_name: name.clone(),
+                        })?;
 
                 match scalar_value {
                     ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => Ok(s.clone()),
@@ -731,10 +758,16 @@ impl ThemeValue {
 
             ThemeValue::Color(rgba) => {
                 if rgba.alpha == 255 {
-                    Ok(format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue))
+                    Ok(format!(
+                        "#{:02x}{:02x}{:02x}",
+                        rgba.red, rgba.green, rgba.blue
+                    ))
                 } else {
                     let alpha = rgba.alpha as f32 / 255.0;
-                    Ok(format!("rgba({}, {}, {}, {})", rgba.red, rgba.green, rgba.blue, alpha))
+                    Ok(format!(
+                        "rgba({}, {}, {}, {})",
+                        rgba.red, rgba.green, rgba.blue, alpha
+                    ))
                 }
             }
 
@@ -751,17 +784,25 @@ impl ThemeValue {
                 // Convert CalcLeaf to string representation
                 match resolved {
                     super::calc::CalcLeaf::Number(n) => Ok(n.to_string()),
-                    super::calc::CalcLeaf::Length(n, unit) => Ok(format!("{}{}", n, match unit {
-                        LengthUnit::Px => "px",
-                        LengthUnit::Rem => "rem",
-                    })),
+                    super::calc::CalcLeaf::Length(n, unit) => Ok(format!(
+                        "{}{}",
+                        n,
+                        match unit {
+                            LengthUnit::Px => "px",
+                            LengthUnit::Rem => "rem",
+                        }
+                    )),
                     super::calc::CalcLeaf::Percentage(p) => Ok(format!("{}%", p)),
-                    super::calc::CalcLeaf::Angle(a, unit) => Ok(format!("{}{}", a, match unit {
-                        AngleUnit::Deg => "deg",
-                        AngleUnit::Rad => "rad",
-                        AngleUnit::Grad => "grad",
-                        AngleUnit::Turn => "turn",
-                    })),
+                    super::calc::CalcLeaf::Angle(a, unit) => Ok(format!(
+                        "{}{}",
+                        a,
+                        match unit {
+                            AngleUnit::Deg => "deg",
+                            AngleUnit::Rad => "rad",
+                            AngleUnit::Grad => "grad",
+                            AngleUnit::Turn => "turn",
+                        }
+                    )),
                     _ => Err(EvalError::CalcError {
                         error: format!("Cannot convert calc result to string: {:?}", resolved),
                     }),
@@ -901,14 +942,19 @@ mod tests {
 
     #[test]
     fn test_eval_as_color_direct() {
-        use indexmap::IndexMap;
         use crate::theme::eval::EvalContext;
+        use indexmap::IndexMap;
 
         let params = IndexMap::new();
         let ctx = EvalContext::new(&params, 16.0);
 
         // Direct color value
-        let rgba = CssRgba { red: 255, green: 0, blue: 0, alpha: 255 };
+        let rgba = CssRgba {
+            red: 255,
+            green: 0,
+            blue: 0,
+            alpha: 255,
+        };
         let value = ThemeValue::Color(rgba);
         assert_eq!(value.eval_as_color(&ctx).unwrap(), rgba);
 
@@ -929,12 +975,15 @@ mod tests {
 
     #[test]
     fn test_eval_as_color_variable() {
-        use indexmap::IndexMap;
-        use datafusion_common::ScalarValue;
         use crate::theme::eval::EvalContext;
+        use datafusion_common::ScalarValue;
+        use indexmap::IndexMap;
 
         let mut params = IndexMap::new();
-        params.insert("--accent".to_string(), ScalarValue::Utf8(Some("#2563eb".into())));
+        params.insert(
+            "--accent".to_string(),
+            ScalarValue::Utf8(Some("#2563eb".into())),
+        );
 
         let ctx = EvalContext::new(&params, 16.0);
 
@@ -948,8 +997,8 @@ mod tests {
 
     #[test]
     fn test_eval_as_color_variable_not_found() {
-        use indexmap::IndexMap;
         use crate::theme::eval::EvalContext;
+        use indexmap::IndexMap;
 
         let params = IndexMap::new();
         let ctx = EvalContext::new(&params, 16.0);
@@ -963,8 +1012,8 @@ mod tests {
 
     #[test]
     fn test_eval_as_number_direct() {
-        use indexmap::IndexMap;
         use crate::theme::eval::EvalContext;
+        use indexmap::IndexMap;
 
         let params = IndexMap::new();
         let ctx = EvalContext::new(&params, 16.0);
@@ -984,9 +1033,9 @@ mod tests {
 
     #[test]
     fn test_eval_as_number_variable() {
-        use indexmap::IndexMap;
-        use datafusion_common::ScalarValue;
         use crate::theme::eval::EvalContext;
+        use datafusion_common::ScalarValue;
+        use indexmap::IndexMap;
 
         let mut params = IndexMap::new();
         params.insert("--size".to_string(), ScalarValue::Float64(Some(100.0)));
@@ -1000,8 +1049,8 @@ mod tests {
 
     #[test]
     fn test_eval_as_number_type_mismatch() {
-        use indexmap::IndexMap;
         use crate::theme::eval::EvalContext;
+        use indexmap::IndexMap;
 
         let params = IndexMap::new();
         let ctx = EvalContext::new(&params, 16.0);
@@ -1014,8 +1063,8 @@ mod tests {
 
     #[test]
     fn test_eval_as_length_direct() {
-        use indexmap::IndexMap;
         use crate::theme::eval::EvalContext;
+        use indexmap::IndexMap;
 
         let params = IndexMap::new();
         let ctx = EvalContext::new(&params, 16.0);
@@ -1035,8 +1084,8 @@ mod tests {
 
     #[test]
     fn test_eval_as_string_direct() {
-        use indexmap::IndexMap;
         use crate::theme::eval::EvalContext;
+        use indexmap::IndexMap;
 
         let params = IndexMap::new();
         let ctx = EvalContext::new(&params, 16.0);
@@ -1050,19 +1099,27 @@ mod tests {
         assert_eq!(value.eval_as_string(&ctx).unwrap(), "42.5");
 
         // Color to hex string
-        let rgba = CssRgba { red: 255, green: 0, blue: 0, alpha: 255 };
+        let rgba = CssRgba {
+            red: 255,
+            green: 0,
+            blue: 0,
+            alpha: 255,
+        };
         let value = ThemeValue::Color(rgba);
         assert_eq!(value.eval_as_string(&ctx).unwrap(), "#ff0000");
     }
 
     #[test]
     fn test_eval_as_string_variable() {
-        use indexmap::IndexMap;
-        use datafusion_common::ScalarValue;
         use crate::theme::eval::EvalContext;
+        use datafusion_common::ScalarValue;
+        use indexmap::IndexMap;
 
         let mut params = IndexMap::new();
-        params.insert("--family".to_string(), ScalarValue::Utf8(Some("Arial".into())));
+        params.insert(
+            "--family".to_string(),
+            ScalarValue::Utf8(Some("Arial".into())),
+        );
 
         let ctx = EvalContext::new(&params, 16.0);
 
@@ -1073,8 +1130,8 @@ mod tests {
 
     #[test]
     fn test_eval_unsupported_variants() {
-        use indexmap::IndexMap;
         use crate::theme::eval::EvalContext;
+        use indexmap::IndexMap;
 
         let params = IndexMap::new();
         let ctx = EvalContext::new(&params, 16.0);

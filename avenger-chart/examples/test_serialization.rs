@@ -32,13 +32,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let deserialized: CompiledPlot = serde_json::from_str(&json)?;
     println!("\n✅ Successfully deserialized!");
 
-    // Try to render the deserialized plot
+    // Try to evaluate the deserialized plot
     let ctx2 = SessionContext::new();
-    let render_result = deserialized.render(&ctx2, None).await?;
-    println!("\n✅ Successfully rendered deserialized plot!");
+    let evaluated_plot = deserialized.evaluate(&ctx2, None).await?;
+    println!("\n✅ Successfully evaluated deserialized plot!");
     println!(
         "Scene graph size: {} marks",
-        render_result.scene_graph.marks.len()
+        evaluated_plot.scene_graph.marks.len()
     );
 
     Ok(())

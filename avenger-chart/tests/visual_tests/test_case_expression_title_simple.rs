@@ -118,12 +118,12 @@ async fn test_case_expression_title_no_media_query() {
     eprintln!("If each render took > 30 seconds: CASE expressions are the bottleneck");
     eprintln!("If each render took 10-20 seconds: Both contribute to the issue");
 
-    // Assert renders complete in reasonable time
+    // Assert evaluations complete in reasonable time
     // We'll be lenient here since this is diagnostic
     // Normal visual tests take 5-7 seconds, so 20 seconds is already concerning
     assert!(
-        render_duration.as_secs() < 20,
-        "Render took too long: {:?}",
-        render_duration
+        evaluate_duration.as_secs() < 20,
+        "Evaluate took too long: {:?}",
+        evaluate_duration
     );
 }
