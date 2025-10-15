@@ -513,8 +513,8 @@ let ctx = SessionContext::new();
 # ]).expect("create batch");
 # let df = ctx.read_batch(batch).expect("read batch");
 #
-let height = Param::new("height", ScalarValue::Float32(Some(250.0)));
-let show_grid = Param::new("show_grid", ScalarValue::Boolean(Some(true)));
+let height = Param::new("height", ScalarValue::from(250.0));
+let show_grid = Param::new("show_grid", ScalarValue::from(true));
 
 let plot = Plot::<Cartesian>::new()
     .add_param(height.clone())
@@ -536,8 +536,8 @@ let default = compiled.render(&ctx, None).await.expect("render default");
 
 // Render with overrides (height=400, grid=false)
 let mut overrides = IndexMap::new();
-overrides.insert("height".into(), ScalarValue::Float32(Some(400.0)));
-overrides.insert("show_grid".into(), ScalarValue::Boolean(Some(false)));
+overrides.insert("height".into(), ScalarValue::from(400.0));
+overrides.insert("show_grid".into(), ScalarValue::from(false));
 let override_render = compiled.render(&ctx, Some(overrides)).await.expect("render override");
 
 (default, override_render)
@@ -566,7 +566,7 @@ let ctx = SessionContext::new();
 # ]).expect("create batch");
 # let df = ctx.read_batch(batch).expect("read batch");
 #
-let accent = Param::new("--accent", ScalarValue::Utf8(Some("#2563eb".into())));
+let accent = Param::new("--accent", ScalarValue::from("#2563eb"));
 
 let mut theme = Theme::light();
 theme.append_css(
@@ -593,7 +593,7 @@ let blue = compiled.render(&ctx, None).await.expect("render blue");
 
 // Render with different accent color (red)
 let mut params = IndexMap::new();
-params.insert("--accent".to_string(), ScalarValue::Utf8(Some("#dc2626".into())));
+params.insert("--accent".to_string(), ScalarValue::from("#dc2626"));
 let red = compiled.render(&ctx, Some(params)).await.expect("render red");
 
 (blue, red)
