@@ -43,7 +43,7 @@ impl LegendRenderer for CompiledRectLegend {
         "CompiledRectLegend"
     }
 
-    fn can_render(&self, channels: &[LegendChannel]) -> bool {
+    fn can_evaluate(&self, channels: &[LegendChannel]) -> bool {
         // Can render discrete scales and certain continuous scales
         channels.iter().all(|c| {
             matches!(
@@ -59,7 +59,7 @@ impl LegendRenderer for CompiledRectLegend {
             .collect()
     }
 
-    async fn render(
+    async fn evaluate(
         &self,
         channels: &[LegendChannel],
         config: &Legend,

@@ -64,7 +64,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         "CompiledSymbolLegend"
     }
 
-    fn can_render(&self, channels: &[LegendChannel]) -> bool {
+    fn can_evaluate(&self, channels: &[LegendChannel]) -> bool {
         use avenger_scales::scales::RangeKind;
 
         // Symbol legends work with any scale that has discrete outputs
@@ -88,7 +88,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         .collect()
     }
 
-    async fn render(
+    async fn evaluate(
         &self,
         channels: &[LegendChannel],
         config: &Legend,

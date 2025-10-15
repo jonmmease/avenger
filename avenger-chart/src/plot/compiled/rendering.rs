@@ -290,8 +290,8 @@ impl CompiledPlot {
         }
     }
 
-    /// Render a single mark with its data and transformations
-    async fn render_mark(
+    /// Evaluate a single mark with its data and transformations
+    async fn evaluate_mark(
         &self,
         mark: &dyn CompiledMark,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -496,8 +496,8 @@ impl CompiledPlot {
         // Clone the coordinate transform
         let coord_transform = self.coord_transform.clone_box();
 
-        // Render the mark with data
-        mark.render_from_data(
+        // Evaluate the mark with data
+        mark.evaluate_from_data(
             data_batch.as_ref(),
             &scalar_batch,
             &context,
@@ -524,7 +524,7 @@ impl CompiledPlot {
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
             compiled_guide
-                .render(
+                .evaluate(
                     &configured_scales,
                     plot_width,
                     plot_height,
@@ -689,10 +689,10 @@ impl CompiledPlot {
                 // Skip this legend group if no renderer is available or if not visible
                 if visible {
                     if let Some(renderer) = renderer_opt {
-                        // Render the legend with the determined renderer
+                        // Evaluate the legend with the determined renderer
                         let theme = self.get_theme();
                         let group_opt = renderer
-                            .render(
+                            .evaluate(
                                 &channels,
                                 legend,
                                 bounds.x,
@@ -717,8 +717,8 @@ impl CompiledPlot {
         Ok(legend_marks)
     }
 
-    /// Render all components (marks, axes, legends, titles)
-    async fn render_all_components(
+    /// Evaluate all components (marks, axes, legends, titles)
+    async fn evaluate_all_components(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         layout: &crate::render::LayoutSolution,
@@ -742,7 +742,7 @@ impl CompiledPlot {
         let mut mark_groups = Vec::new();
         for mark in &self.marks {
             let scene_marks = self
-                .render_mark(
+                .evaluate_mark(
                     mark.as_ref(),
                     scales,
                     plot_area_width,
@@ -795,12 +795,12 @@ impl CompiledPlot {
         ))
     }
 
-    /// Render the plot to a scene graph
-    pub async fn render(
+    /// Evaluate the plot to a scene graph
+    pub async fn evaluate(
         &self,
         ctx: &SessionContext,
         params: Option<IndexMap<String, datafusion::common::ScalarValue>>,
-    ) -> Result<crate::render::RenderResult, AvengerChartError> {
+    ) -> Result<crate::render::EvaluatedPlot, AvengerChartError> {
         use crate::render::RenderContext;
         use avenger_scenegraph::marks::group::SceneGroup;
         use avenger_scenegraph::scene_graph::SceneGraph;
@@ -926,9 +926,9 @@ impl CompiledPlot {
             )
             .await?;
 
-        // STAGE 4: RENDER ALL COMPONENTS WITH FINAL SCALES
+        // STAGE 4: EVALUATE ALL COMPONENTS WITH FINAL SCALES
         let all_component_marks = self
-            .render_all_components(&final_configured_scales, &layout, ctx, &merged_params)
+            .evaluate_all_components(&final_configured_scales, &layout, ctx, &merged_params)
             .await?;
 
         let (mark_groups, guide_marks, legend_marks, title_marks, subtitle_marks) =
@@ -1030,7 +1030,7 @@ impl CompiledPlot {
         // Build spatial index for hit testing
         let rtree = avenger_geometry::rtree::SceneGraphRTree::from_scene_graph(&scene_graph);
 
-        Ok(crate::render::RenderResult {
+        Ok(crate::render::EvaluatedPlot {
             scene_graph,
             rtree: Some(rtree),
         })

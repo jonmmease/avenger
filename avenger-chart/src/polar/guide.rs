@@ -168,9 +168,9 @@ impl CompiledGuide for PolarGuide {
             height: plot_height,
         };
 
-        // Render axes to measure their bounding box with actual params
+        // Evaluate axes to measure their bounding box with actual params
         let axis_marks = self
-            .render(
+            .evaluate(
                 scales,
                 plot_width,
                 plot_height,
@@ -229,7 +229,7 @@ impl CompiledGuide for PolarGuide {
         })
     }
 
-    async fn render(
+    async fn evaluate(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
@@ -341,7 +341,7 @@ impl CompiledGuide for PolarGuide {
         for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
                 let axis_marks = axis
-                    .render(
+                    .evaluate(
                         channel,
                         scale,
                         scales,

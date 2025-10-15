@@ -33,8 +33,8 @@ impl LayoutSolution {
     }
 }
 
-/// Result of rendering a plot to scene graph components
-pub struct RenderResult {
+/// Result of evaluating a plot to scene graph components
+pub struct EvaluatedPlot {
     /// The complete scene graph ready for rendering
     pub scene_graph: SceneGraph,
     /// Spatial index for efficient hit testing

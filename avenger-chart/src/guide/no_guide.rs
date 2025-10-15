@@ -58,7 +58,7 @@ impl CompiledGuide for NoGuide {
         Ok(OverflowSpaceRequirement::default())
     }
 
-    async fn render(
+    async fn evaluate(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,

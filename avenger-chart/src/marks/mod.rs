@@ -114,8 +114,8 @@ pub trait CompiledMark {
     /// * `coord` - Coordinate system for position transformations
     ///
     /// # Returns
-    /// A vector of scene marks ready for rendering
-    fn render_from_data(
+    /// A vector of scene marks ready for evaluation
+    fn evaluate_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,

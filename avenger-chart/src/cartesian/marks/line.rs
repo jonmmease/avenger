@@ -126,7 +126,7 @@ impl CompiledMark for CompiledCartesianLine {
         true
     }
 
-    fn render_from_data(
+    fn evaluate_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,

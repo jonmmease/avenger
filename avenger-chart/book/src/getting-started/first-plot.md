@@ -107,7 +107,7 @@ let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")));
 let compiled = plot.compile(&ctx).await?;
-let _render = compiled.render(&ctx, None).await?;
+let _evaluated = compiled.evaluate(&ctx, None).await?;
 # Ok(())
 # }
 ```
@@ -165,7 +165,7 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 # let compiled = plot.compile(&ctx).await?;
-# let _render = compiled.render(&ctx, None).await?;
+# let _evaluated = compiled.evaluate(&ctx, None).await?;
 # Ok(())
 # }
 ```

@@ -55,19 +55,19 @@ impl WgpuRenderer {
         ctx: &SessionContext,
         params: Option<IndexMap<String, ScalarValue>>,
     ) -> Result<RgbaImage, AvengerChartError> {
-        let render_result = compiled.render(ctx, params).await?;
+        let evaluated_plot = compiled.evaluate(ctx, params).await?;
 
         let dimensions = CanvasDimensions {
             size: [
-                render_result.scene_graph.width,
-                render_result.scene_graph.height,
+                evaluated_plot.scene_graph.width,
+                evaluated_plot.scene_graph.height,
             ],
             scale: self.scale,
         };
 
         let mut canvas = PngCanvas::new(dimensions, self.canvas_config.clone()).await?;
         canvas
-            .set_scene(&render_result.scene_graph)
+            .set_scene(&evaluated_plot.scene_graph)
             .map_err(|err| AvengerChartError::InternalError(err.to_string()))?;
 
         let image = canvas.render().await?;

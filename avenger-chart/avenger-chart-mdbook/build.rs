@@ -50,7 +50,7 @@ struct RenderBlock {
     slug: String,
     fn_ident: String,
     code: String,
-    image_count: usize, // 1 for single Plot, N for tuple of N RenderResults
+    image_count: usize, // 1 for single Plot, N for tuple of N EvaluatedPlots
 }
 
 fn collect_markdown(
@@ -197,9 +197,9 @@ fn is_render_fence(info: &str) -> bool {
     saw_rust && saw_render
 }
 
-/// Process render code block and detect if it returns a tuple of RenderResults.
+/// Process render code block and detect if it returns a tuple of EvaluatedPlots.
 /// Returns (processed_code, image_count) where image_count is 1 for single Plot
-/// or N for tuple of N RenderResults.
+/// or N for tuple of N EvaluatedPlots.
 fn process_render_code(code: &str) -> (String, usize) {
     let body = code.trim_end();
 
@@ -261,7 +261,7 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
     writeln!(file, "use tokio::runtime::Runtime;")?;
     writeln!(
         file,
-        "use avenger_chart::doc::render::{{render_plot_to_png, render_result_to_png}};"
+        "use avenger_chart::doc::render::{{render_plot_to_png, render_evaluated_plot_to_png}};"
     )?;
     writeln!(
         file,
@@ -312,7 +312,7 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
                 "        render_plot_to_png(&ctx, plot, output_path).await"
             )?;
         } else {
-            // Tuple of RenderResults - new behavior (ctx not needed)
+            // Tuple of EvaluatedPlots - new behavior (ctx not needed)
             writeln!(file, "        let results = {{")?;
             for line in snippet.code.lines() {
                 let normalized = normalize_hidden_line(line);
@@ -343,7 +343,7 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
                 )?;
                 writeln!(
                     file,
-                    "        render_result_to_png(tuple.{}, &img_path_{}).await?;",
+                    "        render_evaluated_plot_to_png(tuple.{}, &img_path_{}).await?;",
                     i, i
                 )?;
             }

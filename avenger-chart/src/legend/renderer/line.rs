@@ -123,7 +123,7 @@ impl LegendRenderer for CompiledLineLegend {
         "CompiledLineLegend"
     }
 
-    fn can_render(&self, channels: &[LegendChannel]) -> bool {
+    fn can_evaluate(&self, channels: &[LegendChannel]) -> bool {
         // Line legend is for line marks with stroke properties
         channels.iter().any(|c| c.mark_type == "line")
             && channels.iter().all(|c| {
@@ -140,7 +140,7 @@ impl LegendRenderer for CompiledLineLegend {
             .collect()
     }
 
-    async fn render(
+    async fn evaluate(
         &self,
         channels: &[LegendChannel],
         config: &Legend,

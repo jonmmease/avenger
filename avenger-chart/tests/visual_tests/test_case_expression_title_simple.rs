@@ -79,39 +79,39 @@ async fn test_case_expression_title_no_media_query() {
     let mut params_small = IndexMap::new();
     params_small.insert("width".to_string(), ScalarValue::Float32(Some(400.0)));
 
-    let render_start = std::time::Instant::now();
+    let evaluate_start = std::time::Instant::now();
     let _result = compiled
-        .render(&ctx, Some(params_small))
+        .evaluate(&ctx, Some(params_small))
         .await
-        .expect("Failed to render");
-    let render_duration = render_start.elapsed();
-    eprintln!("Render (400px) took: {:?}", render_duration);
+        .expect("Failed to evaluate");
+    let evaluate_duration = evaluate_start.elapsed();
+    eprintln!("Evaluate (400px) took: {:?}", evaluate_duration);
 
     // Render with different param (medium width)
     eprintln!("\nRendering with width=800...");
     let mut params_medium = IndexMap::new();
     params_medium.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
 
-    let render_start = std::time::Instant::now();
+    let evaluate_start = std::time::Instant::now();
     let _result = compiled
-        .render(&ctx, Some(params_medium))
+        .evaluate(&ctx, Some(params_medium))
         .await
-        .expect("Failed to render");
-    let render_duration = render_start.elapsed();
-    eprintln!("Render (800px) took: {:?}", render_duration);
+        .expect("Failed to evaluate");
+    let evaluate_duration = evaluate_start.elapsed();
+    eprintln!("Evaluate (800px) took: {:?}", evaluate_duration);
 
     // Render with different param (large width)
     eprintln!("\nRendering with width=1400...");
     let mut params_large = IndexMap::new();
     params_large.insert("width".to_string(), ScalarValue::Float32(Some(1400.0)));
 
-    let render_start = std::time::Instant::now();
+    let evaluate_start = std::time::Instant::now();
     let _result = compiled
-        .render(&ctx, Some(params_large))
+        .evaluate(&ctx, Some(params_large))
         .await
-        .expect("Failed to render");
-    let render_duration = render_start.elapsed();
-    eprintln!("Render (1400px) took: {:?}", render_duration);
+        .expect("Failed to evaluate");
+    let evaluate_duration = evaluate_start.elapsed();
+    eprintln!("Evaluate (1400px) took: {:?}", evaluate_duration);
 
     eprintln!("\n=== TEST COMPLETE ===");
     eprintln!("If each render took < 10 seconds: Media queries are the bottleneck");
