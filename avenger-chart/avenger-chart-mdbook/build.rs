@@ -285,6 +285,7 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
     )?;
 
     for snippet in snippets {
+        writeln!(file, "#[allow(unused_imports)]")?;
         writeln!(
             file,
             "fn {}(output: &Path) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {{",
@@ -292,10 +293,10 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
         )?;
         writeln!(file, "    let runtime = Runtime::new()?;")?;
         writeln!(file, "    runtime.block_on(async {{")?;
-        writeln!(file, "        let ctx = SessionContext::new();")?;
 
         if snippet.image_count == 1 {
             // Single Plot - original behavior
+            writeln!(file, "        let ctx = SessionContext::new();")?;
             writeln!(file, "        let plot = {{")?;
             for line in snippet.code.lines() {
                 let normalized = normalize_hidden_line(line);
@@ -311,7 +312,7 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
                 "        render_plot_to_png(&ctx, plot, output_path).await"
             )?;
         } else {
-            // Tuple of RenderResults - new behavior
+            // Tuple of RenderResults - new behavior (ctx not needed)
             writeln!(file, "        let results = {{")?;
             for line in snippet.code.lines() {
                 let normalized = normalize_hidden_line(line);
