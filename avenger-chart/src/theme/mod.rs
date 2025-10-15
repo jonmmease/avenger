@@ -242,6 +242,7 @@
 pub mod calc;
 mod color_component;
 mod context;
+pub mod eval;
 mod value;
 
 // CSS-based theme implementation modules
