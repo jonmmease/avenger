@@ -210,8 +210,8 @@ impl PolarAxis {
         self
     }
 
-    /// Render this axis to scene marks
-    pub async fn render(
+    /// Evaluate this axis to scene marks
+    pub async fn evaluate(
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
@@ -263,15 +263,15 @@ impl PolarAxis {
 
         match axis_type {
             PolarAxisType::Radial => {
-                // Render radial axis (circles from center)
-                self.render_radial_axis(
+                // Evaluate radial axis (circles from center)
+                self.evaluate_radial_axis(
                     scale, center_x, center_y, radius, theme, &axis_ctx, params, ctx,
                 )
                 .await
             }
             PolarAxisType::Angular => {
-                // Render angular axis (lines from center)
-                self.render_angular_axis(
+                // Evaluate angular axis (lines from center)
+                self.evaluate_angular_axis(
                     scale, center_x, center_y, radius, scales, theme, &axis_ctx, params, ctx,
                 )
                 .await
@@ -279,7 +279,7 @@ impl PolarAxis {
         }
     }
 
-    async fn render_radial_axis(
+    async fn evaluate_radial_axis(
         &self,
         scale: &avenger_scales::scales::ConfiguredScale,
         center_x: f32,
@@ -531,7 +531,7 @@ impl PolarAxis {
         Ok(marks)
     }
 
-    async fn render_angular_axis(
+    async fn evaluate_angular_axis(
         &self,
         scale: &avenger_scales::scales::ConfiguredScale,
         center_x: f32,

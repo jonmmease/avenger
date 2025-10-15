@@ -456,13 +456,13 @@ let plot = Plot::<Cartesian>::new()
 let compiled = plot.compile(&ctx).await?;
 
 // Step 3: Render with default parameters
-let result1 = compiled.render(&ctx, None).await?;
+let result1 = compiled.evaluate(&ctx, None).await?;
 
 // Step 4: Render again with overridden parameters
 let mut custom_params = IndexMap::new();
 custom_params.insert("--primary-color".to_string(), ScalarValue::from("#FF5733"));
 custom_params.insert("--base-font-size".to_string(), ScalarValue::from("14px"));
-let result2 = compiled.render(&ctx, Some(custom_params)).await?;
+let result2 = compiled.evaluate(&ctx, Some(custom_params)).await?;
 # Ok(())
 # }
 ```

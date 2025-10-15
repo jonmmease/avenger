@@ -5,7 +5,7 @@ use crate::coords::CoordinateSystem;
 use crate::plot::CompiledPlot;
 use crate::prelude::*;
 use crate::render::WgpuRenderer;
-use crate::render::types::RenderResult;
+use crate::render::types::EvaluatedPlot;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
 
@@ -32,18 +32,18 @@ pub async fn render_compiled_plot_to_png(
         .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync + 'static>)
 }
 
-/// Render a RenderResult directly to PNG, writing to the provided path.
+/// Render an EvaluatedPlot directly to PNG, writing to the provided path.
 ///
 /// This is useful for rendering multiple parameter variations from a single compiled plot:
 /// ```ignore
 /// let compiled = plot.compile(&ctx).await?;
-/// let result1 = compiled.render(&ctx, None).await?;
-/// let result2 = compiled.render(&ctx, Some(params)).await?;
-/// render_result_to_png(&result1, "output1.png").await?;
-/// render_result_to_png(&result2, "output2.png").await?;
+/// let result1 = compiled.evaluate(&ctx, None).await?;
+/// let result2 = compiled.evaluate(&ctx, Some(params)).await?;
+/// render_evaluated_plot_to_png(&result1, "output1.png").await?;
+/// render_evaluated_plot_to_png(&result2, "output2.png").await?;
 /// ```
-pub async fn render_result_to_png(
-    result: &RenderResult,
+pub async fn render_evaluated_plot_to_png(
+    result: &EvaluatedPlot,
     output: impl AsRef<Path>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let dimensions = CanvasDimensions {

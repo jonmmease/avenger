@@ -28,7 +28,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
     }
 
     /// Check if this renderer can handle the given channels
-    fn can_render(&self, channels: &[LegendChannel]) -> bool;
+    fn can_evaluate(&self, channels: &[LegendChannel]) -> bool;
 
     /// Check if this renderer supports merging these specific channels
     /// Only called when channels have matching MergeKeys (same expression, same domain)
@@ -59,8 +59,8 @@ pub trait LegendRenderer: Send + Sync + 'static {
         false // Default: fixed size
     }
 
-    /// Render the legend to scene marks
-    async fn render(
+    /// Evaluate the legend to scene marks
+    async fn evaluate(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
@@ -89,7 +89,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
         use taffy::Size;
 
         if let Some(group) = self
-            .render(
+            .evaluate(
                 channels,
                 config,
                 0.0,

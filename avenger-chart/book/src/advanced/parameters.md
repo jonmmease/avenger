@@ -64,18 +64,18 @@ let plot = Plot::<Cartesian>::new()
 // Compile once
 let compiled = plot.compile(&ctx).await.expect("compile plot");
 
-// Render with default threshold (40.0)
-let default = compiled.render(&ctx, None).await.expect("render default");
+// Evaluate with default threshold (40.0)
+let default = compiled.evaluate(&ctx, None).await.expect("evaluate default");
 
 // Render with threshold=60.0
 let mut params_60 = IndexMap::new();
 params_60.insert("threshold".to_string(), ScalarValue::from(60.0));
-let mid = compiled.render(&ctx, Some(params_60)).await.expect("render mid");
+let mid = compiled.evaluate(&ctx, Some(params_60)).await.expect("render mid");
 
 // Render with threshold=80.0
 let mut params_80 = IndexMap::new();
 params_80.insert("threshold".to_string(), ScalarValue::from(80.0));
-let high = compiled.render(&ctx, Some(params_80)).await.expect("render high");
+let high = compiled.evaluate(&ctx, Some(params_80)).await.expect("render high");
 
 (default, mid, high)
 ```
@@ -152,12 +152,12 @@ let plot = Plot::<Cartesian>::new()
 let compiled = plot.compile(&ctx).await.expect("compile");
 
 // Render with threshold=45.0 (5 above, 3 below)
-let threshold_45 = compiled.render(&ctx, None).await.expect("render 45");
+let threshold_45 = compiled.evaluate(&ctx, None).await.expect("render 45");
 
 // Render with threshold=65.0 (3 above, 5 below)
 let mut params_65 = IndexMap::new();
 params_65.insert("threshold".to_string(), ScalarValue::from(65.0));
-let threshold_65 = compiled.render(&ctx, Some(params_65)).await.expect("render 65");
+let threshold_65 = compiled.evaluate(&ctx, Some(params_65)).await.expect("render 65");
 
 (threshold_45, threshold_65)
 ```
@@ -197,12 +197,12 @@ let plot = Plot::<Cartesian>::new()
 let compiled = plot.compile(&ctx).await.expect("compile");
 
 // Render with no offset
-let no_offset = compiled.render(&ctx, None).await.expect("render no offset");
+let no_offset = compiled.evaluate(&ctx, None).await.expect("render no offset");
 
 // Render with offset of 0.5
 let mut params = IndexMap::new();
 params.insert("offset".to_string(), ScalarValue::from(0.5));
-let with_offset = compiled.render(&ctx, Some(params)).await.expect("render with offset");
+let with_offset = compiled.evaluate(&ctx, Some(params)).await.expect("render with offset");
 
 (no_offset, with_offset)
 ```
@@ -251,12 +251,12 @@ let compiled = Plot::<Cartesian>::new()
     .expect("compile");
 
 // Render with default parameter value (50.0) - shows 7 points
-let render1 = compiled.render(&ctx, None).await.expect("render default");
+let render1 = compiled.evaluate(&ctx, None).await.expect("render default");
 
 // Render with overridden parameter value (65.0) - shows 4 points
 let mut params = IndexMap::new();
 params.insert("threshold".to_string(), ScalarValue::from(65.0));
-let render2 = compiled.render(&ctx, Some(params)).await.expect("render override");
+let render2 = compiled.evaluate(&ctx, Some(params)).await.expect("render override");
 
 (render1, render2)
 ```
@@ -316,13 +316,13 @@ let plot = Plot::<Cartesian>::new()
 let compiled = plot.compile(&ctx).await.expect("compile");
 
 // Render with defaults (threshold=50, highlight="A")
-let render1 = compiled.render(&ctx, None).await.expect("render defaults");
+let render1 = compiled.evaluate(&ctx, None).await.expect("render defaults");
 
 // Render with different parameters (threshold=60, highlight="B")
 let mut params = IndexMap::new();
 params.insert("threshold".to_string(), ScalarValue::from(60.0));
 params.insert("highlight".to_string(), ScalarValue::from("B"));
-let render2 = compiled.render(&ctx, Some(params)).await.expect("render override");
+let render2 = compiled.evaluate(&ctx, Some(params)).await.expect("render override");
 
 (render1, render2)
 ```
@@ -369,18 +369,18 @@ let plot = Plot::<Cartesian>::new()
 let compiled = plot.compile(&ctx).await.expect("compile");
 
 // Original (scale=1.0, offset=0.0)
-let original = compiled.render(&ctx, None).await.expect("render original");
+let original = compiled.evaluate(&ctx, None).await.expect("render original");
 
 // Scaled (scale=2.0, offset=0.0)
 let mut params_scaled = IndexMap::new();
 params_scaled.insert("scale".to_string(), ScalarValue::from(2.0));
-let scaled = compiled.render(&ctx, Some(params_scaled)).await.expect("render scaled");
+let scaled = compiled.evaluate(&ctx, Some(params_scaled)).await.expect("render scaled");
 
 // Scaled and offset (scale=2.0, offset=1.0)
 let mut params_both = IndexMap::new();
 params_both.insert("scale".to_string(), ScalarValue::from(2.0));
 params_both.insert("offset".to_string(), ScalarValue::from(1.0));
-let both = compiled.render(&ctx, Some(params_both)).await.expect("render both");
+let both = compiled.evaluate(&ctx, Some(params_both)).await.expect("render both");
 
 (original, scaled, both)
 ```
@@ -475,12 +475,12 @@ let plot = Plot::<Cartesian>::new()
 let compiled = plot.compile(&ctx).await.expect("compile");
 
 // Render with default threshold (150.0)
-let default = compiled.render(&ctx, None).await.expect("render default");
+let default = compiled.evaluate(&ctx, None).await.expect("render default");
 
 // Render with threshold=100.0
 let mut params_100 = IndexMap::new();
 params_100.insert("price_threshold".to_string(), ScalarValue::from(100.0));
-let low = compiled.render(&ctx, Some(params_100)).await.expect("render low");
+let low = compiled.evaluate(&ctx, Some(params_100)).await.expect("render low");
 
 (default, low)
 ```
@@ -532,13 +532,13 @@ let plot = Plot::<Cartesian>::new()
 let compiled = plot.compile(&ctx).await.expect("compile");
 
 // Render with defaults (height=250, grid=true)
-let default = compiled.render(&ctx, None).await.expect("render default");
+let default = compiled.evaluate(&ctx, None).await.expect("render default");
 
 // Render with overrides (height=400, grid=false)
 let mut overrides = IndexMap::new();
 overrides.insert("height".into(), ScalarValue::from(400.0));
 overrides.insert("show_grid".into(), ScalarValue::from(false));
-let override_render = compiled.render(&ctx, Some(overrides)).await.expect("render override");
+let override_render = compiled.evaluate(&ctx, Some(overrides)).await.expect("render override");
 
 (default, override_render)
 ```
@@ -589,12 +589,12 @@ let plot = Plot::<Cartesian>::new()
 let compiled = plot.compile(&ctx).await.expect("compile");
 
 // Render with default accent color (blue)
-let blue = compiled.render(&ctx, None).await.expect("render blue");
+let blue = compiled.evaluate(&ctx, None).await.expect("render blue");
 
 // Render with different accent color (red)
 let mut params = IndexMap::new();
 params.insert("--accent".to_string(), ScalarValue::from("#dc2626"));
-let red = compiled.render(&ctx, Some(params)).await.expect("render red");
+let red = compiled.evaluate(&ctx, Some(params)).await.expect("render red");
 
 (blue, red)
 ```

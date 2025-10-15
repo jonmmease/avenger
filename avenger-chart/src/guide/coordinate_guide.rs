@@ -51,8 +51,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
-    /// Render this guide to scene marks
-    async fn render(
+    /// Evaluate this guide to scene marks
+    async fn evaluate(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,

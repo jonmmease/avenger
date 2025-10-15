@@ -160,8 +160,8 @@ impl CartesianAxis {
         self
     }
 
-    /// Render this axis to scene marks
-    pub async fn render(
+    /// Evaluate this axis to scene marks
+    pub async fn evaluate(
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,

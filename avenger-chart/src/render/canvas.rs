@@ -26,11 +26,11 @@ impl CanvasExt for PngCanvas {
         ctx: &SessionContext,
         params: Option<IndexMap<String, datafusion::common::ScalarValue>>,
     ) -> Result<(), AvengerChartError> {
-        // Render to scene graph using the provided SessionContext and parameters
-        let render_result = plot.render(ctx, params).await?;
+        // Evaluate to scene graph using the provided SessionContext and parameters
+        let evaluated_plot = plot.evaluate(ctx, params).await?;
 
         // Pass scene graph to canvas for rendering
-        self.set_scene(&render_result.scene_graph)
+        self.set_scene(&evaluated_plot.scene_graph)
             .map_err(|e| AvengerChartError::InternalError(e.to_string()))?;
 
         // Render to the canvas

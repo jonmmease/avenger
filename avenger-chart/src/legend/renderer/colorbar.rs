@@ -35,7 +35,7 @@ impl LegendRenderer for CompiledColorbar {
         true // Colorbars can stretch vertically
     }
 
-    fn can_render(&self, channels: &[LegendChannel]) -> bool {
+    fn can_evaluate(&self, channels: &[LegendChannel]) -> bool {
         use avenger_scales::scales::{DomainKind, RangeKind};
 
         // Colorbar is for continuous color scales with numeric/temporal domains
@@ -49,7 +49,7 @@ impl LegendRenderer for CompiledColorbar {
         })
     }
 
-    async fn render(
+    async fn evaluate(
         &self,
         channels: &[LegendChannel],
         config: &Legend,

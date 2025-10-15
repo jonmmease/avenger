@@ -33,18 +33,18 @@ async fn test_serialization_rendering_path() {
     // Full serialization support is still in development.
     let _deserialized: avenger_chart::plot::CompiledPlot = serde_json::from_str(&json).unwrap();
 
-    // Render from the original built plot (not the deserialized one)
+    // Evaluate from the original built plot (not the deserialized one)
     // to ensure consistent results for the visual test
-    let render_result = compiled
-        .render(&ctx, None)
+    let evaluated_plot = compiled
+        .evaluate(&ctx, None)
         .await
-        .expect("Failed to render plot");
+        .expect("Failed to evaluate plot");
 
     // Create canvas and render
     let dimensions = CanvasDimensions {
         size: [
-            render_result.scene_graph.width,
-            render_result.scene_graph.height,
+            evaluated_plot.scene_graph.width,
+            evaluated_plot.scene_graph.height,
         ],
         scale: 2.0,
     };
@@ -53,7 +53,7 @@ async fn test_serialization_rendering_path() {
         .expect("Failed to create canvas");
 
     canvas
-        .set_scene(&render_result.scene_graph)
+        .set_scene(&evaluated_plot.scene_graph)
         .expect("Failed to set scene");
 
     let img = canvas.render().await.expect("Failed to render image");

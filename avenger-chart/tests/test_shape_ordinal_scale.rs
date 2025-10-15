@@ -52,18 +52,18 @@ mod tests {
 
         // Test rendering
         let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        let result = compiled.render(&ctx, None).await;
+        let result = compiled.evaluate(&ctx, None).await;
         match &result {
-            Ok(_) => println!("Render succeeded with automatic ordinal scale"),
-            Err(e) => println!("Render failed with error: {:?}", e),
+            Ok(_) => println!("Evaluate succeeded with automatic ordinal scale"),
+            Err(e) => println!("Evaluate failed with error: {:?}", e),
         }
         assert!(
             result.is_ok(),
             "Render should succeed with automatic ordinal scale"
         );
 
-        let render_result = result.unwrap();
-        let marks = &render_result.scene_graph.marks;
+        let evaluated_plot = result.unwrap();
+        let marks = &evaluated_plot.scene_graph.marks;
 
         // Find symbol mark within groups
         fn find_symbol_mark(
@@ -145,14 +145,14 @@ mod tests {
 
         // Test rendering
         let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-        let result = compiled.render(&ctx, None).await;
+        let result = compiled.evaluate(&ctx, None).await;
         assert!(
             result.is_ok(),
-            "Render should succeed with custom enumeration"
+            "Evaluate should succeed with custom enumeration"
         );
 
-        let render_result = result.unwrap();
-        let marks = &render_result.scene_graph.marks;
+        let evaluated_plot = result.unwrap();
+        let marks = &evaluated_plot.scene_graph.marks;
 
         // Find symbol mark
         fn find_symbol_mark(
