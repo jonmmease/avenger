@@ -29,9 +29,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -45,9 +45,9 @@ let plot = Plot::<Cartesian>::new()
             .shape("square")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Key channels:
@@ -84,9 +84,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -99,9 +99,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(3.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Useful channels:
@@ -136,9 +136,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -154,9 +154,9 @@ let plot = Plot::<Cartesian>::new()
             .corner_radius(3.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Rectangles expose four position channels (`x`, `x2`, `y`, `y2`) and support `fill`, `stroke`, `stroke_width`, `opacity`, and `corner_radius`.
@@ -186,9 +186,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -208,9 +208,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#38bdf8")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 `Plot` merges scale and legend configuration across marks that use the same channel names, so both layers share the same axes and color legend.
@@ -240,9 +240,9 @@ let points_batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create points batch");
+?;
 
-let points = ctx.read_batch(points_batch).expect("read points");
+let points = ctx.read_batch(points_batch)?;
 
 // Create trend line data
 let trend_batch = RecordBatch::try_from_iter(vec![
@@ -257,9 +257,9 @@ let trend_batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create trend batch");
+?;
 
-let trend = ctx.read_batch(trend_batch).expect("read trend");
+let trend = ctx.read_batch(trend_batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .mark(
@@ -279,9 +279,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(3.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This example shows scatter points with a separate trend line, each using different data sources.
@@ -290,12 +290,13 @@ This example shows scatter points with a separate trend line, each using differe
 
 Symbol marks support various shapes. Here's a visualization showing different available shapes:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+let ctx = SessionContext::new();
 // Create data for different shapes
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -313,10 +314,9 @@ let batch = RecordBatch::try_from_iter(vec![
         Arc::new(StringArray::from(vec!["circle", "square", "triangle-up", "star", "diamond", "cross"]))
             as datafusion::arrow::array::ArrayRef,
     ),
-])
-.expect("create batch");
+])?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -332,9 +332,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Additional Mark Options

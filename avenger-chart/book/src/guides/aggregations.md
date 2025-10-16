@@ -29,9 +29,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 // Use sum() in a channel - automatic aggregation by category!
 let plot = Plot::<Cartesian>::new()
@@ -45,9 +45,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#3498db")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 When you use `sum(col("sales"))` in the `y2` channel, Avenger Chart:
@@ -84,9 +84,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -99,9 +99,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#e74c3c")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Average (Mean)
@@ -129,9 +129,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -144,9 +144,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#2ecc71")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Count
@@ -169,9 +169,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -184,9 +184,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#9b59b6")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Multiple Aggregate Encodings
@@ -221,9 +221,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 // Height from sum(sales), color from avg(profit)
 let plot = Plot::<Cartesian>::new()
@@ -239,9 +239,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Both `sum(col("sales"))` and `avg(col("profit"))` are computed for each group defined by `category`.
@@ -295,9 +295,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 // Groups by BOTH region AND product
 let plot = Plot::<Cartesian>::new()
@@ -316,9 +316,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Full-Table Aggregation
@@ -342,9 +342,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 // Add constant column for x position
 let df = df.with_column("label", lit("Total")).unwrap();
@@ -361,9 +361,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#3498db")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Real-World Example: Movies Dataset
@@ -378,7 +378,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(movies_path, ParquetReadOptions::default())
     .await
-    .expect("load movies dataset");
+    ?;
 
 // Filter to non-null ratings
 let df = df
@@ -387,7 +387,7 @@ let df = df
             .is_not_null()
             .and(col("IMDB Rating").is_not_null())
     )
-    .expect("filter");
+    ?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -402,9 +402,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## How It Works
@@ -488,14 +488,14 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 // Manual aggregation with filtering
 let aggregated = df
     .filter(col("year").eq(lit(2023)))
-    .expect("filter by year")
+    ?
     .aggregate(
         vec![col("category")],
         vec![
@@ -504,9 +504,9 @@ let aggregated = df
             count(lit(1)).alias("count"),
         ]
     )
-    .expect("aggregate")
+    ?
     .filter(col("count").gt(lit(2)))
-    .expect("filter by count");
+    ?;
 
 let plot = Plot::<Cartesian>::new()
     .data(aggregated)
@@ -521,9 +521,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This approach gives you full control over:

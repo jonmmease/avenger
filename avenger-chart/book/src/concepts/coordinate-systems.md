@@ -27,9 +27,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -42,9 +42,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#3498db")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Position Channels
@@ -86,9 +86,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Polar>::new()
@@ -101,9 +101,9 @@ let plot = Plot::<Polar>::new()
             .fill("#e74c3c")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Position Channels
@@ -147,9 +147,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 // Same data, Cartesian coordinates
 let plot = Plot::<Cartesian>::new()
@@ -162,9 +162,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#9b59b6")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 The same `Symbol` mark can render in different coordinate systems by using system-specific position channels.
@@ -177,13 +177,14 @@ The coordinate system is enforced at compile time. You cannot use polar-specific
 
 Zero-dimensional coordinates collapse all positional channels so marks render at a single point. This is useful for KPI tiles, compact dashboards, or legend-style galleries where only the visual encodings matter:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use avenger_chart::zerod::ZeroDCoord;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+let ctx = SessionContext::new();
 // Revenue data by business unit
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -196,10 +197,9 @@ let batch = RecordBatch::try_from_iter(vec![
         Arc::new(Float64Array::from(vec![1200.0, 800.0, 1500.0, 950.0]))
             as datafusion::arrow::array::ArrayRef,
     ),
-])
-.expect("create batch");
+])?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<ZeroDCoord>::new()
@@ -219,9 +219,9 @@ let plot = Plot::<ZeroDCoord>::new()
             .stroke_width(2.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Even though everything renders at the centre of the plot, the mark still encodes data via size, color, shape, legends, and tooltips. This is perfect for dashboard KPIs or legend-style visualizations.

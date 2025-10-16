@@ -24,9 +24,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -36,9 +36,9 @@ let plot = Plot::<Cartesian>::new()
             .y(col("y"))
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This creates a simple line chart connecting points in data order.
@@ -67,9 +67,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -81,9 +81,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(3.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Dashed Lines
@@ -108,9 +108,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -123,9 +123,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_dash("dashed")  // Theme-defined dash pattern
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Line Interpolation
@@ -188,9 +188,9 @@ let batch = RecordBatch::try_from_iter(vec![
         ])) as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -205,9 +205,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(2.5)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This automatically creates separate lines for each value in the 'series' column.
@@ -236,9 +236,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df.clone())
@@ -257,9 +257,9 @@ let plot = Plot::<Cartesian>::new()
             .size(120.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Area Charts
@@ -368,9 +368,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -383,9 +383,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(2.5)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This creates three separate line segments where `defined` equals 1, with gaps at positions 3-4 and 8.
@@ -404,7 +404,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(stocks_path, ParquetReadOptions::default())
     .await
-    .expect("load stocks dataset");
+    ?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -425,9 +425,9 @@ let plot = Plot::<Cartesian>::new()
     )
     .title("Stock Prices Over Time");
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Next Steps

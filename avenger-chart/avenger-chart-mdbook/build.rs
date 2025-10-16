@@ -214,9 +214,9 @@ fn process_render_code(code: &str) -> (String, usize) {
         .find(|l| !l.is_empty() && !l.starts_with("//"))
         .unwrap_or("");
 
-    // Check if it's a tuple by looking for pattern like (result1, result2, ...)
-    // Simple heuristic: starts with '(' and contains at least one comma
-    if last_line.starts_with('(') && last_line.contains(',') {
+    // Check if it's a tuple by looking for pattern like Ok((result1, result2, ...))
+    // The line should start with Ok(( and contain commas
+    if last_line.starts_with("Ok((") && last_line.contains(',') {
         // Count commas to estimate tuple size (rough heuristic)
         let comma_count = last_line.matches(',').count();
         let image_count = comma_count + 1;
@@ -278,13 +278,13 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
         writeln!(file, "    runtime.block_on(async {{")?;
 
         if snippet.image_count == 1 {
-            // Single EvaluatedPlot
-            writeln!(file, "        let evaluated = {{")?;
+            // Single EvaluatedPlot - wrap user code in async closure to allow ?
+            writeln!(file, "        let evaluated = (async move || -> Result<_, Box<dyn Error + Send + Sync + 'static>> {{")?;
             for line in snippet.code.lines() {
                 let normalized = normalize_hidden_line(line);
                 writeln!(file, "            {}", normalized)?;
             }
-            writeln!(file, "        }};")?;
+            writeln!(file, "        }})().await?;")?;
             writeln!(
                 file,
                 "        let output_path = output.with_extension(\"png\");"
@@ -294,13 +294,13 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
                 "        render_evaluated_plot_to_png(&evaluated, output_path).await"
             )?;
         } else {
-            // Tuple of EvaluatedPlots
-            writeln!(file, "        let results = {{")?;
+            // Tuple of EvaluatedPlots - wrap user code in async closure to allow ?
+            writeln!(file, "        let results = (async move || -> Result<_, Box<dyn Error + Send + Sync + 'static>> {{")?;
             for line in snippet.code.lines() {
                 let normalized = normalize_hidden_line(line);
                 writeln!(file, "            {}", normalized)?;
             }
-            writeln!(file, "        }};")?;
+            writeln!(file, "        }})().await?;")?;
             writeln!(file)?;
             writeln!(file, "        // Unpack tuple and render each result")?;
             writeln!(file, "        let tuple = (")?;
