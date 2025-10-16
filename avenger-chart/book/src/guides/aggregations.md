@@ -6,7 +6,7 @@ Aggregations summarize data by grouping and computing statistics. Avenger Chart 
 
 Use aggregate functions like `sum()`, `avg()`, or `count()` directly in channel expressions. Avenger Chart automatically groups by non-aggregated columns:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -14,6 +14,8 @@ use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create data with multiple rows per category
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -32,7 +34,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch).expect("read batch");
 
 // Use sum() in a channel - automatic aggregation by category!
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -41,7 +43,11 @@ Plot::<Cartesian>::new()
             .y(lit(0.0))
             .y2(sum(col("sales")))               // Aggregated: SUM
             .fill("#3498db")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 When you use `sum(col("sales"))` in the `y2` channel, Avenger Chart:
@@ -57,13 +63,15 @@ This is equivalent to SQL: `SELECT category, SUM(sales) FROM data GROUP BY categ
 
 Total values per group:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_aggregate::expr_fn::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "region",
@@ -80,7 +88,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -89,20 +97,26 @@ Plot::<Cartesian>::new()
             .y(lit(0.0))
             .y2(sum(col("revenue")))
             .fill("#e74c3c")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Average (Mean)
 
 Compute averages per group:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_aggregate::average::avg;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "country",
@@ -119,7 +133,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -128,20 +142,26 @@ Plot::<Cartesian>::new()
             .y(lit(0.0))
             .y2(avg(col("temperature")))
             .fill("#2ecc71")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Count
 
 Count rows per group:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::StringArray;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_aggregate::expr_fn::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "status",
@@ -153,7 +173,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -162,14 +182,18 @@ Plot::<Cartesian>::new()
             .y(lit(0.0))
             .y2(count(col("status")))
             .fill("#9b59b6")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Multiple Aggregate Encodings
 
 Use different aggregate functions in different channels:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -177,6 +201,8 @@ use datafusion::functions_aggregate::average::avg;
 use datafusion::functions_aggregate::expr_fn::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Multiple values per category
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -200,7 +226,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch).expect("read batch");
 
 // Height from sum(sales), color from avg(profit)
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -211,7 +237,11 @@ Plot::<Cartesian>::new()
             .fill_with(avg(col("profit")), |c| {  // AVG for color
                 c.legend(|l| l.title("Avg Profit"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Both `sum(col("sales"))` and `avg(col("profit"))` are computed for each group defined by `category`.
@@ -220,7 +250,7 @@ Both `sum(col("sales"))` and `avg(col("profit"))` are computed for each group de
 
 Group by multiple columns using Symbol plots:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -228,6 +258,8 @@ use datafusion::functions_aggregate::average::avg;
 use datafusion::functions_aggregate::expr_fn::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Data with two grouping dimensions and varying counts per group
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -268,7 +300,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch).expect("read batch");
 
 // Groups by BOTH region AND product
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .canvas_size(500.0, 300.0)
     .data(df)
     .mark(
@@ -282,14 +314,18 @@ Plot::<Cartesian>::new()
             .fill_with(avg(col("rating")), |c| {   // Aggregate: AVG
                 c.legend(|l| l.title("Avg Rating"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Full-Table Aggregation
 
 Aggregate all rows with no grouping:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -297,6 +333,8 @@ use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "values",
@@ -312,7 +350,7 @@ let df = ctx.read_batch(batch).expect("read batch");
 let df = df.with_column("label", lit("Total")).unwrap();
 
 // Single bar showing total
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -321,16 +359,21 @@ Plot::<Cartesian>::new()
             .y(lit(0.0))
             .y2(sum(col("values")))          // Sum all rows
             .fill("#3498db")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Real-World Example: Movies Dataset
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::functions_aggregate::average::avg;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let movies_path = format!("{}/../tests/data/movies.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(movies_path, ParquetReadOptions::default())
@@ -346,7 +389,7 @@ let df = df
     )
     .expect("filter");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -357,7 +400,11 @@ Plot::<Cartesian>::new()
             .fill_with(avg(col("IMDB Rating")), |c| {  // Color by avg IMDB
                 c.legend(|l| l.title("Avg IMDB Rating"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## How It Works
@@ -402,7 +449,7 @@ From `datafusion::functions_aggregate::average`:
 
 For more complex scenarios, you can also perform aggregations manually in DataFusion before passing data to the plot:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, Int32Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -411,6 +458,8 @@ use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create sales data with year, category, region
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -459,7 +508,7 @@ let aggregated = df
     .filter(col("count").gt(lit(2)))
     .expect("filter by count");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(aggregated)
     .mark(
         Rect::new()
@@ -470,7 +519,11 @@ Plot::<Cartesian>::new()
             .fill_with(col("avg_rating"), |c| {
                 c.legend(|l| l.title("Avg Rating"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This approach gives you full control over:

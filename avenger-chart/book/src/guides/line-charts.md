@@ -4,12 +4,14 @@ Line charts show trends over continuous domains, typically time or ordered categ
 
 ## Basic Line Chart
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "x",
@@ -26,13 +28,17 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
             .x(col("x"))
             .y(col("y"))
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates a simple line chart connecting points in data order.
@@ -41,12 +47,14 @@ This creates a simple line chart connecting points in data order.
 
 ### Line Color and Width
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "x",
@@ -63,7 +71,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -71,17 +79,23 @@ Plot::<Cartesian>::new()
             .y(col("y"))
             .stroke("#ff6b6b")
             .stroke_width(3.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Dashed Lines
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "x",
@@ -98,7 +112,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -107,7 +121,11 @@ Plot::<Cartesian>::new()
             .stroke("#ff6b6b")
             .stroke_width(3.0)
             .stroke_dash("dashed")  // Theme-defined dash pattern
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Line Interpolation
@@ -136,12 +154,14 @@ Options (planned):
 
 For data in long format with a group column:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "x",
@@ -172,7 +192,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -183,7 +203,11 @@ Plot::<Cartesian>::new()
                     .legend(|l| l.title("Series"))
             })
             .stroke_width(2.5)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This automatically creates separate lines for each value in the 'series' column.
@@ -192,12 +216,14 @@ This automatically creates separate lines for each value in the 'series' column.
 
 Layer symbols over lines:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "x",
@@ -214,7 +240,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df.clone())
     .mark(
         Line::new()
@@ -229,7 +255,11 @@ Plot::<Cartesian>::new()
             .y(col("y"))
             .fill("#4682b4")
             .size(120.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Area Charts
@@ -313,12 +343,14 @@ DataFusion automatically handles NULL values - lines will have gaps where data i
 
 Control exactly which points to include using the `defined` channel with a boolean or numeric (0/1) column:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, Int32Array};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
         "x",
@@ -340,7 +372,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -349,22 +381,26 @@ Plot::<Cartesian>::new()
             .defined(col("defined"))  // 0 creates gaps, 1 includes points
             .stroke("#2e8b57")
             .stroke_width(2.5)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates three separate line segments where `defined` equals 1, with gaps at positions 3-4 and 8.
 
 ## Complete Example
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-let stocks_path = format!(
-    "{}/../tests/data/stocks.parquet",
-    env!("CARGO_MANIFEST_DIR")
-);
+# let stocks_path = format!(
+#     "{}/../tests/data/stocks.parquet",
+#     env!("CARGO_MANIFEST_DIR")
+# );
 let df = ctx
     .read_parquet(stocks_path, ParquetReadOptions::default())
     .await
@@ -389,7 +425,9 @@ let plot = Plot::<Cartesian>::new()
     )
     .title("Stock Prices Over Time");
 
-plot
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Next Steps
