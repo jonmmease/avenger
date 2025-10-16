@@ -4,10 +4,11 @@ Bar charts compare quantities across categories using rectangular bars. This gui
 
 ## Basic Bar Chart
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 
-Plot::<Cartesian>::new()
+let ctx = SessionContext::new();
+let plot = Plot::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -15,7 +16,11 @@ Plot::<Cartesian>::new()
             .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates vertical bars from 0 to the value in each category. The `x2` channel uses the special `:x` reference with `.band(1.0)` to span the full width of each categorical band.
@@ -24,10 +29,11 @@ This creates vertical bars from 0 to the value in each category. The `x2` channe
 
 Swap x and y coordinates:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 
-Plot::<Cartesian>::new()
+let ctx = SessionContext::new();
+let plot = Plot::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -35,17 +41,22 @@ Plot::<Cartesian>::new()
             .x2(col("value"))
             .y(col("category"))
             .y2_with(col(":y"), |c| c.band(1.0))
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Styling Bars
 
 ### Bar Color
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 
-Plot::<Cartesian>::new()
+let ctx = SessionContext::new();
+let plot = Plot::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -54,15 +65,20 @@ Plot::<Cartesian>::new()
             .y(lit(0.0))
             .y2(col("value"))
             .fill("#e74c3c")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Bar Borders
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 
-Plot::<Cartesian>::new()
+let ctx = SessionContext::new();
+let plot = Plot::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -73,17 +89,22 @@ Plot::<Cartesian>::new()
             .fill("#3498db")
             .stroke("#2c3e50")
             .stroke_width(2.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Categorical Scales
 
 Use band scales for categorical x-axes with padding between bars:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 
-Plot::<Cartesian>::new()
+let ctx = SessionContext::new();
+let plot = Plot::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -93,17 +114,22 @@ Plot::<Cartesian>::new()
             .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Color by Category
 
 Encode categories with color:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 
-Plot::<Cartesian>::new()
+let ctx = SessionContext::new();
+let plot = Plot::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -115,14 +141,18 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Category"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Aggregated Bar Charts
 
 Pre-aggregate in DataFusion before rendering:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -130,6 +160,8 @@ use datafusion::functions_aggregate::expr_fn::sum;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create sample sales data with multiple entries per category
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -152,7 +184,7 @@ let aggregated = df
     .aggregate(vec![col("category")], vec![sum(col("amount")).alias("total")])
     .expect("aggregate");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(aggregated)
     .mark(
         Rect::new()
@@ -160,7 +192,11 @@ Plot::<Cartesian>::new()
             .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("total"))
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Grouped Bar Charts
@@ -175,15 +211,16 @@ Stacked bars will arrive with the transform system (see `docs/future-work/transf
 
 Sort categories by value:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 let sorted = datasets::categorical_bars(&ctx)
     .sort(vec![col("value").sort(false, false)])
     .expect("sort");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(sorted)
     .mark(
         Rect::new()
@@ -191,7 +228,11 @@ Plot::<Cartesian>::new()
             .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Bar Chart with Labels
@@ -203,13 +244,15 @@ Text annotations will ship with the planned text mark (see `docs/future-work/tex
 
 Show positive and negative values:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create data with positive and negative changes
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -232,7 +275,7 @@ let status = when(col("change").gt(lit(0.0)), lit("positive"))
     .otherwise(lit("negative"))
     .expect("create status");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -244,7 +287,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Change"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Bar Chart with Reference Line
@@ -254,11 +301,12 @@ Reference overlays (e.g., rules) are planned but not yet implemented.
 
 ## Complete Example
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let movies_path = format!("{}/../tests/data/movies.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(movies_path, ParquetReadOptions::default())
@@ -279,7 +327,7 @@ let sorted = filtered
     .sort(vec![col("total_gross").sort(false, false)])
     .expect("sort by total gross");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(sorted)
     .mark(
         Rect::new()
@@ -293,7 +341,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("MPAA Rating"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Next Steps
