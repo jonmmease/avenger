@@ -152,7 +152,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch).expect("read batch");
 
 // Same data, Cartesian coordinates
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -160,7 +160,11 @@ Plot::<Cartesian>::new()
             .y(col("y"))
             .size(300.0)
             .fill("#9b59b6")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 The same `Symbol` mark can render in different coordinate systems by using system-specific position channels.

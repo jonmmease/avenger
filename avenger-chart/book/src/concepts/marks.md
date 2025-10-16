@@ -261,7 +261,7 @@ let trend_batch = RecordBatch::try_from_iter(vec![
 
 let trend = ctx.read_batch(trend_batch).expect("read trend");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .mark(
         Symbol::new()
             .data(points)
@@ -277,7 +277,11 @@ Plot::<Cartesian>::new()
             .y(col("y_pred"))
             .stroke("#dc2626")
             .stroke_width(3.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This example shows scatter points with a separate trend line, each using different data sources.
