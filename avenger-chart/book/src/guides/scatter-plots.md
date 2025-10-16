@@ -4,23 +4,29 @@ Scatter plots visualize the relationship between two quantitative variables. Thi
 
 ## Basic Scatter Plot
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
             .x(col("sepal_length"))
             .y(col("sepal_width"))
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates a simple scatter plot with circles at default size showing the relationship between sepal length and width.
@@ -31,41 +37,49 @@ This creates a simple scatter plot with circles at default size showing the rela
 
 Set a fixed size for all points:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
             .x(col("sepal_length"))
             .y(col("sepal_width"))
             .size(200.0)  // Size in square pixels
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Symbol Shape
 
 Choose different shapes:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -73,7 +87,11 @@ Plot::<Cartesian>::new()
             .y(col("sepal_width"))
             .size(150.0)
             .shape("square")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Available shape names include: `"circle"`, `"square"`, `"cross"`, `"diamond"`, `"triangle-up"`, `"triangle-down"`, `"triangle-left"`, `"triangle-right"`, `"arrow"`, `"wedge"`, `"triangle"`, `"star"`, `"wye"`, `"pentagon"`, and `"cushion"`.
@@ -82,17 +100,19 @@ Available shape names include: `"circle"`, `"square"`, `"cross"`, `"diamond"`, `
 
 Set fill and stroke:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -102,24 +122,30 @@ Plot::<Cartesian>::new()
             .fill("#ff6b6b")      // Coral red
             .stroke("#2c3e50")    // Dark slate
             .stroke_width(2.5)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Encoding with Color
 
 Map the species categorical variable to color:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -130,7 +156,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates a scatter plot where each species has a different color.
@@ -139,17 +169,19 @@ This creates a scatter plot where each species has a different color.
 
 Map petal length to size:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -159,7 +191,11 @@ Plot::<Cartesian>::new()
                 c.scale(|s| s.range_interval(lit(80.0), lit(300.0)))
                     .legend(|l| l.title("Petal Length"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates a bubble chart where larger circles represent longer petals.
@@ -168,17 +204,19 @@ This creates a bubble chart where larger circles represent longer petals.
 
 Combine color and size encoding:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -192,24 +230,30 @@ Plot::<Cartesian>::new()
                 c.scale(|s| s.range_interval(lit(80.0), lit(280.0)))
                     .legend(|l| l.title("Petal Length"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Transparency for Overplotting
 
 The current API does not expose an opacity channel for symbols yet. A common pattern is to encode density through fill colors using alpha values:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -217,7 +261,11 @@ Plot::<Cartesian>::new()
             .y(col("sepal_width"))
             .size(250.0)
             .fill("#4682b480")  // hex RGBA with transparency
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Symbol Padding and "Nice" Scales
@@ -226,17 +274,19 @@ Position scales automatically expand so the full symbol geometry stays inside th
 
 With nice scales enabled (rounded tick values):
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .title("Nice Scales (Rounded Ticks)")
     .mark(
@@ -244,22 +294,28 @@ Plot::<Cartesian>::new()
             .x_with(col("sepal_length"), |c| c.scale_with::<Linear>(|s| s.nice(true)))
             .y_with(col("sepal_width"), |c| c.scale_with::<Linear>(|s| s.nice(true)))
             .size(140.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 With nice scales disabled (tight to data):
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .title("Precise Scales (Tight to Data)")
     .mark(
@@ -267,7 +323,11 @@ Plot::<Cartesian>::new()
             .x_with(col("sepal_length"), |c| c.scale_with::<Linear>(|s| s.nice(false)))
             .y_with(col("sepal_width"), |c| c.scale_with::<Linear>(|s| s.nice(false)))
             .size(140.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Opt for `nice(false)` when you need tight framing (for example, aligning icons to the edge of a tile) and keep niceness enabled when rounded tick values improve readability.
@@ -316,17 +376,19 @@ Plot::<Cartesian>::new()
 
 Add descriptive titles to axes and the overall plot:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .title("Iris Sepal Measurements")
     .mark(
@@ -334,7 +396,11 @@ Plot::<Cartesian>::new()
             .x_with(col("sepal_length"), |c| c.axis(|a| a.title("Sepal Length (cm)")))
             .y_with(col("sepal_width"), |c| c.axis(|a| a.title("Sepal Width (cm)")))
             .size(150.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Faceted Scatter Plots

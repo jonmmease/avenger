@@ -6,17 +6,19 @@ Legends provide visual keys that explain how data is encoded in your visualizati
 
 Configure legends via the channel builder closure with `.legend()`:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -30,7 +32,11 @@ Plot::<Cartesian>::new()
                 c.scale(|s| s.range_interval(lit(80.0), lit(300.0)))
                     .legend(|l| l.title("Petal Length (cm)"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates two legend entries: one for color (species) and one for size (petal length).
@@ -39,17 +45,19 @@ This creates two legend entries: one for color (species) and one for size (petal
 
 Customize legend titles with `.title()`:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .title("Custom Legend Titles")
     .mark(
@@ -61,7 +69,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Iris Species"))  // Custom title
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 **Default**: If no title is provided, Avenger Chart uses the referenced column name when possible, or falls back to the channel name.
@@ -72,17 +84,19 @@ Plot::<Cartesian>::new()
 
 For discrete values, legends display colored markers for each category:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -93,7 +107,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Displays:
@@ -105,17 +123,19 @@ Displays:
 
 For quantitative color scales, legends display as gradient colorbars:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -126,7 +146,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Linear>(|s| s)
                     .legend(|l| l.title("Petal Length (cm)"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Displays:
@@ -138,17 +162,19 @@ Displays:
 
 For symbol sizes, legends show circles at representative sizes:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -159,7 +185,11 @@ Plot::<Cartesian>::new()
                 c.scale(|s| s.range_interval(lit(80.0), lit(350.0)))
                     .legend(|l| l.title("Petal Length (cm)"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Displays:
@@ -171,17 +201,19 @@ Displays:
 
 When multiple channels have legends, they stack in the legend area:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -199,7 +231,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species (shape)"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates three separate legend sections stacked vertically on the right side.
@@ -208,17 +244,19 @@ This creates three separate legend sections stacked vertically on the right side
 
 Control where legends appear with `.position()`:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -229,7 +267,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species").position(LegendPosition::Top))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 **Available positions**:
@@ -242,17 +284,19 @@ Plot::<Cartesian>::new()
 
 Continuous color encodings render as colorbars. You can customize their appearance:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -270,7 +314,11 @@ Plot::<Cartesian>::new()
                             .gradient_thickness(18.0)
                     })
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Colorbar options:
@@ -284,17 +332,19 @@ Colorbar options:
 
 Disable legends for specific channels with `.visible(false)`:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .title("Legend for Color Only")
     .mark(
@@ -309,7 +359,11 @@ Plot::<Cartesian>::new()
                 c.scale(|s| s.range_interval(lit(80.0), lit(280.0)))
                     .legend(|l| l.visible(false))  // Hide
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Only the color legend appears; size variation is visible but not explained in the legend.
@@ -320,17 +374,19 @@ Only the color legend appears; size variation is visible but not explained in th
 
 For continuous scales, format legend values:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -344,7 +400,11 @@ Plot::<Cartesian>::new()
                             .format_number(".2f")  // Two decimal places
                     })
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Format strings follow standard number formatting patterns (e.g., `.2f` for two decimal places, `.2s` for SI notation).
@@ -353,10 +413,11 @@ Format strings follow standard number formatting patterns (e.g., `.2f` for two d
 
 Legends appear in the order channels are defined. Here's an example with color defined before size:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
@@ -364,7 +425,8 @@ let df = ctx
     .expect("load iris dataset");
 
 // Color legend appears first, then size
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .title("Color First, Then Size")
     .mark(
@@ -379,15 +441,20 @@ Plot::<Cartesian>::new()
                 c.scale(|s| s.range_interval(lit(80.0), lit(280.0)))
                     .legend(|l| l.title("Petal Length"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 And here's the same plot with size defined before color:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
@@ -395,7 +462,8 @@ let df = ctx
     .expect("load iris dataset");
 
 // Size legend appears first, then color
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .title("Size First, Then Color")
     .mark(
@@ -410,7 +478,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Legend Styling

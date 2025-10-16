@@ -23,17 +23,18 @@ Avenger Chart follows these core principles:
 
 Here's a simple scatter plot using the famous iris dataset:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .title("Iris Dataset")
     .mark(
@@ -44,14 +45,19 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This example demonstrates:
-- Loading data from Parquet files
+- Loading data from Parquet files with DataFusion
 - Creating a scatter plot with `Symbol` marks
 - Mapping columns to visual channels (x, y, fill)
 - Customizing color scales and legends
+- The compile → evaluate workflow for rendering
 
 ## Next Steps
 
