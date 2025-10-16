@@ -29,9 +29,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -47,9 +47,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#3498db")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Options:
@@ -82,9 +82,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -100,9 +100,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#e74c3c")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Logarithmic scales compress large ranges and make multiplicative relationships linear. Use base 10 for data spanning orders of magnitude.
@@ -132,9 +132,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -152,9 +152,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(3.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Time scales automatically format dates and provide appropriate tick spacing.
@@ -186,9 +186,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -204,9 +204,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#9b59b6")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Options:
@@ -238,9 +238,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -255,9 +255,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#3498db")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Point scales center marks at category positions with configurable padding on the ends.
@@ -292,9 +292,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -310,9 +310,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Ordinal scales use default color palettes but can be customized with `range_colors()`.
@@ -352,9 +352,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -370,9 +370,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Size channel values represent area in square pixels, so larger values produce proportionally larger circles.
@@ -402,9 +402,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -427,9 +427,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(3.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Custom domains override automatic inference, useful for ensuring consistent scales across multiple plots.
@@ -464,9 +464,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -487,9 +487,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(2.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 During compilation, Avenger Chart merges channel-level scale requests with plot-level configuration. When different marks use the same channel name, the scale is shared automatically.
@@ -521,9 +521,9 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -543,9 +543,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#9b59b6")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Options:

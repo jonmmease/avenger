@@ -15,7 +15,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -34,9 +34,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This creates two legend entries: one for color (species) and one for size (petal length).
@@ -54,7 +54,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -71,9 +71,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 **Default**: If no title is provided, Avenger Chart uses the referenced column name when possible, or falls back to the channel name.
@@ -93,7 +93,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -109,9 +109,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Displays:
@@ -132,7 +132,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -148,9 +148,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Displays:
@@ -171,7 +171,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -187,9 +187,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Displays:
@@ -210,7 +210,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -233,9 +233,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This creates three separate legend sections stacked vertically on the right side.
@@ -253,7 +253,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -269,9 +269,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 **Available positions**:
@@ -293,7 +293,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -316,9 +316,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Colorbar options:
@@ -341,7 +341,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -361,9 +361,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Only the color legend appears; size variation is visible but not explained in the legend.
@@ -383,7 +383,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -402,9 +402,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Format strings follow standard number formatting patterns (e.g., `.2f` for two decimal places, `.2s` for SI notation).
@@ -422,7 +422,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 // Color legend appears first, then size
 
@@ -443,9 +443,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 And here's the same plot with size defined before color:
@@ -459,7 +459,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 // Size legend appears first, then color
 
@@ -480,9 +480,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Legend Styling

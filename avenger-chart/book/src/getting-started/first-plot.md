@@ -16,7 +16,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -30,9 +30,9 @@ let plot = Plot::<Cartesian>::new()
     .title("Iris Sepal Measurements")
     .canvas_size(600.0, 400.0);
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Breaking It Down

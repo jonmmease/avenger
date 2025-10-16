@@ -17,7 +17,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -35,9 +35,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Dark
@@ -53,7 +53,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -71,9 +71,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Extending a Theme with CSS
@@ -89,7 +89,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 let mut theme = Theme::light();
 theme.append_css(
@@ -125,9 +125,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 `append_css` keeps previously appended styles, so you can layer multiple overrides if needed.
@@ -146,7 +146,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 let css = r#"
     canvas, plot, guide {
@@ -200,9 +200,9 @@ let plot = Plot::<Cartesian>::new()
             .size(180.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Because the CSS parser runs at build time, syntax errors are surfaced immediately via the returned `Result`.
@@ -323,7 +323,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 let mut theme = Theme::light();
 theme.append_css(
@@ -356,9 +356,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Media Queries and Responsive Styling
@@ -374,7 +374,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 let css = r#"
     /* Base styles */
@@ -414,9 +414,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 The media queries above adjust the plot-area background as the canvas width changes. The rendered example shows the medium width breakpoint (green tint). See [Parameters](../advanced/parameters.md) for how to render the same compiled plot at multiple sizes.

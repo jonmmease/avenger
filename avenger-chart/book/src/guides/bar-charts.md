@@ -18,9 +18,9 @@ let plot = Plot::<Cartesian>::new()
             .y2(col("value"))
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This creates vertical bars from 0 to the value in each category. The `x2` channel uses the special `:x` reference with `.band(1.0)` to span the full width of each categorical band.
@@ -43,9 +43,9 @@ let plot = Plot::<Cartesian>::new()
             .y2_with(col(":y"), |c| c.band(1.0))
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Styling Bars
@@ -67,9 +67,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#e74c3c")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Bar Borders
@@ -91,9 +91,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(2.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Categorical Scales
@@ -116,9 +116,9 @@ let plot = Plot::<Cartesian>::new()
             .y2(col("value"))
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Color by Category
@@ -143,9 +143,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Aggregated Bar Charts
@@ -175,14 +175,14 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 // Aggregate by category
 let aggregated = df
     .aggregate(vec![col("category")], vec![sum(col("amount")).alias("total")])
-    .expect("aggregate");
+    ?;
 
 let plot = Plot::<Cartesian>::new()
     .data(aggregated)
@@ -194,9 +194,9 @@ let plot = Plot::<Cartesian>::new()
             .y2(col("total"))
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Grouped Bar Charts
@@ -218,7 +218,7 @@ use datafusion::prelude::*;
 let ctx = SessionContext::new();
 let sorted = datasets::categorical_bars(&ctx)
     .sort(vec![col("value").sort(false, false)])
-    .expect("sort");
+    ?;
 
 let plot = Plot::<Cartesian>::new()
     .data(sorted)
@@ -230,9 +230,9 @@ let plot = Plot::<Cartesian>::new()
             .y2(col("value"))
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Bar Chart with Labels
@@ -266,14 +266,14 @@ let batch = RecordBatch::try_from_iter(vec![
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
-.expect("create batch");
+?;
 
-let df = ctx.read_batch(batch).expect("read batch");
+let df = ctx.read_batch(batch)?;
 
 // Create status based on change sign
 let status = when(col("change").gt(lit(0.0)), lit("positive"))
     .otherwise(lit("negative"))
-    .expect("create status");
+    ?;
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -289,9 +289,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Bar Chart with Reference Line
@@ -311,21 +311,21 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(movies_path, ParquetReadOptions::default())
     .await
-    .expect("load movies dataset");
+    ?;
 
 let aggregated = df
     .aggregate(
         vec![col("MPAA Rating")],
         vec![sum(col("Worldwide Gross")).alias("total_gross")],
     )
-    .expect("aggregate worldwide gross by rating");
+    ?;
 
 let filtered = aggregated
     .filter(col("MPAA Rating").is_not_null())
-    .expect("filter rated films");
+    ?;
 let sorted = filtered
     .sort(vec![col("total_gross").sort(false, false)])
-    .expect("sort by total gross");
+    ?;
 
 let plot = Plot::<Cartesian>::new()
     .data(sorted)
@@ -343,9 +343,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Next Steps

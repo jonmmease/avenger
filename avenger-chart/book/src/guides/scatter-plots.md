@@ -13,7 +13,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -24,9 +24,9 @@ let plot = Plot::<Cartesian>::new()
             .y(col("sepal_width"))
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This creates a simple scatter plot with circles at default size showing the relationship between sepal length and width.
@@ -46,7 +46,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -58,9 +58,9 @@ let plot = Plot::<Cartesian>::new()
             .size(200.0)  // Size in square pixels
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ### Symbol Shape
@@ -76,7 +76,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -89,9 +89,9 @@ let plot = Plot::<Cartesian>::new()
             .shape("square")
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Available shape names include: `"circle"`, `"square"`, `"cross"`, `"diamond"`, `"triangle-up"`, `"triangle-down"`, `"triangle-left"`, `"triangle-right"`, `"arrow"`, `"wedge"`, `"triangle"`, `"star"`, `"wye"`, `"pentagon"`, and `"cushion"`.
@@ -109,7 +109,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -124,9 +124,9 @@ let plot = Plot::<Cartesian>::new()
             .stroke_width(2.5)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Encoding with Color
@@ -142,7 +142,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -158,9 +158,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This creates a scatter plot where each species has a different color.
@@ -178,7 +178,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -193,9 +193,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 This creates a bubble chart where larger circles represent longer petals.
@@ -213,7 +213,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -232,9 +232,9 @@ let plot = Plot::<Cartesian>::new()
             })
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Transparency for Overplotting
@@ -250,7 +250,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -263,9 +263,9 @@ let plot = Plot::<Cartesian>::new()
             .fill("#4682b480")  // hex RGBA with transparency
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Symbol Padding and "Nice" Scales
@@ -283,7 +283,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -296,9 +296,9 @@ let plot = Plot::<Cartesian>::new()
             .size(140.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 With nice scales disabled (tight to data):
@@ -312,7 +312,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -325,9 +325,9 @@ let plot = Plot::<Cartesian>::new()
             .size(140.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 Opt for `nice(false)` when you need tight framing (for example, aligning icons to the edge of a tile) and keep niceness enabled when rounded tick values improve readability.
@@ -385,7 +385,7 @@ let ctx = SessionContext::new();
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
-    .expect("load iris dataset");
+    ?;
 
 
 let plot = Plot::<Cartesian>::new()
@@ -398,9 +398,9 @@ let plot = Plot::<Cartesian>::new()
             .size(150.0)
     );
 
-let compiled = plot.compile(&ctx).await.expect("compile");
-let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
-evaluated
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Faceted Scatter Plots
