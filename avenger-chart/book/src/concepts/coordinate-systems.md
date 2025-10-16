@@ -6,12 +6,14 @@ Coordinate systems define how data values map to visual positions. Avenger Chart
 
 The most common coordinate system uses rectangular x/y coordinates:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create temperature and humidity data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -29,7 +31,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -37,7 +40,11 @@ Plot::<Cartesian>::new()
             .y(col("humidity"))
             .size(200.0)
             .fill("#3498db")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Position Channels
@@ -56,12 +63,14 @@ Plot::<Cartesian>::new()
 
 Polar coordinates use radius and angle:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create polar data - circular pattern
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -81,7 +90,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Polar>::new()
+
+let plot = Plot::<Polar>::new()
     .data(df)
     .mark(
         Symbol::<Polar>::new()
@@ -89,7 +99,11 @@ Plot::<Polar>::new()
             .theta(col("angle"))
             .size(200.0)
             .fill("#e74c3c")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Position Channels
@@ -112,12 +126,14 @@ Marks inherit the plot's coordinate system when supplied to `.mark()`, so they c
 
 The same mark type works in multiple coordinate systems. Here's the same dataset visualized in both Cartesian and Polar coordinates:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Angular data: 8 points around a circle
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -181,7 +197,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<ZeroDCoord>::new()
+
+let plot = Plot::<ZeroDCoord>::new()
     .title("Revenue by Business Unit")
     .data(df)
     .mark(
@@ -196,7 +213,11 @@ Plot::<ZeroDCoord>::new()
             })
             .stroke("#2c3e50")
             .stroke_width(2.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Even though everything renders at the centre of the plot, the mark still encodes data via size, color, shape, legends, and tooltips. This is perfect for dashboard KPIs or legend-style visualizations.

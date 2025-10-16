@@ -8,12 +8,14 @@ Scales transform channel expressions from **data space** (the domain) into **vis
 
 Linear scales are used automatically for numeric columns:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create data with wide value range
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -31,7 +33,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -42,7 +45,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Linear>(|s| s.zero(true).nice(true))
             })
             .fill("#3498db")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Options:
@@ -54,12 +61,14 @@ Options:
 
 Use log scales for exponential data:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create exponential GDP data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -77,7 +86,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -88,7 +98,11 @@ Plot::<Cartesian>::new()
             .y(col("country"))
             .size(300.0)
             .fill("#e74c3c")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Logarithmic scales compress large ranges and make multiplicative relationships linear. Use base 10 for data spanning orders of magnitude.
@@ -97,12 +111,14 @@ Logarithmic scales compress large ranges and make multiplicative relationships l
 
 Time scales understand temporal data and format axis ticks appropriately:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Date32Array, Float64Array};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create time series data with Date32
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -120,7 +136,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -133,7 +150,11 @@ Plot::<Cartesian>::new()
             })
             .stroke("#2ecc71")
             .stroke_width(3.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Time scales automatically format dates and provide appropriate tick spacing.
@@ -144,12 +165,14 @@ Time scales automatically format dates and provide appropriate tick spacing.
 
 Band scales arrange categorical positions with configurable padding. Use with interval marks like `Rect`:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create categorical data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -167,7 +190,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -178,7 +202,11 @@ Plot::<Cartesian>::new()
             .x(lit(0.0))
             .x2(col("value"))
             .fill("#9b59b6")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Options:
@@ -189,12 +217,14 @@ Options:
 
 Point scales place categories at discrete points. Use with glyph marks like `Symbol`:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create categorical scatter data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -212,7 +242,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -222,7 +253,11 @@ Plot::<Cartesian>::new()
             .y(col("measurement"))
             .size(250.0)
             .fill("#3498db")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Point scales center marks at category positions with configurable padding on the ends.
@@ -231,12 +266,14 @@ Point scales center marks at category positions with configurable padding on the
 
 Ordinal scales map discrete values to colors, shapes, or other non-positional encodings:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create species data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -259,7 +296,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -270,7 +308,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Ordinal scales use default color palettes but can be customized with `range_colors()`.
@@ -279,12 +321,14 @@ Ordinal scales use default color palettes but can be customized with `range_colo
 
 Size scales control the area of symbol marks. A square-root scale (default for size) produces perceptually balanced circles:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create population data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -312,7 +356,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -323,7 +368,11 @@ Plot::<Cartesian>::new()
                 c.scale(|s| s.range_interval(lit(100.0), lit(800.0)))
                     .legend(|l| l.title("Population"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Size channel values represent area in square pixels, so larger values produce proportionally larger circles.
@@ -332,12 +381,14 @@ Size channel values represent area in square pixels, so larger values produce pr
 
 Explicitly set domain and range for precise control:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create temperature data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -355,7 +406,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -373,7 +425,11 @@ Plot::<Cartesian>::new()
             })
             .stroke("#e74c3c")
             .stroke_width(3.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Custom domains override automatic inference, useful for ensuring consistent scales across multiple plots.
@@ -382,12 +438,14 @@ Custom domains override automatic inference, useful for ensuring consistent scal
 
 Configure a scale once at the plot level and let multiple marks inherit it:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create data for multiple marks
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -410,7 +468,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df.clone())
     .scale_with::<Linear>("x", |s| s.domain_interval(lit(0.0), lit(100.0)))
     .mark(
@@ -426,7 +485,11 @@ Plot::<Cartesian>::new()
             .y(col("y2"))
             .stroke("#e74c3c")
             .stroke_width(2.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 During compilation, Avenger Chart merges channel-level scale requests with plot-level configuration. When different marks use the same channel name, the scale is shared automatically.
@@ -437,12 +500,14 @@ During compilation, Avenger Chart merges channel-level scale requests with plot-
 
 Control spacing for band scales with inner and outer padding:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create data for padding demonstration
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -460,7 +525,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .title("Band Scale with Custom Padding")
     .mark(
@@ -475,7 +541,11 @@ Plot::<Cartesian>::new()
             .y(lit(0.0))
             .y2(col("value"))
             .fill("#9b59b6")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Options:

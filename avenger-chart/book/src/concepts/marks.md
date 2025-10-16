@@ -8,12 +8,14 @@ Marks are the visual building blocks of a plot. Each mark type turns channel inp
 
 `Symbol` marks render discrete points, making them useful for scatter plots and dot plots.
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create GDP vs life expectancy data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -31,7 +33,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -40,7 +43,11 @@ Plot::<Cartesian>::new()
             .size(300.0)
             .fill("#4682b4")
             .shape("square")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Key channels:
@@ -56,12 +63,14 @@ When a `Symbol` is constructed inside `Plot::mark`, the coordinate system is inf
 
 `Line` marks draw ordered polylines.
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create temperature data over time
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -79,7 +88,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -87,7 +97,11 @@ Plot::<Cartesian>::new()
             .y(col("temperature"))
             .stroke("#dc143c")
             .stroke_width(3.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Useful channels:
@@ -101,12 +115,14 @@ Useful channels:
 
 `Rect` marks render axis-aligned rectangles and power bar charts, heatmaps, and interval plots.
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create horizontal bar chart data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -124,7 +140,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -135,7 +152,11 @@ Plot::<Cartesian>::new()
             .fill("#ffa500")
             .opacity(0.9)
             .corner_radius(3.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Rectangles expose four position channels (`x`, `x2`, `y`, `y2`) and support `fill`, `stroke`, `stroke_width`, `opacity`, and `corner_radius`.
@@ -144,12 +165,14 @@ Rectangles expose four position channels (`x`, `x2`, `y`, `y2`) and support `fil
 
 Marks can be layered to combine encodings:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create time series data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -167,7 +190,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df.clone())
     .mark(
         Line::new()
@@ -182,7 +206,11 @@ Plot::<Cartesian>::new()
             .y(col("value"))
             .size(200.0)
             .fill("#38bdf8")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 `Plot` merges scale and legend configuration across marks that use the same channel names, so both layers share the same axes and color legend.
@@ -191,12 +219,14 @@ Plot::<Cartesian>::new()
 
 Each mark can source its own `DataFrame`. When a mark omits `.data(...)`, it inherits the plot-level data:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create scatter point data
 let points_batch = RecordBatch::try_from_iter(vec![
     (
@@ -284,7 +314,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -295,7 +326,11 @@ Plot::<Cartesian>::new()
             .shape_with(col("shape"), |c| {
                 c.legend(|l| l.title("Shape"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Additional Mark Options
