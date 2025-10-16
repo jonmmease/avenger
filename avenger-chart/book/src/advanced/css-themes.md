@@ -643,9 +643,9 @@ let css = r#"
     }
 
     legend background {
-        fill: #1e293b;
-        stroke: #475569;
-        stroke-width: 1.5;
+        fill: rgba(30, 41, 59, 1.0);
+        stroke: #94a3b8;
+        stroke-width: 2.0;
         corner-radius: 6;
         padding: 10;
     }
@@ -771,8 +771,8 @@ let css = r#"
 
     legend background {
         fill: #ffffff;
-        stroke: #e5e7eb;
-        stroke-width: 1.0;
+        stroke: #d1d5db;
+        stroke-width: 2.0;
         corner-radius: 8;
         padding: 12;
     }
@@ -1203,9 +1203,9 @@ let css = r#"
     }
 
     legend background {
-        fill: #f7fafc;
-        stroke: #cbd5e0;
-        stroke-width: 1.0;
+        fill: rgba(247, 250, 252, 0.95);
+        stroke: #a0aec0;
+        stroke-width: 1.5;
         corner-radius: 4;
         padding: 8;
     }
@@ -1462,10 +1462,11 @@ let css = r#"
     }
 
     legend background {
-        fill: #f9fafb;
-        stroke: #d1d5db;
-        stroke-width: 1.0;
+        fill: rgba(255, 255, 255, 0.95);
+        stroke: #6b7280;
+        stroke-width: 2.0;
         corner-radius: 6;
+        padding: 10;
     }
 
     legend {
