@@ -33,6 +33,8 @@ pub struct Legend {
     #[serde_as(as = "MaybeOptionalExpr")]
     pub background_stroke: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
+    pub background_stroke_width: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
     pub background_corner_radius: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub background_padding: Maybe<Option<LogicalExprNode>>,
@@ -93,6 +95,7 @@ impl std::fmt::Debug for Legend {
             .field("format_number", &self.format_number)
             .field("background_fill", &self.background_fill)
             .field("background_stroke", &self.background_stroke)
+            .field("background_stroke_width", &self.background_stroke_width)
             .field("background_corner_radius", &self.background_corner_radius)
             .field("background_padding", &self.background_padding)
             .field("order", &self.order)
@@ -149,6 +152,7 @@ impl Legend {
             format_number: Maybe::Unset,
             background_fill: Maybe::Unset,
             background_stroke: Maybe::Unset,
+            background_stroke_width: Maybe::Unset,
             background_corner_radius: Maybe::Unset,
             background_padding: Maybe::Unset,
             order: Maybe::Unset,
@@ -205,6 +209,9 @@ impl Legend {
         }
         if other.background_stroke.is_set() {
             self.background_stroke = other.background_stroke;
+        }
+        if other.background_stroke_width.is_set() {
+            self.background_stroke_width = other.background_stroke_width;
         }
         if other.background_corner_radius.is_set() {
             self.background_corner_radius = other.background_corner_radius;
@@ -362,6 +369,15 @@ impl Legend {
         let expr = color.into_expr();
         self.background_stroke = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize background_stroke expr"),
+        ));
+        self
+    }
+
+    pub fn background_stroke_width(mut self, width: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = width.into_expr();
+        self.background_stroke_width = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize background_stroke_width expr"),
         ));
         self
     }

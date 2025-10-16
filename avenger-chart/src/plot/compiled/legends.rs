@@ -162,6 +162,12 @@ impl CompiledPlot {
                 // Convert [f32; 4] to hex string
                 legend = legend.background_stroke(color_array_to_hex(stroke));
             }
+            // Apply stroke-width from theme
+            if let Some(value) = theme.query(&bg_ctx, "stroke-width") {
+                if let Some(stroke_width) = value.as_font_size(&legend_ctx.params, base_font_size) {
+                    legend = legend.background_stroke_width(stroke_width);
+                }
+            }
 
             // Set text colors and typography from theme (using defaults if theme doesn't specify)
             if let Some(color) = theme.text_color(&legend_ctx.child("title")) {
@@ -373,6 +379,64 @@ impl CompiledPlot {
                 |l| &l.tick_font_weight,
                 || theme.font_weight(&legend_ctx.child("tick")),
                 |l, v| l.tick_font_weight(v),
+            );
+
+            // Background styling
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.background_fill,
+                || {
+                    theme
+                        .fill_color(&legend_ctx.child("background"))
+                        .map(color_array_to_hex)
+                },
+                |l, v| l.background_fill(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.background_stroke,
+                || {
+                    theme
+                        .stroke_color(&legend_ctx.child("background"))
+                        .map(color_array_to_hex)
+                },
+                |l, v| l.background_stroke(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.background_stroke_width,
+                || {
+                    let bg_ctx = legend_ctx.child("background");
+                    let base_font_size = theme.get_base_font_size(&legend_ctx.params);
+                    theme.query(&bg_ctx, "stroke-width").and_then(|value| {
+                        value.as_font_size(&legend_ctx.params, base_font_size)
+                    })
+                },
+                |l, v| l.background_stroke_width(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.background_padding,
+                || {
+                    let bg_ctx = legend_ctx.child("background");
+                    let base_font_size = theme.get_base_font_size(&legend_ctx.params);
+                    theme.query(&bg_ctx, "padding").and_then(|value| {
+                        value.as_font_size(&legend_ctx.params, base_font_size)
+                    })
+                },
+                |l, v| l.background_padding(v),
+            );
+            Self::apply_theme_to_legend(
+                legend,
+                |l| &l.background_corner_radius,
+                || {
+                    let bg_ctx = legend_ctx.child("background");
+                    let base_font_size = theme.get_base_font_size(&legend_ctx.params);
+                    theme.query(&bg_ctx, "corner-radius").and_then(|value| {
+                        value.as_font_size(&legend_ctx.params, base_font_size)
+                    })
+                },
+                |l, v| l.background_corner_radius(v),
             );
 
             // Apply legend position from theme if not explicitly set
