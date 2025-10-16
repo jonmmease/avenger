@@ -6,12 +6,14 @@ Channels map data to visual properties. Avenger Chart provides two ways to set c
 
 Set a channel to a constant value:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create temperature and humidity data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -29,7 +31,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -37,7 +40,11 @@ Plot::<Cartesian>::new()
             .y(col("humidity"))
             .fill("steelblue")    // All points are blue
             .size(250.0)          // All points are 250 square pixels
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Direct values apply the same styling to all points in the visualization.
@@ -46,12 +53,14 @@ Direct values apply the same styling to all points in the visualization.
 
 Use `*_with()` methods to encode data with scales and legends:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create data with region and population
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -79,7 +88,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -93,7 +103,11 @@ Plot::<Cartesian>::new()
                 c.scale(|s| s.range_interval(lit(100.0), lit(600.0)))
                     .legend(|l| l.title("Population"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates:
@@ -105,13 +119,15 @@ This creates:
 
 Channels can branch on boolean expressions using the `when_value` and `when_scaled` helpers:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create data with status
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -143,7 +159,8 @@ let highlight = when(col("status").eq(lit("error")), lit(true))
     .otherwise(lit(false))
     .unwrap();
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -158,7 +175,11 @@ Plot::<Cartesian>::new()
                 c.when_scaled(highlight, col("value") * lit(2.0))
                     .scale(|s| s.range_interval(lit(100.0), lit(400.0)))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 - `when_value(condition, literal)` injects an immediate value whenever the boolean expression is true (bypassing the scale)
@@ -182,12 +203,14 @@ Position channels follow the same scaling rules as all other channels: expressio
 
 Example using range positions for interval marks:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create task schedule data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -210,7 +233,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -220,7 +244,11 @@ Plot::<Cartesian>::new()
             .y2_with(col("task"), |c| c.band(1.0))
             .fill("#3498db")
             .corner_radius(2.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Visual Channels
@@ -243,12 +271,14 @@ When using `*_with()`, you can configure the scale type and parameters.
 
 Map discrete values to colors:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create categorical data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -271,7 +301,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -282,19 +313,25 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Category"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Log Scales
 
 Use logarithmic scaling for exponential data:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create exponential data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -312,7 +349,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -322,7 +360,11 @@ Plot::<Cartesian>::new()
             })
             .size(300.0)
             .fill("#e74c3c")
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Log scales compress large ranges and make exponential relationships linear.
@@ -331,12 +373,14 @@ Log scales compress large ranges and make exponential relationships linear.
 
 Encode multiple channels from the same column for redundant encoding:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create temperature data
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -359,7 +403,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch).expect("read batch");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -373,7 +418,11 @@ Plot::<Cartesian>::new()
                 c.scale(|s| s.range_interval(lit(100.0), lit(600.0)))
                     .legend(|l| l.title("Temperature (size)"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 This creates redundant encoding where temperature controls both color and size, making the pattern easier to perceive.
@@ -382,13 +431,15 @@ This creates redundant encoding where temperature controls both color and size, 
 
 Channels can use DataFusion expressions for computed values:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
+
+let ctx = SessionContext::new();
 // Create data for expression example
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -420,7 +471,8 @@ let status = when(col("value").gt(lit(100.0)), lit("high"))
     .otherwise(lit("low"))
     .unwrap();
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -431,7 +483,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Status"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 DataFusion expressions enable complex data transformations within channel mappings.
