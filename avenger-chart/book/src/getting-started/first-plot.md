@@ -4,15 +4,15 @@ This guide walks you through creating a simple scatter plot with Avenger Chart.
 
 ## Complete Example
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-let iris_path = format!(
-    "{}/../tests/data/iris.parquet",
-    env!("CARGO_MANIFEST_DIR")
-);
+# let iris_path = format!(
+#     "{}/../tests/data/iris.parquet",
+#     env!("CARGO_MANIFEST_DIR")
+# );
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
@@ -30,7 +30,9 @@ let plot = Plot::<Cartesian>::new()
     .title("Iris Sepal Measurements")
     .canvas_size(600.0, 400.0);
 
-plot
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Breaking It Down
@@ -95,7 +97,7 @@ let plot = Plot::<Cartesian>::new()
 
 Marks are visual elements. Here we use `Symbol` for a scatter plot, mapping columns to position channels.
 
-### 5. Export
+### 5. Compile and Evaluate
 
 ```rust,no_run
 # use avenger_chart::prelude::*;
@@ -106,15 +108,21 @@ Marks are visual elements. Here we use `Symbol` for a scatter plot, mapping colu
 let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")));
+
+// Compile the plot (expensive, do once)
 let compiled = plot.compile(&ctx).await?;
-let _evaluated = compiled.evaluate(&ctx, None).await?;
+
+// Evaluate with data and parameters (cheap, do many times)
+let evaluated = compiled.evaluate(&ctx, None).await?;
 # Ok(())
 # }
 ```
 
-Render the compiled plot (for example, with the wgpu backend).
+The compile step optimizes the plot for execution. The evaluate step executes it with data and parameters, producing a scene graph ready for rendering.
 
-To write a PNG directly, call the helper in `avenger_chart::doc::render`. It renders at 2× scale for crisp output:
+### 6. Render to PNG
+
+To write a PNG file, use the WgpuRenderer backend:
 
 ```rust,no_run
 # use avenger_chart::prelude::*;

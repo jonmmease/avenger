@@ -8,17 +8,19 @@ Themes control the visual presentation of a plot: typography, colors, grid lines
 
 `Theme::light()` returns the adaptive default theme with the light color scheme selected. A plot uses this theme automatically when no explicit theme is supplied.
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .theme(Theme::light())
     .data(df)
     .title("Light Theme (Default)")
@@ -31,24 +33,30 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Dark
 
 Switching to `Theme::dark()` selects the dark palette while keeping the same responsive CSS rules.
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     .expect("load iris dataset");
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .theme(Theme::dark())
     .data(df)
     .title("Dark Theme")
@@ -61,17 +69,22 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ## Extending a Theme with CSS
 
 You can append additional CSS to tweak specific elements. Because the API consumes a `Theme`, build and modify it before passing it into the plot.
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
@@ -96,7 +109,8 @@ theme.append_css(
     "#,
 )?;
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Extended Theme with Custom CSS")
@@ -109,7 +123,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 `append_css` keeps previously appended styles, so you can layer multiple overrides if needed.
@@ -119,10 +137,11 @@ In the rendered example above the legend background is styled purely through CSS
 
 To start from scratch, construct a theme directly from a CSS string.
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
@@ -169,7 +188,8 @@ let css = r#"
     "#;
 
 let theme = Theme::from_css(css)?;
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Custom Theme from CSS")
@@ -178,7 +198,11 @@ Plot::<Cartesian>::new()
             .x(col("sepal_length"))
             .y(col("sepal_width"))
             .size(180.0)
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 Because the CSS parser runs at build time, syntax errors are surfaced immediately via the returned `Result`.
@@ -290,10 +314,11 @@ Plot::<Cartesian>::new()
 
 The CSS parser recognises modern color functions, so you can build palettes with `color-mix`, `hsl()`, `hsla()`, or `lab()`/`lch()` values:
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
@@ -315,7 +340,8 @@ theme.append_css(
     "#,
 )?;
 
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Modern Color Functions")
@@ -328,17 +354,22 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 ### Media Queries and Responsive Styling
 
 Because themes use standard CSS, you can respond to canvas size, device pixel ratio, or user-preference media queries. Combine media queries with parameters to render a single compiled plot at multiple breakpoints.
 
-```rust,render,ignore
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
+let ctx = SessionContext::new();
 # let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
@@ -366,7 +397,8 @@ let css = r#"
 "#;
 
 let theme = Theme::from_css(css)?;
-Plot::<Cartesian>::new()
+
+let plot = Plot::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Responsive Styling with Media Queries")
@@ -380,7 +412,11 @@ Plot::<Cartesian>::new()
                 c.scale_with::<Ordinal>(|s| s)
                     .legend(|l| l.title("Species"))
             })
-    )
+    );
+
+let compiled = plot.compile(&ctx).await.expect("compile");
+let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+evaluated
 ```
 
 The media queries above adjust the plot-area background as the canvas width changes. The rendered example shows the medium width breakpoint (green tint). See [Parameters](../advanced/parameters.md) for how to render the same compiled plot at multiple sizes.
