@@ -328,16 +328,6 @@ impl Theme {
         inherited_properties
     }
 
-    /// Check if a selector targets :root
-    fn is_root_selector(rule: &CompiledRule) -> bool {
-        let components: Vec<_> = rule.selector.iter_raw_match_order().collect();
-        components.len() == 1
-            && matches!(
-                components[0],
-                selectors::parser::Component::ExplicitUniversalType
-            )
-    }
-
     /// Extract CSS variables from a rule
     fn extract_variables(rule: &CompiledRule, variables: &mut IndexMap<String, ThemeValue>) {
         for (key, declaration) in &rule.declarations {
@@ -495,21 +485,16 @@ impl Theme {
             selectors::context::MatchingForInvalidation::No,
         );
 
-        // Extract base font size from params or use default
-        let base_font_size = context
-            .params
-            .get("base-font-size")
-            .or_else(|| context.params.get("--base-font-size"))
-            .and_then(|v| match v {
-                datafusion_common::ScalarValue::Float32(Some(px)) => Some(*px),
-                datafusion_common::ScalarValue::Float64(Some(px)) => Some(*px as f32),
-                datafusion_common::ScalarValue::Int32(Some(px)) => Some(*px as f32),
-                datafusion_common::ScalarValue::Int64(Some(px)) => Some(*px as f32),
-                datafusion_common::ScalarValue::UInt32(Some(px)) => Some(*px as f32),
-                datafusion_common::ScalarValue::UInt64(Some(px)) => Some(*px as f32),
-                _ => None,
-            })
-            .unwrap_or(DEFAULT_BASE_FONT_SIZE); // Default to constant if not specified
+        // Determine base font size for rem conversion and media query evaluation
+        // Bootstrap case: When querying :root { font-size } itself, use default to avoid recursion
+        // Normal case: Query :root { font-size } with full cascade (including media queries)
+        let base_font_size = if context.element_type == ":root" && property == "font-size" {
+            // Bootstrap: Use constant to avoid infinite recursion
+            DEFAULT_BASE_FONT_SIZE
+        } else {
+            // Normal: Get base font size from :root with media query support
+            self.get_base_font_size(&context.params)
+        };
 
         // Find matching rules
         let mut matches = Vec::new();
@@ -608,32 +593,32 @@ impl Theme {
         self.css_sources.join("\n\n")
     }
 
-    /// Get the base font size with parameter support
+    /// Get the base font size with parameter and media query support
     ///
     /// Resolves the base font size by:
-    /// 1. Looking for :root { font-size } in CSS rules (with variable resolution)
+    /// 1. Querying :root { font-size } with full CSS cascade (including media queries)
     /// 2. Falling back to DEFAULT_BASE_FONT_SIZE (12px)
     ///
-    /// Variables in :root { font-size } (like var(--base-font-size)) are resolved
-    /// using params, allowing any CSS variable to control the base font size.
-    /// This method handles circular dependencies by using a bootstrap default.
+    /// This method properly evaluates media queries, so font-size changes in
+    /// responsive contexts will cascade to all rem-based values.
+    ///
+    /// Uses a bootstrap default (DEFAULT_BASE_FONT_SIZE) internally when evaluating
+    /// media query conditions to avoid circular dependencies.
     pub fn get_base_font_size(
         &self,
         params: &IndexMap<String, datafusion_common::ScalarValue>,
     ) -> f32 {
-        // Look for :root { font-size } in CSS rules
-        // Iterate in reverse to respect cascading order (last rule wins)
-        for rule in self.rules.iter().rev() {
-            if Self::is_root_selector(rule) {
-                if let Some(declaration) = rule.declarations.get("font-size") {
-                    // Resolve variables in the font-size value (params override CSS variables)
-                    let resolved = self.resolve_theme_value(declaration.value.clone(), params, 0);
-                    // Use DEFAULT_BASE_FONT_SIZE for bootstrap to avoid circular dependency
-                    // Pass params here even though they're empty during construction
-                    if let Some(size) = resolved.as_font_size(params, DEFAULT_BASE_FONT_SIZE) {
-                        return size;
-                    }
-                }
+        // Create a :root context to query font-size
+        let root_context = ThemeContext::new(":root", params.clone());
+
+        // Query :root { font-size } which will evaluate media queries
+        // Note: query() will use DEFAULT_BASE_FONT_SIZE internally to avoid recursion
+        if let Some(font_size_value) = self.query(&root_context, "font-size") {
+            // Convert the value to pixels
+            // Use DEFAULT_BASE_FONT_SIZE for any rem units in the value itself
+            // (though typically :root font-size is in px)
+            if let Some(size) = font_size_value.as_font_size(params, DEFAULT_BASE_FONT_SIZE) {
+                return size;
             }
         }
 

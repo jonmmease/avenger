@@ -552,199 +552,1017 @@ legend label {
 
 ## Complete Theme Examples
 
-### Professional Light Theme
+The following examples demonstrate production-ready themes built entirely with `Theme::from_css()`. Each showcases a cluster of theming capabilities applied to real datasets.
 
-```css
-:root {
-    font-family: "Inter", -apple-system, sans-serif;
-    --base-font-size: 12px;
-    font-size: var(--base-font-size);
+### Dark Professional Theme
 
-    /* Okabe-Ito color palette (colorblind-friendly) */
-    --categorical-colors: #0072B2, #E69F00, #009E73, #F0E442, #D55E00, #56B4E9, #CC79A7, #999999;
-    --viridis-colors: #440154, #3b528b, #21918c, #5ec962, #FDE725;
+A complete dark theme with warm accent colors, subtle grid, and polished typography. Perfect for dashboards and dark-mode applications.
 
-    --bg-color: white;
-    --text-color: black;
-    --grid-color: #e5e5e5;
-}
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
 
-canvas {
-    background-color: var(--bg-color);
-    margin: 10px;
-}
+let ctx = SessionContext::new();
+# let stocks_path = format!("{}/../tests/data/stocks.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(stocks_path, ParquetReadOptions::default())
+    .await
+    ?;
 
-chart-title {
-    color: var(--text-color);
-    font-weight: 500;
-    font-size: 1.5rem;
-}
+let css = r#"
+    :root {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --base-font-size: 12px;
+        font-size: var(--base-font-size);
+    }
 
-axis domain {
-    stroke: var(--text-color);
-    stroke-width: 1.0;
-}
+    canvas {
+        background-color: #0f172a;
+        margin: 15px;
+    }
 
-axis title {
-    font-weight: 400;
-    font-size: 1.0rem;
-}
+    plot {
+        background-color: #1e293b;
+    }
 
-axis label {
-    color: #666;
-    font-size: 0.833rem;
-}
+    guide {
+        background-color: transparent;
+    }
 
-axis grid {
-    stroke: var(--grid-color);
-    opacity: 0.5;
-}
+    chart-title {
+        color: #f1f5f9;
+        font-weight: 600;
+        font-size: 1.4rem;
+    }
 
-legend title {
-    font-weight: 400;
-    font-size: 1.0rem;
-}
+    chart-subtitle {
+        color: #94a3b8;
+        font-weight: 400;
+        font-size: 1.0rem;
+    }
 
-mark {
-    fill-discrete: var(--categorical-colors);
-    fill-continuous: var(--viridis-colors);
-    stroke-discrete: var(--categorical-colors);
-    size-continuous: 30, 200;
-}
+    axis domain {
+        stroke: #475569;
+        stroke-width: 1.5;
+    }
 
-mark[type="symbol"] {
-    size: 72;
-    shape: circle;
-}
+    axis tick {
+        stroke: #475569;
+        size: 5.0;
+    }
 
-mark[type="line"] {
-    stroke-width: 2.0;
-    stroke-cap: round;
-}
-```
+    axis title {
+        color: #e2e8f0;
+        font-weight: 500;
+        font-size: 1.05rem;
+    }
 
-### Dark Theme
+    axis label {
+        color: #94a3b8;
+        font-weight: 400;
+        font-size: 0.9rem;
+        padding: 4;
+    }
 
-```css
-:root {
-    --base-font-size: 12px;
-    font-size: var(--base-font-size);
+    axis grid {
+        stroke: #334155;
+        opacity: 0.4;
+        stroke-width: 0.5;
+    }
 
-    --bg-color: #1e1e1e;
-    --text-color: #e0e0e0;
-    --grid-color: #404040;
-    --categorical-colors: #4fc3f7, #ffb74d, #4db6ac, #fff59d, #ff8a65;
-}
+    legend title {
+        color: #e2e8f0;
+        font-weight: 500;
+        font-size: 1.05rem;
+    }
 
-canvas {
-    background-color: var(--bg-color);
-}
+    legend label {
+        color: #cbd5e1;
+        font-weight: 400;
+        font-size: 0.95rem;
+    }
 
-plot {
-    background-color: #252525;
-}
+    legend background {
+        fill: #1e293b;
+        stroke: #475569;
+        stroke-width: 1.5;
+        corner-radius: 6;
+        padding: 10;
+    }
 
-chart-title {
-    color: var(--text-color);
-}
+    mark[type="line"] {
+        stroke-width: 2.5;
+        stroke-cap: round;
+        stroke-join: round;
+        stroke-discrete: #f59e0b, #10b981, #3b82f6, #8b5cf6, #ef4444;
+    }
+"#;
 
-axis domain {
-    stroke: var(--text-color);
-}
-
-axis label {
-    color: #b0b0b0;
-}
-
-axis grid {
-    stroke: var(--grid-color);
-    opacity: 0.3;
-}
-
-legend background {
-    fill: #2a2a2a;
-    stroke: #404040;
-    padding: 8;
-    corner-radius: 4;
-}
-
-mark {
-    fill-discrete: var(--categorical-colors);
-}
-```
-
-### Adaptive Theme (Light/Dark)
-
-```css
-:root {
-    --base-font-size: 12px;
-
-    /* Adaptive colors */
-    --bg-color: light-dark(white, #121212);
-    --text-color: light-dark(black, white);
-
-    /* Derived colors */
-    --grid-color: color-mix(in srgb, var(--bg-color) 88%, var(--text-color) 12%);
-    --text-secondary: color-mix(in srgb, var(--text-color) 80%, var(--bg-color) 20%);
-    --border-color: color-mix(in srgb, var(--text-color) 90%, var(--bg-color) 10%);
-
-    --categorical-colors: #0072B2, #E69F00, #009E73, #F0E442, #D55E00;
-}
-
-canvas {
-    background-color: var(--bg-color);
-}
-
-axis domain {
-    stroke: var(--border-color);
-}
-
-axis label {
-    color: var(--text-secondary);
-}
-
-axis grid {
-    stroke: var(--grid-color);
-}
-
-mark {
-    fill-discrete: var(--categorical-colors);
-}
-```
-
-Use with runtime parameter:
-
-```rust,no_run
-# use avenger_chart::prelude::*;
-# use datafusion::prelude::*;
-# use datafusion::common::ScalarValue;
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let ctx = datafusion::execution::context::SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::default()).await?;
-# let css = r#"
-# :root {
-#     --bg-color: light-dark(white, #121212);
-#     --text-color: light-dark(black, white);
-# }
-# canvas { background-color: var(--bg-color); }
-# "#;
 let theme = Theme::from_css(css)?;
 
-// Light mode (default)
-let plot_light = Plot::<Cartesian>::new()
-    .theme(theme.clone())
-    .data(df.clone())
-    .mark(Symbol::new().x(col("x")).y(col("y")));
-
-// Dark mode via parameter
-let plot_dark = Plot::<Cartesian>::new()
+let plot = Plot::<Cartesian>::new()
     .theme(theme)
     .data(df)
-    .mark(Symbol::new().x(col("x")).y(col("y")))
-    .add_param(Param::new("color-scheme", ScalarValue::from("dark")));
-# Ok(())
-# }
+    .title("Stock Prices - Dark Professional Theme")
+    .subtitle("Warm accent colors with polished dark interface")
+    .mark(
+        Line::new()
+            .x_with(col("date"), |c| c
+                .scale_with::<Time>(|s| s)
+                .axis(|a| a.title("Date"))
+            )
+            .y_with(col("price"), |c| c
+                .axis(|a| a.title("Price (USD)").format("$.0f"))
+            )
+            .stroke_with(col("symbol"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Stock Symbol"))
+            })
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
+
+### Light Minimalist Theme
+
+A clean, airy theme with subtle colors and generous whitespace. Ideal for presentations and reports where clarity is paramount.
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+let ctx = SessionContext::new();
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    ?;
+
+let css = r#"
+    :root {
+        font-family: "SF Pro Display", -apple-system, sans-serif;
+        --base-font-size: 12px;
+        font-size: var(--base-font-size);
+    }
+
+    canvas {
+        background-color: #ffffff;
+        margin: 20px;
+    }
+
+    plot {
+        background-color: #fafafa;
+    }
+
+    chart-title {
+        color: #374151;
+        font-weight: 300;
+        font-size: 1.6rem;
+    }
+
+    chart-subtitle {
+        color: #9ca3af;
+        font-weight: 300;
+        font-size: 1.0rem;
+    }
+
+    axis domain {
+        stroke: #e5e7eb;
+        stroke-width: 1.0;
+    }
+
+    axis tick {
+        stroke: #e5e7eb;
+        size: 4.0;
+    }
+
+    axis title {
+        color: #6b7280;
+        font-weight: 400;
+        font-size: 0.95rem;
+    }
+
+    axis label {
+        color: #9ca3af;
+        font-weight: 300;
+        font-size: 0.85rem;
+        padding: 5;
+    }
+
+    axis grid {
+        stroke: #f3f4f6;
+        opacity: 0.6;
+        stroke-width: 0.5;
+    }
+
+    legend title {
+        color: #6b7280;
+        font-weight: 400;
+        font-size: 0.95rem;
+    }
+
+    legend label {
+        color: #9ca3af;
+        font-weight: 300;
+        font-size: 0.9rem;
+    }
+
+    legend background {
+        fill: #ffffff;
+        stroke: #e5e7eb;
+        stroke-width: 1.0;
+        corner-radius: 8;
+        padding: 12;
+    }
+
+    mark[type="symbol"] {
+        size: 140;
+        shape: circle;
+        stroke-width: 0;
+        opacity: 0.75;
+        fill-discrete: #60a5fa, #34d399, #fbbf24;
+    }
+"#;
+
+let theme = Theme::from_css(css)?;
+
+let plot = Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .title("Iris Dataset - Light Minimalist Theme")
+    .subtitle("Clean design with generous whitespace")
+    .mark(
+        Symbol::new()
+            .x_with(col("sepal_length"), |c| c
+                .axis(|a| a.title("Sepal Length (cm)"))
+            )
+            .y_with(col("sepal_width"), |c| c
+                .axis(|a| a.title("Sepal Width (cm)"))
+            )
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+### High Contrast Accessibility Theme
+
+WCAG-compliant high contrast theme with bold colors and increased sizing. Designed for maximum readability and accessibility.
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+use datafusion::functions_aggregate::expr_fn::*;
+
+let ctx = SessionContext::new();
+# let movies_path = format!("{}/../tests/data/movies.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(movies_path, ParquetReadOptions::default())
+    .await
+    ?;
+
+let aggregated = df
+    .aggregate(
+        vec![col("MPAA Rating")],
+        vec![sum(col("Worldwide Gross")).alias("total_gross")],
+    )
+    ?
+    .filter(col("MPAA Rating").is_not_null())
+    ?
+    .sort(vec![col("total_gross").sort(false, false)])
+    ?;
+
+let css = r#"
+    :root {
+        font-family: "Arial", "Helvetica Neue", sans-serif;
+        --base-font-size: 14px;
+        font-size: var(--base-font-size);
+    }
+
+    canvas {
+        background-color: #000000;
+        margin: 15px;
+    }
+
+    plot {
+        background-color: #000000;
+    }
+
+    chart-title {
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 1.6rem;
+    }
+
+    chart-subtitle {
+        color: #ffffff;
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+
+    axis domain {
+        stroke: #ffffff;
+        stroke-width: 3.0;
+    }
+
+    axis tick {
+        stroke: #ffffff;
+        stroke-width: 2.5;
+        size: 8.0;
+    }
+
+    axis title {
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 1.15rem;
+    }
+
+    axis label {
+        color: #ffffff;
+        font-weight: 600;
+        font-size: 1.0rem;
+        padding: 6;
+    }
+
+    axis grid {
+        stroke: #555555;
+        opacity: 1.0;
+        stroke-width: 1.5;
+    }
+
+    legend title {
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 1.15rem;
+    }
+
+    legend label {
+        color: #ffffff;
+        font-weight: 600;
+        font-size: 1.05rem;
+    }
+
+    legend background {
+        fill: #1a1a1a;
+        stroke: #ffffff;
+        stroke-width: 3.0;
+        corner-radius: 4;
+        padding: 12;
+    }
+
+    mark[type="rect"] {
+        stroke: #000000;
+        stroke-width: 3.0;
+        fill-discrete: #00ff00, #ffff00, #ff00ff, #00ffff, #ff0000;
+    }
+"#;
+
+let theme = Theme::from_css(css)?;
+
+let plot = Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(aggregated)
+    .title("Movie Revenue by Rating - High Contrast Theme")
+    .subtitle("WCAG-compliant colors with bold strokes")
+    .mark(
+        Rect::new()
+            .x_with(col("MPAA Rating"), |c| {
+                c.scale_with::<Band>(|s| s.padding_inner(0.2))
+            })
+            .x2_with(col(":x"), |c| c.band(1.0))
+            .y_with(lit(0.0), |c| c
+                .axis(|a| a.title("Total Gross Revenue").format(".2s"))
+            )
+            .y2(col("total_gross"))
+            .fill_with(col("MPAA Rating"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("MPAA Rating"))
+            })
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+### Scientific Publication Theme
+
+Grayscale with a single accent color, serif typography, and precise grid control. Print-ready theme suitable for academic publications.
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+use datafusion::functions::expr_fn::*;
+use datafusion::functions_aggregate::expr_fn::*;
+
+let ctx = SessionContext::new();
+# let weather_path = format!("{}/../tests/data/seattle-weather.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(weather_path, ParquetReadOptions::default())
+    .await
+    ?;
+
+// Extract month and aggregate average temperature
+let monthly = df
+    .select(vec![
+        date_part(lit("month"), col("date")).alias("month"),
+        col("temp_max"),
+        col("temp_min"),
+    ])
+    ?
+    .aggregate(
+        vec![col("month")],
+        vec![
+            avg(col("temp_max")).alias("avg_temp_max"),
+            avg(col("temp_min")).alias("avg_temp_min"),
+        ],
+    )
+    ?
+    .sort(vec![col("month").sort(true, false)])
+    ?;
+
+let css = r#"
+    :root {
+        font-family: "Georgia", "Times New Roman", serif;
+        --base-font-size: 11px;
+        font-size: var(--base-font-size);
+    }
+
+    canvas {
+        background-color: #ffffff;
+        margin: 12px;
+    }
+
+    plot {
+        background-color: #ffffff;
+    }
+
+    chart-title {
+        color: #000000;
+        font-weight: 400;
+        font-size: 1.4rem;
+    }
+
+    chart-subtitle {
+        color: #404040;
+        font-weight: 400;
+        font-size: 1.0rem;
+        font-style: italic;
+    }
+
+    axis domain {
+        stroke: #000000;
+        stroke-width: 1.0;
+    }
+
+    axis tick {
+        stroke: #000000;
+        stroke-width: 1.0;
+        size: 5.0;
+    }
+
+    axis title {
+        color: #000000;
+        font-weight: 400;
+        font-size: 1.05rem;
+    }
+
+    axis label {
+        color: #202020;
+        font-weight: 400;
+        font-size: 0.95rem;
+        padding: 3;
+    }
+
+    axis grid {
+        stroke: #d0d0d0;
+        opacity: 0.5;
+        stroke-width: 0.5;
+    }
+
+    legend title {
+        color: #000000;
+        font-weight: 400;
+        font-size: 1.05rem;
+    }
+
+    legend label {
+        color: #202020;
+        font-weight: 400;
+        font-size: 0.95rem;
+    }
+
+    legend background {
+        fill: none;
+        stroke: #000000;
+        stroke-width: 0.75;
+        corner-radius: 0;
+        padding: 8;
+    }
+
+    mark[type="line"] {
+        stroke-width: 1.5;
+        stroke-cap: butt;
+        stroke-join: miter;
+        stroke-discrete: #000000, #606060;
+    }
+"#;
+
+let theme = Theme::from_css(css)?;
+
+let plot = Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(monthly.clone())
+    .title("Monthly Temperature in Seattle")
+    .subtitle("Average daily high and low temperatures (2012-2015)")
+    .mark(
+        Line::new()
+            .x_with(col("month"), |c| c
+                .axis(|a| a.title("Month"))
+            )
+            .y_with(col("avg_temp_max"), |c| c
+                .axis(|a| a.title("Temperature (°F)"))
+            )
+            .stroke(lit("High"))
+    )
+    .mark(
+        Line::new()
+            .x(col("month"))
+            .y_with(col("avg_temp_min"), |c| {
+                c.scale_with::<Linear>(|s| s.zero(false))
+            })
+            .stroke_with(lit("Low"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Daily Temperature"))
+            })
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+### Modern Dashboard Theme
+
+Corporate-friendly theme with professional blue palette and compact layout. Optimized for business dashboards and executive reports.
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+let ctx = SessionContext::new();
+# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(iris_path, ParquetReadOptions::default())
+    .await
+    ?;
+
+let css = r#"
+    :root {
+        font-family: "Segoe UI", "Roboto", sans-serif;
+        --base-font-size: 11px;
+        font-size: var(--base-font-size);
+
+        --corporate-blue: #0066cc;
+        --corporate-light: #4d94ff;
+        --corporate-dark: #004080;
+    }
+
+    canvas {
+        background-color: #f5f7fa;
+        margin: 10px;
+    }
+
+    plot {
+        background-color: #ffffff;
+    }
+
+    chart-title {
+        color: #1a2332;
+        font-weight: 600;
+        font-size: 1.35rem;
+    }
+
+    chart-subtitle {
+        color: #5a6c7d;
+        font-weight: 400;
+        font-size: 0.95rem;
+    }
+
+    axis domain {
+        stroke: #cbd5e0;
+        stroke-width: 1.0;
+    }
+
+    axis tick {
+        stroke: #cbd5e0;
+        size: 4.0;
+    }
+
+    axis title {
+        color: #2d3748;
+        font-weight: 500;
+        font-size: 0.95rem;
+    }
+
+    axis label {
+        color: #4a5568;
+        font-weight: 400;
+        font-size: 0.85rem;
+        padding: 3;
+    }
+
+    axis grid {
+        stroke: #e2e8f0;
+        opacity: 0.6;
+        stroke-width: 0.5;
+    }
+
+    legend {
+        spacing: 8;
+        label-padding: 4;
+    }
+
+    legend title {
+        color: #2d3748;
+        font-weight: 500;
+        font-size: 0.95rem;
+    }
+
+    legend label {
+        color: #4a5568;
+        font-weight: 400;
+        font-size: 0.85rem;
+    }
+
+    legend background {
+        fill: #f7fafc;
+        stroke: #cbd5e0;
+        stroke-width: 1.0;
+        corner-radius: 4;
+        padding: 8;
+    }
+
+    mark[type="symbol"] {
+        stroke: white;
+        stroke-width: 1.0;
+        opacity: 0.8;
+        fill-discrete: var(--corporate-blue), #16a34a, #ea580c, #7c3aed, #dc2626;
+        size-continuous: 60, 240;
+    }
+"#;
+
+let theme = Theme::from_css(css)?;
+
+let plot = Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .title("Iris Dataset - Dashboard Theme")
+    .subtitle("Corporate styling with compact, information-dense layout")
+    .mark(
+        Symbol::new()
+            .x_with(col("sepal_length"), |c| c
+                .axis(|a| a.title("Sepal Length"))
+            )
+            .y_with(col("sepal_width"), |c| c
+                .axis(|a| a.title("Sepal Width"))
+            )
+            .fill_with(col("species"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Species"))
+            })
+            .size(120.0)
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+### CSS Variables & color-mix() Theme
+
+Demonstrates extensive use of CSS variables and `color-mix()` for maintainable, derived color palettes. All colors stem from a single base hue.
+
+```rust,render
+use avenger_chart::prelude::*;
+
+let ctx = SessionContext::new();
+
+let css = r#"
+    :root {
+        font-family: "Inter", sans-serif;
+        --base-font-size: 12px;
+        font-size: var(--base-font-size);
+
+        /* Base palette - single hue with variations using color-mix */
+        --primary: #7c3aed;
+        --bg-light: #faf5ff;
+        --bg-dark: #3b0764;
+
+        /* Derived colors using color-mix */
+        --primary-light: color-mix(in srgb, var(--primary) 40%, white 60%);
+        --primary-lighter: color-mix(in srgb, var(--primary) 20%, white 80%);
+        --primary-dark: color-mix(in srgb, var(--primary) 80%, black 20%);
+
+        /* Text colors derived from background */
+        --text-on-light: color-mix(in srgb, var(--bg-light) 0%, black 90%);
+        --text-muted: color-mix(in srgb, var(--text-on-light) 60%, var(--bg-light) 40%);
+
+        /* Grid and borders */
+        --grid: color-mix(in srgb, var(--bg-light) 90%, var(--text-on-light) 10%);
+        --border: color-mix(in srgb, var(--bg-light) 70%, var(--primary) 30%);
+
+        /* Categorical palette derived from primary */
+        --cat-1: var(--primary);
+        --cat-2: color-mix(in srgb, var(--primary) 70%, #f59e0b 30%);
+        --cat-3: color-mix(in srgb, var(--primary) 70%, #10b981 30%);
+        --cat-4: color-mix(in srgb, var(--primary) 70%, #3b82f6 30%);
+        --cat-5: color-mix(in srgb, var(--primary) 70%, #ef4444 30%);
+    }
+
+    canvas {
+        background-color: var(--bg-light);
+        margin: 15px;
+    }
+
+    plot {
+        background-color: white;
+    }
+
+    chart-title {
+        color: var(--text-on-light);
+        font-weight: 600;
+        font-size: 1.5rem;
+    }
+
+    chart-subtitle {
+        color: var(--text-muted);
+        font-weight: 400;
+        font-size: 1.0rem;
+    }
+
+    axis domain {
+        stroke: var(--border);
+        stroke-width: 1.5;
+    }
+
+    axis tick {
+        stroke: var(--border);
+        size: 5.0;
+    }
+
+    axis title {
+        color: var(--text-on-light);
+        font-weight: 500;
+        font-size: 1.0rem;
+    }
+
+    axis label {
+        color: var(--text-muted);
+        font-weight: 400;
+        font-size: 0.9rem;
+    }
+
+    axis grid {
+        stroke: var(--grid);
+        opacity: 0.7;
+        stroke-width: 0.5;
+    }
+
+    legend title {
+        color: var(--text-on-light);
+        font-weight: 500;
+        font-size: 1.0rem;
+    }
+
+    legend label {
+        color: var(--text-muted);
+        font-weight: 400;
+        font-size: 0.9rem;
+    }
+
+    legend background {
+        fill: var(--primary-lighter);
+        stroke: var(--border);
+        stroke-width: 1.5;
+        corner-radius: 8;
+        padding: 10;
+    }
+
+    mark[type="rect"] {
+        stroke: white;
+        stroke-width: 2.0;
+        fill-discrete: var(--cat-1), var(--cat-2), var(--cat-3), var(--cat-4), var(--cat-5);
+    }
+"#;
+
+let theme = Theme::from_css(css)?;
+
+let plot = Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(datasets::categorical_bars(&ctx))
+    .title("CSS Variables & color-mix() - Maintainable Theme")
+    .subtitle("All colors derived from a single base hue using color-mix()")
+    .mark(
+        Rect::new()
+            .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(col("value"))
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Category"))
+            })
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+### Responsive Media Queries Theme
+
+Adaptive theme that responds to canvas height with compact vs. spacious styling. Demonstrates CSS media queries for responsive design with parameters.
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+use datafusion::common::ScalarValue;
+use indexmap::IndexMap;
+
+let ctx = SessionContext::new();
+# let stocks_path = format!("{}/../tests/data/stocks.parquet", env!("CARGO_MANIFEST_DIR"));
+let df = ctx
+    .read_parquet(stocks_path, ParquetReadOptions::default())
+    .await
+    ?;
+
+let css = r#"
+    :root {
+        font-family: "Inter", sans-serif;
+        font-size: 12px;
+    }
+
+    canvas {
+        background-color: #ffffff;
+        margin: 15px;
+    }
+
+    chart-title {
+        color: #1f2937;
+        font-weight: 500;
+        font-size: 1.4rem;
+    }
+
+    chart-subtitle {
+        color: #6b7280;
+        font-weight: 400;
+        font-size: 1.0rem;
+    }
+
+    axis domain {
+        stroke: #d1d5db;
+        stroke-width: 1.0;
+    }
+
+    axis title {
+        color: #374151;
+        font-weight: 500;
+        font-size: 1.0rem;
+    }
+
+    axis label {
+        color: #6b7280;
+        font-weight: 400;
+        font-size: 0.9rem;
+    }
+
+    axis grid {
+        stroke: #e5e7eb;
+        opacity: 0.5;
+    }
+
+    legend title {
+        color: #374151;
+        font-weight: 500;
+        font-size: 1.0rem;
+    }
+
+    legend label {
+        color: #6b7280;
+        font-weight: 400;
+        font-size: 0.9rem;
+    }
+
+    legend background {
+        fill: #f9fafb;
+        stroke: #d1d5db;
+        stroke-width: 1.0;
+        corner-radius: 6;
+    }
+
+    legend {
+        spacing: 8;
+        label-padding: 4;
+    }
+
+    mark[type="line"] {
+        stroke-width: 2.0;
+        stroke-cap: round;
+        stroke-discrete: #3b82f6, #10b981, #f59e0b, #ef4444, #8b5cf6;
+    }
+
+    /* Compact layout for short canvases */
+    @media (height < 300px) {
+        :root {
+            font-size: 10px;
+        }
+
+        chart-title {
+            color: #ef4444;
+        }
+
+        legend {
+            spacing: 2;
+            label-padding: 2;
+        }
+
+        guide {
+            background-color: rgba(254, 202, 202, 0.3);
+        }
+    }
+
+    /* Spacious layout for tall canvases */
+    @media (height >= 300px) {
+        :root {
+            font-size: 14px;
+        }
+
+        chart-title {
+            color: #10b981;
+        }
+
+        legend {
+            spacing: 12;
+            label-padding: 6;
+        }
+
+        guide {
+            background-color: rgba(187, 247, 208, 0.3);
+        }
+    }
+"#;
+
+let theme = Theme::from_css(css)?;
+
+// Define height parameter with default value
+let height = Param::new("height", ScalarValue::from(300.0));
+
+let plot = Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .add_param(height.clone())
+    .canvas_size(600.0, &height)
+    .title("Responsive Theme - Height-Based Styling")
+    .subtitle("Font sizes, spacing, and line widths adapt to canvas height")
+    .mark(
+        Line::new()
+            .x_with(col("date"), |c| c
+                .scale_with::<Time>(|s| s)
+                .axis(|a| a.title("Date"))
+            )
+            .y_with(col("price"), |c| c
+                .axis(|a| a.title("Price (USD)"))
+            )
+            .stroke_with(col("symbol"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Stock"))
+            })
+    );
+
+let compiled = plot.compile(&ctx).await?;
+
+// Render at short height - compact styling
+let mut params_compact = IndexMap::new();
+params_compact.insert("height".to_string(), ScalarValue::from(250.0));
+let compact = compiled.evaluate(&ctx, Some(params_compact)).await?;
+
+// Render at tall height - spacious styling
+let mut params_spacious = IndexMap::new();
+params_spacious.insert("height".to_string(), ScalarValue::from(400.0));
+let spacious = compiled.evaluate(&ctx, Some(params_spacious)).await?;
+
+Ok((compact, spacious))
+```
+
+These complete theme examples showcase the full power of CSS-based theming in Avenger Chart. Each theme is production-ready and can be adapted to your specific needs by modifying the CSS variables and selectors.
 
 ## Selector Reference
 
