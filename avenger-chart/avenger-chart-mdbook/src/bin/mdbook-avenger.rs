@@ -271,14 +271,16 @@ fn is_render_fence(info: &str) -> bool {
     let normalized = info.replace(',', " ");
     let mut saw_rust = false;
     let mut saw_render = false;
+    let mut saw_ignore = false;
     for token in normalized.split_whitespace() {
         match token {
             "rust" | "" => saw_rust = true,
             "render" => saw_render = true,
+            "ignore" => saw_ignore = true,
             _ => {}
         }
     }
-    saw_rust && saw_render
+    saw_rust && saw_render && !saw_ignore
 }
 
 fn needs_render(output: &Path, source: &Path) -> Result<bool> {
