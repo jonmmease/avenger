@@ -644,6 +644,42 @@ impl Theme {
         legend_ctx
     }
 
+    /// Check if there are media queries affecting a specific property for an element
+    pub fn has_media_queries_for_property(&self, context: &ThemeContext, property: &str) -> bool {
+        use crate::theme::element::CssElement;
+
+        // Convert ThemeContext to CssElement for selector matching
+        let element = CssElement::from(context);
+        let mut selector_caches = selectors::matching::SelectorCaches::default();
+        let mut matching_context = selectors::context::MatchingContext::new(
+            selectors::context::MatchingMode::Normal,
+            None,
+            &mut selector_caches,
+            selectors::context::QuirksMode::NoQuirks,
+            selectors::context::NeedsSelectorFlags::No,
+            selectors::context::MatchingForInvalidation::No,
+        );
+
+        // Check if any rule with media conditions matches this element and has the property
+        for rule in &self.rules {
+            if rule.media_condition.is_some() {
+                let is_match = selectors::matching::matches_selector(
+                    &rule.selector,
+                    0,
+                    None,
+                    &element,
+                    &mut matching_context,
+                );
+
+                if is_match && rule.declarations.contains_key(property) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     /// Build an axis context with optional coordinate and axis types
     pub fn axis_context(&self, coord_type: Option<&str>, axis_type: Option<&str>) -> ThemeContext {
         self.axis_context_with_params(coord_type, axis_type, IndexMap::new())

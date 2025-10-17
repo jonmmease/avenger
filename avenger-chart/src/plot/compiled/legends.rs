@@ -440,21 +440,31 @@ impl CompiledPlot {
             );
 
             // Apply legend position from theme if not explicitly set
+            // Don't set position at compile time if there are media queries -
+            // it will be determined at evaluate time with actual parameters
             if matches!(legend.position, crate::maybe::Maybe::Unset) {
-                if let Some(theme_value) = theme.query(&legend_ctx, "position") {
-                    if let Some(position_str) = theme_value.as_string() {
-                        let position = match position_str.to_lowercase().as_str() {
-                            "top" => Some(crate::legend::LegendPosition::Top),
-                            "bottom" => Some(crate::legend::LegendPosition::Bottom),
-                            "left" => Some(crate::legend::LegendPosition::Left),
-                            "right" => Some(crate::legend::LegendPosition::Right),
-                            _ => None,
-                        };
-                        if let Some(pos) = position {
-                            *legend = legend.clone().position(pos);
+                // Check if theme has any media queries that affect legend position
+                let has_media_queries = theme.has_media_queries_for_property(&legend_ctx, "position");
+
+                if !has_media_queries {
+                    // No media queries, apply static position from theme
+                    if let Some(theme_value) = theme.query(&legend_ctx, "position") {
+                        if let Some(position_str) = theme_value.as_string() {
+                            let position = match position_str.to_lowercase().as_str() {
+                                "top" => Some(crate::legend::LegendPosition::Top),
+                                "bottom" => Some(crate::legend::LegendPosition::Bottom),
+                                "left" => Some(crate::legend::LegendPosition::Left),
+                                "right" => Some(crate::legend::LegendPosition::Right),
+                                _ => None,
+                            };
+                            if let Some(pos) = position {
+                                *legend = legend.clone().position(pos);
+                            }
                         }
                     }
                 }
+                // If there are media queries, leave position unset - it will be
+                // determined at evaluate time
             }
 
             // Note: Don't apply theme background settings - they're only for default legends
@@ -776,7 +786,50 @@ impl CompiledPlot {
                         let expr = node.to_expr(ctx)?;
                         evaluate_legend_position_expr(&expr, ctx, params).await?
                     } else {
-                        crate::legend::LegendPosition::Right
+                        // Position not set - check if theme has a position with runtime params
+                        // This handles media queries that depend on runtime parameters
+                        if let Some(theme) = &self.theme {
+                            // Determine legend type for theme context
+                            let legend_type = if let Some(scale) = scales.get(primary_channel.name.as_str()) {
+                                if let Some(mark) = self
+                                    .marks
+                                    .iter()
+                                    .find(|m| m.data_context().channels().contains_key(primary_channel.name.as_str()))
+                                {
+                                    mark.preferred_legend_renderer(&primary_channel.name, scale.configured())
+                                        .map(|renderer| match renderer.name() {
+                                            "CompiledSymbolLegend" => "symbol",
+                                            "CompiledLineLegend" => "line",
+                                            "CompiledColorbar" => "colorbar",
+                                            "CompiledRectLegend" => "rect",
+                                            _ => "symbol",
+                                        })
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+
+                            let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
+                            if let Some(theme_value) = theme.query(&legend_ctx, "position") {
+                                if let Some(position_str) = theme_value.as_string() {
+                                    match position_str.to_lowercase().as_str() {
+                                        "top" => crate::legend::LegendPosition::Top,
+                                        "bottom" => crate::legend::LegendPosition::Bottom,
+                                        "left" => crate::legend::LegendPosition::Left,
+                                        "right" => crate::legend::LegendPosition::Right,
+                                        _ => crate::legend::LegendPosition::Right,
+                                    }
+                                } else {
+                                    crate::legend::LegendPosition::Right
+                                }
+                            } else {
+                                crate::legend::LegendPosition::Right
+                            }
+                        } else {
+                            crate::legend::LegendPosition::Right
+                        }
                     };
                 legend_measurements.insert(
                     primary_channel.name.clone(),
