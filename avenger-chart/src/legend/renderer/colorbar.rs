@@ -113,7 +113,23 @@ impl LegendRenderer for CompiledColorbar {
             let expr = node.to_expr(ctx)?;
             evaluate_legend_position_expr(&expr, ctx, params).await?
         } else {
-            crate::legend::LegendPosition::Right // default
+            // Position not set - check theme with runtime params for media queries
+            let legend_ctx = theme.legend_context_with_params(Some("colorbar"), params.clone());
+            if let Some(theme_value) = theme.query(&legend_ctx, "position") {
+                if let Some(position_str) = theme_value.as_string() {
+                    match position_str.to_lowercase().as_str() {
+                        "top" => crate::legend::LegendPosition::Top,
+                        "bottom" => crate::legend::LegendPosition::Bottom,
+                        "left" => crate::legend::LegendPosition::Left,
+                        "right" => crate::legend::LegendPosition::Right,
+                        _ => crate::legend::LegendPosition::Right,
+                    }
+                } else {
+                    crate::legend::LegendPosition::Right
+                }
+            } else {
+                crate::legend::LegendPosition::Right // default
+            }
         };
 
         // Map position to ColorbarOrientation
@@ -162,13 +178,17 @@ impl LegendRenderer for CompiledColorbar {
             tick_color: None,
         };
 
+        // Create legend context for theme queries
+        let legend_ctx = theme.legend_context_with_params(Some("colorbar"), params.clone());
+
         // Evaluate format_number expression
         if let Some(node) = config.format_number.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             legend_config.format_number = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
 
-        // Evaluate and apply legend colors from config
+        // Evaluate and apply legend colors (from config or theme)
+        // Title color
         if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let title_color_str = evaluate_string_expr(&expr, ctx, params).await?;
@@ -177,7 +197,20 @@ impl LegendRenderer for CompiledColorbar {
             {
                 legend_config.title_color = Some(c);
             }
+        } else {
+            // Check theme for title color
+            let title_ctx = legend_ctx.child("title");
+            if let Some(color_value) = theme.query(&title_ctx, "color") {
+                if let Some(color_str) = color_value.as_string() {
+                    if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
+                        crate::utils::parse_color_string_strict(&color_str)
+                    {
+                        legend_config.title_color = Some(c);
+                    }
+                }
+            }
         }
+
         // Use tick_color for colorbar axis labels (not label_color which is for discrete legends)
         if let Some(node) = config.tick_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
@@ -187,9 +220,22 @@ impl LegendRenderer for CompiledColorbar {
             {
                 legend_config.label_color = Some(c);
             }
+        } else {
+            // Check theme for tick color
+            let tick_ctx = legend_ctx.child("tick");
+            if let Some(color_value) = theme.query(&tick_ctx, "color") {
+                if let Some(color_str) = color_value.as_string() {
+                    if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
+                        crate::utils::parse_color_string_strict(&color_str)
+                    {
+                        legend_config.label_color = Some(c);
+                    }
+                }
+            }
         }
 
-        // Evaluate and set typography from legend config
+        // Evaluate and set typography (from config or theme)
+        // Title font family
         if let Some(node) = config
             .title_font_family
             .as_option()
@@ -197,22 +243,35 @@ impl LegendRenderer for CompiledColorbar {
         {
             let expr = node.to_expr(ctx)?;
             legend_config.title_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
+        } else {
+            // Check theme for title font family
+            let title_ctx = legend_ctx.child("title");
+            if let Some(family_value) = theme.query(&title_ctx, "font-family") {
+                if let Some(family_str) = family_value.as_string() {
+                    legend_config.title_font_family = Some(family_str.to_string());
+                }
+            }
         }
+
+        // Title font size
         if let Some(node) = config.title_font_size.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             legend_config.title_font_size = Some(evaluate_f32_expr(&expr, ctx, params).await?);
+        } else {
+            // Check theme for title font size if not in config
+            let title_ctx = legend_ctx.child("title");
+            if let Some(size) = theme.font_size(&title_ctx) {
+                legend_config.title_font_size = Some(size);
+            }
         }
-        // Override font sizes with params
-        let legend_ctx = theme.legend_context_with_params(Some("colorbar"), params.clone());
-        let title_ctx = legend_ctx.child("title");
-        let tick_ctx = legend_ctx.child("tick");
 
-        if let Some(size) = theme.font_size(&title_ctx) {
-            legend_config.title_font_size = Some(size);
-        }
+        // Also check for label font size from theme
+        let tick_ctx = legend_ctx.child("tick");
         if let Some(size) = theme.font_size(&tick_ctx) {
             legend_config.label_font_size = Some(size);
         }
+
+        // Title font weight
         if let Some(node) = config
             .title_font_weight
             .as_option()
@@ -221,19 +280,44 @@ impl LegendRenderer for CompiledColorbar {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
             legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        } else {
+            // Check theme for title font weight
+            let title_ctx = legend_ctx.child("title");
+            if let Some(weight) = theme.font_weight(&title_ctx) {
+                legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            }
         }
+
         // Use tick typography for colorbar axis labels
+        // Tick font family
         if let Some(node) = config.tick_font_family.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             legend_config.label_font_family = Some(evaluate_string_expr(&expr, ctx, params).await?);
+        } else {
+            // Check theme for tick font family
+            let tick_ctx = legend_ctx.child("tick");
+            if let Some(family_value) = theme.query(&tick_ctx, "font-family") {
+                if let Some(family_str) = family_value.as_string() {
+                    legend_config.label_font_family = Some(family_str.to_string());
+                }
+            }
         }
+
+        // Tick font weight
         if let Some(node) = config.tick_font_weight.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
             legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        } else {
+            // Check theme for tick font weight
+            let tick_ctx = legend_ctx.child("tick");
+            if let Some(weight) = theme.font_weight(&tick_ctx) {
+                legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            }
         }
 
-        // Evaluate and apply legend background styling if provided
+        // Evaluate and apply legend background styling (from config or theme)
+        // Background padding
         if let Some(node) = config
             .background_padding
             .as_option()
@@ -241,7 +325,18 @@ impl LegendRenderer for CompiledColorbar {
         {
             let expr = node.to_expr(ctx)?;
             legend_config.background_padding = Some(evaluate_f32_expr(&expr, ctx, params).await?);
+        } else {
+            // Check theme for background padding
+            let background_ctx = legend_ctx.child("background");
+            if let Some(padding) = theme
+                .query(&background_ctx, "padding")
+                .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
+            {
+                legend_config.background_padding = Some(padding);
+            }
         }
+
+        // Background corner radius
         if let Some(node) = config
             .background_corner_radius
             .as_option()
@@ -250,14 +345,37 @@ impl LegendRenderer for CompiledColorbar {
             let expr = node.to_expr(ctx)?;
             legend_config.background_corner_radius =
                 Some(evaluate_f32_expr(&expr, ctx, params).await?);
+        } else {
+            // Check theme for corner radius
+            let background_ctx = legend_ctx.child("background");
+            if let Some(radius) = theme
+                .query(&background_ctx, "corner-radius")
+                .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
+            {
+                legend_config.background_corner_radius = Some(radius);
+            }
         }
+
+        // Background fill
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
             if let Some(color) = crate::utils::parse_color_string(&fill_str) {
                 legend_config.background_fill = Some(color);
             }
+        } else {
+            // Check theme for background fill
+            let background_ctx = legend_ctx.child("background");
+            if let Some(fill_value) = theme.query(&background_ctx, "fill") {
+                if let Some(fill_str) = fill_value.as_string() {
+                    if let Some(color) = crate::utils::parse_color_string(&fill_str) {
+                        legend_config.background_fill = Some(color);
+                    }
+                }
+            }
         }
+
+        // Background stroke
         if let Some(node) = config
             .background_stroke
             .as_option()
@@ -267,6 +385,16 @@ impl LegendRenderer for CompiledColorbar {
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
             if let Some(color) = crate::utils::parse_color_string(&stroke_str) {
                 legend_config.background_stroke = Some(color);
+            }
+        } else {
+            // Check theme for background stroke
+            let background_ctx = legend_ctx.child("background");
+            if let Some(stroke_value) = theme.query(&background_ctx, "stroke") {
+                if let Some(stroke_str) = stroke_value.as_string() {
+                    if let Some(color) = crate::utils::parse_color_string(&stroke_str) {
+                        legend_config.background_stroke = Some(color);
+                    }
+                }
             }
         }
 
