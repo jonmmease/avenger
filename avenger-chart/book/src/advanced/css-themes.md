@@ -1389,7 +1389,7 @@ Ok(evaluated)
 
 ### Responsive Media Queries Theme
 
-Adaptive theme that responds to canvas height with compact vs. spacious styling. Demonstrates CSS media queries for responsive design with parameters.
+Adaptive theme that responds to canvas height with compact vs. spacious styling. Demonstrates CSS media queries for responsive design with parameters. The legend position moves to the bottom when height exceeds the threshold.
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -1511,6 +1511,7 @@ let css = r#"
         }
 
         legend {
+            position: bottom;
             spacing: 12;
             label-padding: 6;
         }
@@ -1523,16 +1524,18 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-// Define height parameter with default value
+// Define width and height parameters with default values
+let width = Param::new("width", ScalarValue::from(600.0));
 let height = Param::new("height", ScalarValue::from(300.0));
 
 let plot = Plot::<Cartesian>::new()
     .theme(theme)
     .data(df)
+    .add_param(width.clone())
     .add_param(height.clone())
-    .canvas_size(600.0, &height)
+    .canvas_size(&width, &height)
     .title("Responsive Theme - Height-Based Styling")
-    .subtitle("Font sizes, spacing, and line widths adapt to canvas height")
+    .subtitle("Font sizes, spacing, and legend position adapt to canvas height")
     .mark(
         Line::new()
             .x_with(col("date"), |c| c
@@ -1552,11 +1555,13 @@ let compiled = plot.compile(&ctx).await?;
 
 // Render at short height - compact styling
 let mut params_compact = IndexMap::new();
+params_compact.insert("width".to_string(), ScalarValue::from(600.0));
 params_compact.insert("height".to_string(), ScalarValue::from(250.0));
 let compact = compiled.evaluate(&ctx, Some(params_compact)).await?;
 
 // Render at tall height - spacious styling
 let mut params_spacious = IndexMap::new();
+params_spacious.insert("width".to_string(), ScalarValue::from(600.0));
 params_spacious.insert("height".to_string(), ScalarValue::from(400.0));
 let spacious = compiled.evaluate(&ctx, Some(params_spacious)).await?;
 
