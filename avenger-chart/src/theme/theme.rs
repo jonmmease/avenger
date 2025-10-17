@@ -771,10 +771,32 @@ impl Theme {
     }
 
     /// Get font weight for a context
+    /// Get font-weight for a context, converting CSS keywords to numeric values
     pub fn font_weight(&self, context: &ThemeContext) -> Option<f32> {
-        self.query(context, "font-weight")
-            .and_then(|v| v.as_number())
-            .map(|n| n as f32)
+        self.query(context, "font-weight").and_then(|v| {
+            match v {
+                ThemeValue::Number(n) => Some(n as f32),
+                ThemeValue::String(s) => {
+                    // Convert CSS font-weight keywords to numeric values
+                    match s.to_lowercase().as_str() {
+                        "thin" => Some(100.0),
+                        "hairline" => Some(100.0),
+                        "extralight" | "extra-light" | "ultra-light" | "ultralight" => Some(200.0),
+                        "light" => Some(300.0),
+                        "normal" | "regular" => Some(400.0),
+                        "medium" => Some(500.0),
+                        "semibold" | "semi-bold" | "demi-bold" | "demibold" => Some(600.0),
+                        "bold" => Some(700.0),
+                        "extrabold" | "extra-bold" | "ultra-bold" | "ultrabold" => Some(800.0),
+                        "black" | "heavy" => Some(900.0),
+                        "extra-black" | "ultra-black" => Some(950.0),
+                        // Try parsing as number if not a keyword
+                        _ => s.parse::<f32>().ok(),
+                    }
+                }
+                _ => None,
+            }
+        })
     }
 
     /// Get text-align for a context
@@ -2591,6 +2613,50 @@ mod tests {
         ctx_with_small_params.params = small_params;
         let small_size = theme.font_size(&ctx_with_small_params);
         assert_eq!(small_size, Some(12.0), "Title should be 12px with 8px base");
+    }
+
+    #[test]
+    fn test_font_weight_keyword_conversion() {
+        // Test that CSS font-weight keywords are converted to numeric values
+        let css = r#"
+            title { font-weight: bold; }
+            label { font-weight: normal; }
+            tick { font-weight: light; }
+            axis { font-weight: 600; }
+            legend { font-weight: semi-bold; }
+            text { font-weight: heavy; }
+            guide { font-weight: extra-light; }
+        "#;
+
+        let theme = Theme::from_css(css).expect("Failed to create theme from CSS");
+
+        // Test bold -> 700
+        let bold_ctx = ThemeContext::new("title", IndexMap::new());
+        assert_eq!(theme.font_weight(&bold_ctx), Some(700.0));
+
+        // Test normal -> 400
+        let normal_ctx = ThemeContext::new("label", IndexMap::new());
+        assert_eq!(theme.font_weight(&normal_ctx), Some(400.0));
+
+        // Test light -> 300
+        let light_ctx = ThemeContext::new("tick", IndexMap::new());
+        assert_eq!(theme.font_weight(&light_ctx), Some(300.0));
+
+        // Test numeric value passes through
+        let numeric_ctx = ThemeContext::new("axis", IndexMap::new());
+        assert_eq!(theme.font_weight(&numeric_ctx), Some(600.0));
+
+        // Test semi-bold -> 600
+        let semi_bold_ctx = ThemeContext::new("legend", IndexMap::new());
+        assert_eq!(theme.font_weight(&semi_bold_ctx), Some(600.0));
+
+        // Test heavy -> 900 (avoiding "black" which is also a color)
+        let heavy_ctx = ThemeContext::new("text", IndexMap::new());
+        assert_eq!(theme.font_weight(&heavy_ctx), Some(900.0));
+
+        // Test extra-light -> 200
+        let extra_light_ctx = ThemeContext::new("guide", IndexMap::new());
+        assert_eq!(theme.font_weight(&extra_light_ctx), Some(200.0));
     }
 
     #[test]
