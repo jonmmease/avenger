@@ -30,6 +30,10 @@ fi
 
 echo ""
 echo "🔨 Building mdbook-avenger preprocessor..."
+# Clean the preprocessor package to avoid stale artifacts
+echo "  - Cleaning mdbook-avenger package cache"
+cargo clean --manifest-path ../avenger-chart-mdbook/Cargo.toml --quiet
+
 # Build the preprocessor first to ensure we have the latest version
 cargo build --quiet --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger
 
