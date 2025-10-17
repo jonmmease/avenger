@@ -1,6 +1,7 @@
 # mdBook build output
 book/
 build.log
+*.log
 
 # Backup files
 **/*.md.bak
