@@ -11,11 +11,32 @@ The separation allows you to:
 
 This architecture is similar to how databases prepare and execute queries, or how compilers separate parse/optimize from execution.
 
+## The Three Types
+
+Avenger-Chart's workflow involves three distinct types:
+
+1. **`Plot`** - The specification (not serializable)
+   - Builder pattern for defining the chart
+   - Contains DataFusion DataFrames and expressions
+   - Represents "what to visualize"
+
+2. **`CompiledPlot`** - The optimized plan (serializable)
+   - Result of `plot.compile()`
+   - Contains query plans and scale configurations
+   - Independent of actual data
+   - Can be reused with different parameter values
+
+3. **`EvaluatedPlot`** - The visual output (serializable)
+   - Result of `compiled.evaluate()`
+   - Contains the scene graph (marks, axes, legends)
+   - Independent of rendering backend
+   - Ready for PNG, SVG, or interactive display
+
 ## The Pipeline
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Plot Specification                                         │
+│  Plot (not serializable)                                    │
 │  .mark(...).data(...).add_param(...)                        │
 └────────────┬────────────────────────────────────────────────┘
              │
@@ -25,11 +46,11 @@ This architecture is similar to how databases prepare and execute queries, or ho
     │                │     - Infer scales
     │   plot.compile │     - Build query plan
     │                │     - Optimize AST
-    └────────┬───────┘
+    └────────┬───────┘     - NO data access (currently)
              │
              ▼
 ┌────────────────────────────────────────────────────────────┐
-│  Compiled Plot                                             │
+│  CompiledPlot (serializable)                               │
 │  Ready for execution with different params/data            │
 └────────────┬───────────────────────────────────────────────┘
              │
@@ -43,8 +64,8 @@ This architecture is similar to how databases prepare and execute queries, or ho
              │
              ▼
 ┌────────────────────────────────────────────────────────────┐
-│  Evaluated Plot                                            │
-│  Scene graph ready for rendering                          │
+│  EvaluatedPlot (serializable, backend-independent)         │
+│  Scene graph ready for any renderer (PNG, SVG, etc.)       │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -73,7 +94,9 @@ The `compile()` method performs these operations:
    - Register parameter placeholders
    - Prepare for runtime value substitution
 
-**Key Point**: Compilation happens without accessing the actual data - it only analyzes the structure and types.
+**Key Point**: Currently, compilation happens **without accessing the actual data** - it only analyzes the structure, types, and query logic. This makes compilation fast and data-independent.
+
+**Future Enhancement**: Compilation may be extended to support pre-evaluating data transformations that don't depend on parameter values (such as filtering and aggregation). This would allow even more work to be done once at compile time, further improving evaluation performance.
 
 ### Evaluate Stage
 
@@ -107,13 +130,18 @@ The `evaluate()` method performs these operations:
 
 For a single chart, the two stages are simple:
 
-```rust
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")));
 
 let compiled = plot.compile(&ctx).await?;
 let evaluated = compiled.evaluate(&ctx, None).await?;
+# Ok(())
+# }
 ```
 
 Typical timing (approximate):
@@ -124,12 +152,18 @@ Typical timing (approximate):
 
 The real benefit appears when rendering multiple times:
 
-```rust
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use avenger_chart::param::Param;
+# use datafusion::prelude::*;
+# use datafusion::scalar::ScalarValue;
+# use indexmap::indexmap;
+# async fn example(ctx: &SessionContext, df: DataFrame, threshold: Param) -> Result<(), Box<dyn std::error::Error>> {
 // Compile once
 let plot = Plot::<Cartesian>::new()
     .data(df)
     .add_param(threshold)
-    .mark(/* ... uses threshold parameter ... */);
+    .mark(Symbol::new().x(col("x")).y(col("y")));
 
 let compiled = plot.compile(&ctx).await?;  // 5ms
 
@@ -145,6 +179,8 @@ for value in [20.0, 40.0, 60.0, 80.0] {
 
 // Total: 5ms + (4 × 10ms) = 45ms
 // vs recompiling each time: 4 × (5ms + 10ms) = 60ms
+# Ok(())
+# }
 ```
 
 The savings multiply with more variations!
@@ -167,14 +203,24 @@ You **do not** need to recompile when:
 
 ### Example 1: Interactive Dashboard
 
-```rust
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use avenger_chart::param::Param;
+# use datafusion::prelude::*;
+# use datafusion::scalar::ScalarValue;
+# use indexmap::indexmap;
+# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+# fn get_user_selected_color() -> String { String::new() }
+# struct Renderer;
+# impl Renderer { fn display(&self, _: &avenger_chart::plot::EvaluatedPlot) {} }
+# let renderer = Renderer;
 // Setup - compile once
 let color_param = Param::new("highlight_color", ScalarValue::Utf8(Some("#ff0000".into())));
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
     .add_param(color_param.clone())
-    .mark(/* ... uses color_param ... */);
+    .mark(Symbol::new().x(col("x")).y(col("y")).fill(color_param.expr()));
 
 let compiled = plot.compile(&ctx).await?;
 
@@ -188,12 +234,22 @@ loop {
 
     let evaluated = compiled.evaluate(&ctx, Some(params)).await?;
     renderer.display(&evaluated);  // Update display
+#   break; // Exit loop for example
 }
+# Ok(())
+# }
 ```
 
 ### Example 2: Data Animation
 
-```rust
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use avenger_chart::param::Param;
+# use datafusion::prelude::*;
+# use datafusion::scalar::ScalarValue;
+# use indexmap::indexmap;
+# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+# fn save_frame(_frame: i32, _evaluated: &avenger_chart::plot::EvaluatedPlot) {}
 // Compile once with time parameter
 let time_param = Param::new("current_time", ScalarValue::from(0.0));
 
@@ -221,11 +277,21 @@ for frame in 0..100 {
     let evaluated = compiled.evaluate(&ctx, Some(params)).await?;
     save_frame(frame, &evaluated);
 }
+# Ok(())
+# }
 ```
 
 ### Example 3: Batch Export
 
-```rust
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use avenger_chart::param::Param;
+# use avenger_chart::render::WgpuRenderer;
+# use datafusion::prelude::*;
+# use datafusion::scalar::ScalarValue;
+# use indexmap::indexmap;
+# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+# let renderer = WgpuRenderer::new();
 // Generate charts for multiple regions
 let region_param = Param::new("selected_region", ScalarValue::Utf8(Some("North".into())));
 
@@ -249,25 +315,40 @@ for region in ["North", "South", "East", "West"] {
     };
 
     let evaluated = compiled.evaluate(&ctx, Some(params)).await?;
-    renderer.write_png(&evaluated, &format!("{}_sales.png", region)).await?;
+    renderer.write_png(&compiled, &ctx, Some(params), &format!("{}_sales.png", region)).await?;
 }
+# Ok(())
+# }
 ```
 
 ## Common Patterns
 
 ### Pattern: Compile Once, Render Once
 
-```rust
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use avenger_chart::render::WgpuRenderer;
+# use datafusion::prelude::*;
+# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+# let renderer = WgpuRenderer::new();
 // Simple case - no reuse needed
 let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("x")).y(col("y")));
 let compiled = plot.compile(&ctx).await?;
 let evaluated = compiled.evaluate(&ctx, None).await?;
-renderer.write_png(&evaluated, "chart.png").await?;
+renderer.write_png(&compiled, &ctx, None, "chart.png").await?;
+# Ok(())
+# }
 ```
 
 ### Pattern: Compile Once, Evaluate Many
 
-```rust
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# use datafusion::scalar::ScalarValue;
+# use indexmap::IndexMap;
+# async fn example(ctx: &SessionContext, plot: Plot<Cartesian>, values: Vec<f64>) -> Result<(), Box<dyn std::error::Error>> {
+# fn params_for(_value: f64) -> IndexMap<String, ScalarValue> { IndexMap::new() }
 // With parameters - reuse compilation
 let compiled = plot.compile(&ctx).await?;
 
@@ -275,11 +356,16 @@ for param_value in values {
     let evaluated = compiled.evaluate(&ctx, Some(params_for(param_value))).await?;
     // Render/save/display
 }
+# Ok(())
+# }
 ```
 
 ### Pattern: Different Data, Same Structure
 
-```rust
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# async fn example(ctx: &SessionContext, datasets: Vec<DataFrame>) -> Result<(), Box<dyn std::error::Error>> {
 // Same schema, different data - recompile needed
 for dataset in datasets {
     let plot = Plot::<Cartesian>::new()
@@ -290,6 +376,8 @@ for dataset in datasets {
     let evaluated = compiled.evaluate(&ctx, None).await?;
     // Render
 }
+# Ok(())
+# }
 ```
 
 ## Debugging Compilation

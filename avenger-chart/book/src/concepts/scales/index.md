@@ -166,5 +166,6 @@ See individual scale pages for scale-specific options.
 ## See Also
 
 - [Channels](../channels.md) - How to apply scales to visual channels
+- [Understanding Expressions vs Literals](../channels.md#understanding-expressions-vs-literals) - When values are scaled vs bypass scaling
 - [Legends](../legends.md) - Automatically generated scale legends
 - [Axes](../axes.md) - Scale-aware coordinate axes
