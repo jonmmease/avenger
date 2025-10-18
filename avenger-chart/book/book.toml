@@ -22,7 +22,5 @@ copyable = true
 [rust]
 edition = "2021"
 
-# Tests are run with `mdbook test`; no custom renderer needed.
-
 [preprocessor.avenger]
-command = "cargo run --quiet --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger --"
+command = "../../target/release/mdbook-avenger"

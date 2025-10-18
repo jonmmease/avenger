@@ -34,8 +34,10 @@ fn main() -> Result<()> {
         eprintln!("ERROR in mdbook-avenger preprocessor: {}", err);
         anyhow!(err)
     })?;
+
     serde_json::to_writer(std::io::stdout(), &processed)
-        .context("failed to write preprocessed book to stdout")?;
+        .context("failed to write processed book to stdout")?;
+
     Ok(())
 }
 
