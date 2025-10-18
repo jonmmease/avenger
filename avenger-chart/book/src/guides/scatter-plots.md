@@ -268,11 +268,71 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-## Symbol Padding and "Nice" Scales
+## Automatic Visual Padding
 
-Position scales automatically expand so the full symbol geometry stays inside the plot. Disabling niceness keeps the domain tight to your data; enabling niceness rounds the domain to "nice" numbers and may introduce extra breathing room.
+Avenger Chart automatically expands position scale domains to prevent symbol clipping at data boundaries. This intelligent padding considers symbol size and stroke width to ensure marks are fully visible.
 
-With nice scales enabled (rounded tick values):
+### How Automatic Padding Works
+
+When you create a scatter plot with symbols at the edges of your data range, the chart automatically:
+
+1. **Analyzes mark dimensions**: Calculates the visual extent of each symbol (radius + stroke width)
+2. **Computes required padding**: Determines how much to expand the domain in data space
+3. **Expands the domain**: Adjusts the scale domain so symbols don't get clipped
+
+**Current limitation**: Automatic padding currently works only for **Linear scales**. Other scale types (Log, Pow, Time, etc.) will be supported in future releases.
+
+### Example: Padding Prevents Clipping
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+let ctx = SessionContext::new();
+
+// Data points exactly at domain boundaries
+let batch = RecordBatch::try_from_iter(vec![
+    ("x", Arc::new(Float64Array::from(vec![0.0, 50.0, 100.0])) as _),
+    ("y", Arc::new(Float64Array::from(vec![0.0, 50.0, 100.0])) as _),
+])?;
+let df = ctx.read_batch(batch)?;
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .title("Automatic Padding (Symbols Fully Visible)")
+    .mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+            })
+            .size(300.0)  // Large symbols to show padding effect
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+Notice how symbols at (0, 0) and (100, 100) are fully visible despite being at the domain boundaries. The scale domain was automatically expanded to accommodate their visual size.
+
+### Interaction with "Nice" Scales
+
+The `nice()` setting affects how domain expansion works:
+
+**With nice scales** (`nice(true)`, the default):
+- Domain is rounded to "nice" numbers (e.g., 0, 25, 50, 75, 100)
+- Provides clean tick values
+- May add extra breathing room beyond what's needed for padding
+
+**With precise scales** (`nice(false)`):
+- Domain expands exactly enough to fit mark geometry
+- Tick values may not be round numbers
+- Minimal whitespace around data
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -284,7 +344,6 @@ let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -301,7 +360,7 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-With nice scales disabled (tight to data):
+Compare with precise domain:
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -313,7 +372,6 @@ let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -330,7 +388,31 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-Opt for `nice(false)` when you need tight framing (for example, aligning icons to the edge of a tile) and keep niceness enabled when rounded tick values improve readability.
+### When to Use Each Approach
+
+**Use `nice(true)` (default)** when:
+- ✅ Readable tick labels are important
+- ✅ Standard data visualization context
+- ✅ You want consistent, predictable axis values
+
+**Use `nice(false)` when**:
+- ✅ You need precise framing (e.g., aligning icons to tile edges)
+- ✅ Every pixel of space matters
+- ✅ Domain boundaries are already meaningful values
+
+### Technical Details
+
+The padding calculation uses a geometric solver that:
+- Converts mark sizes from pixels to data space units
+- Handles asymmetric padding (e.g., triangles pointing different directions)
+- Accounts for both symbol size and stroke width
+- Works with rotated symbols (via the `angle` channel)
+
+**Scale type support**:
+- ✅ **Linear scales**: Full automatic padding support
+- ⏳ **Other scales** (Log, Pow, Sqrt, Time, etc.): Planned for future release
+
+See the [Roadmap](../roadmap.md) for upcoming enhancements to padding support.
 
 ## Logarithmic Scales
 

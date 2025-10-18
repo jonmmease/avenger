@@ -390,6 +390,73 @@ Ok(evaluated)
 
 This creates three separate line segments where `defined` equals 1, with gaps at positions 3-4 and 8.
 
+## Automatic Visual Padding
+
+Like scatter plots, line charts benefit from automatic padding that prevents stroke clipping at data boundaries. Avenger Chart expands the domain to ensure line strokes are fully visible, even at the edges.
+
+### How Line Padding Works
+
+When lines extend to the edges of your data range, the chart automatically:
+
+1. **Analyzes stroke width**: Determines the visual extent of the line (stroke width / 2 on each side)
+2. **Computes required padding**: Calculates domain expansion needed in data space
+3. **Expands the domain**: Adjusts the scale so stroke edges don't get clipped
+
+**Current limitation**: Automatic padding currently works only for **Linear scales**. Other scale types (Log, Pow, Time, etc.) will be supported in future releases.
+
+### Example: Padding with Thick Strokes
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+let ctx = SessionContext::new();
+
+// Line touches domain boundaries at y=0 and y=100
+let batch = RecordBatch::try_from_iter(vec![
+    ("x", Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0, 3.0, 4.0])) as _),
+    ("y", Arc::new(Float64Array::from(vec![0.0, 50.0, 25.0, 75.0, 100.0])) as _),
+])?;
+let df = ctx.read_batch(batch)?;
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .title("Automatic Padding Prevents Clipping")
+    .mark(
+        Line::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false))
+            })
+            .stroke("#e74c3c")
+            .stroke_width(12.0)  // Thick stroke to show padding effect
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+Notice how the line stroke is fully visible at y=0 and y=100. Without automatic padding, half the stroke width would be clipped at these boundaries.
+
+### Why This Matters
+
+Without padding, lines with thick strokes get visually "cut off" at data extremes:
+- The top half of a 10px stroke at the maximum y-value would extend beyond the plot area and be invisible
+- The bottom half of the stroke at minimum y-value would similarly be clipped
+
+Automatic padding ensures the entire stroke is rendered within the visible plot region.
+
+**Scale type support**:
+- ✅ **Linear scales**: Full automatic padding support
+- ⏳ **Other scales** (Log, Pow, Sqrt, Time, etc.): Planned for future release
+
+See the [Roadmap](../roadmap.md) for upcoming enhancements to padding support.
+
 ## Complete Example
 
 ```rust,render
