@@ -408,6 +408,452 @@ mark {
 }
 ```
 
+## Cardinality-Based Palette Selection
+
+The `[cardinality="N"]` attribute selector allows you to define different color palettes based on the number of unique categories in your data. This powerful feature enables automatic palette optimization, ensuring you use appropriate color sets that minimize visual ambiguity and color cycling.
+
+### Why Cardinality Matters
+
+When visualizing categorical data with colors, the number of available colors should ideally match or exceed the number of categories. If your palette has fewer colors than categories, the ordinal scale will cycle back to the beginning, reusing colors for different categories and creating visual ambiguity.
+
+Cardinality-based selectors solve this by letting you define optimal palettes for different data sizes:
+
+```css
+mark[type="symbol"] {
+    /* Base palette - used as fallback */
+    fill-discrete: red, blue, green, yellow, purple, orange;
+}
+
+/* Optimized 3-color palette for exactly 3 categories */
+mark[type="symbol"][cardinality="3"] {
+    fill-discrete: #E69F00, #56B4E9, #009E73;
+}
+
+/* Expanded 5-color palette for 5 categories */
+mark[type="symbol"][cardinality="5"] {
+    fill-discrete: #E69F00, #56B4E9, #009E73, #F0E442, #0072B2;
+}
+
+/* Large 10-color palette for high cardinality data */
+mark[type="symbol"][cardinality="10"] {
+    fill-discrete: #1f77b4, #ff7f0e, #2ca02c, #d62728, #9467bd,
+                   #8c564b, #e377c2, #7f7f7f, #bcbd22, #17becf;
+}
+```
+
+### Fallback Logic
+
+When selecting a cardinality-specific palette, Avenger Chart uses intelligent fallback logic to minimize color cycling:
+
+1. **Primary**: Use the palette with the **smallest cardinality >= requested**
+   - Example: 4 categories with palettes [3, 5, 10] → selects 5-color palette (no cycling)
+
+2. **Secondary**: If no palette >= requested exists, use the **largest cardinality < requested**
+   - Example: 12 categories with palettes [3, 5, 10] → selects 10-color palette (minimal cycling)
+
+3. **Tertiary**: If no cardinality-specific palettes exist, use the **base palette** (no `[cardinality]` attribute)
+
+This logic ensures you always get the shortest possible palette that avoids or minimizes color cycling.
+
+### Complete Example: Adaptive Color Palettes
+
+```rust,no_run
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::prelude::*;
+use std::sync::Arc;
+
+let ctx = SessionContext::new();
+
+// Create scatter plot data with 4 categories (Type A, B, C, D)
+let data = vec![
+    (1.0, 2.0, "Type A"),
+    (2.0, 5.0, "Type B"),
+    (3.0, 3.0, "Type C"),
+    (4.0, 8.0, "Type D"),
+    (5.0, 4.0, "Type A"),
+    (6.0, 9.0, "Type B"),
+    (7.0, 6.0, "Type C"),
+    (8.0, 7.0, "Type D"),
+];
+
+let x_array = Float64Array::from(data.iter().map(|(x, _, _)| *x).collect::<Vec<_>>());
+let y_array = Float64Array::from(data.iter().map(|(_, y, _)| *y).collect::<Vec<_>>());
+let category_array = StringArray::from(data.iter().map(|(_, _, c)| *c).collect::<Vec<_>>());
+
+let batch = RecordBatch::try_from_iter(vec![
+    ("x", Arc::new(x_array) as _),
+    ("y", Arc::new(y_array) as _),
+    ("category", Arc::new(category_array) as _),
+])?;
+
+let df = ctx.read_batch(batch)?;
+
+// Define CSS with cardinality-specific palettes
+let css = r#"
+    :root {
+        font-family: "Inter", sans-serif;
+        font-size: 12px;
+    }
+
+    canvas {
+        background-color: white;
+        margin: 15px;
+    }
+
+    chart-title {
+        font-size: 1.3rem;
+        font-weight: 500;
+        color: #374151;
+    }
+
+    axis title {
+        font-size: 1.0rem;
+        font-weight: 400;
+        color: #6b7280;
+    }
+
+    axis label {
+        font-size: 0.9rem;
+        color: #9ca3af;
+    }
+
+    axis grid {
+        stroke: #e5e7eb;
+        opacity: 0.5;
+    }
+
+    legend title {
+        font-size: 1.0rem;
+        font-weight: 500;
+        color: #374151;
+    }
+
+    legend label {
+        font-size: 0.9rem;
+        color: #6b7280;
+    }
+
+    /* 2-category palette - high contrast red/blue */
+    mark[type="symbol"][cardinality="2"] {
+        fill-discrete: #e74c3c, #3498db;
+        size: 150px;
+    }
+
+    /* 3-category palette - warm spectrum */
+    mark[type="symbol"][cardinality="3"] {
+        fill-discrete: #f39c12, #e67e22, #d35400;
+        size: 150px;
+    }
+
+    /* 5-category palette - vibrant rainbow (SELECTED for 4 categories) */
+    mark[type="symbol"][cardinality="5"] {
+        fill-discrete: #E91E63, #9C27B0, #673AB7, #3F51B5, #2196F3;
+        size: 150px;
+    }
+
+    /* Base palette - grayscale fallback */
+    mark[type="symbol"] {
+        fill-discrete: #2c3e50, #34495e, #7f8c8d, #95a5a6, #bdc3c7, #ecf0f1;
+        size: 150px;
+    }
+"#;
+
+let theme = Theme::from_css(css)?;
+
+let plot = Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .title("Cardinality-Based Palette: 4 Categories → 5-Color Palette")
+    .mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.axis(|a| a.title("X Value")))
+            .y_with(col("y"), |c| c.axis(|a| a.title("Y Value")))
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Category"))
+            })
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+In this example, we have 4 unique categories but define palettes for 2, 3, and 5 categories. Since there's no exact match for cardinality=4, the fallback logic selects the 5-color palette (smallest >= 4), providing all 4 categories with distinct colors without cycling.
+
+### Multi-Channel Cardinality
+
+You can define cardinality-specific ranges for multiple channels independently:
+
+```css
+/* Different palettes for fill and stroke based on cardinality */
+
+/* 3-category palettes */
+mark[type="symbol"][cardinality="3"] {
+    fill-discrete: #E69F00, #56B4E9, #009E73;
+    stroke-discrete: #000000, #666666, #999999;
+}
+
+/* 5-category palettes */
+mark[type="symbol"][cardinality="5"] {
+    fill-discrete: #ffb3ba, #ffdfba, #ffffba, #baffc9, #bae1ff;
+    stroke-discrete: #8b4513, #a0522d, #d2691e, #cd853f, #deb887;
+}
+
+/* Base palettes for any cardinality */
+mark[type="symbol"] {
+    fill-discrete: red, blue, green, yellow, purple, orange;
+    stroke-discrete: black, gray, silver;
+    stroke-width: 2px;
+}
+```
+
+When a mark uses both `fill` and `stroke` with categorical data, each channel independently applies cardinality-based palette selection based on its own domain cardinality.
+
+### Color Palette Design Guidelines
+
+When designing cardinality-specific palettes, consider these best practices:
+
+1. **Perceptual Distinctness**: Ensure colors are easily distinguishable
+   - Small palettes (2-3): Use high contrast complementary colors
+   - Medium palettes (4-7): Use perceptually uniform color spaces
+   - Large palettes (8+): Consider colorblind-safe palettes
+
+2. **Consistent Progression**: Maintain visual coherence across cardinalities
+   ```css
+   /* Build larger palettes by extending smaller ones */
+   mark[cardinality="3"] {
+       fill-discrete: #E69F00, #56B4E9, #009E73;
+   }
+
+   mark[cardinality="5"] {
+       /* Extends the 3-color palette with 2 more colors */
+       fill-discrete: #E69F00, #56B4E9, #009E73, #F0E442, #0072B2;
+   }
+   ```
+
+3. **Semantic Meaning**: Use color progression that matches data semantics
+   - Ordinal data: Use gradients or related hues
+   - Nominal data: Use distinct hues with similar lightness/saturation
+
+4. **Base Palette Safety**: Always define a base palette with enough colors for typical use cases
+   ```css
+   mark[type="symbol"] {
+       /* Safe default with 10 colors */
+       fill-discrete: #1f77b4, #ff7f0e, #2ca02c, #d62728, #9467bd,
+                      #8c564b, #e377c2, #7f7f7f, #bcbd22, #17becf;
+   }
+   ```
+
+### When to Use Cardinality Selectors
+
+Cardinality-based palette selection is most valuable when:
+
+- **Variable Category Counts**: Your application visualizes datasets with different numbers of categories
+- **Optimal Color Differentiation**: You want to provide the best possible color distinction for each cardinality
+- **Professional Polish**: You're creating a polished theme where small details matter
+- **Color Theory Application**: You want to apply perceptual color theory principles at different scales
+
+For static visualizations with known category counts, explicit palette specification without cardinality selectors may be simpler.
+
+### Example: ggplot2-Style Evenly Spaced Hues
+
+This example demonstrates a theme inspired by ggplot2's default color palette, which uses evenly spaced hues around the HSL color wheel. Each cardinality gets colors distributed uniformly across the hue spectrum (0-360°), ensuring maximum perceptual distinction.
+
+```rust,no_run
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::prelude::*;
+use std::sync::Arc;
+
+let ctx = SessionContext::new();
+
+// Create data with 6 categories
+let data = vec![
+    (1.0, 2.0, "Category A"),
+    (2.0, 5.0, "Category B"),
+    (3.0, 3.0, "Category C"),
+    (4.0, 8.0, "Category D"),
+    (5.0, 4.0, "Category E"),
+    (6.0, 9.0, "Category F"),
+    (7.0, 6.0, "Category A"),
+    (8.0, 7.0, "Category B"),
+];
+
+let x_array = Float64Array::from(data.iter().map(|(x, _, _)| *x).collect::<Vec<_>>());
+let y_array = Float64Array::from(data.iter().map(|(_, y, _)| *y).collect::<Vec<_>>());
+let category_array = StringArray::from(data.iter().map(|(_, _, c)| *c).collect::<Vec<_>>());
+
+let batch = RecordBatch::try_from_iter(vec![
+    ("x", Arc::new(x_array) as _),
+    ("y", Arc::new(y_array) as _),
+    ("category", Arc::new(category_array) as _),
+])?;
+
+let df = ctx.read_batch(batch)?;
+
+// ggplot2-inspired theme with evenly spaced HSL hues
+let css = r#"
+    :root {
+        font-family: "Inter", sans-serif;
+        font-size: 12px;
+    }
+
+    canvas {
+        background-color: white;
+        margin: 15px;
+    }
+
+    plot {
+        background-color: #f8f8f8;
+    }
+
+    chart-title {
+        font-size: 1.4rem;
+        font-weight: 500;
+        color: #2c3e50;
+    }
+
+    axis title {
+        font-size: 1.0rem;
+        font-weight: 400;
+        color: #34495e;
+    }
+
+    axis label {
+        font-size: 0.9rem;
+        color: #7f8c8d;
+    }
+
+    axis grid {
+        stroke: #dfe6e9;
+        opacity: 0.7;
+    }
+
+    legend title {
+        font-size: 1.0rem;
+        font-weight: 500;
+        color: #2c3e50;
+    }
+
+    legend label {
+        font-size: 0.9rem;
+        color: #34495e;
+    }
+
+    /* Evenly spaced hues: 2 colors at 0° and 180° */
+    mark[type="symbol"][cardinality="2"] {
+        fill-discrete: hsl(15 65% 60%), hsl(195 65% 60%);
+        size: 140px;
+    }
+
+    /* Evenly spaced hues: 3 colors at 0°, 120°, 240° */
+    mark[type="symbol"][cardinality="3"] {
+        fill-discrete: hsl(15 65% 60%), hsl(135 65% 60%), hsl(255 65% 60%);
+        size: 140px;
+    }
+
+    /* Evenly spaced hues: 4 colors at 0°, 90°, 180°, 270° */
+    mark[type="symbol"][cardinality="4"] {
+        fill-discrete: hsl(15 65% 60%), hsl(105 65% 60%),
+                       hsl(195 65% 60%), hsl(285 65% 60%);
+        size: 140px;
+    }
+
+    /* Evenly spaced hues: 5 colors at 72° intervals */
+    mark[type="symbol"][cardinality="5"] {
+        fill-discrete: hsl(15 65% 60%), hsl(87 65% 60%), hsl(159 65% 60%),
+                       hsl(231 65% 60%), hsl(303 65% 60%);
+        size: 140px;
+    }
+
+    /* Evenly spaced hues: 6 colors at 60° intervals */
+    mark[type="symbol"][cardinality="6"] {
+        fill-discrete: hsl(15 65% 60%), hsl(75 65% 60%), hsl(135 65% 60%),
+                       hsl(195 65% 60%), hsl(255 65% 60%), hsl(315 65% 60%);
+        size: 140px;
+    }
+
+    /* Evenly spaced hues: 7 colors at ~51.4° intervals */
+    mark[type="symbol"][cardinality="7"] {
+        fill-discrete: hsl(15 65% 60%), hsl(66 65% 60%), hsl(117 65% 60%),
+                       hsl(168 65% 60%), hsl(219 65% 60%), hsl(270 65% 60%),
+                       hsl(321 65% 60%);
+        size: 140px;
+    }
+
+    /* Evenly spaced hues: 8 colors at 45° intervals */
+    mark[type="symbol"][cardinality="8"] {
+        fill-discrete: hsl(15 65% 60%), hsl(60 65% 60%), hsl(105 65% 60%),
+                       hsl(150 65% 60%), hsl(195 65% 60%), hsl(240 65% 60%),
+                       hsl(285 65% 60%), hsl(330 65% 60%);
+        size: 140px;
+    }
+
+    /* Evenly spaced hues: 9 colors at 40° intervals */
+    mark[type="symbol"][cardinality="9"] {
+        fill-discrete: hsl(15 65% 60%), hsl(55 65% 60%), hsl(95 65% 60%),
+                       hsl(135 65% 60%), hsl(175 65% 60%), hsl(215 65% 60%),
+                       hsl(255 65% 60%), hsl(295 65% 60%), hsl(335 65% 60%);
+        size: 140px;
+    }
+
+    /* Evenly spaced hues: 10 colors at 36° intervals */
+    mark[type="symbol"][cardinality="10"] {
+        fill-discrete: hsl(15 65% 60%), hsl(51 65% 60%), hsl(87 65% 60%),
+                       hsl(123 65% 60%), hsl(159 65% 60%), hsl(195 65% 60%),
+                       hsl(231 65% 60%), hsl(267 65% 60%), hsl(303 65% 60%),
+                       hsl(339 65% 60%);
+        size: 140px;
+    }
+
+    /* Base palette - standard evenly spaced 8-color set */
+    mark[type="symbol"] {
+        fill-discrete: hsl(15 65% 60%), hsl(60 65% 60%), hsl(105 65% 60%),
+                       hsl(150 65% 60%), hsl(195 65% 60%), hsl(240 65% 60%),
+                       hsl(285 65% 60%), hsl(330 65% 60%);
+        size: 140px;
+    }
+"#;
+
+let theme = Theme::from_css(css)?;
+
+let plot = Plot::<Cartesian>::new()
+    .theme(theme)
+    .data(df)
+    .title("ggplot2-Style Evenly Spaced Hues")
+    .mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.axis(|a| a.title("X Value")))
+            .y_with(col("y"), |c| c.axis(|a| a.title("Y Value")))
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Category"))
+            })
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+The theme uses HSL color notation with:
+- **Hue**: Evenly distributed around the color wheel (0-360°), starting at 15°
+- **Saturation**: Fixed at 65% for consistent vividness
+- **Lightness**: Fixed at 60% for consistent brightness
+
+Each cardinality gets optimal hue spacing:
+- 2 colors: 180° apart (complementary)
+- 3 colors: 120° apart (triadic)
+- 4 colors: 90° apart (tetradic)
+- 6 colors: 60° apart (hexadic)
+- And so on...
+
+This approach ensures maximum perceptual distinction between categories by distributing colors evenly across the hue spectrum, similar to ggplot2's default discrete color scale.
+
 ## CSS Variables and Runtime Parameters
 
 Define variables in `:root` and override them at runtime:
@@ -1593,6 +2039,7 @@ These complete theme examples showcase the full power of CSS-based theming in Av
 | `mark[type="arc"]` | Arc marks (pie/donut charts) |
 | `mark[type="area"]` | Area marks |
 | `mark[type="rule"]` | Rule marks (reference lines) |
+| `mark[cardinality="N"]` | Marks with N unique categories (adaptive palette selection) |
 
 ### Axis Selectors
 
