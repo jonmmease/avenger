@@ -159,54 +159,71 @@ The domain defines the range of input data values a scale maps from. Avenger Cha
 
 For fixed, known domain boundaries, use primitive tuples:
 
-```rust
+```rust,no_run
+use avenger_chart::prelude::*;
+
 // Simple numeric tuple - most common for continuous scales
-.scale(|s| s.domain((0.0, 100.0)))
+.x_with(col("value"), |c| {
+    c.scale(|s| s.domain((0.0, 100.0)))
+})
 
 // Works with f32 or f64
-.scale(|s| s.domain((0.0_f32, 100.0_f32)))
+.y_with(col("value"), |c| {
+    c.scale(|s| s.domain((0.0_f32, 100.0_f32)))
+})
 ```
 
 **When to use**: Fixed scales where boundaries are predetermined and won't change.
 
 ### Expression Domains (Dynamic Values)
 
-For computed or dynamic boundaries, use DataFusion expressions:
+For dynamic boundaries computed at runtime, use DataFusion expressions wrapped in `lit()`:
 
-```rust
+```rust,no_run
+use avenger_chart::prelude::*;
+use avenger_chart::param::Param;
+use datafusion::common::ScalarValue;
+
 // Using lit() to wrap literals as expressions
-.scale(|s| s.domain((lit(0.0), lit(100.0))))
+.x_with(col("value"), |c| {
+    c.scale(|s| s.domain((lit(0.0), lit(100.0))))
+})
 
-// Using column values from data
-.scale(|s| s.domain((col("min_value"), col("max_value"))))
+// Using parameters for interactive plots
+let min_param = Param::new("domain_min", ScalarValue::Float64(Some(0.0)));
+let max_param = Param::new("domain_max", ScalarValue::Float64(Some(100.0)));
 
-// Using computed expressions
-.scale(|s| s.domain((col("value").min(), col("value").max())))
+.x_with(col("value"), |c| {
+    c.scale(|s| s.domain((min_param.expr(), max_param.expr())))
+})
+
+// Using arithmetic expressions
+.x_with(col("value"), |c| {
+    c.scale(|s| s.domain((lit(0.0), lit(100.0) * lit(1.5))))
+})
 ```
 
 **When to use**:
-- Domain boundaries come from data columns
-- Computed or calculated domains
-- Parametric plots where domains change based on parameters
-- When you need to reference other expressions
+- Parametric plots where domains change based on user input
+- Computed domain boundaries using arithmetic
+- When you need to compose with other expressions
+
+**Note**: You cannot use column aggregates like `col("value").min()` directly in domain specifications. For data-driven domains, use automatic domain inference instead.
 
 ### Automatic (Data-Driven) Domains
 
 If you don't specify a domain, Avenger Chart automatically infers it from your data:
 
-```rust
+```rust,no_run
+use avenger_chart::prelude::*;
+
 // Domain automatically computed from data
 .x_with(col("x_value"), |c| c.scale(|s| s))
-
-// Equivalent to manually computing:
-.x_with(col("x_value"), |c| {
-    c.scale(|s| s.domain((col("x_value").min(), col("x_value").max())))
-})
 ```
 
 **How it works**:
-- Continuous scales: Uses min/max of data values
-- Categorical scales: Uses unique values from data
+- Continuous scales: Computes min/max from data values
+- Categorical scales: Extracts unique values from data
 - Includes automatic padding for symbols/lines on Linear scales
 
 **When to use**: Most common case - let the library handle domain inference.
@@ -296,19 +313,36 @@ With automatic domain inference, the symbols fill the plot area because the doma
 For convenience, Avenger Chart provides specialized domain methods:
 
 **Interval domains** (continuous scales):
-```rust
-.domain_interval(lit(0.0), lit(100.0))  // Equivalent to .domain((lit(0.0), lit(100.0)))
+```rust,no_run
+use avenger_chart::prelude::*;
+
+// Equivalent to .domain((lit(0.0), lit(100.0)))
+.x_with(col("value"), |c| {
+    c.scale(|s| s.domain_interval(lit(0.0), lit(100.0)))
+})
 ```
 
 **Discrete domains** (categorical scales):
-```rust
-.domain_discrete(vec![lit("A"), lit("B"), lit("C")])
+```rust,no_run
+use avenger_chart::prelude::*;
+
+// For ordinal or threshold scales
+.fill_with(col("category"), |c| {
+    c.scale_with::<Ordinal>(|s| {
+        s.domain_discrete(vec![lit("A"), lit("B"), lit("C")])
+    })
+})
 ```
 
 **Data-driven domains** (advanced):
-```rust
-// Explicitly specify data source for domain inference
-.domain_data(df.clone(), col("column_name"))
+```rust,no_run
+use avenger_chart::prelude::*;
+use std::sync::Arc;
+
+// Explicitly specify data source for domain inference (rarely needed)
+.x_with(col("value"), |c| {
+    c.scale(|s| s.domain_data(Arc::new(df.clone()), col("column_name")))
+})
 ```
 
 ### Choosing the Right Approach
@@ -320,10 +354,10 @@ For convenience, Avenger Chart provides specialized domain methods:
 - ✅ Simpler, more readable code
 
 **Use expression domains `(lit(0.0), lit(100.0))` when**:
-- ✅ Domain comes from data columns
-- ✅ Boundaries are computed or dynamic
 - ✅ Using parameters for interactive plots
+- ✅ Boundaries are computed using arithmetic expressions
 - ✅ Need to compose with other expressions
+- ✅ Domain boundaries change dynamically at runtime
 
 **Use automatic domains (no `.domain()` call) when**:
 - ✅ Domain should adapt to your data (most common)
