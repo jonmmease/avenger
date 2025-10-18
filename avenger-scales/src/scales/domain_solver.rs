@@ -213,9 +213,30 @@ pub fn compute_domain_from_data_with_padding_linear(
         }
     }
 
-    best_solution.ok_or(AvengerScaleError::DomainFromPaddingError(
-        DomainError::NoSolution,
-    ))
+    // Fallback: If no solution found with radius constraints, compute domain based on data range only
+    // This handles cases where markers are too large relative to the screen width
+    if best_solution.is_none() {
+        let d_min = domain_points
+            .iter()
+            .copied()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        let d_max = domain_points
+            .iter()
+            .copied()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+
+        // Ensure domain has non-zero width
+        if (d_max - d_min).abs() < 1e-10 {
+            // All points are at same value
+            return Ok((d_min - 0.5, d_max + 0.5));
+        }
+
+        return Ok((d_min, d_max));
+    }
+
+    Ok(best_solution.unwrap())
 }
 
 /// Solve for a single point
@@ -722,5 +743,31 @@ mod tests {
         let screen_pos = (points[2] - d_min) / domain_width * screen_width;
         let right_edge = screen_pos + sizes_upper[2];
         assert!(right_edge <= screen_width + 1e-10);
+    }
+
+    #[test]
+    fn test_fallback_when_symbols_too_large() {
+        // Test case that would fail without fallback: symbols too large for the data range
+        // This reproduces the sqrt scale documentation issue
+        let points = vec![20.0, 40.0, 60.0, 80.0];
+        let radii = vec![100.0, 100.0, 100.0, 100.0]; // Very large symbols
+        let screen_width = 100.0; // Small screen width
+
+        // With the fallback mechanism, this should return a solution based on data range only
+        let result = compute_domain_from_data_with_padding_linear(&points, &radii, &radii, screen_width);
+
+        // Should succeed and return a domain covering the data range
+        assert!(result.is_ok(), "Should fall back to data-only domain when symbols are too large");
+
+        let (d_min, d_max) = result.unwrap();
+
+        // Domain should cover all data points
+        assert!(d_min <= 20.0, "d_min should cover minimum data value");
+        assert!(d_max >= 80.0, "d_max should cover maximum data value");
+
+        // Verify all data points are within domain
+        for &point in &points {
+            assert!(point >= d_min && point <= d_max, "All points should be within domain");
+        }
     }
 }

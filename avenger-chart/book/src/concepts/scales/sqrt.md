@@ -8,7 +8,7 @@ Square root scales apply square root transformation (x^0.5), ensuring that visua
 
 Sqrt scales are commonly used when encoding quantitative data as area (circle size, bubble charts):
 
-```rust
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -47,7 +47,7 @@ let plot = Plot::<Cartesian>::new()
             .y(col("y"))
             .size_with(col("value"), |c| {
                 c.scale_with::<Sqrt>(|s| {
-                    s.range_interval(lit(200.0), lit(400.0))
+                    s.range_interval(lit(20.0), lit(20.0))
                 })
                 .legend(|l| l.title("Value"))
             })
