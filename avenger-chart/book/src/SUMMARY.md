@@ -12,6 +12,7 @@
 - [Coordinate Systems](./concepts/coordinate-systems.md)
 - [Marks](./concepts/marks.md)
 - [Channels](./concepts/channels.md)
+- [The Compilation Pipeline](./concepts/compilation.md)
 - [Scales](./concepts/scales/index.md)
   - [Linear](./concepts/scales/linear.md)
   - [Log](./concepts/scales/log.md)

@@ -99,6 +99,8 @@ Marks are visual elements. Here we use `Symbol` for a scatter plot, mapping colu
 
 ### 5. Compile and Evaluate
 
+Avenger-Chart uses a two-stage workflow: compile then evaluate.
+
 ```rust,no_run
 # use avenger_chart::prelude::*;
 # use datafusion::prelude::*;
@@ -109,16 +111,21 @@ let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")));
 
-// Compile the plot (expensive, do once)
+// Compile: Parse expressions, infer scales, optimize (do once)
 let compiled = plot.compile(&ctx).await?;
 
-// Evaluate with data and parameters (cheap, do many times)
+// Evaluate: Execute queries, compute scales, build scene graph (do many times)
 let evaluated = compiled.evaluate(&ctx, None).await?;
 # Ok(())
 # }
 ```
 
-The compile step optimizes the plot for execution. The evaluate step executes it with data and parameters, producing a scene graph ready for rendering.
+**Why two stages?**
+- **Compile once, render many**: When using [parameters](../advanced/parameters.md), compile once then evaluate with different parameter values
+- **Performance**: Expensive optimizations happen once at compile time
+- **Flexibility**: Same compiled plot can be rendered with different data or parameters
+
+For a detailed explanation of what happens at each stage and when to use this pattern, see [The Compilation Pipeline](../concepts/compilation.md).
 
 ### 6. Render to PNG
 
