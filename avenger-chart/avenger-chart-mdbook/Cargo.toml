@@ -13,6 +13,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 serde_json = { workspace = true }
 indexmap = { workspace = true }
 palette = { workspace = true }
+bincode = "1.3"
 pathdiff = "0.2"
 anyhow = "1.0"
 mdbook = "0.4"

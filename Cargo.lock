@@ -580,6 +580,7 @@ dependencies = [
  "anyhow",
  "avenger-chart",
  "avenger-wgpu",
+ "bincode",
  "datafusion",
  "indexmap 2.9.0",
  "mdbook",

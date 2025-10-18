@@ -115,6 +115,220 @@ This creates:
 - **Size encoding**: Maps population to point sizes via a square-root scale (default for numeric sizes to better match perceived area—use `scale_with::<Linear>` if you need a linear mapping)
 - **Legends**: Shows both encodings in the legend
 
+## Understanding Expressions vs Literals
+
+A fundamental concept in Avenger Chart is how channel values are processed: whether they go through **scales** (transformations) or bypass them as **raw values**.
+
+### The Three Forms
+
+When setting a channel value, you have three options:
+
+| Form | Example | Scaled? | Use Case |
+|------|---------|---------|----------|
+| **Column Expression** | `col("temperature")` | ✅ Yes | Map data values through a scale |
+| **Literal Expression** | `lit(50.0)` | ✅ Yes | Use a constant value, but still apply scale transformation |
+| **Primitive Literal** | `50.0` or `"red"` | ❌ No | Bypass scaling entirely, use raw value directly |
+
+### Scaling Behavior
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+Symbol::<Cartesian>::new()
+    // Expressions (col and lit) go through scales:
+    .x(col("temperature"))        // Data values → scale → pixel positions
+    .y(lit(50.0))                 // Constant 50.0 → scale → pixel position
+
+    // Primitive literals bypass scales:
+    .size(200.0)                  // Directly sets size to 200 square pixels
+    .fill("steelblue")            // Directly sets color (no scale applied)
+# ;
+# }
+```
+
+**Key Point**: The difference between `lit(50.0)` and `50.0` is subtle but important:
+- `lit(50.0)` creates a DataFusion expression that will be processed by the scale
+- `50.0` is a Rust primitive that bypasses scaling entirely
+
+### When Each Form is Scaled (Default Behavior)
+
+**Important**: The behavior below describes the *default* for each input type. You can always override this with:
+- `.no_scale()` - Force bypassing of scale (treat expression result as raw value)
+- `.scale_with::<ScaleType>(...)` - Force specific scale type
+
+By default, the rule is consistent across all channels:
+
+```
+┌─────────────────────────┬──────────────┬──────────────────────────┐
+│ Input Type              │ Scaled By    │ Result                   │
+│                         │ Default?     │                          │
+├─────────────────────────┼──────────────┼──────────────────────────┤
+│ col("column_name")      │ YES*         │ Data values transformed  │
+│ lit(value)              │ YES*         │ Constant value transformed│
+│ Any DataFusion Expr     │ YES*         │ Expression result transformed│
+│ Primitive (50.0, "red") │ NO           │ Used directly as-is      │
+└─────────────────────────┴──────────────┴──────────────────────────┘
+
+* Unless .no_scale() is called or a specific scale is set with .scale_with::<T>()
+```
+
+### Decision Guide: Which Form Should I Use?
+
+Use this guide to choose the right form for your use case:
+
+**For Position Channels (x, y)**:
+- **Column data** → `col("column_name")` - Map data to positions through scale
+- **Fixed position in data space** → `lit(value)` - E.g., reference line at y=0
+- **Fixed position in pixel space** → `value` - Rarely needed for positions
+
+**For Size Channels**:
+- **Data-driven sizes** → `col("column_name")` with `.size_with(...)` - Scale data to sizes
+- **Fixed size in data units** → `lit(value)` - Rarely useful
+- **Fixed size in pixels** → `value` - Common for constant mark sizes
+
+**For Color Channels**:
+- **Data-driven colors** → `col("column_name")` with `.fill_with(...)` - Map to color scale
+- **Fixed color from scale** → `lit(value)` - Pick color from scale palette
+- **Fixed color directly** → `"colorname"` or `"#rrggbb"` - Common for constant colors
+
+### Example: Comparing Scaled vs Unscaled
+
+Here's a concrete example showing the difference:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+// Scenario: Y-axis ranges from 0 to 100 in data space,
+// and maps to 0-400 pixels in visual space
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+
+            // Option 1: lit(50.0) - goes through scale
+            // Data value 50.0 → scale → ~200 pixels from bottom
+            .y(lit(50.0))
+
+            // Option 2: 50.0 - bypasses scale
+            // Directly sets y to 50 pixels from bottom (not what you usually want!)
+            // .y(50.0)  // Uncomment to see difference
+    );
+# Ok(())
+# }
+```
+
+**In practice**:
+- `lit(50.0)` positions the mark at data value 50 (middle of 0-100 range)
+- `50.0` positions the mark at 50 pixels from the bottom edge
+
+For position channels, you almost always want `col()` or `lit()` to work in data space, not pixel space.
+
+### The `.no_scale()` Method
+
+When you need to bypass scaling for an expression, use `.no_scale()`:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            // Use data values directly as pixel sizes (no scale transformation)
+            .size_with(col("size_in_pixels"), |c| c.no_scale())
+    );
+# Ok(())
+# }
+```
+
+This is useful when:
+- Your data already contains pixel values, colors, or other visual properties
+- You want to use computed expressions without scale transformation
+- You need precise control over visual output
+
+### Common Patterns
+
+**Pattern 1: Constant value in data space**
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+// Add a reference line at y = 0 (in data coordinates)
+Rect::new()
+    .y(lit(0.0))      // Scaled: data value 0
+    .y2(lit(0.0))
+    .height(lit(2.0)) // Line thickness in data units
+# ;
+# }
+```
+
+**Pattern 2: Constant value in visual space**
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+// All symbols are exactly 100 square pixels
+Symbol::new()
+    .x(col("x"))
+    .y(col("y"))
+    .size(100.0)      // Unscaled: 100 square pixels
+# ;
+# }
+```
+
+**Pattern 3: Data-driven with scale**
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+// Map population values to sizes via sqrt scale (default for size)
+Symbol::new()
+    .x(col("x"))
+    .y(col("y"))
+    .size_with(col("population"), |c| {
+        c.scale(|s| s.range_interval(lit(50.0), lit(500.0)))
+    })
+# ;
+# }
+```
+
+**Pattern 4: Override default scale type**
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+// Size channel defaults to Sqrt scale, but we can override to Linear
+Symbol::new()
+    .x(col("x"))
+    .y(col("y"))
+    .size_with(col("population"), |c| {
+        c.scale_with::<Linear>(|s| s.range_interval(lit(50.0), lit(500.0)))
+    })
+# ;
+# }
+```
+
+**Pattern 5: Override to bypass scaling**
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+// Use expression but bypass scaling (data already contains pixel values)
+Symbol::new()
+    .x(col("x"))
+    .y(col("y"))
+    .size_with(col("size_pixels"), |c| c.no_scale())
+# ;
+# }
+```
+
 ## Conditional Encodings
 
 Channels can branch on boolean expressions using the `when_value` and `when_scaled` helpers:
@@ -182,10 +396,254 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-- `when_value(condition, literal)` injects an immediate value whenever the boolean expression is true (bypassing the scale)
-- `when_scaled(condition, expr)` swaps in an alternate expression that still flows through the configured scale
+**How conditional encoding works**:
+- `when_value(condition, literal)` - Inject an immediate value when condition is true (bypasses the scale)
+- `when_scaled(condition, expr)` - Swap in an alternate expression when condition is true (still uses the same scale)
 
-Error points appear in red and are larger, while normal points follow the color scale.
+**Important limitation**: Only a **single scale** is supported per channel. All branches (both the default and conditional cases) must use the same scale configuration. You can choose whether each branch is scaled or not, but you cannot use different scale types (e.g., Linear vs Log) for different branches.
+
+```
+✅ Allowed: Same scale, branches either use it or bypass it
+   .fill_with(col("value"), |c| {
+       c.when_value(condition, "#ff0000")  // Bypass scale
+           .scale_with::<Linear>(...)       // Scale for default case
+   })
+
+❌ Not allowed: Different scales for different branches
+   .fill_with(col("value"), |c| {
+       c.when_scaled(condition, ...)        // Would need its own scale
+           .scale_with::<Linear>(...)       // Only this scale exists
+   })
+```
+
+In the example above, error points appear in red (bypassing the color scale) and are larger (using the same size scale with a doubled value), while normal points follow the configured color and size scales.
+
+## Channel References
+
+Channels can reference other channels' expressions using the `:channel_name` syntax. This allows you to derive one channel from another without repeating complex expressions.
+
+### What are Channel References?
+
+A channel reference uses a colon prefix to refer to another channel:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+// Reference syntax
+col(":x")      // References the x channel's expression
+col(":y")      // References the y channel's expression
+col(":color")  // References the color channel's expression
+col(":size")   // References the size channel's expression
+# ;
+# }
+```
+
+During plot compilation, channel references are resolved to the actual expressions from the referenced channels.
+
+### How It Works
+
+When you use a channel reference, the system:
+
+1. **Finds the referenced channel** - Looks up the channel by name (e.g., `":x"` → `x` channel)
+2. **Extracts its expression** - Gets the expression from that channel
+3. **Replaces the reference** - Substitutes the reference with the actual expression
+4. **Applies transformations** - Applies any additional operations (like `.band()`)
+
+**Example**:
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+Symbol::new()
+    .x(col("temperature"))                  // Step 1: x = col("temperature")
+    .y(col(":x") + lit(10.0))               // Step 2: ":x" → col("temperature")
+                                             // Result: y = col("temperature") + 10
+# ;
+# }
+```
+
+### Common Use Case: Bar Charts
+
+The most common use of channel references is in bar charts with band scales:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+Rect::new()
+    .x(col("category"))                     // x = col("category")
+    .x2_with(col(":x"), |c| c.band(1.0))   // x2: ":x" → col("category"), then band(1.0)
+    .y(lit(0.0))
+    .y2(col("value"))
+# ;
+# }
+```
+
+**What happens**:
+1. `x` channel is set to `col("category")`
+2. `x2` channel references `:x`, which resolves to `col("category")`
+3. `.band(1.0)` is applied to position at the end of the band
+4. Result: bars span from the start (`x`) to the end (`x2`) of each category
+
+See [Bar Charts](../guides/bar-charts.md) for detailed examples of this pattern.
+
+### Why Use Channel References?
+
+**1. DRY Principle** - Don't repeat yourself:
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+// With reference (DRY) - define expression once
+Rect::new()
+    .x(col("category"))
+    .x2_with(col(":x"), |c| c.band(1.0))
+
+// Without reference (repetitive)
+Rect::new()
+    .x(col("category"))
+    .x2_with(col("category"), |c| c.band(1.0))  // Repeats col("category")
+# ;
+# }
+```
+
+**2. Maintain consistency** - Change once, updates everywhere:
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# use datafusion::functions::expr_fn::lower;
+# fn example() {
+// If you need to change the expression (e.g., add lower()), only update x
+Rect::new()
+    .x(lower(col("category")))              // Change here...
+    .x2_with(col(":x"), |c| c.band(1.0))   // ...automatically applied here too
+# ;
+# }
+```
+
+**3. Create derived channels** - Build one channel from another:
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+Symbol::new()
+    .x(col("value"))
+    .y(col(":x") * lit(2.0))  // y is double the x value
+# ;
+# }
+```
+
+### Available Channel Names
+
+You can reference any defined channel:
+
+**Position**: `:x`, `:y`, `:x2`, `:y2`, `:r`, `:theta`
+**Visual**: `:color`, `:fill`, `:stroke`, `:opacity`
+**Size/Shape**: `:size`, `:shape`, `:stroke_width`
+**Other**: `:angle`, `:defined`, `:order`, `:tooltip`
+
+### Dependency Resolution
+
+Channel references support dependency chains:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+Symbol::new()
+    .x(col("a"))           // x = col("a")
+    .y(col(":x"))          // y = col("a")  (via :x)
+    .size(col(":y"))       // size = col("a") (via :y via :x)
+# ;
+# }
+```
+
+The system uses **topological sorting** to resolve dependencies in the correct order, ensuring all references are resolved before evaluation.
+
+**Circular references are detected** and will cause a compilation error:
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+// ❌ This will fail - circular dependency
+Symbol::new()
+    .x(col(":y"))  // x depends on y
+    .y(col(":x"))  // y depends on x - circular!
+# ;
+# }
+```
+
+### Alternative: Repeating Expressions
+
+You can always repeat the expression instead of using a reference:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# fn example() {
+// Approach 1: With channel reference
+Rect::new()
+    .x(col("category"))
+    .x2_with(col(":x"), |c| c.band(1.0))
+
+// Approach 2: Without channel reference (explicit)
+Rect::new()
+    .x(col("category"))
+    .x2_with(col("category"), |c| c.band(1.0))
+# ;
+# }
+```
+
+**When to use each**:
+- **Use references** when the expression might change or is complex
+- **Repeat explicitly** when you want to be very clear about what's happening
+- Both compile to the same result
+
+### Complete Example
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+let ctx = SessionContext::new();
+
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "category",
+        Arc::new(StringArray::from(vec!["A", "B", "C", "D"]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "value",
+        Arc::new(Float64Array::from(vec![30.0, 50.0, 40.0, 60.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])?;
+
+let df = ctx.read_batch(batch)?;
+
+// Using channel references for bar positioning
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Rect::new()
+            .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))  // Reference :x to span full width
+            .y(lit(0.0))
+            .y2(col("value"))
+            .fill("#3498db")
+    )
+    .title("Channel References: :x in Bar Chart");
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+This example shows `:x` being used to reference the `x` channel's expression (`col("category")`), then applying `.band(1.0)` to position `x2` at the end of each categorical band.
 
 ## Channel Types
 
@@ -492,22 +950,7 @@ Ok(evaluated)
 
 DataFusion expressions enable complex data transformations within channel mappings.
 
-## Literal vs. Column Values
-
-**Key distinction**:
-
-```rust,no_run
-use avenger_chart::prelude::*;
-use datafusion::prelude::*;
-
-# fn example() {
-let _symbol = Symbol::<Cartesian>::new()
-    .x(col("date"))   // Expr -> scaled by default
-    .y(50.0);         // Primitive literal -> bypasses scaling
-# }
-```
-
-All channels follow the same rule: expressions are routed through scales unless you call `.no_scale()` or supply a primitive literal directly; plain primitives (strings, numbers, booleans) are treated as raw values.
+For a comprehensive guide to DataFusion's expression capabilities, including scalar functions, string operations, date manipulation, and more, see [Working with DataFusion](../guides/datafusion-expressions.md).
 
 ## Next Steps
 
