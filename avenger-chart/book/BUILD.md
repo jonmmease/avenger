@@ -38,9 +38,15 @@ bash build.sh
 
 **`rebuild.sh`:**
 1. Cleans build artifacts (book/, src/.generated/)
-2. Cleans preprocessor package only (preserves dependency cache)
-3. Rebuilds preprocessor in release mode
+2. Deletes build script cache (forces build.rs to re-scan markdown)
+3. Rebuilds preprocessor (preserves dependency cache)
 4. Builds book with all examples
+
+**Why delete build script cache?**
+- `build.rs` scans markdown and creates a static list of `rust,render` blocks
+- This list is compiled into the preprocessor binary
+- Deleting the cache forces `build.rs` to re-run and re-scan markdown
+- Much faster than `cargo clean` (which rebuilds dependencies)
 
 **`build.sh`:**
 1. Runs `mdbook build` directly
