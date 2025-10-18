@@ -36,8 +36,8 @@ echo "  - Forcing build.rs to re-scan markdown files"
 rm -rf ../../target/debug/build/avenger-chart-mdbook-*
 rm -rf ../../target/release/build/avenger-chart-mdbook-*
 
-# Build preprocessor in release mode for faster example compilation
-cargo build --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger
+# Build preprocessor in release mode for fast GPU rendering (debug is 10-20x slower)
+cargo build --release --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger
 
 echo ""
 echo "📚 Building book..."
