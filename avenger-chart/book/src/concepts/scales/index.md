@@ -18,7 +18,7 @@ Scales are functions that transform data values from **data space** (the domain)
 
 ## Scale Categories
 
-Avenger-Chart provides 12 scale types organized into three categories:
+Avenger-Chart provides 12 scale types organized into five categories:
 
 ### Continuous Scales
 
@@ -29,14 +29,24 @@ Map continuous numeric domains to continuous numeric ranges:
 - **[Pow](./pow.md)** - Power transformation with configurable exponent
 - **[Sqrt](./sqrt.md)** - Square root transformation (pow with exponent=0.5)
 - **[Symlog](./symlog.md)** - Symmetric log for data crossing zero
-- **[Time](./time.md)** - Temporal data with calendar-aware formatting
 
-### Discrete Scales
+### Temporal Scales
 
-Map categorical data to visual properties:
+Map temporal data with calendar-aware formatting:
+
+- **[Time](./time.md)** - Dates, timestamps, and time series
+
+### Categorical Position Scales
+
+Map categorical data to spatial positions:
 
 - **[Band](./band.md)** - Categorical positioning with bands (bar charts)
 - **[Point](./point.md)** - Categorical positioning at points (scatter plots)
+
+### Categorical Mapping Scales
+
+Map categorical data to discrete visual properties:
+
 - **[Ordinal](./ordinal.md)** - Discrete-to-discrete mapping (colors, shapes)
 
 ### Discretizing Scales
