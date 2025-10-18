@@ -961,9 +961,11 @@ impl Theme {
                 // First get the base range (without cardinality) for comparison
                 let base_range_value = self.query(base_context, &property);
 
-                // Try cardinalities from 1 up to requested, keeping track of best match
-                // We want the LARGEST cardinality <= requested that has a specific rule
+                // Try cardinalities from 1 upward, keeping track of best match
+                // We want the SMALLEST cardinality >= requested to minimize cycling
+                // If no such palette exists, fall back to LARGEST < requested
                 let mut best_card: Option<usize> = None;
+                let mut largest_below: Option<usize> = None;
                 // Check up to a reasonable maximum (e.g., 2x the requested cardinality)
                 let max_check = cardinality * 2;
                 for card in 1..=max_check {
@@ -974,13 +976,20 @@ impl Theme {
 
                     // Only consider this if it's different from base (meaning cardinality attribute matched)
                     if card_range_value.is_some() && card_range_value != base_range_value {
-                        // Prefer cardinalities <= requested, but accept larger if nothing better exists
-                        if card <= cardinality {
+                        if card >= cardinality {
+                            // Take the first (smallest) cardinality >= requested
                             best_card = Some(card);
-                        } else if best_card.is_none() {
-                            best_card = Some(card);
+                            break;  // Found smallest match, stop searching
+                        } else {
+                            // Track largest cardinality < requested as fallback
+                            largest_below = Some(card);
                         }
                     }
+                }
+
+                // If no cardinality >= requested, use largest < requested
+                if best_card.is_none() {
+                    best_card = largest_below;
                 }
 
                 // Use the best cardinality match if we found one
@@ -988,12 +997,13 @@ impl Theme {
                     let context_with_best = base_context
                         .clone()
                         .with_attribute("cardinality", best.to_string());
+                    // Use the selected cardinality (best) not the requested one to get full palette
                     if let Some(range) = self.try_get_range(
                         &context_with_best,
                         &property,
                         channel,
                         range_kind,
-                        domain_cardinality,
+                        Some(best),  // Use selected cardinality, not requested
                     ) {
                         return Some(range);
                     }
@@ -1748,9 +1758,9 @@ mod tests {
             panic!("Expected discrete range");
         }
 
-        // Test 3: Fallback to largest available cardinality (3) when requesting 4
+        // Test 3: Use smallest available cardinality >= requested (5) when requesting 4
         // Since we have cardinality-specific rules for 2, 3, and 5, requesting 4 should
-        // fall back to 3 (the largest cardinality < 4)
+        // use 5 (the smallest cardinality >= 4) to minimize cycling
         let range_4 = theme.get_range_for_channel(
             "symbol",
             "fill",
@@ -1762,8 +1772,8 @@ mod tests {
         if let Some(ScaleRange::Discrete(values)) = range_4 {
             assert_eq!(
                 values.len(),
-                3,
-                "Should fall back to 3-color palette (largest < 4)"
+                5,
+                "Should use 5-color palette (smallest >= 4) to avoid cycling"
             );
         } else {
             panic!("Expected discrete range");

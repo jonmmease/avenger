@@ -211,20 +211,20 @@ async fn test_cardinality_5_categories() {
 #[tokio::test]
 async fn test_cardinality_fallback() {
     // Define a CSS theme with cardinality-specific palettes
-    // This tests the fallback logic: requesting 4 categories should use the 3-category palette
-    // since no 4-category palette exists and 3 is the largest available < 4
+    // This tests the fallback logic: requesting 4 categories should use the 5-category palette
+    // since no 4-category palette exists and 5 is the smallest available >= 4
     let css = r#"
         /* Palette for 2 categories - bright red/cyan */
         mark[type="symbol"][cardinality="2"] {
             fill-discrete: #FF0000, #00FFFF;
         }
 
-        /* Palette for 3 categories - green spectrum (THIS SHOULD BE USED for 4 categories) */
+        /* Palette for 3 categories - green spectrum */
         mark[type="symbol"][cardinality="3"] {
             fill-discrete: #00FF00, #32CD32, #228B22;
         }
 
-        /* Palette for 5 categories - rainbow */
+        /* Palette for 5 categories - rainbow (THIS SHOULD BE USED for 4 categories) */
         mark[type="symbol"][cardinality="5"] {
             fill-discrete: #FF0000, #FF7F00, #FFFF00, #00FF00, #0000FF;
         }
@@ -283,7 +283,7 @@ async fn test_cardinality_fallback() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .title("Cardinality Fallback: 4 Categories → 3-color Palette")
+        .title("Cardinality Fallback: 4 Categories → 5-color Palette")
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.title("X Value")))
