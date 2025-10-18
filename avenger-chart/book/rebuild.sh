@@ -37,7 +37,7 @@ rm -rf ../../target/debug/build/avenger-chart-mdbook-*
 rm -rf ../../target/release/build/avenger-chart-mdbook-*
 
 # Build preprocessor
-cargo build --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger
+cargo build --release --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger
 
 echo ""
 echo "📚 Building book..."
