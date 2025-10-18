@@ -8,7 +8,7 @@ Square root scales apply square root transformation (x^0.5), ensuring that visua
 
 Sqrt scales are commonly used when encoding quantitative data as area (circle size, bubble charts):
 
-```rust,render
+```rust
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -41,8 +41,10 @@ let plot = Plot::<Cartesian>::new()
             .x(col("category"))
             .y(lit(50.0))
             .size_with(col("value"), |c| {
-                c.scale_with::<Sqrt>(|s| s)
-                    .legend(|l| l.title("Value"))
+                c.scale_with::<Sqrt>(|s| {
+                    s.range_interval(lit(100.0), lit(200.0))
+                })
+                .legend(|l| l.title("Value"))
             })
             .fill("#3498db")
     );
@@ -67,7 +69,7 @@ This makes the perceived visual magnitude match the data magnitude.
 
 ### Bubble Chart with Population Data
 
-```rust,render
+```rust
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -111,7 +113,7 @@ let plot = Plot::<Cartesian>::new()
             .y(col("y"))
             .size_with(col("population"), |c| {
                 c.scale_with::<Sqrt>(|s| {
-                    s.range_interval(lit(200.0), lit(4000.0))
+                    s.range_interval(lit(200.0), lit(400.0))
                 })
                 .legend(|l| l.title("Population"))
             })
@@ -129,7 +131,7 @@ Ok(evaluated)
 
 Sqrt scales can also create non-linear color gradients that compress large values:
 
-```rust,render
+```rust
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;

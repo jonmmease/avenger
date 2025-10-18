@@ -8,7 +8,7 @@ Power scales apply exponential transformation (x^exponent) to compress or expand
 
 Power scales transform data using a configurable exponent:
 
-```rust,render
+```rust
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -69,7 +69,7 @@ For negative values, the scale preserves the sign: `sign(x) * |x|^exponent`.
 
 Using exponent 2 to emphasize larger differences in color mapping:
 
-```rust,render
+```rust
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -121,7 +121,7 @@ The `exponent(2.0)` transformation makes the color gradient accelerate more stro
 
 When encoding data as area (e.g., circle size), use square root scaling for perceptual accuracy:
 
-```rust,render
+```rust
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -156,7 +156,7 @@ let plot = Plot::<Cartesian>::new()
             .size_with(col("population"), |c| {
                 c.scale_with::<Pow>(|s| {
                     s.exponent(0.5)
-                        .range_interval(lit(100.0), lit(5000.0))
+                        .range_interval(lit(100.0), lit(500.0))
                 })
                 .legend(|l| l.title("Population"))
             })
