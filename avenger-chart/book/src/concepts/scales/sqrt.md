@@ -19,13 +19,18 @@ let ctx = SessionContext::new();
 // Create data with varying magnitudes
 let batch = RecordBatch::try_from_iter(vec![
     (
-        "category",
-        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]))
+        "x",
+        Arc::new(Float64Array::from(vec![20.0, 40.0, 60.0, 80.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![50.0, 50.0, 50.0, 50.0]))
             as datafusion::arrow::array::ArrayRef,
     ),
     (
         "value",
-        Arc::new(Float64Array::from(vec![100.0, 400.0, 900.0, 1600.0, 2500.0]))
+        Arc::new(Float64Array::from(vec![100.0, 400.0, 900.0, 2500.0]))
             as datafusion::arrow::array::ArrayRef,
     ),
 ])
@@ -38,11 +43,11 @@ let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
-            .x(col("category"))
-            .y(lit(50.0))
+            .x(col("x"))
+            .y(col("y"))
             .size_with(col("value"), |c| {
                 c.scale_with::<Sqrt>(|s| {
-                    s.range_interval(lit(100.0), lit(200.0))
+                    s.range_interval(lit(200.0), lit(400.0))
                 })
                 .legend(|l| l.title("Value"))
             })
@@ -69,7 +74,7 @@ This makes the perceived visual magnitude match the data magnitude.
 
 ### Bubble Chart with Population Data
 
-```rust
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -131,7 +136,7 @@ Ok(evaluated)
 
 Sqrt scales can also create non-linear color gradients that compress large values:
 
-```rust
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
