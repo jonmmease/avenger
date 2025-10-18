@@ -35,6 +35,7 @@
 - [Scatter Plots](./guides/scatter-plots.md)
 - [Line Charts](./guides/line-charts.md)
 - [Bar Charts](./guides/bar-charts.md)
+- [Axes](./guides/axes.md)
 - [Aggregations](./guides/aggregations.md)
 - [Working with DataFusion](./guides/datafusion-expressions.md)
 - [Rendering and Output](./guides/rendering.md)
