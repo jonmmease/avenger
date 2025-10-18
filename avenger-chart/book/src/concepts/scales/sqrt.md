@@ -47,7 +47,7 @@ let plot = Plot::<Cartesian>::new()
             .y(col("y"))
             .size_with(col("value"), |c| {
                 c.scale_with::<Sqrt>(|s| {
-                    s.range_interval(lit(20.0), lit(20.0))
+                    s.range_interval(lit(200.0), lit(400.0))
                 })
                 .legend(|l| l.title("Value"))
             })
