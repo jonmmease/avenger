@@ -98,6 +98,45 @@ cd examples/iris-pan-zoom
 cargo run --release  # Native window with pan/zoom
 ```
 
+## Scale Enhancements
+
+**Priority**: ⭐⭐ Medium
+
+Extending scale capabilities to improve visual quality and user experience across all scale types.
+
+### Current
+
+- [x] **Automatic Visual Padding for Linear Scales** (✅ Available)
+  - Prevents symbol clipping at domain boundaries
+  - Considers symbol size and stroke width
+  - Converts pixel dimensions to data space
+  - Handles asymmetric padding (e.g., rotated symbols, directional arrows)
+  - Works with both symbols and lines
+  - See: [Scatter Plots - Automatic Visual Padding](./guides/scatter-plots.md#automatic-visual-padding)
+  - See: [Line Charts - Automatic Visual Padding](./guides/line-charts.md#automatic-visual-padding)
+
+### Planned
+
+- [ ] **Automatic Visual Padding for All Scale Types** (🔜 Planned)
+  - Extend padding support beyond Linear scales
+  - **Log scales**: Account for logarithmic domain expansion
+  - **Pow/Sqrt scales**: Handle power transformations
+  - **Time scales**: Expand temporal domains appropriately
+  - **Symlog scales**: Support hybrid linear/log regions
+  - Maintain consistent visual behavior across scale types
+
+### Implementation Notes
+
+The current padding system uses a geometric solver that:
+1. Calculates mark visual extent (radius + stroke width) in pixel space
+2. Determines data space padding needed via scale inversion
+3. Expands domain to prevent clipping
+
+Extending to other scales requires:
+- Scale-specific domain expansion logic
+- Proper handling of transformation functions
+- Testing with edge cases (e.g., time zones, log domain crossing zero)
+
 ## Additional Features
 
 **Priority**: ⭐⭐ Medium
@@ -140,18 +179,18 @@ Documentation is continuously improving. See [documentation-gaps-plan.md](https:
 - [x] Expression vs literal distinction (Tier 1)
 - [x] DataFusion integration guide (Tier 2)
 - [x] Rendering backends guide (Tier 2)
+- [x] The `:x` and `:y` special references (Tier 2)
+- [x] Rect legends, line legends (Tier 3)
+- [x] Multi-channel combined legends (Tier 3)
+- [x] Symbol/line visual padding (Tier 3)
+- [x] Right axis positioning (Tier 3)
+- [x] Axis title expressions (Tier 3)
+- [x] Axis conditional configuration (Tier 3)
 
 ### In Progress
 
-- [ ] The `:x` and `:y` special references (Tier 2)
 - [ ] Advanced features documentation (Tier 3)
-  - Rect legends, line legends
-  - Multi-channel combined legends
-  - Symbol/line visual padding
   - Data domain specification
-  - Right axis positioning
-  - Axis title expressions
-  - Axis conditional configuration
   - CSS cardinality ranges
   - Plot serialization
 
