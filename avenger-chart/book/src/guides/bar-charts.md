@@ -23,7 +23,7 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-This creates vertical bars from 0 to the value in each category. The `x2` channel uses the special `:x` reference with `.band(1.0)` to span the full width of each categorical band.
+This creates vertical bars from 0 to the value in each category. The `x2` channel uses the `:x` [channel reference](../concepts/channels.md#channel-references) with `.band(1.0)` to span the full width of each categorical band.
 
 ## Horizontal Bars
 
@@ -120,6 +120,56 @@ let compiled = plot.compile(&ctx).await?;
 let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
+
+## Controlling Bar Width
+
+By default, bars span the full width of their category band (from `.band(0.0)` to `.band(1.0)`). You can create narrower bars by adjusting the band positions.
+
+### Narrow Bars (Centered)
+
+Create bars that are 70% of the full band width, centered:
+
+```rust,render
+use avenger_chart::prelude::*;
+
+let ctx = SessionContext::new();
+let plot = Plot::<Cartesian>::new()
+    .data(datasets::categorical_bars(&ctx))
+    .mark(
+        Rect::new()
+            .x_with(col("category"), |c| c.band(0.15))   // Start at 15% of band
+            .x2_with(col(":x"), |c| c.band(0.85))         // End at 85% of band
+            .y(lit(0.0))
+            .y2(col("value"))
+            .fill("#9b59b6")
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+The bar starts at 15% and ends at 85% of the band width, creating a centered bar that's 70% wide.
+
+### Understanding Band Positions
+
+The `.band()` method positions a mark within a categorical band:
+
+```
+Band for "Category A":
+├───────────────────────────────────┤
+↑           ↑           ↑           ↑
+0.0        0.3         0.5         1.0
+start                 middle       end
+```
+
+**Common patterns**:
+- **Full width**: `.band(0.0)` to `.band(1.0)` (default, spans entire band)
+- **70% centered**: `.band(0.15)` to `.band(0.85)`
+- **50% centered**: `.band(0.25)` to `.band(0.75)`
+- **Left-aligned narrow**: `.band(0.0)` to `.band(0.7)`
+
+See [Band Scale](../concepts/scales/band.md#the-band-method) for more details on the `.band()` method.
 
 ## Color by Category
 
