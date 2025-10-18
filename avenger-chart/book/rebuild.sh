@@ -33,8 +33,8 @@ echo "🔨 Building mdbook-avenger preprocessor..."
 echo "  - Forcing build.rs to re-scan markdown files"
 # Delete build script output to force build.rs to re-run and regenerate render_snippets.rs
 # This is more reliable than cargo clean and much faster than cleaning dependencies
-rm -rf ../target/debug/build/avenger-chart-mdbook-*
-rm -rf ../target/release/build/avenger-chart-mdbook-*
+rm -rf ../../target/debug/build/avenger-chart-mdbook-*
+rm -rf ../../target/release/build/avenger-chart-mdbook-*
 
 # Build preprocessor in release mode for faster example compilation
 cargo build --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger
