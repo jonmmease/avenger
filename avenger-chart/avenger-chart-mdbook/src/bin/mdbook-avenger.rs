@@ -30,9 +30,12 @@ fn main() -> Result<()> {
 
     let (ctx, book) =
         CmdPreprocessor::parse_input(std::io::stdin()).context("failed to parse mdBook input")?;
-    let processed = preprocessor.run(&ctx, book).map_err(|err| anyhow!(err))?;
+    let processed = preprocessor.run(&ctx, book).map_err(|err| {
+        eprintln!("ERROR in mdbook-avenger preprocessor: {}", err);
+        anyhow!(err)
+    })?;
     serde_json::to_writer(std::io::stdout(), &processed)
-        .context("failed to write preprocessed book")?;
+        .context("failed to write preprocessed book to stdout")?;
     Ok(())
 }
 
