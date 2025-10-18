@@ -5,6 +5,14 @@ edition = "2021"
 publish = false
 build = "build.rs"
 
+[[bin]]
+name = "mdbook-avenger"
+path = "src/bin/mdbook-avenger.rs"
+
+[[bin]]
+name = "mdbook-avenger-render"
+path = "src/bin/mdbook-avenger-render.rs"
+
 [dependencies]
 avenger-chart = { path = ".." }
 avenger-wgpu = { path = "../../avenger-wgpu" }

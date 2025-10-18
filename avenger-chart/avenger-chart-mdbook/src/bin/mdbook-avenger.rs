@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Context, Result};
 use avenger_chart_mdbook::render_snippets::{RenderEntry, RENDER_ENTRIES};
-use avenger_wgpu::error::AvengerWgpuError;
 use mdbook::book::{Book, BookItem, Chapter};
 use mdbook::errors::Error;
 use mdbook::preprocess::{CmdPreprocessor, Preprocessor, PreprocessorContext};
@@ -141,18 +140,36 @@ fn render_all(images_dir: &Path, src_dir: &Path) -> Result<()> {
 
         if needs_render {
             let output_base = images_dir.join(&entry.slug);
-            (entry.render)(&output_base).map_err(|err| match err.downcast::<AvengerWgpuError>() {
-                Ok(avenger_err) => match *avenger_err {
-                    AvengerWgpuError::MakeWgpuAdapterError => anyhow!(
-                        "failed to render snippet {}: {}\n\
-                         Ensure a compatible GPU backend is available (for example, `WGPU_BACKEND=gl`).",
-                        entry.slug,
-                        AvengerWgpuError::MakeWgpuAdapterError
-                    ),
-                    other => anyhow!("failed to render snippet {}: {}", entry.slug, other),
-                },
-                Err(other) => anyhow!("failed to render snippet {}: {}", entry.slug, other),
-            })?;
+
+            // Render in subprocess to isolate stdout/stderr
+            let render_binary = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|p| p.join("mdbook-avenger-render")))
+                .with_context(|| "failed to determine mdbook-avenger-render path")?;
+
+            let output = std::process::Command::new(&render_binary)
+                .arg(entry.slug)
+                .arg(&output_base)
+                .output()
+                .with_context(|| format!("failed to spawn render subprocess for {}", entry.slug))?;
+
+            // Check if rendering succeeded
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(anyhow!(
+                    "failed to render snippet {}: {}\nstderr: {}",
+                    entry.slug,
+                    output.status,
+                    stderr
+                ));
+            }
+
+            // Save stdout (e.g., from println!) if non-empty
+            if !output.stdout.is_empty() {
+                let stdout_path = images_dir.join(format!("{}.stdout", entry.slug));
+                std::fs::write(&stdout_path, &output.stdout)
+                    .with_context(|| format!("failed to write stdout file for {}", entry.slug))?;
+            }
         }
     }
     Ok(())
@@ -231,6 +248,22 @@ fn insert_image_if_needed(
     if let Some(next_line) = remaining_lines.peek() {
         if extract_render_image_slug(next_line).is_some() {
             return Ok(());
+        }
+    }
+
+    // Check for stdout file and insert if present
+    let stdout_path = images_dir.join(format!("{}.stdout", entry.slug));
+    if stdout_path.exists() {
+        if let Ok(stdout_content) = std::fs::read_to_string(&stdout_path) {
+            let trimmed = stdout_content.trim();
+            if !trimmed.is_empty() {
+                output.push(String::new());
+                output.push("**Output:**".to_string());
+                output.push(String::new());
+                output.push("```txt".to_string());
+                output.push(trimmed.to_string());
+                output.push("```".to_string());
+            }
         }
     }
 

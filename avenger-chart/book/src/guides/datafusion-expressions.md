@@ -555,7 +555,7 @@ let compiled = plot.compile(&ctx1).await?;
 
 // 1. Serialize the compiled plot with bincode
 let serialized = bincode::serialize(&compiled)?;
-// Note: serialized.len() shows the size in bytes
+println!("Serialized {} bytes", serialized.len());
 
 // 2. Deserialize into a new CompiledPlot
 let deserialized: CompiledPlot = bincode::deserialize(&serialized)?;
