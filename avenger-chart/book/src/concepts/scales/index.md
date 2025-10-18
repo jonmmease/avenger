@@ -151,11 +151,191 @@ What kind of data?
 })
 ```
 
+## Domain Specification
+
+The domain defines the range of input data values a scale maps from. Avenger Chart provides multiple ways to specify domains depending on your needs.
+
+### Literal Domains (Static Values)
+
+For fixed, known domain boundaries, use primitive tuples:
+
+```rust
+// Simple numeric tuple - most common for continuous scales
+.scale(|s| s.domain((0.0, 100.0)))
+
+// Works with f32 or f64
+.scale(|s| s.domain((0.0_f32, 100.0_f32)))
+```
+
+**When to use**: Fixed scales where boundaries are predetermined and won't change.
+
+### Expression Domains (Dynamic Values)
+
+For computed or dynamic boundaries, use DataFusion expressions:
+
+```rust
+// Using lit() to wrap literals as expressions
+.scale(|s| s.domain((lit(0.0), lit(100.0))))
+
+// Using column values from data
+.scale(|s| s.domain((col("min_value"), col("max_value"))))
+
+// Using computed expressions
+.scale(|s| s.domain((col("value").min(), col("value").max())))
+```
+
+**When to use**:
+- Domain boundaries come from data columns
+- Computed or calculated domains
+- Parametric plots where domains change based on parameters
+- When you need to reference other expressions
+
+### Automatic (Data-Driven) Domains
+
+If you don't specify a domain, Avenger Chart automatically infers it from your data:
+
+```rust
+// Domain automatically computed from data
+.x_with(col("x_value"), |c| c.scale(|s| s))
+
+// Equivalent to manually computing:
+.x_with(col("x_value"), |c| {
+    c.scale(|s| s.domain((col("x_value").min(), col("x_value").max())))
+})
+```
+
+**How it works**:
+- Continuous scales: Uses min/max of data values
+- Categorical scales: Uses unique values from data
+- Includes automatic padding for symbols/lines on Linear scales
+
+**When to use**: Most common case - let the library handle domain inference.
+
+### Comparison Example
+
+Here's the same scatter plot with three domain approaches:
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+let ctx = SessionContext::new();
+
+// Create data: points from 10 to 90
+let batch = RecordBatch::try_from_iter(vec![
+    ("x", Arc::new(Float64Array::from(vec![10.0, 30.0, 50.0, 70.0, 90.0])) as _),
+    ("y", Arc::new(Float64Array::from(vec![15.0, 45.0, 25.0, 65.0, 85.0])) as _),
+])?;
+let df = ctx.read_batch(batch)?;
+
+// Literal domain: Fixed 0-100 range
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .title("Literal Domain (0-100)")
+    .mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+            })
+            .size(150.0)
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+Notice how the literal domain `(0.0, 100.0)` creates a plot with symbols positioned in the middle, since the data ranges from 10-90 within the 0-100 domain.
+
+Compare with automatic domain inference:
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+let ctx = SessionContext::new();
+
+// Same data: points from 10 to 90
+let batch = RecordBatch::try_from_iter(vec![
+    ("x", Arc::new(Float64Array::from(vec![10.0, 30.0, 50.0, 70.0, 90.0])) as _),
+    ("y", Arc::new(Float64Array::from(vec![15.0, 45.0, 25.0, 65.0, 85.0])) as _),
+])?;
+let df = ctx.read_batch(batch)?;
+
+// Automatic domain: Inferred from data with padding
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .title("Automatic Domain (Data-Driven)")
+    .mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false))  // No domain specified
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false))  // No domain specified
+            })
+            .size(150.0)
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+With automatic domain inference, the symbols fill the plot area because the domain is computed from the data (approximately 10-90) plus automatic padding for the symbol size.
+
+### Special Methods
+
+For convenience, Avenger Chart provides specialized domain methods:
+
+**Interval domains** (continuous scales):
+```rust
+.domain_interval(lit(0.0), lit(100.0))  // Equivalent to .domain((lit(0.0), lit(100.0)))
+```
+
+**Discrete domains** (categorical scales):
+```rust
+.domain_discrete(vec![lit("A"), lit("B"), lit("C")])
+```
+
+**Data-driven domains** (advanced):
+```rust
+// Explicitly specify data source for domain inference
+.domain_data(df.clone(), col("column_name"))
+```
+
+### Choosing the Right Approach
+
+**Use literal domains `(0.0, 100.0)` when**:
+- ✅ Domain boundaries are fixed and known
+- ✅ You want consistent scales across multiple plots
+- ✅ The values never change
+- ✅ Simpler, more readable code
+
+**Use expression domains `(lit(0.0), lit(100.0))` when**:
+- ✅ Domain comes from data columns
+- ✅ Boundaries are computed or dynamic
+- ✅ Using parameters for interactive plots
+- ✅ Need to compose with other expressions
+
+**Use automatic domains (no `.domain()` call) when**:
+- ✅ Domain should adapt to your data (most common)
+- ✅ You want automatic padding for symbols/lines
+- ✅ Building exploratory visualizations
+- ✅ Data range is unknown or variable
+
 ## Configuration Methods
 
 Most scales support these common configuration methods:
 
-- **`domain(...)`** - Set the input data range
+- **`domain(...)`** - Set the input data range (see Domain Specification above)
 - **`range(...)`** - Set the output visual range
 - **`nice(true)`** - Extend domain to nice round values
 - **`zero(true)`** - Include zero in the domain
