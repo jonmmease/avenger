@@ -25,6 +25,4 @@ edition = "2021"
 # Tests are run with `mdbook test`; no custom renderer needed.
 
 [preprocessor.avenger]
-# Use release binary directly (avoids stdout contamination from `cargo run`)
-# Release build is essential for reasonable GPU rendering performance
-command = "../../target/release/mdbook-avenger"
+command = "cargo run --quiet --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger --"
