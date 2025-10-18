@@ -119,60 +119,7 @@ The `exponent(2.0)` transformation makes the color gradient accelerate more stro
 
 ### Area-Based Encoding (exponent = 0.5)
 
-When encoding data as area (e.g., circle size), use square root scaling for perceptual accuracy:
-
-```rust,render
-use avenger_chart::prelude::*;
-use datafusion::arrow::array::Float64Array;
-use datafusion::arrow::record_batch::RecordBatch;
-use std::sync::Arc;
-
-let ctx = SessionContext::new();
-// Create population data
-let batch = RecordBatch::try_from_iter(vec![
-    (
-        "x",
-        Arc::new(Float64Array::from(vec![10.0, 30.0, 50.0, 70.0, 90.0]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-    (
-        "y",
-        Arc::new(Float64Array::from(vec![40.0, 60.0, 20.0, 80.0, 45.0]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-    (
-        "population",
-        Arc::new(Float64Array::from(vec![50000.0, 200000.0, 500000.0, 1000000.0, 3000000.0]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-])
-?;
-
-let df = ctx.read_batch(batch)?;
-
-
-let plot = Plot::<Cartesian>::new()
-    .data(df)
-    .mark(
-        Symbol::new()
-            .x(col("x"))
-            .y(col("y"))
-            .size_with(col("population"), |c| {
-                c.scale_with::<Pow>(|s| {
-                    s.exponent(0.5)
-                        .range_interval(lit(200.0), lit(400.0))
-                })
-                .legend(|l| l.title("Population"))
-            })
-            .fill("#3498db")
-    );
-
-let compiled = plot.compile(&ctx).await?;
-let evaluated = compiled.evaluate(&ctx, None).await?;
-Ok(evaluated)
-```
-
-Square root scaling (`exponent(0.5)`) ensures that perceived circle area matches the data values.
+For area-based encodings like circle size, use `exponent(0.5)` (square root scaling). Since this is such a common case, see the dedicated [Sqrt Scale](./sqrt.md) documentation for detailed examples and explanations.
 
 ## Configuration Options
 
