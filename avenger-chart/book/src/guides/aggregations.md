@@ -536,4 +536,5 @@ This approach gives you full control over:
 
 - Learn about [Bar Charts](./bar-charts.md) for categorical comparisons
 - Explore [Scatter Plots](./scatter-plots.md) for relationship visualization
+- See [Working with DataFusion](./datafusion-expressions.md) for expression capabilities
 - See [DataFusion documentation](https://docs.rs/datafusion) for more aggregation functions

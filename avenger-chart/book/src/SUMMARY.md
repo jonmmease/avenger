@@ -36,8 +36,14 @@
 - [Line Charts](./guides/line-charts.md)
 - [Bar Charts](./guides/bar-charts.md)
 - [Aggregations](./guides/aggregations.md)
+- [Working with DataFusion](./guides/datafusion-expressions.md)
+- [Rendering and Output](./guides/rendering.md)
 
 # Advanced Topics
 
 - [Custom Themes with CSS](./advanced/css-themes.md)
 - [Parameters](./advanced/parameters.md)
+
+# Project Information
+
+- [Roadmap](./roadmap.md)

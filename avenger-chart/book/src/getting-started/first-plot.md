@@ -50,7 +50,7 @@ let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
 # }
 ```
 
-You can also create DataFrames from Arrow RecordBatches or in-memory data.
+You can also create DataFrames from Arrow RecordBatches or in-memory data. For details on DataFusion's capabilities, see [Working with DataFusion](../guides/datafusion-expressions.md).
 
 ### 2. Choose a Coordinate System
 
@@ -95,7 +95,9 @@ let plot = Plot::<Cartesian>::new()
 # }
 ```
 
-Marks are visual elements. Here we use `Symbol` for a scatter plot, mapping columns to position channels.
+Marks are visual elements. Here we use `Symbol` for a scatter plot, mapping columns to position channels using `col()`.
+
+**Note**: `col("x")` creates an expression that gets scaled through the coordinate system. For details on when values are scaled vs used directly, see [Understanding Expressions vs Literals](../concepts/channels.md#understanding-expressions-vs-literals).
 
 ### 5. Compile and Evaluate
 
@@ -148,6 +150,8 @@ renderer.write_png(&compiled, &ctx, None, "scatter.png").await?;
 # Ok(())
 # }
 ```
+
+For detailed information on rendering options, scale factors, and planned output formats (SVG, PDF), see [Rendering and Output](../guides/rendering.md).
 
 ## Adding Visual Encoding
 
