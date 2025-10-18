@@ -385,7 +385,6 @@ let show_grid_param = Param::new("show_grid", ScalarValue::Boolean(Some(true)));
 
 let plot = Plot::<Cartesian>::new()
     .canvas_size(400.0, 300.0)
-    .title("Conditional Grid (Enabled)")
     .data(df)
     .add_param(show_grid_param.clone())
     .mark(
@@ -396,56 +395,20 @@ let plot = Plot::<Cartesian>::new()
             .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis")))
     );
 
+// Compile once
 let compiled = plot.compile(&ctx).await?;
 
-// Render with grid enabled
-let mut params = IndexMap::new();
-params.insert("show_grid".to_string(), ScalarValue::Boolean(Some(true)));
-let evaluated = compiled.evaluate(&ctx, Some(params)).await?;
-Ok(evaluated)
-```
+// Evaluate with grid enabled
+let mut params_enabled = IndexMap::new();
+params_enabled.insert("show_grid".to_string(), ScalarValue::Boolean(Some(true)));
+let evaluated_enabled = compiled.evaluate(&ctx, Some(params_enabled)).await?;
 
-With grid disabled:
+// Evaluate with grid disabled
+let mut params_disabled = IndexMap::new();
+params_disabled.insert("show_grid".to_string(), ScalarValue::Boolean(Some(false)));
+let evaluated_disabled = compiled.evaluate(&ctx, Some(params_disabled)).await?;
 
-```rust,render
-use avenger_chart::prelude::*;
-use avenger_chart::param::Param;
-use datafusion::arrow::array::Float64Array;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::ScalarValue;
-use datafusion::prelude::*;
-use std::sync::Arc;
-use indexmap::IndexMap;
-
-let ctx = SessionContext::new();
-let batch = RecordBatch::try_from_iter(vec![
-    ("x", Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0])) as _),
-    ("y", Arc::new(Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 4.5])) as _),
-])?;
-let df = ctx.read_batch(batch)?;
-
-let show_grid_param = Param::new("show_grid", ScalarValue::Boolean(Some(false)));
-
-let plot = Plot::<Cartesian>::new()
-    .canvas_size(400.0, 300.0)
-    .title("Conditional Grid (Disabled)")
-    .data(df)
-    .add_param(show_grid_param.clone())
-    .mark(
-        Symbol::new()
-            .x_with(col("x"), |c| {
-                c.axis(|a| a.grid(&show_grid_param).title("X Axis"))
-            })
-            .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis")))
-    );
-
-let compiled = plot.compile(&ctx).await?;
-
-// Render with grid disabled
-let mut params = IndexMap::new();
-params.insert("show_grid".to_string(), ScalarValue::Boolean(Some(false)));
-let evaluated = compiled.evaluate(&ctx, Some(params)).await?;
-Ok(evaluated)
+Ok((evaluated_enabled, evaluated_disabled))
 ```
 
 ### Conditional Axis Position
@@ -480,9 +443,8 @@ let position_expr = when(axis_pos_param.expr().eq(lit("top")), lit("top"))
 
 let plot = Plot::<Cartesian>::new()
     .canvas_size(400.0, 300.0)
-    .title("Conditional Position (Bottom)")
     .data(df)
-    .add_param(axis_pos_param)
+    .add_param(axis_pos_param.clone())
     .mark(
         Symbol::new()
             .x_with(col("x"), |c| {
@@ -491,61 +453,20 @@ let plot = Plot::<Cartesian>::new()
             .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis")))
     );
 
+// Compile once
 let compiled = plot.compile(&ctx).await?;
 
-// Render with axis at bottom
-let mut params = IndexMap::new();
-params.insert("axis_pos".to_string(), ScalarValue::Utf8(Some("bottom".to_string())));
-let evaluated = compiled.evaluate(&ctx, Some(params)).await?;
-Ok(evaluated)
-```
+// Evaluate with axis at bottom
+let mut params_bottom = IndexMap::new();
+params_bottom.insert("axis_pos".to_string(), ScalarValue::Utf8(Some("bottom".to_string())));
+let evaluated_bottom = compiled.evaluate(&ctx, Some(params_bottom)).await?;
 
-With axis at top:
+// Evaluate with axis at top
+let mut params_top = IndexMap::new();
+params_top.insert("axis_pos".to_string(), ScalarValue::Utf8(Some("top".to_string())));
+let evaluated_top = compiled.evaluate(&ctx, Some(params_top)).await?;
 
-```rust,render
-use avenger_chart::prelude::*;
-use avenger_chart::param::Param;
-use datafusion::arrow::array::Float64Array;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::ScalarValue;
-use datafusion::logical_expr::when;
-use datafusion::prelude::*;
-use std::sync::Arc;
-use indexmap::IndexMap;
-
-let ctx = SessionContext::new();
-let batch = RecordBatch::try_from_iter(vec![
-    ("x", Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0])) as _),
-    ("y", Arc::new(Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 4.5])) as _),
-])?;
-let df = ctx.read_batch(batch)?;
-
-let axis_pos_param = Param::new("axis_pos", ScalarValue::Utf8(Some("top".to_string())));
-
-let position_expr = when(axis_pos_param.expr().eq(lit("top")), lit("top"))
-    .otherwise(lit("bottom"))
-    .unwrap();
-
-let plot = Plot::<Cartesian>::new()
-    .canvas_size(400.0, 300.0)
-    .title("Conditional Position (Top)")
-    .data(df)
-    .add_param(axis_pos_param)
-    .mark(
-        Symbol::new()
-            .x_with(col("x"), |c| {
-                c.axis(|a| a.position(position_expr).grid(true).title("X Axis"))
-            })
-            .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis")))
-    );
-
-let compiled = plot.compile(&ctx).await?;
-
-// Render with axis at top
-let mut params = IndexMap::new();
-params.insert("axis_pos".to_string(), ScalarValue::Utf8(Some("top".to_string())));
-let evaluated = compiled.evaluate(&ctx, Some(params)).await?;
-Ok(evaluated)
+Ok((evaluated_bottom, evaluated_top))
 ```
 
 ### Conditional Axis Visibility
@@ -570,11 +491,10 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Parameter to control axis visibility
-let show_axis_param = Param::new("show_x_axis", ScalarValue::Boolean(Some(false)));
+let show_axis_param = Param::new("show_x_axis", ScalarValue::Boolean(Some(true)));
 
 let plot = Plot::<Cartesian>::new()
     .canvas_size(400.0, 300.0)
-    .title("Conditional Visibility (Hidden)")
     .data(df)
     .add_param(show_axis_param.clone())
     .mark(
@@ -585,13 +505,20 @@ let plot = Plot::<Cartesian>::new()
             .y_with(col("y"), |c| c.axis(|a| a.grid(true).title("Y Axis")))
     );
 
+// Compile once
 let compiled = plot.compile(&ctx).await?;
 
-// Render with axis hidden
-let mut params = IndexMap::new();
-params.insert("show_x_axis".to_string(), ScalarValue::Boolean(Some(false)));
-let evaluated = compiled.evaluate(&ctx, Some(params)).await?;
-Ok(evaluated)
+// Evaluate with axis visible
+let mut params_visible = IndexMap::new();
+params_visible.insert("show_x_axis".to_string(), ScalarValue::Boolean(Some(true)));
+let evaluated_visible = compiled.evaluate(&ctx, Some(params_visible)).await?;
+
+// Evaluate with axis hidden
+let mut params_hidden = IndexMap::new();
+params_hidden.insert("show_x_axis".to_string(), ScalarValue::Boolean(Some(false)));
+let evaluated_hidden = compiled.evaluate(&ctx, Some(params_hidden)).await?;
+
+Ok((evaluated_visible, evaluated_hidden))
 ```
 
 **Conditional configuration patterns**:
