@@ -30,13 +30,14 @@ fi
 
 echo ""
 echo "🔨 Building mdbook-avenger preprocessor..."
-echo "  - Cleaning preprocessor package (preserves dependencies)"
-# Clean only the preprocessor package to force build.rs to re-scan markdown files
-# This is much faster than cargo clean --manifest-path which cleans dependencies too
-cargo clean --package avenger-chart-mdbook --manifest-path ../Cargo.toml
+echo "  - Forcing build.rs to re-scan markdown files"
+# Delete build script output to force build.rs to re-run and regenerate render_snippets.rs
+# This is more reliable than cargo clean and much faster than cleaning dependencies
+rm -rf ../target/debug/build/avenger-chart-mdbook-*
+rm -rf ../target/release/build/avenger-chart-mdbook-*
 
 # Build preprocessor in release mode for faster example compilation
-cargo build --release --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger
+cargo build --manifest-path ../Cargo.toml --package avenger-chart-mdbook --bin mdbook-avenger
 
 echo ""
 echo "📚 Building book..."
