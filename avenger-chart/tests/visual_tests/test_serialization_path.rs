@@ -27,10 +27,7 @@ async fn test_serialization_rendering_path() {
     // Serialize to JSON
     let json = serde_json::to_string_pretty(&compiled).unwrap();
 
-    // Deserialize back (just to verify serialization works)
-    // NOTE: The deserialized plot will NOT render identically due to serde(skip) fields
-    // like DataFrames, theme settings, and other non-serialized data.
-    // Full serialization support is still in development.
+    // Deserialize back to verify serialization works
     let _deserialized: avenger_chart::plot::CompiledPlot = serde_json::from_str(&json).unwrap();
 
     // Evaluate from the original built plot (not the deserialized one)

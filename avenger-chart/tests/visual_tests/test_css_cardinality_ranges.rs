@@ -411,3 +411,193 @@ async fn test_cardinality_multiple_channels() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_ggplot2_hsl_cardinality_theme() {
+    // Test the ggplot2-inspired HSL theme with evenly spaced hues
+    // This theme uses HSL colors with fixed saturation (65%) and lightness (60%)
+    // and hues evenly distributed around the color wheel for each cardinality
+    let css = r#"
+        :root {
+            font-family: "Inter", sans-serif;
+            font-size: 12px;
+        }
+
+        canvas {
+            background-color: white;
+            margin: 15px;
+        }
+
+        plot {
+            background-color: #f8f8f8;
+        }
+
+        chart-title {
+            font-size: 1.4rem;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        axis title {
+            font-size: 1.0rem;
+            font-weight: 400;
+            color: #34495e;
+        }
+
+        axis label {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+        }
+
+        axis grid {
+            stroke: #dfe6e9;
+            opacity: 0.7;
+        }
+
+        legend title {
+            font-size: 1.0rem;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        legend label {
+            font-size: 0.9rem;
+            color: #34495e;
+        }
+
+        /* Evenly spaced hues: 2 colors at 0° and 180° */
+        mark[type="symbol"][cardinality="2"] {
+            fill-discrete: hsl(15 65% 60%), hsl(195 65% 60%);
+            size: 140px;
+        }
+
+        /* Evenly spaced hues: 3 colors at 0°, 120°, 240° */
+        mark[type="symbol"][cardinality="3"] {
+            fill-discrete: hsl(15 65% 60%), hsl(135 65% 60%), hsl(255 65% 60%);
+            size: 140px;
+        }
+
+        /* Evenly spaced hues: 4 colors at 0°, 90°, 180°, 270° */
+        mark[type="symbol"][cardinality="4"] {
+            fill-discrete: hsl(15 65% 60%), hsl(105 65% 60%),
+                           hsl(195 65% 60%), hsl(285 65% 60%);
+            size: 140px;
+        }
+
+        /* Evenly spaced hues: 5 colors at 72° intervals */
+        mark[type="symbol"][cardinality="5"] {
+            fill-discrete: hsl(15 65% 60%), hsl(87 65% 60%), hsl(159 65% 60%),
+                           hsl(231 65% 60%), hsl(303 65% 60%);
+            size: 140px;
+        }
+
+        /* Evenly spaced hues: 6 colors at 60° intervals (THIS SHOULD BE USED) */
+        mark[type="symbol"][cardinality="6"] {
+            fill-discrete: hsl(15 65% 60%), hsl(75 65% 60%), hsl(135 65% 60%),
+                           hsl(195 65% 60%), hsl(255 65% 60%), hsl(315 65% 60%);
+            size: 140px;
+        }
+
+        /* Evenly spaced hues: 7 colors at ~51.4° intervals */
+        mark[type="symbol"][cardinality="7"] {
+            fill-discrete: hsl(15 65% 60%), hsl(66 65% 60%), hsl(117 65% 60%),
+                           hsl(168 65% 60%), hsl(219 65% 60%), hsl(270 65% 60%),
+                           hsl(321 65% 60%);
+            size: 140px;
+        }
+
+        /* Evenly spaced hues: 8 colors at 45° intervals */
+        mark[type="symbol"][cardinality="8"] {
+            fill-discrete: hsl(15 65% 60%), hsl(60 65% 60%), hsl(105 65% 60%),
+                           hsl(150 65% 60%), hsl(195 65% 60%), hsl(240 65% 60%),
+                           hsl(285 65% 60%), hsl(330 65% 60%);
+            size: 140px;
+        }
+
+        /* Evenly spaced hues: 9 colors at 40° intervals */
+        mark[type="symbol"][cardinality="9"] {
+            fill-discrete: hsl(15 65% 60%), hsl(55 65% 60%), hsl(95 65% 60%),
+                           hsl(135 65% 60%), hsl(175 65% 60%), hsl(215 65% 60%),
+                           hsl(255 65% 60%), hsl(295 65% 60%), hsl(335 65% 60%);
+            size: 140px;
+        }
+
+        /* Evenly spaced hues: 10 colors at 36° intervals */
+        mark[type="symbol"][cardinality="10"] {
+            fill-discrete: hsl(15 65% 60%), hsl(51 65% 60%), hsl(87 65% 60%),
+                           hsl(123 65% 60%), hsl(159 65% 60%), hsl(195 65% 60%),
+                           hsl(231 65% 60%), hsl(267 65% 60%), hsl(303 65% 60%),
+                           hsl(339 65% 60%);
+            size: 140px;
+        }
+
+        /* Base palette - standard evenly spaced 8-color set */
+        mark[type="symbol"] {
+            fill-discrete: hsl(15 65% 60%), hsl(60 65% 60%), hsl(105 65% 60%),
+                           hsl(150 65% 60%), hsl(195 65% 60%), hsl(240 65% 60%),
+                           hsl(285 65% 60%), hsl(330 65% 60%);
+            size: 140px;
+        }
+    "#;
+
+    let theme = Theme::from_css(css).expect("Failed to create theme from CSS");
+
+    // Create a scatter plot with exactly 6 categories to test the 6-color HSL palette
+    let data = vec![
+        (1.0, 2.0, "Category A"),
+        (2.0, 5.0, "Category B"),
+        (3.0, 3.0, "Category C"),
+        (4.0, 8.0, "Category D"),
+        (5.0, 4.0, "Category E"),
+        (6.0, 9.0, "Category F"),
+        (7.0, 6.0, "Category A"),
+        (8.0, 7.0, "Category B"),
+    ];
+
+    let x_array = Float64Array::from(data.iter().map(|(x, _, _)| *x).collect::<Vec<_>>());
+    let y_array = Float64Array::from(data.iter().map(|(_, y, _)| *y).collect::<Vec<_>>());
+    let category_array = StringArray::from(data.iter().map(|(_, _, c)| *c).collect::<Vec<_>>());
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("category", DataType::Utf8, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(x_array),
+            Arc::new(y_array),
+            Arc::new(category_array),
+        ],
+    )
+    .expect("Failed to create RecordBatch");
+
+    let ctx = SessionContext::new();
+    let df = ctx
+        .read_batch(batch)
+        .expect("Failed to read batch into DataFrame");
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .title("ggplot2-Style HSL Palette: 6 Categories")
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| c.axis(|a| a.title("X Value")))
+                .y_with(col("y"), |c| c.axis(|a| a.title("Y Value")))
+                .fill(col("category")),
+        )
+        .theme(theme);
+
+    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "css_cardinality",
+        "ggplot2_hsl_6_categories",
+        0.9999,
+    )
+    .await;
+}
