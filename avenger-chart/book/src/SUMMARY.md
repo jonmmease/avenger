@@ -16,6 +16,7 @@
   - [Symbol](./concepts/marks/symbol.md)
   - [Line](./concepts/marks/line.md)
   - [Rect](./concepts/marks/rect.md)
+  - [Layering](./concepts/marks/layering.md)
 - [Channels](./concepts/channels.md)
 - [The Compilation Pipeline](./concepts/compilation.md)
 - [Scales](./concepts/scales/index.md)

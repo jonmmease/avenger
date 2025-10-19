@@ -49,138 +49,14 @@ Symbol::<Polar>::new()
 
 Symbol marks currently work in both Cartesian and Polar coordinate systems. Line and Rect marks are Cartesian-only in the current release, with polar variants planned for future versions.
 
-## Layering Marks
+## Composition and Layering
 
-Marks can be layered to combine encodings:
+Multiple marks can be combined in a single plot to create rich composite visualizations. See the **[Layering](./layering.md)** page for:
 
-```rust,render
-use avenger_chart::prelude::*;
-use datafusion::arrow::array::Float64Array;
-use datafusion::arrow::record_batch::RecordBatch;
-use std::sync::Arc;
-
-
-let ctx = SessionContext::new();
-// Create time series data
-let batch = RecordBatch::try_from_iter(vec![
-    (
-        "time",
-        Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-    (
-        "value",
-        Arc::new(Float64Array::from(vec![10.0, 15.0, 13.0, 18.0, 16.0, 22.0, 20.0]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-])
-?;
-
-let df = ctx.read_batch(batch)?;
-
-
-let plot = Plot::<Cartesian>::new()
-    .data(df.clone())
-    .mark(
-        Line::new()
-            .x(col("time"))
-            .y(col("value"))
-            .stroke("#1f2933")
-            .stroke_width(2.0)
-    )
-    .mark(
-        Symbol::new()
-            .x(col("time"))
-            .y(col("value"))
-            .size(200.0)
-            .fill("#38bdf8")
-    );
-
-let compiled = plot.compile(&ctx).await?;
-let evaluated = compiled.evaluate(&ctx, None).await?;
-Ok(evaluated)
-```
-
-`Plot` merges scale and legend configuration across marks that use the same channel names, so both layers share the same axes and color legend.
-
-## Mark-Specific Data
-
-Each mark can source its own `DataFrame`. When a mark omits `.data(...)`, it inherits the plot-level data:
-
-```rust,render
-use avenger_chart::prelude::*;
-use datafusion::arrow::array::Float64Array;
-use datafusion::arrow::record_batch::RecordBatch;
-use std::sync::Arc;
-
-
-let ctx = SessionContext::new();
-// Create scatter point data
-let points_batch = RecordBatch::try_from_iter(vec![
-    (
-        "x",
-        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-    (
-        "y",
-        Arc::new(Float64Array::from(vec![2.5, 4.0, 3.0, 5.5, 4.5, 6.0, 5.5, 7.5]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-])
-?;
-
-let points = ctx.read_batch(points_batch)?;
-
-// Create trend line data
-let trend_batch = RecordBatch::try_from_iter(vec![
-    (
-        "x",
-        Arc::new(Float64Array::from(vec![1.0, 8.0]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-    (
-        "y_pred",
-        Arc::new(Float64Array::from(vec![2.0, 8.0]))
-            as datafusion::arrow::array::ArrayRef,
-    ),
-])
-?;
-
-let trend = ctx.read_batch(trend_batch)?;
-
-let plot = Plot::<Cartesian>::new()
-    .mark(
-        Symbol::new()
-            .data(points)
-            .x(col("x"))
-            .y(col("y"))
-            .size(200.0)
-            .fill("#2563eb")
-    )
-    .mark(
-        Line::new()
-            .data(trend)
-            .x(col("x"))
-            .y(col("y_pred"))
-            .stroke("#dc2626")
-            .stroke_width(3.0)
-    );
-
-let compiled = plot.compile(&ctx).await?;
-let evaluated = compiled.evaluate(&ctx, None).await?;
-Ok(evaluated)
-```
-
-This example shows scatter points with a separate trend line, each using different data sources.
-
-## Additional Mark Options
-
-All marks share a common builder API:
-- `.data(...)` attaches a dedicated `DataFrame`.
-- `.facet_strategy(...)` and `.broadcast_to_facets()` control how marks participate in faceting.
-- `.details([...])` stores additional fields for future tooltip/interaction layers (the values are carried through evaluation but no tooltip UI ships yet).
-- `.zindex(...)` sets explicit draw order when layers overlap.
+- How to layer marks with shared or independent data sources
+- Scale and legend merging across layers
+- Draw order control with `.zindex()`
+- Common layering patterns (line + points, reference bands, multi-series comparisons)
 
 ## Planned Marks
 
