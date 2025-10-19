@@ -224,7 +224,7 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-Even though everything renders at the centre of the plot, the mark still encodes data via size, color, shape, legends, and tooltips. This is perfect for dashboard KPIs or legend-style visualizations.
+Even though everything renders at the centre of the plot, the mark still encodes data via size, color, shape, legends, and optional detail fields captured with `.details(...)`. This is perfect for dashboard KPIs or legend-style visualizations while laying groundwork for future interactive tooling.
 
 ## Cartesian vs Polar Comparison
 

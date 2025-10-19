@@ -33,20 +33,21 @@ Create a quick sanity check that compiles and renders an empty scatter plot:
 
 ```rust,no_run
 use avenger_chart::prelude::*;
+use avenger_chart::render::WgpuRenderer;
 use datafusion::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = SessionContext::new();
 
-    let plot = Plot::<Cartesian>::new().mark(
-        Symbol::new()
-            .x(lit(0.0))
-            .y(lit(0.0)),
-    );
+    let plot = Plot::<Cartesian>::new().mark(Symbol::new().x(lit(0.0)).y(lit(0.0)));
 
-    plot.compile(&ctx).await?.render(&ctx, None).await?;
-    println!("Avenger Chart is ready!");
+    let compiled = plot.compile(&ctx).await?;
+    let renderer = WgpuRenderer::new();
+    renderer
+        .write_png(&compiled, &ctx, None, "avenger-chart-smoke-test.png")
+        .await?;
+    println!("Rendered avenger-chart-smoke-test.png");
     Ok(())
 }
 ```
@@ -57,7 +58,7 @@ Then run:
 cargo run
 ```
 
-The program should finish without errors, confirming that the Avenger Chart toolchain is set up correctly.
+You should see `avenger-chart-smoke-test.png` appear in your project directory with no runtime errors, confirming that the toolchain is configured correctly.
 
 ## Next Steps
 
