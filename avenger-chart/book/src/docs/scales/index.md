@@ -379,7 +379,8 @@ See individual scale pages for scale-specific options.
 
 ## See Also
 
+- [Domain Inference](./domain-inference.md) - How domains are automatically inferred from data, including `nice()`, `zero()`, and automatic visual padding
 - [Channels](../channels.md) - How to apply scales to visual channels
 - [Understanding Expressions vs Literals](../channels.md#understanding-expressions-vs-literals) - When values are scaled vs bypass scaling
-- [Legends](./guides-axes-legends/legends.md) - Automatically generated scale legends
-- [Axes](./guides-axes-legends/axes.md) - Scale-aware coordinate axes
+- [Legends](../guides-axes-legends/legends.md) - Automatically generated scale legends
+- [Axes](../guides-axes-legends/axes.md) - Scale-aware coordinate axes
