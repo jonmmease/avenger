@@ -1,6 +1,62 @@
 # Marks
 
-Marks are the visual building blocks of a plot. Each mark type turns channel inputs into a particular geometric representation. Avenger Chart currently ships three Cartesian mark types: `Symbol`, `Line`, and `Rect`.
+Marks are the fundamental visual building blocks of a plot, transforming data into geometric representations. This concept comes from the Grammar of Graphics (Wilkinson, 1999), popularized in visualization libraries like ggplot2. Marks turn channel encodings into geometric primitives—points, lines, rectangles—that appear on screen.
+
+## How Marks Work
+
+Marks consume data through **channels**, which bind data columns or expressions to visual properties. Each mark type defines which channels it accepts:
+
+- **Position channels** determine **where** marks appear (e.g., `x` and `y` in Cartesian coordinates, `r` and `theta` in Polar)
+- **Visual channels** control **appearance** (e.g., `fill` color, `size`, `stroke`, `opacity`, `shape`)
+
+When you create a mark with channel encodings, Avenger Chart compiles these specifications into visual geometry. The data flows through: **Data** → **Channels** → **Mark** → **Visual Representation**.
+
+## Basic Example
+
+Here's a simple scatter plot demonstrating the mark pattern:
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+
+let ctx = SessionContext::new();
+// Create sample data
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "temperature",
+        Arc::new(Float64Array::from(vec![15.0, 18.0, 22.0, 25.0, 28.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "humidity",
+        Arc::new(Float64Array::from(vec![65.0, 70.0, 55.0, 50.0, 45.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+?;
+
+let df = ctx.read_batch(batch)?;
+
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Symbol::new()
+            .x(col("temperature"))   // Position channel (where)
+            .y(col("humidity"))      // Position channel (where)
+            .size(300.0)             // Visual channel (appearance)
+            .fill("#4682b4")         // Visual channel (appearance)
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+This creates a Symbol mark with position channels (`x`, `y`) mapping data columns to positions and visual channels (`size`, `fill`) controlling appearance.
 
 ## Available Mark Types
 
@@ -49,6 +105,20 @@ Symbol::<Polar>::new()
 
 Symbol marks currently work in both Cartesian and Polar coordinate systems. Line and Rect marks are Cartesian-only in the current release, with polar variants planned for future versions.
 
+## Common Capabilities
+
+All marks share a common builder API with these key methods:
+
+- **`.data(DataFrame)`** – Attach a dedicated data source to this mark, overriding plot-level data. Enables layering marks with different datasets.
+
+- **`.zindex(i32)`** – Control draw order when marks overlap. Higher values draw on top. Useful when layering marks with specific stacking requirements.
+
+- **`.details(Vec<Expr>)`** – Carry additional data fields through evaluation for future tooltip and interaction systems. Values are preserved but no tooltip UI currently ships.
+
+- **`.facet_strategy(...)`** and **`.broadcast_to_facets()`** – Control how marks participate in faceted plots (data-driven subplots).
+
+These capabilities work consistently across all mark types, enabling flexible composition patterns. See the [Layering](./layering.md) page for detailed examples.
+
 ## Composition and Layering
 
 Multiple marks can be combined in a single plot to create rich composite visualizations. See the **[Layering](./layering.md)** page for:
@@ -67,3 +137,4 @@ Text annotations, area charts, path-based marks, and rule markers are documented
 - Explore [Channels](../channels.md) to see how marks receive data.
 - Learn how [Scales](../scales/index.md) transform channel expressions.
 - Review [Legends](../legends.md) for automatically generated guides.
+- Understand [Coordinate Systems](../coordinate-systems/index.md) for positional mapping.
