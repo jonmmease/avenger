@@ -55,7 +55,7 @@ Ok(evaluated)
 ### Stroke Channels
 - **`stroke`** – Line color (supports hex colors, CSS colors, expressions)
 - **`stroke_width`** – Line width in pixels
-- **`stroke_dash`** – Dash pattern array (e.g., `[5.0, 3.0]` for dashed lines)
+- **`stroke_dash`** – Dash pattern array (e.g., `[5.0, 3.0]` for dashed lines) or theme-defined pattern name (e.g., `"dashed"`)
 - **`stroke_cap`** – Line cap style (`"butt"`, `"round"`, or `"square"`)
 - **`stroke_join`** – Corner join style (`"miter"`, `"round"`, or `"bevel"`)
 
@@ -64,48 +64,375 @@ Ok(evaluated)
 - **`defined`** – Boolean expression that allows gaps in the line (undefined segments are not drawn)
 - **`order`** – Explicit ordering for multi-series stroke encodings
 
-## Usage Patterns
+## Stroke Styling
 
-### Time Series
+### Line Color and Width
 
-Line marks excel at visualizing data over time:
+Customize stroke color and width for emphasis:
 
-```rust
-Line::new()
-    .x(col("timestamp"))
-    .y(col("value"))
-    .stroke("#1f77b4")
-    .stroke_width(2.0)
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+
+let ctx = SessionContext::new();
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![2.0, 5.0, 3.0, 8.0, 6.0, 9.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+?;
+
+let df = ctx.read_batch(batch)?;
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Line::new()
+            .x(col("x"))
+            .y(col("y"))
+            .stroke("#ff6b6b")
+            .stroke_width(3.0)
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
-### Multi-Series Lines
+### Dashed Lines
 
-When encoding a categorical variable to `stroke`, each category gets its own line with automatic legend generation:
+Use dash patterns to differentiate lines or indicate estimated/projected data:
 
-```rust
-Line::new()
-    .x(col("date"))
-    .y(col("price"))
-    .stroke_with(col("stock_symbol"), |c| {
-        c.scale_with::<Ordinal>(|s| s)
-            .legend(|l| l.title("Stock"))
-    })
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+
+let ctx = SessionContext::new();
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![2.0, 5.0, 3.0, 8.0, 6.0, 9.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+?;
+
+let df = ctx.read_batch(batch)?;
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Line::new()
+            .x(col("x"))
+            .y(col("y"))
+            .stroke("#ff6b6b")
+            .stroke_width(3.0)
+            .stroke_dash("dashed")  // Theme-defined dash pattern
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
-### Conditional Gaps
+## Multi-Series Lines
 
-Use the `defined` channel to create gaps in lines when data is missing or conditions aren't met:
+### Using Color Encoding
 
-```rust
-Line::new()
-    .x(col("x"))
-    .y(col("y"))
-    .defined(col("is_valid"))  // Only draw where is_valid is true
-    .stroke("#2ca02c")
+When your data contains multiple series identified by a categorical column, use stroke encoding to automatically create separate lines for each category:
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, StringArray};
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+
+let ctx = SessionContext::new();
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![
+            1.0, 2.0, 3.0, 4.0, 5.0,
+            1.0, 2.0, 3.0, 4.0, 5.0,
+            1.0, 2.0, 3.0, 4.0, 5.0,
+        ])) as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![
+            2.0, 4.0, 3.0, 5.0, 6.0,
+            1.0, 3.0, 2.5, 4.0, 3.5,
+            3.0, 5.5, 4.5, 7.0, 8.0,
+        ])) as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "series",
+        Arc::new(StringArray::from(vec![
+            "A", "A", "A", "A", "A",
+            "B", "B", "B", "B", "B",
+            "C", "C", "C", "C", "C",
+        ])) as datafusion::arrow::array::ArrayRef,
+    ),
+])
+?;
+
+let df = ctx.read_batch(batch)?;
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Line::new()
+            .x(col("x"))
+            .y(col("y"))
+            .stroke_with(col("series"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Series"))
+            })
+            .stroke_width(2.5)
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+This automatically creates separate lines for each value in the 'series' column with distinct colors and a legend.
+
+## Gaps in Data
+
+Lines can have gaps where data points are excluded. There are two ways to create gaps:
+
+### Using NULL Values
+
+DataFusion automatically handles NULL values - lines will have gaps where data is missing. To connect across gaps, filter nulls from the data using `.filter(col("column").is_not_null())`.
+
+### Using the `defined` Channel
+
+Control exactly which points to include using the `defined` channel with a boolean or numeric (0/1) column:
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::{Float64Array, Int32Array};
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+
+let ctx = SessionContext::new();
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![10.0, 25.0, 35.0, 30.0, 45.0, 60.0, 55.0, 70.0, 65.0, 80.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "defined",
+        Arc::new(Int32Array::from(vec![1, 1, 1, 0, 0, 1, 1, 1, 0, 1]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+?;
+
+let df = ctx.read_batch(batch)?;
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Line::new()
+            .x(col("x"))
+            .y(col("y"))
+            .defined(col("defined"))  // 0 creates gaps, 1 includes points
+            .stroke("#2e8b57")
+            .stroke_width(2.5)
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+This creates three separate line segments where `defined` equals 1, with gaps at positions 3-4 and 8.
+
+## Automatic Visual Padding
+
+Like scatter plots, line charts benefit from automatic padding that prevents stroke clipping at data boundaries. Avenger Chart expands the domain to ensure line strokes are fully visible, even at the edges.
+
+### How Line Padding Works
+
+When lines extend to the edges of your data range, the chart automatically:
+
+1. **Analyzes stroke width**: Determines the visual extent of the line (stroke width / 2 on each side)
+2. **Computes required padding**: Calculates domain expansion needed in data space
+3. **Expands the domain**: Adjusts the scale so stroke edges don't get clipped
+
+**Current limitation**: Automatic padding currently works only for **Linear scales**. Other scale types (Log, Pow, Time, etc.) will be supported in future releases.
+
+### Example: Padding with Thick Strokes
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+let ctx = SessionContext::new();
+
+// Line touches domain boundaries at y=0 and y=100
+let batch = RecordBatch::try_from_iter(vec![
+    ("x", Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0, 3.0, 4.0])) as _),
+    ("y", Arc::new(Float64Array::from(vec![0.0, 50.0, 25.0, 75.0, 100.0])) as _),
+])?;
+let df = ctx.read_batch(batch)?;
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .title("Automatic Padding Prevents Clipping")
+    .mark(
+        Line::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false))
+            })
+            .stroke("#e74c3c")
+            .stroke_width(12.0)  // Thick stroke to show padding effect
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+Notice how the line stroke is fully visible at y=0 and y=100. Without automatic padding, half the stroke width would be clipped at these boundaries.
+
+### Why This Matters
+
+Without padding, lines with thick strokes get visually "cut off" at data extremes:
+- The top half of a 10px stroke at the maximum y-value would extend beyond the plot area and be invisible
+- The bottom half of the stroke at minimum y-value would similarly be clipped
+
+Automatic padding ensures the entire stroke is rendered within the visible plot region.
+
+**Scale type support**:
+- ✅ **Linear scales**: Full automatic padding support
+- ⏳ **Other scales** (Log, Pow, Sqrt, Time, etc.): Planned for future release
+
+## Combining Lines and Points
+
+Layer symbols over lines to show both the trend and individual data points:
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+
+let ctx = SessionContext::new();
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "x",
+        Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "y",
+        Arc::new(Float64Array::from(vec![2.0, 5.0, 4.0, 7.0, 6.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+?;
+
+let df = ctx.read_batch(batch)?;
+
+let plot = Plot::<Cartesian>::new()
+    .data(df.clone())
+    .mark(
+        Line::new()
+            .x(col("x"))
+            .y(col("y"))
+            .stroke("#4682b4")
+            .stroke_width(2.5)
+    )
+    .mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill("#4682b4")
+            .size(120.0)
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+## Complete Example: Stock Prices
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+let ctx = SessionContext::new();
+# let stocks_path = format!(
+#     "{}/../tests/data/stocks.parquet",
+#     env!("CARGO_MANIFEST_DIR")
+# );
+let df = ctx
+    .read_parquet(stocks_path, ParquetReadOptions::default())
+    .await
+    ?;
+
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(
+        Line::new()
+            .x_with(col("date"), |c| c
+                .scale_with::<Time>(|s| s)
+                .axis(|axis| axis.title("Date"))
+            )
+            .y_with(col("price"), |c| c
+                .axis(|axis| axis.title("Price ($)"))
+            )
+            .stroke_with(col("symbol"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Stock"))
+            })
+            .stroke_width(2.0)
+    )
+    .title("Stock Prices Over Time");
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
 ```
 
 ## Next Steps
 
 - See the [Marks Overview](./index.md) for layering and composition
-- Explore [Line Charts Guide](../../guides/line-charts.md) for more examples
+- Try the [Line Charts Tutorial](../chart-types/line-charts.md) for a quick-start guide
 - Learn about [Channels](../channels.md) for data binding
