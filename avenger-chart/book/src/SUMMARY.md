@@ -24,7 +24,7 @@
 
 - [Scales](./docs/scales/index.md)
   - [Domain Inference](./docs/scales/domain-inference.md)
-  - [Scale Types](#scale-types)
+  - [Scale Types](./docs/scales/scale-types.md)
     - [Linear](./docs/scales/linear.md)
     - [Log](./docs/scales/log.md)
     - [Pow](./docs/scales/pow.md)
