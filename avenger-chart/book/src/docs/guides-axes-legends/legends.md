@@ -2,7 +2,7 @@
 
 Legends provide visual keys that explain how data is encoded in your visualization. Avenger Chart automatically generates legends for encoded channels.
 
-**Note**: Legends are for **visual channels** (fill, size, shape, stroke, etc.) and are independent of coordinate systems. For position channels (x, y, r, theta), see **[Axes](../guides/axes.md)**. To understand how legends, axes, and guides relate, see **[Guides, Axes, and Legends](./guides-axes-legends.md)**.
+**Note**: Legends are for **visual channels** (fill, size, shape, stroke, etc.) and are independent of coordinate systems. For position channels (x, y, r, theta), see **[Axes](./guides-axes-legends/axes.md)**. To understand how legends, axes, and guides relate, see **[Guides, Axes, and Legends](./guides-axes-legends.md)**.
 
 ## Legend Configuration Approach
 
@@ -916,5 +916,5 @@ Global legend toggles are not yet available; hide legends per-channel via `.lege
 ## Next Steps
 
 - Learn about [Themes](./themes.md) for complete styling control
-- See legend examples in [Scatter Plots](../guides/scatter-plots.md)
-- Explore [CSS Themes](../advanced/css-themes.md) for advanced customization
+- See legend examples in [Scatter Plots](../scatter-plots.md)
+- Explore [CSS Themes](../themes/css-themes.md) for advanced customization

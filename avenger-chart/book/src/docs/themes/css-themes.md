@@ -2146,4 +2146,4 @@ These complete theme examples showcase the full power of CSS-based theming in Av
 ## Next Steps
 
 - Learn about [Parameters](./parameters.md) for dynamic theming
-- Explore the default [Themes](../concepts/themes.md)
+- Explore the default [Themes](../themes.md)

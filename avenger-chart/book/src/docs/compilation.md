@@ -452,7 +452,7 @@ let evaluated = compiled.evaluate(&ctx_client, None).await?;
 # }
 ```
 
-**Important**: If your plot uses User-Defined Functions (UDFs), the same UDFs must be registered in both the compilation and evaluation contexts. See the [DataFusion Expressions Guide](../guides/datafusion-expressions.md#user-defined-functions-advanced) for details on UDF serialization.
+**Important**: If your plot uses User-Defined Functions (UDFs), the same UDFs must be registered in both the compilation and evaluation contexts. See the [DataFusion Expressions Guide](../datafusion-expressions.md#user-defined-functions-advanced) for details on UDF serialization.
 
 ### Serializing EvaluatedPlot
 
@@ -503,6 +503,6 @@ If `evaluate()` fails, it's usually due to:
 
 ## See Also
 
-- [Parameters](../advanced/parameters.md) - Using parameters with compilation
+- [Parameters](../themes/parameters.md) - Using parameters with compilation
 - [First Plot](../getting-started/first-plot.md) - Basic workflow
 - [Channels](./channels.md) - Expression and channel basics

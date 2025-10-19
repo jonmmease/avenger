@@ -297,4 +297,4 @@ The scale will:
 **See also:**
 - [Threshold Scales](./threshold.md) for explicit breakpoints
 - [Quantize Scales](./quantize.md) for equal-width bins
-- [Legends](../legends.md) for customizing quantile scale legends
+- [Legends](./guides-axes-legends/legends.md) for customizing quantile scale legends

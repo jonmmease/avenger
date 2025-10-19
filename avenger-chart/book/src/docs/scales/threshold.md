@@ -266,4 +266,4 @@ Threshold scales are ideal when you have domain expertise about meaningful break
 **See also:**
 - [Ordinal Scales](./ordinal.md) for discrete-to-discrete mapping
 - [Conditional Encoding](../channels.md#conditional-encoding) for alternative categorization approaches
-- [Legends](../legends.md) for customizing threshold scale legends
+- [Legends](./guides-axes-legends/legends.md) for customizing threshold scale legends

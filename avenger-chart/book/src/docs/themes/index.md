@@ -419,10 +419,10 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-The media queries above adjust the plot-area background as the canvas width changes. The rendered example shows the medium width breakpoint (green tint). See [Parameters](../advanced/parameters.md) for how to render the same compiled plot at multiple sizes.
+The media queries above adjust the plot-area background as the canvas width changes. The rendered example shows the medium width breakpoint (green tint). See [Parameters](../themes/parameters.md) for how to render the same compiled plot at multiple sizes.
 
 ## Next Steps
 
 - See [Marks](./marks.md) to learn which channels a theme can style by default.
 - Review [Legends](./legends.md) to customize guide appearance with CSS selectors.
-- Explore [CSS Themes](../advanced/css-themes.md) for more comprehensive styling patterns and best practices.
+- Explore [CSS Themes](../themes/css-themes.md) for more comprehensive styling patterns and best practices.

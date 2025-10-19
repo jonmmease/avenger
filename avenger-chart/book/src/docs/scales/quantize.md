@@ -275,4 +275,4 @@ Quantize scales are ideal for creating uniform categories without domain experti
 **See also:**
 - [Threshold Scales](./threshold.md) for explicit breakpoints
 - [Quantile Scales](./quantile.md) for data-driven equal-count bins
-- [Legends](../legends.md) for customizing quantize scale legends
+- [Legends](./guides-axes-legends/legends.md) for customizing quantize scale legends

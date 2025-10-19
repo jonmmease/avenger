@@ -2,7 +2,7 @@
 
 Axes provide reference lines and labels that help readers interpret positions in your visualization. Avenger Chart automatically generates axes for positional channels (x, y) and provides extensive customization options.
 
-**Note**: Axes are for **position channels** (x, y in Cartesian; r, theta in Polar) and are part of the coordinate system's guide. For visual channels (fill, size, shape, etc.), see **[Legends](../concepts/legends.md)**. To understand how axes, guides, and legends relate, see **[Guides, Axes, and Legends](../concepts/guides-axes-legends.md)**.
+**Note**: Axes are for **position channels** (x, y in Cartesian; r, theta in Polar) and are part of the coordinate system's guide. For visual channels (fill, size, shape, etc.), see **[Legends](./guides-axes-legends/legends.md)**. To understand how axes, guides, and legends relate, see **[Guides, Axes, and Legends](./guides-axes-legends/index.md)**.
 
 ## Basic Axis Configuration
 
@@ -355,7 +355,7 @@ Ok((evaluated_meters, evaluated_feet))
 - ✅ Context-dependent labels based on data ranges
 - ✅ Interactive dashboards with user-selected options
 
-See the [Parameters guide](../advanced/parameters.md) for more on parametric plots and the [DataFusion expressions guide](./datafusion-expressions.md) for building complex expressions.
+See the [Parameters guide](../themes/parameters.md) for more on parametric plots and the [DataFusion expressions guide](./datafusion-expressions.md) for building complex expressions.
 
 ## Advanced: Conditional Configuration
 
@@ -534,11 +534,11 @@ Ok((evaluated_visible, evaluated_hidden))
 - ✅ Context-dependent layouts based on data characteristics
 - ✅ Interactive dashboards with configurable views
 
-See the [Parameters guide](../advanced/parameters.md) for comprehensive parameter documentation.
+See the [Parameters guide](../themes/parameters.md) for comprehensive parameter documentation.
 
 ## Next Steps
 
-- Learn about [themes and styling](../concepts/themes.md) to customize axis appearance
-- Explore [CSS themes](../advanced/css-themes.md) for advanced axis styling
-- See [parameters](../advanced/parameters.md) for building interactive, parametric visualizations
+- Learn about [themes and styling](../themes.md) to customize axis appearance
+- Explore [CSS themes](../themes/css-themes.md) for advanced axis styling
+- See [parameters](../themes/parameters.md) for building interactive, parametric visualizations
 - Check [DataFusion expressions](./datafusion-expressions.md) for building complex conditional logic
