@@ -12,6 +12,43 @@ Marks are the visual building blocks of a plot. Each mark type turns channel inp
 
 Each mark type has a dedicated page with detailed channel documentation and examples.
 
+## Generic Over Coordinate Systems
+
+Marks are generic structs parametrized by coordinate system (`Mark<C: CoordinateSystem>`). This design allows the same mark type to work across different coordinate systems while exposing coordinate-appropriate channels.
+
+**Position channels** are specific to each coordinate system:
+- **Cartesian**: `x`, `y` (and `x2`, `y2` for rectangles)
+- **Polar**: `r`, `theta` (radial distance and angle)
+
+**Visual channels** (fill, stroke, size, shape, opacity, etc.) are shared across all coordinate systems.
+
+When you construct a mark inside `.mark()`, it inherits the plot's coordinate system:
+
+```rust
+Plot::<Cartesian>::new()
+    .mark(Symbol::new().x(col("a")).y(col("b")))  // Infers Cartesian
+
+Plot::<Polar>::new()
+    .mark(Symbol::new().r(col("distance")).theta(col("angle")))  // Infers Polar
+```
+
+For standalone construction, use explicit type parameters:
+
+```rust
+Symbol::<Cartesian>::new()
+Symbol::<Polar>::new()
+```
+
+### Coordinate System Support
+
+| Mark | Cartesian | Polar | Future Systems |
+|------|-----------|-------|----------------|
+| **[Symbol](./symbol.md)** | ✅ `x`, `y` | ✅ `r`, `theta` | Planned |
+| **[Line](./line.md)** | ✅ `x`, `y` | 🔮 Planned | Planned |
+| **[Rect](./rect.md)** | ✅ `x`, `x2`, `y`, `y2` | 🔮 Planned (arc/wedge marks) | Planned |
+
+Symbol marks currently work in both Cartesian and Polar coordinate systems. Line and Rect marks are Cartesian-only in the current release, with polar variants planned for future versions.
+
 ## Layering Marks
 
 Marks can be layered to combine encodings:
