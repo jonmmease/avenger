@@ -318,4 +318,4 @@ if has_gpu {
 
 - [Your First Plot](../getting-started/first-plot.md) - Basic rendering workflow
 - [Roadmap](../roadmap.md) - Planned rendering features
-- [The Compilation Pipeline](../concepts/compilation.md) - Understanding compile vs evaluate
+- [The Compilation Pipeline](../compilation.md) - Understanding compile vs evaluate

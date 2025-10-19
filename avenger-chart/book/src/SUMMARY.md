@@ -7,51 +7,58 @@
 - [Installation](./getting-started/installation.md)
 - [Your First Plot](./getting-started/first-plot.md)
 
-# Core Concepts
+# Documentation
 
-- [Coordinate Systems](./concepts/coordinate-systems/index.md)
-  - [Cartesian](./concepts/coordinate-systems/cartesian.md)
-  - [Polar](./concepts/coordinate-systems/polar.md)
-  - [Zero-Dimensional](./concepts/coordinate-systems/zero-dimensional.md)
-- [Guides, Axes, and Legends](./concepts/guides-axes-legends.md)
-- [Marks](./concepts/marks/index.md)
-  - [Symbol](./concepts/marks/symbol.md)
-  - [Line](./concepts/marks/line.md)
-  - [Rect](./concepts/marks/rect.md)
-  - [Layering](./concepts/marks/layering.md)
-- [Channels](./concepts/channels.md)
-- [The Compilation Pipeline](./concepts/compilation.md)
-- [Scales](./concepts/scales/index.md)
-  - [Linear](./concepts/scales/linear.md)
-  - [Log](./concepts/scales/log.md)
-  - [Pow](./concepts/scales/pow.md)
-  - [Sqrt](./concepts/scales/sqrt.md)
-  - [Symlog](./concepts/scales/symlog.md)
-  - [Time](./concepts/scales/time.md)
-  - [Band](./concepts/scales/band.md)
-  - [Point](./concepts/scales/point.md)
-  - [Ordinal](./concepts/scales/ordinal.md)
-  - [Threshold](./concepts/scales/threshold.md)
-  - [Quantize](./concepts/scales/quantize.md)
-  - [Quantile](./concepts/scales/quantile.md)
-- [Legends](./concepts/legends.md)
-- [Themes](./concepts/themes.md)
-- [Layout & Sizing](./concepts/layout.md)
+- [Coordinate Systems](./docs/coordinate-systems/index.md)
+  - [Cartesian](./docs/coordinate-systems/cartesian.md)
+  - [Polar](./docs/coordinate-systems/polar.md)
+  - [Zero-Dimensional](./docs/coordinate-systems/zero-dimensional.md)
 
-# Guides
+- [Marks](./docs/marks/index.md)
+  - [Symbol](./docs/marks/symbol.md)
+  - [Line](./docs/marks/line.md)
+  - [Rect](./docs/marks/rect.md)
+  - [Layering](./docs/marks/layering.md)
 
-- [Scatter Plots](./guides/scatter-plots.md)
-- [Line Charts](./guides/line-charts.md)
-- [Bar Charts](./guides/bar-charts.md)
-- [Axes](./guides/axes.md)
-- [Aggregations](./guides/aggregations.md)
-- [Working with DataFusion](./guides/datafusion-expressions.md)
-- [Rendering and Output](./guides/rendering.md)
+- [Channels](./docs/channels.md)
 
-# Advanced Topics
+- [Scales](./docs/scales/index.md)
+  - [Linear](./docs/scales/linear.md)
+  - [Log](./docs/scales/log.md)
+  - [Pow](./docs/scales/pow.md)
+  - [Sqrt](./docs/scales/sqrt.md)
+  - [Symlog](./docs/scales/symlog.md)
+  - [Time](./docs/scales/time.md)
+  - [Band](./docs/scales/band.md)
+  - [Point](./docs/scales/point.md)
+  - [Ordinal](./docs/scales/ordinal.md)
+  - [Threshold](./docs/scales/threshold.md)
+  - [Quantize](./docs/scales/quantize.md)
+  - [Quantile](./docs/scales/quantile.md)
 
-- [Custom Themes with CSS](./advanced/css-themes.md)
-- [Parameters](./advanced/parameters.md)
+- [Guides, Axes, and Legends](./docs/guides-axes-legends/index.md)
+  - [Axes](./docs/guides-axes-legends/axes.md)
+  - [Legends](./docs/guides-axes-legends/legends.md)
+
+- [Themes](./docs/themes/index.md)
+  - [Custom Themes with CSS](./docs/themes/css-themes.md)
+
+- [Chart Types](#chart-types)
+  - [Scatter Plots](./docs/chart-types/scatter-plots.md)
+  - [Line Charts](./docs/chart-types/line-charts.md)
+  - [Bar Charts](./docs/chart-types/bar-charts.md)
+
+- [Working with Data](#working-with-data)
+  - [Aggregations](./docs/data/aggregations.md)
+  - [DataFusion Expressions](./docs/data/datafusion-expressions.md)
+
+- [Layout & Sizing](./docs/layout.md)
+
+- [Compilation Pipeline](./docs/compilation.md)
+
+- [Rendering and Output](./docs/rendering.md)
+
+- [Parameters](./docs/parameters.md)
 
 # Project Information
 

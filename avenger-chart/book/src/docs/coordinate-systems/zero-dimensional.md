@@ -173,4 +173,4 @@ While no tooltip UI currently ships, this lays groundwork for interactive dashbo
 - Learn about [Cartesian](./cartesian.md) coordinates for standard rectangular plots
 - Explore [Polar](./polar.md) coordinates for radial visualizations
 - Review [Marks](../marks/index.md) that work in all coordinate systems
-- See [Legends](../legends.md) for visual encoding guides
+- See [Legends](./guides-axes-legends/legends.md) for visual encoding guides

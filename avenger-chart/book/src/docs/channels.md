@@ -486,7 +486,7 @@ Rect::new()
 3. `.band(1.0)` is applied to position at the end of the band
 4. Result: bars span from the start (`x`) to the end (`x2`) of each category
 
-See [Bar Charts](../guides/bar-charts.md) for detailed examples of this pattern.
+See [Bar Charts](../bar-charts.md) for detailed examples of this pattern.
 
 ### Why Use Channel References?
 
@@ -952,11 +952,11 @@ Ok(evaluated)
 
 DataFusion expressions enable complex data transformations within channel mappings.
 
-For a comprehensive guide to DataFusion's expression capabilities, including scalar functions, string operations, date manipulation, and more, see [Working with DataFusion](../guides/datafusion-expressions.md).
+For a comprehensive guide to DataFusion's expression capabilities, including scalar functions, string operations, date manipulation, and more, see [Working with DataFusion](../datafusion-expressions.md).
 
 ## Next Steps
 
 - Learn about [Scales](./scales.md) in detail
 - Understand [Legends](./legends.md) configuration
-- See channel examples in [Guides](../guides/scatter-plots.md)
-- Use [Parameters](../advanced/parameters.md) for runtime control
+- See channel examples in [Guides](../scatter-plots.md)
+- Use [Parameters](../themes/parameters.md) for runtime control

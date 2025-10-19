@@ -96,6 +96,6 @@ See the [roadmap](../../roadmap.md) for details.
 - Learn about **[Cartesian](./cartesian.md)** coordinates for standard rectangular plots
 - Explore **[Polar](./polar.md)** coordinates for radial visualizations
 - Discover **[Zero-Dimensional](./zero-dimensional.md)** coordinates for KPI dashboards and callouts
-- Understand how **[Guides, Axes, and Legends](../guides-axes-legends.md)** relate to coordinate systems
+- Understand how **[Guides, Axes, and Legends](./guides-axes-legends/index.md)** relate to coordinate systems
 - Understand [Marks](../marks/index.md) that render in coordinate systems
 - Review [Channels](../channels.md) for encoding data

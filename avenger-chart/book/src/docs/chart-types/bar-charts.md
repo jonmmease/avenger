@@ -23,7 +23,7 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-This creates vertical bars from 0 to the value in each category. The `x2` channel uses the `:x` [channel reference](../concepts/channels.md#channel-references) with `.band(1.0)` to span the full width of each categorical band.
+This creates vertical bars from 0 to the value in each category. The `x2` channel uses the `:x` [channel reference](../channels.md#channel-references) with `.band(1.0)` to span the full width of each categorical band.
 
 ## Horizontal Bars
 
@@ -169,7 +169,7 @@ start                 middle       end
 - **50% centered**: `.band(0.25)` to `.band(0.75)`
 - **Left-aligned narrow**: `.band(0.0)` to `.band(0.7)`
 
-See [Band Scale](../concepts/scales/band.md#the-band-method) for more details on the `.band()` method.
+See [Band Scale](../scales/band.md#the-band-method) for more details on the `.band()` method.
 
 ## Color by Category
 

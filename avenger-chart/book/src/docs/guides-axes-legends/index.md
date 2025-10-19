@@ -280,7 +280,7 @@ Plot::<Polar>::new()
     .guide(|g| g.plot_background_color("#fff8f0"))
 ```
 
-See the [Axes](../guides/axes.md) guide for detailed axis configuration.
+See the [Axes](./guides-axes-legends/axes.md) guide for detailed axis configuration.
 
 ### Configuring Axes
 
@@ -296,7 +296,7 @@ Symbol::new()
     })
 ```
 
-See the [Axes](../guides/axes.md) guide for comprehensive examples.
+See the [Axes](./guides-axes-legends/axes.md) guide for comprehensive examples.
 
 ### Configuring Legends
 
@@ -330,7 +330,7 @@ See the [Legends](./legends.md) page for complete legend documentation.
 
 ## Next Steps
 
-- See [Axes](../guides/axes.md) for comprehensive axis configuration
+- See [Axes](./guides-axes-legends/axes.md) for comprehensive axis configuration
 - Read [Legends](./legends.md) for complete legend documentation
 - Explore [Coordinate Systems](./coordinate-systems/index.md) to understand guide implementations
 - Review [Themes](./themes.md) for styling guides, axes, and legends

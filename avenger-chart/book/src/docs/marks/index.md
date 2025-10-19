@@ -136,5 +136,5 @@ Text annotations, area charts, path-based marks, and rule markers are documented
 
 - Explore [Channels](../channels.md) to see how marks receive data.
 - Learn how [Scales](../scales/index.md) transform channel expressions.
-- Review [Legends](../legends.md) for automatically generated guides.
+- Review [Legends](./guides-axes-legends/legends.md) for automatically generated guides.
 - Understand [Coordinate Systems](../coordinate-systems/index.md) for positional mapping.
