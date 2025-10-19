@@ -23,7 +23,7 @@
 - [Channels](./docs/channels.md)
 
 - [Scales](./docs/scales/index.md)
-  - [Domain Inference](./docs/scales/domain-inference.md)
+  - [Domains](./docs/scales/domains.md)
   - [Scale Types](./docs/scales/scale-types.md)
     - [Linear](./docs/scales/linear.md)
     - [Log](./docs/scales/log.md)

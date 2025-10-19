@@ -280,7 +280,7 @@ This creates three separate line segments where `defined` equals 1, with gaps at
 
 Linear scales automatically expand their domains to prevent line stroke clipping at data boundaries. The padding calculation considers stroke width to ensure the entire line is fully visible even at domain edges.
 
-For complete details on how automatic padding works, how it interacts with `nice()` scales, and scale type support, see [Domain Inference > Automatic Visual Padding](../scales/domain-inference.md#automatic-visual-padding)
+For complete details on how automatic padding works, how it interacts with `nice()` scales, and scale type support, see [Domain Inference > Automatic Visual Padding](../scales/domains.md#automatic-visual-padding)
 
 ## Combining Lines and Points
 
