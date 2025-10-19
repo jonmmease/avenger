@@ -2,6 +2,8 @@
 
 Axes provide reference lines and labels that help readers interpret positions in your visualization. Avenger Chart automatically generates axes for positional channels (x, y) and provides extensive customization options.
 
+**Note**: Axes are for **position channels** (x, y in Cartesian; r, theta in Polar) and are part of the coordinate system's guide. For visual channels (fill, size, shape, etc.), see **[Legends](../concepts/legends.md)**. To understand how axes, guides, and legends relate, see **[Guides, Axes, and Legends](../concepts/guides-axes-legends.md)**.
+
 ## Basic Axis Configuration
 
 Configure axes through the channel builder's `.axis()` method:

@@ -2,6 +2,8 @@
 
 Legends provide visual keys that explain how data is encoded in your visualization. Avenger Chart automatically generates legends for encoded channels.
 
+**Note**: Legends are for **visual channels** (fill, size, shape, stroke, etc.) and are independent of coordinate systems. For position channels (x, y, r, theta), see **[Axes](../guides/axes.md)**. To understand how legends, axes, and guides relate, see **[Guides, Axes, and Legends](./guides-axes-legends.md)**.
+
 ## Legend Configuration Approach
 
 **Important**: In Avenger Chart, legends are configured at the **mark/channel level**, not at the plot level. When you encode a channel with data (using `*_with()` methods), you configure the legend for that specific channel within the channel builder closure.
