@@ -10,7 +10,10 @@
 # Core Concepts
 
 - [Coordinate Systems](./concepts/coordinate-systems.md)
-- [Marks](./concepts/marks.md)
+- [Marks](./concepts/marks/index.md)
+  - [Symbol](./concepts/marks/symbol.md)
+  - [Line](./concepts/marks/line.md)
+  - [Rect](./concepts/marks/rect.md)
 - [Channels](./concepts/channels.md)
 - [The Compilation Pipeline](./concepts/compilation.md)
 - [Scales](./concepts/scales/index.md)
