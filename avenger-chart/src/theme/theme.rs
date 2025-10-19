@@ -213,7 +213,7 @@ impl Theme {
             }
 
             legend background {
-                padding: 8;
+                padding: 4;
             }
 
             /* === Mark Defaults === */
