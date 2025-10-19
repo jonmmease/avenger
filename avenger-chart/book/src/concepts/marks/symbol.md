@@ -1,8 +1,10 @@
 # Symbol Mark
 
-`Symbol` marks render discrete points, making them useful for scatter plots and dot plots.
+`Symbol` marks render discrete points, making them useful for scatter plots and dot plots. Symbol marks are generic over coordinate systems, supporting both Cartesian and Polar coordinates.
 
-## Basic Example
+## Cartesian Coordinates
+
+In Cartesian coordinates, symbols are positioned using `x` and `y` channels:
 
 ```rust,render
 use avenger_chart::prelude::*;
@@ -46,12 +48,68 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-## Channels
+### Position Channels (Cartesian)
 
-### Position Channels
-- **`x`**, **`y`** – Positional encodings inherited from the enclosing `Plot`
+- **`x`** – Horizontal position
+- **`y`** – Vertical position
 
-### Visual Encoding Channels
+## Polar Coordinates
+
+In Polar coordinates, symbols are positioned using radial distance and angle:
+
+```rust,render
+use avenger_chart::prelude::*;
+use datafusion::arrow::array::Float64Array;
+use datafusion::arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+
+let ctx = SessionContext::new();
+// Create polar data - circular pattern
+let batch = RecordBatch::try_from_iter(vec![
+    (
+        "radius",
+        Arc::new(Float64Array::from(vec![20.0, 35.0, 50.0, 65.0, 80.0, 95.0]))
+            as datafusion::arrow::array::ArrayRef,
+    ),
+    (
+        "angle",
+        Arc::new(Float64Array::from(vec![
+            0.0, 1.047, 2.094, 3.142, 4.189, 5.236
+        ]))  // 0, π/3, 2π/3, π, 4π/3, 5π/3 radians
+            as datafusion::arrow::array::ArrayRef,
+    ),
+])
+?;
+
+let df = ctx.read_batch(batch)?;
+
+
+let plot = Plot::<Polar>::new()
+    .data(df)
+    .mark(
+        Symbol::<Polar>::new()
+            .r(col("radius"))
+            .theta(col("angle"))
+            .size(400.0)
+            .fill("#e74c3c")
+            .shape("diamond")
+    );
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)
+```
+
+### Position Channels (Polar)
+
+- **`r`** – Radial distance from origin
+- **`theta`** – Angular position in radians (0 = east, π/2 = north, π = west, 3π/2 = south)
+
+## Visual Encoding Channels
+
+These channels work across all coordinate systems:
+
 - **`size`** – Area of the marker in square pixels
 - **`fill`** – Fill color (supports hex colors, CSS colors, expressions)
 - **`stroke`** – Outline color
@@ -124,12 +182,9 @@ Supported shape names include:
 - `"wye"`
 - And more Vega-compatible symbol names
 
-## Usage Notes
-
-When a `Symbol` is constructed inside `Plot::mark()`, the coordinate system is inferred from the plot. For standalone construction, use `Symbol::<Cartesian>::new()`.
-
 ## Next Steps
 
-- See the [Marks Overview](./index.md) for layering and composition
+- See the [Marks Overview](./index.md) for coordinate system support and layering
 - Explore [Scatter Plots Guide](../../guides/scatter-plots.md) for more examples
-- Learn about [Channels](../channels.md) for data binding
+- Learn about [Cartesian](../coordinate-systems/cartesian.md) and [Polar](../coordinate-systems/polar.md) coordinates
+- Understand [Channels](../channels.md) for data binding

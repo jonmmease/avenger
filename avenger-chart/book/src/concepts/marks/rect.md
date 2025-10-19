@@ -2,6 +2,8 @@
 
 `Rect` marks render axis-aligned rectangles and power bar charts, heatmaps, and interval plots.
 
+**Coordinate System Support:** Currently Cartesian only. Polar support (arc marks, wedge marks, radial bar charts) is planned for future releases.
+
 ## Basic Example
 
 ```rust,render
@@ -50,7 +52,7 @@ Ok(evaluated)
 
 ## Channels
 
-### Position Channels
+### Position Channels (Cartesian)
 
 Rectangles are defined by four position channels that specify opposite corners:
 

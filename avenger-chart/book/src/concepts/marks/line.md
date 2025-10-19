@@ -2,6 +2,8 @@
 
 `Line` marks draw ordered polylines, making them ideal for time series, trend lines, and connecting sequential data points.
 
+**Coordinate System Support:** Currently Cartesian only. Polar support (radial lines, spirals) is planned for future releases.
+
 ## Basic Example
 
 ```rust,render
@@ -47,7 +49,7 @@ Ok(evaluated)
 
 ## Channels
 
-### Position Channels
+### Position Channels (Cartesian)
 - **`x`**, **`y`** – Sampled along the polyline path
 
 ### Stroke Channels
