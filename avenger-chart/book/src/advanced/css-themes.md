@@ -662,7 +662,7 @@ For static visualizations with known category counts, explicit palette specifica
 
 This example demonstrates a theme inspired by ggplot2's default color palette, which uses evenly spaced hues around the HSL color wheel. Each cardinality gets colors distributed uniformly across the hue spectrum (0-360°), ensuring maximum perceptual distinction.
 
-```rust,no_run
+```rust,render
 use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;

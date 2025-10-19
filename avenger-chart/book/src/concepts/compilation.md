@@ -380,6 +380,111 @@ for dataset in datasets {
 # }
 ```
 
+## Serialization
+
+Both `CompiledPlot` and `EvaluatedPlot` are fully serializable, enabling powerful workflows like caching, server-side compilation, and distributed rendering.
+
+### Serializing CompiledPlot
+
+`CompiledPlot` can be serialized to JSON or binary formats:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+// Create and compile a plot
+let plot = Plot::<Cartesian>::new()
+    .data(df)
+    .mark(Symbol::new().x(col("x")).y(col("y")));
+
+let compiled = plot.compile(&ctx).await?;
+
+// Serialize to JSON
+let json = serde_json::to_string(&compiled)?;
+
+// Or serialize to compact binary format (bincode)
+let bytes = bincode::serialize(&compiled)?;
+
+// Later: deserialize and evaluate
+let deserialized: CompiledPlot = serde_json::from_str(&json)?;
+let evaluated = deserialized.evaluate(&ctx, None).await?;
+# Ok(())
+# }
+```
+
+### Use Cases
+
+**Caching**: Save `CompiledPlot` to disk to avoid recompilation on restart:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# use std::fs;
+# async fn example(ctx: &SessionContext, plot: Plot<Cartesian>) -> Result<(), Box<dyn std::error::Error>> {
+// Compile and cache
+let compiled = plot.compile(&ctx).await?;
+fs::write("plot.json", serde_json::to_string(&compiled)?)?;
+
+// Later: load from cache
+let cached_json = fs::read_to_string("plot.json")?;
+let compiled: CompiledPlot = serde_json::from_str(&cached_json)?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+# Ok(())
+# }
+```
+
+**Server-side compilation**: Compile on server, send to client for rendering:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# async fn example(ctx_server: &SessionContext, plot: Plot<Cartesian>) -> Result<(), Box<dyn std::error::Error>> {
+// Server: compile plot
+let compiled = plot.compile(&ctx_server).await?;
+let json = serde_json::to_string(&compiled)?;
+// Send JSON to client via HTTP/WebSocket
+
+// Client: receives JSON, deserializes, and evaluates
+let ctx_client = SessionContext::new();
+let compiled: CompiledPlot = serde_json::from_str(&json)?;
+let evaluated = compiled.evaluate(&ctx_client, None).await?;
+# Ok(())
+# }
+```
+
+**Important**: If your plot uses User-Defined Functions (UDFs), the same UDFs must be registered in both the compilation and evaluation contexts. See the [DataFusion Expressions Guide](../guides/datafusion-expressions.md#user-defined-functions-advanced) for details on UDF serialization.
+
+### Serializing EvaluatedPlot
+
+`EvaluatedPlot` contains the final scene graph and can also be serialized:
+
+```rust,no_run
+# use avenger_chart::prelude::*;
+# use datafusion::prelude::*;
+# async fn example(compiled: &CompiledPlot, ctx: &SessionContext) -> Result<(), Box<dyn std::error::Error>> {
+// Evaluate and serialize
+let evaluated = compiled.evaluate(&ctx, None).await?;
+let json = serde_json::to_string(&evaluated)?;
+
+// Later: deserialize and render
+let evaluated: avenger_chart::plot::EvaluatedPlot = serde_json::from_str(&json)?;
+// Render with any backend (PNG, SVG, etc.)
+# Ok(())
+# }
+```
+
+This is useful for pre-rendering plots and caching the final visual output.
+
+### Format Options
+
+- **JSON** (`serde_json`): Human-readable, larger size, slower
+- **Bincode** (`bincode`): Binary format, compact size, faster
+- **Other formats**: Any serde-compatible format (MessagePack, CBOR, etc.)
+
+Choose based on your needs:
+- JSON for debugging and HTTP APIs
+- Bincode for performance-critical caching
+
 ## Debugging Compilation
 
 ### Compilation Errors
