@@ -9,7 +9,9 @@
 
 # Core Concepts
 
-- [Coordinate Systems](./concepts/coordinate-systems.md)
+- [Coordinate Systems](./concepts/coordinate-systems/index.md)
+  - [Cartesian](./concepts/coordinate-systems/cartesian.md)
+  - [Polar](./concepts/coordinate-systems/polar.md)
 - [Marks](./concepts/marks/index.md)
   - [Symbol](./concepts/marks/symbol.md)
   - [Line](./concepts/marks/line.md)
