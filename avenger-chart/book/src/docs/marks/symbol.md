@@ -391,7 +391,7 @@ Ok(evaluated)
 
 Linear scales automatically expand their domains to prevent symbol clipping at data boundaries. The padding calculation considers symbol size and stroke width to ensure marks are fully visible even at domain edges.
 
-For complete details on how automatic padding works, how it interacts with `nice()` scales, and scale type support, see [Domain Inference > Automatic Visual Padding](../scales/domain-inference.md#automatic-visual-padding)
+For complete details on how automatic padding works, how it interacts with `nice()` scales, and scale type support, see [Domain Inference > Automatic Visual Padding](../scales/domains.md#automatic-visual-padding)
 
 ## Angle
 
