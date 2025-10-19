@@ -1,14 +1,23 @@
 # Introduction
 
-Avenger Chart is a high-performance, GPU-accelerated charting library for Rust. It provides a declarative API for creating data visualizations with support for interactive features like pan and zoom.
+Avenger Chart is a high-performance, GPU-accelerated charting library for Rust. It provides a declarative API for creating data visualizations, and plugs into the broader Avenger runtime for interactive scenarios such as pan/zoom (chart-level interaction APIs are on the roadmap).
 
 ## Key Features
 
-- **GPU-Accelerated**: Uses WebGPU/WebGL2 for fast rendering
+- **GPU-Accelerated**: Uses the `wgpu` stack (Vulkan, Metal, DX12, or WebGPU) for fast rendering
 - **DataFusion Integration**: Built on Apache Arrow and DataFusion for efficient data processing
 - **Declarative API**: Grammar-of-graphics inspired design
-- **Interactive**: Built-in support for pan, zoom, and other interactions
 - **Flexible Theming**: CSS-based styling system
+
+## Before You Start
+
+These docs assume a couple of things about your environment and background:
+
+- **Runtime & tooling**: You can run async Rust (typically with `tokio`) and have a `wgpu`-compatible backend available or configured for headless testing.
+- **Data access**: Your data is reachable through Apache DataFusion (Arrow record batches, Parquet, CSV, SQL sources, etc.).
+- **Concepts**: You’re comfortable with DataFusion expressions (`col()`, `lit()`, aggregates) since they drive the channel mappings shown throughout the guide.
+
+If any of the above is new, the [Installation](./getting-started/installation.md) page covers the environment setup, and the [DataFusion Expressions guide](./guides/datafusion-expressions.md) links to the relevant DataFusion background material.
 
 ## Design Philosophy
 

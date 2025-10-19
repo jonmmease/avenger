@@ -541,7 +541,7 @@ You can reference any defined channel:
 **Position**: `:x`, `:y`, `:x2`, `:y2`, `:r`, `:theta`
 **Visual**: `:color`, `:fill`, `:stroke`, `:opacity`
 **Size/Shape**: `:size`, `:shape`, `:stroke_width`
-**Other**: `:angle`, `:defined`, `:order`, `:tooltip`
+**Other**: `:angle`, `:defined`, `:order`
 
 ### Dependency Resolution
 
@@ -558,6 +558,8 @@ Symbol::new()
 # ;
 # }
 ```
+
+Need metadata for future interactive views? Marks expose a `.details([...])` method that records extra columns alongside the visual encodings. The renderer stores these fields but does not yet display tooltips—integrated interaction layers are tracked on the roadmap.
 
 The system uses **topological sorting** to resolve dependencies in the correct order, ensuring all references are resolved before evaluation.
 

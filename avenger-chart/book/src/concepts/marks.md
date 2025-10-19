@@ -342,7 +342,7 @@ Ok(evaluated)
 All marks share a common builder API:
 - `.data(...)` attaches a dedicated `DataFrame`.
 - `.facet_strategy(...)` and `.broadcast_to_facets()` control how marks participate in faceting.
-- `.details([...])` provides additional fields for tooltips and interactions.
+- `.details([...])` stores additional fields for future tooltip/interaction layers (the values are carried through evaluation but no tooltip UI ships yet).
 - `.zindex(...)` sets explicit draw order when layers overlap.
 
 ## Planned Marks
