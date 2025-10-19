@@ -1,0 +1,10 @@
+[package]
+name = "avenger-sample-data"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[lib]
+name = "avenger_sample_data"
+path = "src/lib.rs"
