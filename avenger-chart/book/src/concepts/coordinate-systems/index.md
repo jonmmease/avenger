@@ -8,7 +8,7 @@ Coordinate systems define how data values map to visual positions. Avenger Chart
 |--------|-------------------|-------------|-------------|
 | **[Cartesian](./cartesian.md)** | `x`, `y` | `Plot::<Cartesian>::new()` | Scatter plots, bar charts, line charts, heatmaps |
 | **[Polar](./polar.md)** | `r`, `theta` | `Plot::<Polar>::new()` | Radial plots, circular distributions, wind roses |
-| **Zero-Dimensional** | (none) | `Plot::<ZeroDCoord>::new()` | KPI tiles, dashboard callouts, legend galleries |
+| **[Zero-Dimensional](./zero-dimensional.md)** | (none) | `Plot::<ZeroDCoord>::new()` | KPI tiles, dashboard callouts, legend galleries |
 
 Each coordinate system has a dedicated page with detailed documentation and examples.
 
@@ -95,5 +95,6 @@ See the [roadmap](../../roadmap.md) for details.
 
 - Learn about **[Cartesian](./cartesian.md)** coordinates for standard rectangular plots
 - Explore **[Polar](./polar.md)** coordinates for radial visualizations
+- Discover **[Zero-Dimensional](./zero-dimensional.md)** coordinates for KPI dashboards and callouts
 - Understand [Marks](../marks/index.md) that render in coordinate systems
 - Review [Channels](../channels.md) for encoding data
