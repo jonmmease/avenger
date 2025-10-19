@@ -149,9 +149,11 @@ let plot = Plot::<Cartesian>::new()
     .title("Without nice() - Precise Domain")
     .mark(
         Symbol::new()
-            .x(col("x"))
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+            })
             .y_with(col("y"), |c| {
-                c.scale_with::<Linear>(|s| s.nice(false))  // Precise boundaries
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))  // Precise boundaries
             })
             .size(120.0)
     );
@@ -183,9 +185,11 @@ let plot = Plot::<Cartesian>::new()
     .title("With nice() - Round Tick Values")
     .mark(
         Symbol::new()
-            .x(col("x"))
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+            })
             .y_with(col("y"), |c| {
-                c.scale_with::<Linear>(|s| s.nice(true))  // Round to clean values
+                c.scale_with::<Linear>(|s| s.nice(true).zero(false))  // Round to clean values
             })
             .size(120.0)
     );
