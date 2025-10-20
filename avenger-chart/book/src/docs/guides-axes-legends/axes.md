@@ -13,9 +13,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -47,9 +47,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -82,9 +82,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -158,9 +158,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 

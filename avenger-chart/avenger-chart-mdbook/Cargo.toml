@@ -16,6 +16,7 @@ path = "src/bin/mdbook-avenger-render.rs"
 [dependencies]
 avenger-chart = { path = ".." }
 avenger-wgpu = { path = "../../avenger-wgpu" }
+avenger-sample-data = { path = "../../avenger-sample-data" }
 datafusion = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 serde_json = { workspace = true }
