@@ -133,7 +133,7 @@ Behind every example above is the same workflow:
 - `compiled.evaluate(&ctx, params)` runs the DataFusion queries, applies parameters, evaluates theme defaults, and returns an `EvaluatedPlot`.
 - Render with `WgpuRenderer::render`/`write_png` (or treat the `EvaluatedPlot` scene graph however you like).
 
-For deeper coverage of the pipeline, see [The Compilation Pipeline](../concepts/compilation.md) and [Rendering and Output](../guides/rendering.md).
+For deeper coverage of the pipeline, see [The Compilation Pipeline](../docs/compilation.md) and [Rendering and Output](../docs/rendering.md).
 
 ## Where to go next
 
