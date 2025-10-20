@@ -132,7 +132,7 @@ Multiple marks can be combined in a single plot to create rich composite visuali
 
 ## Planned Marks
 
-Text annotations, area charts, path-based marks, and rule markers are documented in [future-work/text-mark.md](../../docs/future-work/text-mark.md) and related roadmap notes. They are not part of the current release.
+Text annotations, area charts, path-based marks, and rule markers are planned for future releases. See the [Roadmap](../../roadmap.md) for more details on upcoming mark types.
 
 ## Next Steps
 

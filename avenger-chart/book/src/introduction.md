@@ -17,7 +17,7 @@ These docs assume a couple of things about your environment and background:
 - **Data access**: Your data is reachable through Apache DataFusion (Arrow record batches, Parquet, CSV, SQL sources, etc.).
 - **Concepts**: You’re comfortable with DataFusion expressions (`col()`, `lit()`, aggregates) since they drive the channel mappings shown throughout the guide.
 
-If any of the above is new, the [Installation](./getting-started/installation.md) page covers the environment setup, and the [DataFusion Expressions guide](./guides/datafusion-expressions.md) links to the relevant DataFusion background material.
+If any of the above is new, the [Installation](./getting-started/installation.md) page covers the environment setup, and the [DataFusion Integration](./docs/datafusion-integration.md) page provides background on working with DataFusion expressions.
 
 ## Design Philosophy
 
@@ -71,5 +71,5 @@ This example demonstrates:
 ## Next Steps
 
 - [Installation](./getting-started/installation.md) - Get started with Avenger Chart
-- [Core Concepts](./concepts/coordinate-systems.md) - Understand the key abstractions
-- [Guides](./guides/scatter-plots.md) - Learn by example
+- [Coordinate Systems](./docs/coordinate-systems/index.md) - Understand the key abstractions
+- [Your First Plot](./getting-started/first-plot.md) - Learn by example
