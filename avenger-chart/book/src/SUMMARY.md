@@ -50,10 +50,14 @@
   - [Custom Themes with CSS](./docs/themes/css-themes.md)
 
 - [Common Plot Patterns](./docs/patterns/common-plot-patterns.md)
+  - [Scatter Charts](./docs/patterns/scatter-charts.md)
+  - [Line Charts](./docs/patterns/line-charts.md)
+  - [Bar Charts](./docs/patterns/bar-charts.md)
 
 - [DataFusion Integration](./docs/datafusion-integration.md)
 
 - [Layout & Sizing](./docs/layout.md)
+  - [Layout Algorithm](./docs/layout-algorithm.md)
 
 - [Compilation Pipeline](./docs/compilation.md)
 
