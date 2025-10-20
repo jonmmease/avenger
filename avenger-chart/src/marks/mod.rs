@@ -56,6 +56,7 @@ pub enum RadiusExpression {
 }
 
 /// Core trait for all mark types (uncompiled)
+#[async_trait::async_trait]
 pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Get the mark's state (uncompiled version with DataContext)
     fn state(&self) -> &MarkState;
@@ -69,14 +70,18 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Build a CompiledMark from this Mark with the provided compiled state
     /// This enables type-erased rendering without the coordinate system generic
     /// The compiled_state contains the transformed DataFrame (e.g., after aggregation)
-    fn compile(&self, compiled_state: CompiledMarkState) -> Arc<dyn CompiledMark>;
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError>;
 
     /// Convenience method to compile a mark without transforming its DataFrame
     /// This is useful for tests and simple cases where no aggregation is needed
-    fn compile_untransformed(
+    async fn compile_untransformed(
         &self,
         ctx: &datafusion::prelude::SessionContext,
-    ) -> Arc<dyn CompiledMark> {
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         let mark_state = self.state();
         let df = mark_state
             .data
@@ -84,7 +89,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
             .cloned()
             .unwrap_or_else(|| ctx.read_empty().unwrap());
         let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
-        self.compile(compiled_state)
+        self.compile(compiled_state, ctx).await
     }
 }
 
