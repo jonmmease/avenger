@@ -13,12 +13,11 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .theme(Theme::light())
@@ -49,12 +48,11 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .theme(Theme::dark())
@@ -85,9 +83,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -108,7 +106,6 @@ theme.append_css(
     }
     "#,
 )?;
-
 
 let plot = Plot::<Cartesian>::new()
     .theme(theme)
@@ -142,9 +139,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -319,9 +316,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -339,7 +336,6 @@ theme.append_css(
     }
     "#,
 )?;
-
 
 let plot = Plot::<Cartesian>::new()
     .theme(theme)
@@ -370,9 +366,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -401,6 +397,7 @@ let theme = Theme::from_css(css)?;
 let plot = Plot::<Cartesian>::new()
     .theme(theme)
     .data(df)
+    .canvas_size(800.0, 400.0)
     .title("Responsive Styling with Media Queries")
     .subtitle("Plot area background changes based on width")
     .mark(
@@ -419,7 +416,7 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-The media queries above adjust the plot-area background as the canvas width changes. The rendered example shows the medium width breakpoint (green tint). See [Parameters](../themes/parameters.md) for how to render the same compiled plot at multiple sizes.
+The media queries above adjust the plot-area background as the canvas width changes. The rendered example uses an 800px width, which triggers the medium width breakpoint (green tint). See [Parameters](../themes/parameters.md) for how to render the same compiled plot at multiple sizes.
 
 ## Next Steps
 

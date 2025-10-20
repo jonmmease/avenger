@@ -2,19 +2,44 @@
 
 We’ll build a scatter plot in three passes so you can see how marks, encodings, and automatic scales interact.
 
-For the examples we’ll use the classic iris dataset through Apache DataFusion:
+For the examples we'll use the classic iris dataset through Apache DataFusion:
 
 ```rust,no_run
 # use datafusion::prelude::*;
 # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 let ctx = SessionContext::new();
-let df = ctx.read_parquet("iris.parquet", ParquetReadOptions::default()).await?;
+let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
 # let _ = (ctx, df);
 # Ok(())
 # }
 ```
 
-Every full code sample below follows this shape (with the dataset path hidden using `#` so `mdbook` can render the charts inline).
+## About Documentation Examples
+
+All interactive code examples in this documentation follow a consistent pattern:
+
+**Code Structure:**
+```rust
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+let ctx = SessionContext::new();
+let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
+
+// ... plot configuration ...
+
+let compiled = plot.compile(&ctx).await?;
+let evaluated = compiled.evaluate(&ctx, None).await?;
+Ok(evaluated)  // Returns EvaluatedPlot
+```
+
+**What You See:**
+- Click the **eye icon** (👁) in the top-right corner of any code block to reveal hidden boilerplate code (imports, dataset loading, etc.)
+- The rendered chart appears automatically below each example
+- Examples return `EvaluatedPlot` containing a complete scene graph
+
+**How It Works:**
+Our documentation infrastructure automatically renders these `EvaluatedPlot` values and inlines the resulting images. To learn how to render plots in your own code (saving to PNG, controlling resolution, etc.), see [Rendering and Output](../docs/rendering.md).
 
 ## Step 1 — Place a mark
 
@@ -25,12 +50,8 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!(
-#     "{}/../tests/data/iris.parquet",
-#     env!("CARGO_MANIFEST_DIR")
-# );
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -59,12 +80,8 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!(
-#     "{}/../tests/data/iris.parquet",
-#     env!("CARGO_MANIFEST_DIR")
-# );
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -93,12 +110,8 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!(
-#     "{}/../tests/data/iris.parquet",
-#     env!("CARGO_MANIFEST_DIR")
-# );
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -117,8 +130,7 @@ let plot = Plot::<Cartesian>::new()
                     .legend(|l| l.title("Petal length"))
             })
     )
-    .title("Iris Sepal Measurements by Species")
-    .canvas_size(640.0, 420.0);
+    .title("Iris Sepal Measurements by Species");
 
 let compiled = plot.compile(&ctx).await?;
 let evaluated = compiled.evaluate(&ctx, None).await?;

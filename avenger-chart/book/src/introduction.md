@@ -32,14 +32,15 @@ Avenger Chart follows these core principles:
 
 Here's a simple scatter plot using the famous iris dataset:
 
+> **Note:** All code examples in this documentation are interactive and show rendered output. Click the eye icon (👁) in code blocks to reveal hidden boilerplate. See [Your First Plot](./getting-started/first-plot.md#about-documentation-examples) for details on how examples work.
+
 ```rust,render
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
