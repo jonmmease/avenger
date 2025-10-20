@@ -140,7 +140,7 @@ Ok(evaluated)  // Returns EvaluatedPlot
 ```
 
 **What You See:**
-- Click the **eye icon** (👁) in the top-right corner of any code block to reveal hidden boilerplate code (imports, dataset loading, etc.)
+- Click the **<i class="fa fa-eye"></i> eye icon** in the top-right corner of any code block to reveal hidden boilerplate code (imports, dataset loading, etc.)
 - The rendered chart appears automatically below each example
 - Examples return `EvaluatedPlot` containing a complete scene graph
 

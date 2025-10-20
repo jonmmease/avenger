@@ -32,7 +32,7 @@ Avenger Chart follows these core principles:
 
 Here's a simple scatter plot using the famous iris dataset:
 
-> **Note:** All code examples in this documentation are interactive and show rendered output. Click the eye icon (👁) in code blocks to reveal hidden boilerplate. See [Your First Plot](./getting-started/first-plot.md#about-documentation-examples) for details on how examples work.
+> **Note:** All code examples in this documentation are interactive and show rendered output. Click the <i class="fa fa-eye"></i> icon in code blocks to reveal hidden boilerplate. See [Your First Plot](./getting-started/first-plot.md#about-documentation-examples) for details on how examples work.
 
 ```rust,render
 use avenger_chart::prelude::*;
