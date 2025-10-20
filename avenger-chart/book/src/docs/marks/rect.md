@@ -12,7 +12,6 @@ use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 // Create horizontal bar chart data
 let batch = RecordBatch::try_from_iter(vec![
@@ -30,7 +29,6 @@ let batch = RecordBatch::try_from_iter(vec![
 ?;
 
 let df = ctx.read_batch(batch)?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -281,7 +279,6 @@ use datafusion::functions_aggregate::expr_fn::sum;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 // Create sample sales data with multiple entries per category
 let batch = RecordBatch::try_from_iter(vec![
@@ -358,7 +355,6 @@ use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
-
 
 let ctx = SessionContext::new();
 // Create data with positive and negative changes
@@ -442,9 +438,9 @@ use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let movies_path = format!("{}/../tests/data/movies.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(movies_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::movies_path(), ParquetReadOptions::default())
     .await
     ?;
 

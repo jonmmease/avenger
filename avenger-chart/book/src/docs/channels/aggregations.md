@@ -14,7 +14,6 @@ use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 // Create data with multiple rows per category
 let batch = RecordBatch::try_from_iter(vec![
@@ -70,7 +69,6 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_aggregate::expr_fn::*;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -114,7 +112,6 @@ use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_aggregate::average::avg;
 use std::sync::Arc;
-
 
 let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
@@ -160,7 +157,6 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_aggregate::expr_fn::*;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -200,7 +196,6 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_aggregate::average::avg;
 use datafusion::functions_aggregate::expr_fn::*;
 use std::sync::Arc;
-
 
 let ctx = SessionContext::new();
 // Multiple values per category
@@ -257,7 +252,6 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_aggregate::average::avg;
 use datafusion::functions_aggregate::expr_fn::*;
 use std::sync::Arc;
-
 
 let ctx = SessionContext::new();
 // Data with two grouping dimensions and varying counts per group
@@ -333,7 +327,6 @@ use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -374,9 +367,9 @@ use datafusion::functions_aggregate::average::avg;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let movies_path = format!("{}/../tests/data/movies.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(movies_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::movies_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -457,7 +450,6 @@ use datafusion::functions_aggregate::average::avg;
 use datafusion::functions_aggregate::expr_fn::*;
 use datafusion::prelude::*;
 use std::sync::Arc;
-
 
 let ctx = SessionContext::new();
 // Create sales data with year, category, region

@@ -12,9 +12,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 3 {
-        return Err(anyhow!(
-            "Usage: mdbook-avenger-render <slug> <output_path>"
-        ));
+        return Err(anyhow!("Usage: mdbook-avenger-render <slug> <output_path>"));
     }
 
     let slug = &args[1];

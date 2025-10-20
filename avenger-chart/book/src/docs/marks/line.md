@@ -12,7 +12,6 @@ use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 // Create temperature data over time
 let batch = RecordBatch::try_from_iter(vec![
@@ -30,7 +29,6 @@ let batch = RecordBatch::try_from_iter(vec![
 ?;
 
 let df = ctx.read_batch(batch)?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -76,7 +74,6 @@ use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -118,7 +115,6 @@ use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
-
 
 let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
@@ -164,7 +160,6 @@ use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
-
 
 let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
@@ -235,7 +230,6 @@ use datafusion::arrow::array::{Float64Array, Int32Array};
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -292,7 +286,6 @@ use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 let batch = RecordBatch::try_from_iter(vec![
     (
@@ -339,12 +332,8 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let stocks_path = format!(
-#     "{}/../tests/data/stocks.parquet",
-#     env!("CARGO_MANIFEST_DIR")
-# );
 let df = ctx
-    .read_parquet(stocks_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::stocks_path(), ParquetReadOptions::default())
     .await
     ?;
 

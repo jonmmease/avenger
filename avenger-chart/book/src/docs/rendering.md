@@ -18,6 +18,57 @@ The key insight is that `EvaluatedPlot` contains a **backend-independent scene g
 
 The `WgpuRenderer` provides GPU-accelerated rendering via WebGPU/wgpu, producing high-quality PNG images.
 
+### Complete Example
+
+Here's a full working example with all imports and an async main function:
+
+```rust,no_run
+use avenger_chart::prelude::*;
+use avenger_chart::render::WgpuRenderer;
+use datafusion::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Create DataFusion context and load data
+    let ctx = SessionContext::new();
+    let df = ctx
+        .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
+        .await?;
+
+    // Create a scatter plot
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .title("Iris Dataset")
+        .mark(
+            Symbol::new()
+                .x(col("sepal_length"))
+                .y(col("sepal_width"))
+                .fill_with(col("species"), |c| {
+                    c.scale_with::<Ordinal>(|s| s)
+                        .legend(|l| l.title("Species"))
+                })
+        )
+        .canvas_size(800.0, 600.0);
+
+    // Compile the plot
+    let compiled = plot.compile(&ctx).await?;
+
+    // Create renderer and export to PNG
+    let renderer = WgpuRenderer::new();
+    renderer.write_png(&compiled, &ctx, None, "iris_plot.png").await?;
+
+    println!("Chart saved to iris_plot.png");
+    Ok(())
+}
+```
+
+This example demonstrates the complete workflow:
+1. Set up async runtime with `#[tokio::main]`
+2. Load data using DataFusion
+3. Configure plot with marks and encodings
+4. Compile the plot specification
+5. Render and save to disk
+
 ### Basic Usage
 
 ```rust,no_run
@@ -27,10 +78,10 @@ use datafusion::prelude::*;
 
 # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 # let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
+# let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
 let plot = Plot::<Cartesian>::new()
     .data(df)
-    .mark(Symbol::new().x(col("x")).y(col("y")))
+    .mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")))
     .canvas_size(800.0, 600.0);
 
 let compiled = plot.compile(&ctx).await?;
@@ -98,8 +149,8 @@ use avenger_chart::render::WgpuRenderer;
 
 # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 # let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-# let plot = Plot::<Cartesian>::new().data(df);
+# let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
+# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 let renderer = WgpuRenderer::new();
 let image = renderer.render(&compiled, &ctx, None).await?;
@@ -138,8 +189,8 @@ use avenger_chart::render::SvgRenderer;
 # use avenger_chart::prelude::*;
 # use datafusion::prelude::*;
 # let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-# let plot = Plot::<Cartesian>::new().data(df);
+# let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
+# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 let renderer = SvgRenderer::new();
 renderer.write_svg(&compiled, &ctx, None, "output.svg").await?;
@@ -165,8 +216,8 @@ use avenger_chart::render::PdfRenderer;
 # use avenger_chart::prelude::*;
 # use datafusion::prelude::*;
 # let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-# let plot = Plot::<Cartesian>::new().data(df);
+# let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
+# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 let renderer = PdfRenderer::new();
 renderer.write_pdf(&compiled, &ctx, None, "output.pdf").await?;
@@ -192,8 +243,8 @@ use avenger_chart::render::CpuRenderer;
 # use avenger_chart::prelude::*;
 # use datafusion::prelude::*;
 # let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-# let plot = Plot::<Cartesian>::new().data(df);
+# let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
+# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 let renderer = CpuRenderer::new().with_scale(2.0);
 renderer.write_png(&compiled, &ctx, None, "output.png").await?;
@@ -230,8 +281,11 @@ use avenger_chart::render::WgpuRenderer;
 
 # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 # let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-# let plots = vec![Plot::<Cartesian>::new().data(df.clone())];
+# let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
+# let plots = vec![
+#     Plot::<Cartesian>::new().data(df.clone()).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width"))),
+#     Plot::<Cartesian>::new().data(df.clone()).mark(Symbol::new().x(col("petal_length")).y(col("petal_width"))),
+# ];
 let renderer = WgpuRenderer::new();
 
 for (i, plot) in plots.iter().enumerate() {
@@ -273,8 +327,8 @@ This separation allows you to:
 # use datafusion::prelude::*;
 # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 # let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-# let plot = Plot::<Cartesian>::new().data(df);
+# let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
+# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 let compiled = plot.compile(&ctx).await?;
 
 // Standard resolution
@@ -300,8 +354,8 @@ WgpuRenderer::new().with_scale(3.0)
 # use datafusion::prelude::*;
 # async fn example(has_gpu: bool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 # let ctx = SessionContext::new();
-# let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-# let plot = Plot::<Cartesian>::new().data(df);
+# let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
+# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 if has_gpu {
     // Fast GPU rendering

@@ -439,12 +439,8 @@ use datafusion::scalar::ScalarValue;
 use indexmap::IndexMap;
 
 let ctx = SessionContext::new();
-# let stocks_path = format!(
-#     "{}/../tests/data/stocks.parquet",
-#     env!("CARGO_MANIFEST_DIR")
-# );
 let df = ctx
-    .read_parquet(stocks_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::stocks_path(), ParquetReadOptions::default())
     .await
     ?;
 

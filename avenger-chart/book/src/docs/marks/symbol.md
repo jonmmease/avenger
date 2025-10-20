@@ -12,7 +12,6 @@ use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 // Create GDP vs life expectancy data
 let batch = RecordBatch::try_from_iter(vec![
@@ -30,7 +29,6 @@ let batch = RecordBatch::try_from_iter(vec![
 ?;
 
 let df = ctx.read_batch(batch)?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -63,7 +61,6 @@ use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-
 let ctx = SessionContext::new();
 // Create polar data - circular pattern
 let batch = RecordBatch::try_from_iter(vec![
@@ -83,7 +80,6 @@ let batch = RecordBatch::try_from_iter(vec![
 ?;
 
 let df = ctx.read_batch(batch)?;
-
 
 let plot = Plot::<Polar>::new()
     .data(df)
@@ -151,7 +147,6 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-
 let plot = Plot::<Cartesian>::new()
     .data(df)
     .mark(
@@ -196,12 +191,11 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -226,12 +220,11 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -261,12 +254,11 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -294,12 +286,11 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -328,12 +319,11 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)
@@ -359,12 +349,11 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
-
 
 let plot = Plot::<Cartesian>::new()
     .data(df)

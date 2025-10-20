@@ -1009,9 +1009,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let stocks_path = format!("{}/../tests/data/stocks.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(stocks_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::stocks_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -1140,9 +1140,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -1268,9 +1268,9 @@ use datafusion::prelude::*;
 use datafusion::functions_aggregate::expr_fn::*;
 
 let ctx = SessionContext::new();
-# let movies_path = format!("{}/../tests/data/movies.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(movies_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::movies_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -1409,9 +1409,8 @@ use datafusion::functions::expr_fn::*;
 use datafusion::functions_aggregate::expr_fn::*;
 
 let ctx = SessionContext::new();
-# let weather_path = format!("{}/../tests/data/seattle-weather.parquet", env!("CARGO_MANIFEST_DIR"));
 let df = ctx
-    .read_parquet(weather_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::seattle_weather_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -1564,9 +1563,9 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 let ctx = SessionContext::new();
-# let iris_path = format!("{}/../tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(iris_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await
     ?;
 
@@ -1844,9 +1843,9 @@ use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 
 let ctx = SessionContext::new();
-# let stocks_path = format!("{}/../tests/data/stocks.parquet", env!("CARGO_MANIFEST_DIR"));
+
 let df = ctx
-    .read_parquet(stocks_path, ParquetReadOptions::default())
+    .read_parquet(avenger_sample_data::stocks_path(), ParquetReadOptions::default())
     .await
     ?;
 
