@@ -23,7 +23,7 @@ let evaluated = compiled.evaluate(&ctx, None).await?;
 Ok(evaluated)
 ```
 
-This creates vertical bars from 0 to the value in each category. The `x2` channel uses the `:x` [channel reference](../channels.md#channel-references) with `.band(1.0)` to span the full width of each categorical band.
+This creates vertical bars from 0 to the value in each category. The `x2` channel uses the `:x` [channel reference](../channels/index.md#channel-references) with `.band(1.0)` to span the full width of each categorical band.
 
 ## Horizontal Bars
 
@@ -142,6 +142,6 @@ For comprehensive coverage of Rect mark capabilities for bar charts and beyond, 
 
 ## Next Steps
 
-- Learn about [Aggregations](../data/aggregations.md) for data summaries
+- Learn about [Aggregations](../channels/aggregations.md) for data summaries
 - Explore [Line Charts](./line-charts.md) for trends
 - Review [Band Scales](../scales/band.md) for categorical positioning

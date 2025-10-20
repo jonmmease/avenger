@@ -477,4 +477,4 @@ Plot::<Cartesian>::new()
 - See the [Marks Overview](./index.md) for coordinate system support and layering
 - Try the [Scatter Plots Tutorial](../chart-types/scatter-plots.md) for a quick-start guide
 - Learn about [Cartesian](../coordinate-systems/cartesian.md) and [Polar](../coordinate-systems/polar.md) coordinates
-- Understand [Channels](../channels.md) for data binding
+- Understand [Channels](../channels/index.md) for data binding

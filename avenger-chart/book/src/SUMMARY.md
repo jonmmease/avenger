@@ -20,7 +20,9 @@
   - [Rect](./docs/marks/rect.md)
   - [Layering](./docs/marks/layering.md)
 
-- [Channels](./docs/channels.md)
+- [Channels](./docs/channels/index.md)
+  - [Aggregations](./docs/channels/aggregations.md)
+  - [Expressions](./docs/channels/expressions.md)
 
 - [Scales](./docs/scales/index.md)
   - [Domains](./docs/scales/domains.md)
@@ -50,9 +52,7 @@
   - [Line Charts](./docs/chart-types/line-charts.md)
   - [Bar Charts](./docs/chart-types/bar-charts.md)
 
-- [Working with Data](#working-with-data)
-  - [Aggregations](./docs/data/aggregations.md)
-  - [DataFusion Expressions](./docs/data/datafusion-expressions.md)
+- [DataFusion Integration](./docs/datafusion-integration.md)
 
 - [Layout & Sizing](./docs/layout.md)
 

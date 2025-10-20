@@ -149,5 +149,5 @@ For comprehensive coverage of Symbol mark capabilities, see the [Symbol Mark Ref
 ## Next Steps
 
 - Learn about [Line Charts](./line-charts.md)
-- Explore [Aggregations](../data/aggregations.md) for summaries
+- Explore [Aggregations](../channels/aggregations.md) for summaries
 - Review [Scales](../scales/index.md) for data transformation options

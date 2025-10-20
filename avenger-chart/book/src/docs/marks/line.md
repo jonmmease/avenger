@@ -376,4 +376,4 @@ Ok(evaluated)
 
 - See the [Marks Overview](./index.md) for layering and composition
 - Try the [Line Charts Tutorial](../chart-types/line-charts.md) for a quick-start guide
-- Learn about [Channels](../channels.md) for data binding
+- Learn about [Channels](../channels/index.md) for data binding

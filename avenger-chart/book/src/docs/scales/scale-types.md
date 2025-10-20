@@ -100,6 +100,6 @@ What kind of data?
 
 - [Scales Overview](./index.md) - Introduction to scales with usage examples
 - [Domains](./domains.md) - Complete guide to domain specification, inference, and refinement
-- [Channels](../channels.md) - How to apply scales to visual channels
+- [Channels](../channels/index.md) - How to apply scales to visual channels
 - [Legends](../guides-axes-legends/legends.md) - Automatically generated scale legends
 - [Axes](../guides-axes-legends/axes.md) - Scale-aware coordinate axes
