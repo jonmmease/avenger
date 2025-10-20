@@ -375,5 +375,5 @@ Ok(evaluated)
 ## Next Steps
 
 - See the [Marks Overview](./index.md) for layering and composition
-- Try the [Line Charts Tutorial](../chart-types/line-charts.md) for a quick-start guide
+- Try the [Line Patterns recipes](../patterns/common-plot-patterns.md#line-patterns) for a quick-start guide
 - Learn about [Channels](../channels/index.md) for data binding
