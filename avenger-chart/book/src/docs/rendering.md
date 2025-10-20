@@ -209,6 +209,8 @@ Performance will be slower than GPU rendering but requires no special hardware.
 
 Avenger Chart is built on the [Avenger](https://github.com/jonmmease/avenger) rendering engine, which includes support for interactive visualizations with pan, zoom, and event handling.
 
+> **Heads up:** The chart crate itself does not ship built-in controllers yet. You can still preserve metadata for future interactions by calling `.details([...])` on marks, but interactivity today is provided by embedding a compiled plot in an Avenger application (see `avenger-app`/`avenger-eventstream`). Documentation here will expand once first-party controllers land.
+
 Interactive features are planned for Avenger Chart, including:
 - Pan and zoom interactions
 - Tooltip system

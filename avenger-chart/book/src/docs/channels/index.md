@@ -1,5 +1,9 @@
 # Channels
 
+## Before you start: align data types with your intent
+
+The scale Avenger chooses for a channel depends on the underlying DataFusion column types. If you classify your columns early (casting strings to timestamps, distinguishing between ordered and unordered categories) you can lean on the defaults and only tweak scales when you want stylistic changes. See [Data Types and Channel Mapping](../data-types.md) for a quick reference.
+
 Channels map data to visual properties. Avenger Chart provides two ways to set channels: **direct values** and **data-driven encoding**.
 
 ## Direct Values
@@ -49,7 +53,19 @@ Ok(evaluated)
 
 Direct values apply the same styling to all points in the visualization.
 
-## Data-Driven Encoding
+## Mapping data vs setting constants
+
+Every channel setter comes in two flavours. The plain method (e.g., `.fill("#4682b4")`) **sets** a constant after scales run. The `_with` variant (e.g., `.fill_with(col("species"), |c| { … })`) **maps** data through a scale and also lets you customize that scale.
+
+| Pattern | Method | Scaled? | Legend eligible? | Description |
+|---------|--------|---------|------------------|-------------|
+| Set constant | `.fill("#4682b4")` | ❌ | ❌ | All rows share the same value; no scale involved. |
+| Map with defaults | `.fill(col("species"))` | ✅ | ✅ | Uses the default scale inferred from the column type (`Ordinal` for strings, `Linear` for numbers, etc.). |
+| Map with configuration | `.fill_with(col("species"), |c| { … })` | ✅ | ✅ | Same as above, but you can tune the scale (domain, range, legend title, etc.). |
+
+The rest of this guide uses `_with` forms heavily so you can see how scale configuration works, but remember that the short form is always available when defaults are sufficient.
+
+## Data-driven encoding
 
 Use `*_with()` methods to encode data with scales and legends:
 
@@ -952,11 +968,11 @@ Ok(evaluated)
 
 DataFusion expressions enable complex data transformations within channel mappings.
 
-For a comprehensive guide to DataFusion's expression capabilities, including scalar functions, string operations, date manipulation, and more, see [Working with DataFusion](../datafusion-expressions.md).
+For a comprehensive guide to DataFusion's expression capabilities, including scalar functions, string operations, date manipulation, and more, see [Working with DataFusion](../data/datafusion-expressions.md).
 
 ## Next Steps
 
-- Learn about [Scales](./scales.md) in detail
-- Understand [Legends](./legends.md) configuration
-- See channel examples in [Guides](../scatter-plots.md)
-- Use [Parameters](../themes/parameters.md) for runtime control
+- Learn about [Scales](../scales/index.md) in detail.
+- Understand [Legends](../guides-axes-legends/legends.md) configuration.
+- See end-to-end recipes in [Common Plot Patterns](../patterns/common-plot-patterns.md).
+- Use [Parameters](../parameters.md) for runtime control.

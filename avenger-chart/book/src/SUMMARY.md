@@ -20,6 +20,8 @@
   - [Rect](./docs/marks/rect.md)
   - [Layering](./docs/marks/layering.md)
 
+- [Data Types & Channel Mapping](./docs/data-types.md)
+
 - [Channels](./docs/channels/index.md)
   - [Aggregations](./docs/channels/aggregations.md)
   - [Expressions](./docs/channels/expressions.md)

@@ -58,15 +58,17 @@ Ok(evaluated)
 
 This creates a Symbol mark with position channels (`x`, `y`) mapping data columns to positions and visual channels (`size`, `fill`) controlling appearance.
 
-## Available Mark Types
+## Mark capability matrix
 
-| Mark Type | Purpose | Key Channels | Use Cases |
-|-----------|---------|--------------|-----------|
-| **[Symbol](./symbol.md)** | Discrete points | x, y, size, fill, stroke, shape, angle | Scatter plots, dot plots |
-| **[Line](./line.md)** | Ordered polylines | x, y, stroke, stroke_width, stroke_dash, opacity, defined | Time series, trend lines, multi-series charts |
-| **[Rect](./rect.md)** | Axis-aligned rectangles | x, x2, y, y2, fill, stroke, corner_radius | Bar charts, heatmaps, interval plots |
+| Mark | Position channels & default scales | Visual channels & defaults | Notable limitations | Reference |
+|------|------------------------------------|----------------------------|---------------------|-----------|
+| **Symbol** | `x`, `y` (Linear in Cartesian); `r`, `theta` (Polar radial/angle). In ZeroD all marks collapse to the plot center. | `size` (numeric → Sqrt scale), `fill`/`stroke` (string → Ordinal, numeric → Linear), `shape`, `angle`, `stroke_width`, `opacity`. | Only mark that currently runs in Polar/ZeroD coordinates. Auto radius padding assumes Linear scales. | [Details](./symbol.md) |
+| **Line** | `x`, `y` (Linear). Use the `order` channel to control drawing order; `defined` (boolean) creates gaps. | `stroke`, `stroke_width`, `stroke_dash`, `stroke_cap`, `stroke_join`, `stroke_opacity`, `opacity`. Defaults come from the theme (solid 2px line). | Requires array-backed columns (no scalar-only lines). Automatic padding currently supported for Linear scales only. | [Details](./line.md) |
+| **Rect** | `x`, `x2`, `y`, `y2` (Linear for numeric intervals; Band for categorical axes inferred from data type). | `fill`, `stroke`, `stroke_width`, `corner_radius`, `opacity`. | Cartesian only. Band positioning expects matched `x`/`x2` (or `y`/`y2`) pairs—use `_with` helpers such as `.x2_with(col(":x"), |c| c.band(1.0))`. | [Details](./rect.md) |
 
-Each mark type has a dedicated page with detailed channel documentation and examples.
+Default scale choices come from `Scale::preferred_scale_type` implementations: numeric columns map to `Linear`, string columns to `Ordinal` (with `Nominal` available once the upstream scale lands), and temporal columns to `Time`. Numbers feeding the symbol `size` channel default to a square-root scale for perceptual reasons. You can always override with `scale_with::<Type>` when you need a different mapping.
+
+Each mark page linked above contains exhaustive channel documentation and live examples.
 
 ## Generic Over Coordinate Systems
 
@@ -136,5 +138,5 @@ Text annotations, area charts, path-based marks, and rule markers are documented
 
 - Explore [Channels](../channels/index.md) to see how marks receive data.
 - Learn how [Scales](../scales/index.md) transform channel expressions.
-- Review [Legends](./guides-axes-legends/legends.md) for automatically generated guides.
+- Review [Legends](../guides-axes-legends/legends.md) for automatically generated guides.
 - Understand [Coordinate Systems](../coordinate-systems/index.md) for positional mapping.
