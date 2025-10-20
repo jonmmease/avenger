@@ -27,8 +27,19 @@ define_position_channels! {
 }
 
 // Implement Mark trait for Cartesian Line with any axis type
+#[async_trait::async_trait]
 impl Mark<Cartesian> for Line<Cartesian> {
-    impl_mark_trait_common!(Line, CompiledCartesianLine);
+    impl_mark_trait_common!(Line);
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        _session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<std::sync::Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(std::sync::Arc::new(CompiledCartesianLine {
+            state: compiled_state,
+        }))
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

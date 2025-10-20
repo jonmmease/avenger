@@ -29,8 +29,19 @@ define_position_channels! {
 }
 
 // Implement Mark trait for Cartesian Symbol
+#[async_trait::async_trait]
 impl Mark<Cartesian> for Symbol<Cartesian> {
-    impl_mark_trait_common!(Symbol, CompiledCartesianSymbol);
+    impl_mark_trait_common!(Symbol);
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        _session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<std::sync::Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(std::sync::Arc::new(CompiledCartesianSymbol {
+            state: compiled_state,
+        }))
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -32,8 +32,19 @@ impl Symbol<ZeroDCoord> {
 }
 
 // Implement Mark trait for ZeroDCoord Symbol
+#[async_trait::async_trait]
 impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
-    impl_mark_trait_common!(Symbol, CompiledZeroDSymbol);
+    impl_mark_trait_common!(Symbol);
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        _session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<std::sync::Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(std::sync::Arc::new(CompiledZeroDSymbol {
+            state: compiled_state,
+        }))
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

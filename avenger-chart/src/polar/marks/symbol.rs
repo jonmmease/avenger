@@ -29,8 +29,19 @@ define_position_channels! {
 }
 
 // Implement Mark trait for PolarGeneral Symbol with any axis type
+#[async_trait::async_trait]
 impl Mark<Polar> for Symbol<Polar> {
-    impl_mark_trait_common!(Symbol, CompiledPolarSymbol);
+    impl_mark_trait_common!(Symbol);
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        _session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<std::sync::Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(std::sync::Arc::new(CompiledPolarSymbol {
+            state: compiled_state,
+        }))
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

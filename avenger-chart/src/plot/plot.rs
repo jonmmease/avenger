@@ -252,47 +252,45 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         // 2. Compile all marks, applying aggregation if needed
-        let compiled_marks: Vec<Arc<dyn CompiledMark>> = self
-            .marks
-            .iter()
-            .map(|m| {
-                let mark_state = m.state();
-                // Get the DataFrame (or use plot-level data)
-                let df = mark_state
-                    .data
-                    .dataframe()
-                    .cloned()
-                    .or_else(|| self.data.clone())
-                    .unwrap_or_else(|| {
-                        DataFrame::new(
-                            session_context.state().clone(),
-                            datafusion::logical_expr::LogicalPlan::EmptyRelation(
-                                datafusion::logical_expr::EmptyRelation {
-                                    produce_one_row: false,
-                                    schema: Arc::new(datafusion::common::DFSchema::empty()),
-                                },
-                            ),
-                        )
-                    });
+        let mut compiled_marks: Vec<Arc<dyn CompiledMark>> = Vec::new();
+        for m in &self.marks {
+            let mark_state = m.state();
+            // Get the DataFrame (or use plot-level data)
+            let df = mark_state
+                .data
+                .dataframe()
+                .cloned()
+                .or_else(|| self.data.clone())
+                .unwrap_or_else(|| {
+                    DataFrame::new(
+                        session_context.state().clone(),
+                        datafusion::logical_expr::LogicalPlan::EmptyRelation(
+                            datafusion::logical_expr::EmptyRelation {
+                                produce_one_row: false,
+                                schema: Arc::new(datafusion::common::DFSchema::empty()),
+                            },
+                        ),
+                    )
+                });
 
-                // Check if any channel uses aggregate functions
-                let needs_aggregation = mark_state
-                    .data
-                    .channels()
-                    .values()
-                    .filter_map(|value| value.expr(session_context))
-                    .any(|expr| crate::utils::contains_aggregate(&expr));
+            // Check if any channel uses aggregate functions
+            let needs_aggregation = mark_state
+                .data
+                .channels()
+                .values()
+                .filter_map(|value| value.expr(session_context))
+                .any(|expr| crate::utils::contains_aggregate(&expr));
 
-                if needs_aggregation {
-                    // Apply aggregation and update channel expressions
-                    self.compile_mark_with_aggregation(m, mark_state, df, session_context)
-                } else {
-                    // No aggregation needed - compile as-is
-                    let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
-                    Ok(m.compile(compiled_state))
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            let compiled_mark = if needs_aggregation {
+                // Apply aggregation and update channel expressions
+                self.compile_mark_with_aggregation(m, mark_state, df, session_context).await?
+            } else {
+                // No aggregation needed - compile as-is
+                let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
+                m.compile(compiled_state, session_context).await?
+            };
+            compiled_marks.push(compiled_mark);
+        }
 
         // 3. Build guide renderer - either from config or default
         let mut guide = if let Some(config) = &self.guide_config {
@@ -365,7 +363,7 @@ impl<C: CoordinateSystem> Plot<C> {
     ///
     /// This detects aggregate functions in channels, applies DataFrame aggregation,
     /// and updates channel expressions to reference the aggregated output columns.
-    fn compile_mark_with_aggregation(
+    async fn compile_mark_with_aggregation(
         &self,
         mark: &Arc<dyn Mark<C>>,
         mark_state: &crate::marks::MarkState,
@@ -453,7 +451,7 @@ impl<C: CoordinateSystem> Plot<C> {
         let compiled_state =
             CompiledMarkState::from_mark_state_with_channels(mark_state, agg_df, updated_channels);
 
-        Ok(mark.compile(compiled_state))
+        mark.compile(compiled_state, session_context).await
     }
 
     /// Get a reference to the coordinate system

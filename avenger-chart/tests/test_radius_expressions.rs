@@ -35,7 +35,7 @@ async fn test_symbol_default_channel_values() {
     );
 
     // Build the CompiledMark
-    let renderer = symbol.compile_untransformed(&ctx);
+    let renderer = symbol.compile_untransformed(&ctx).await.unwrap();
 
     // Test default channel values
     assert_eq!(
@@ -83,7 +83,7 @@ async fn test_symbol_radius_expression() {
     let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
     // Build the CompiledMark
-    let renderer = symbol.compile_untransformed(&ctx);
+    let renderer = symbol.compile_untransformed(&ctx).await.unwrap();
 
     // Create a simple channel resolver that returns the size and stroke_width defaults
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
@@ -141,7 +141,7 @@ async fn test_symbol_radius_expression_with_mapped_size() {
         .size(col("size"));
 
     // Build the CompiledMark
-    let renderer = symbol.compile_untransformed(&ctx);
+    let renderer = symbol.compile_untransformed(&ctx).await.unwrap();
 
     // Create a channel resolver that returns the size column
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
@@ -164,7 +164,7 @@ async fn test_symbol_radius_includes_stroke_width() {
     let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
     // Build the CompiledMark
-    let renderer = symbol.compile_untransformed(&ctx);
+    let renderer = symbol.compile_untransformed(&ctx).await.unwrap();
 
     // Test with specific size and stroke_width values
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
@@ -216,7 +216,7 @@ async fn test_line_radius_expression() {
     let line = Line::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
     // Build the CompiledMark
-    let renderer = line.compile_untransformed(&ctx);
+    let renderer = line.compile_untransformed(&ctx).await.unwrap();
 
     // Create a channel resolver that returns stroke_width
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
