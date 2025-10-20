@@ -475,6 +475,6 @@ Plot::<Cartesian>::new()
 ## Next Steps
 
 - See the [Marks Overview](./index.md) for coordinate system support and layering
-- Try the [Scatter Plots Tutorial](../chart-types/scatter-plots.md) for a quick-start guide
+- Browse the [Scatter Patterns recipes](../patterns/common-plot-patterns.md#scatter-patterns) for ready-to-run examples
 - Learn about [Cartesian](../coordinate-systems/cartesian.md) and [Polar](../coordinate-systems/polar.md) coordinates
 - Understand [Channels](../channels/index.md) for data binding

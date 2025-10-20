@@ -49,10 +49,7 @@
 - [Themes](./docs/themes/index.md)
   - [Custom Themes with CSS](./docs/themes/css-themes.md)
 
-- [Chart Types](#chart-types)
-  - [Scatter Plots](./docs/chart-types/scatter-plots.md)
-  - [Line Charts](./docs/chart-types/line-charts.md)
-  - [Bar Charts](./docs/chart-types/bar-charts.md)
+- [Common Plot Patterns](./docs/patterns/common-plot-patterns.md)
 
 - [DataFusion Integration](./docs/datafusion-integration.md)
 

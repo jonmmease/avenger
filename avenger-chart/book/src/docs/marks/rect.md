@@ -486,5 +486,5 @@ Ok(evaluated)
 ## Next Steps
 
 - See the [Marks Overview](./index.md) for layering and composition
-- Try the [Bar Charts Tutorial](../chart-types/bar-charts.md) for a quick-start guide
+- Try the [Bar Patterns recipes](../patterns/common-plot-patterns.md#bar-patterns) for a quick-start guide
 - Learn about [Band Scales](../scales/band.md) for categorical positioning
