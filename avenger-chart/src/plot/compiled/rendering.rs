@@ -848,26 +848,23 @@ impl CompiledPlot {
         };
 
         // Add evaluated dimensions to merged params for media query evaluation
-        // Only add params if we have actual dimension values
+        // Always add width/height params (using defaults if not explicitly specified)
         let mut merged_params = merged_params;
-        if let Some(w) = estimated_width {
-            merged_params.insert(
-                "width".to_string(),
-                datafusion::common::ScalarValue::Float32(Some(w)),
-            );
-        }
-        if let Some(h) = estimated_height {
-            merged_params.insert(
-                "height".to_string(),
-                datafusion::common::ScalarValue::Float32(Some(h)),
-            );
-        }
+        let canvas_width = estimated_width.unwrap_or(400.0);
+        let canvas_height = estimated_height.unwrap_or(300.0);
+
+        merged_params.insert(
+            "width".to_string(),
+            datafusion::common::ScalarValue::Float32(Some(canvas_width)),
+        );
+        merged_params.insert(
+            "height".to_string(),
+            datafusion::common::ScalarValue::Float32(Some(canvas_height)),
+        );
 
         // Use estimated dimensions for initial scale construction
-        // Default to reasonable sizes if not specified
-        let estimated_plot_width = estimated_width.unwrap_or(400.0) * Self::INITIAL_PLOT_AREA_RATIO;
-        let estimated_plot_height =
-            estimated_height.unwrap_or(300.0) * Self::INITIAL_PLOT_AREA_RATIO;
+        let estimated_plot_width = canvas_width * Self::INITIAL_PLOT_AREA_RATIO;
+        let estimated_plot_height = canvas_height * Self::INITIAL_PLOT_AREA_RATIO;
 
         // Create initial RenderContext with estimated dimensions and SessionContext
         let theme = self.get_theme();
@@ -893,8 +890,8 @@ impl CompiledPlot {
         // STAGE 2: COMPUTE LAYOUT USING INITIAL SCALES
         let layout = self
             .compute_layout(
-                estimated_width.unwrap_or(400.0),
-                estimated_height.unwrap_or(300.0),
+                canvas_width,
+                canvas_height,
                 &initial_configured_scales,
                 ctx,
                 &merged_params,
