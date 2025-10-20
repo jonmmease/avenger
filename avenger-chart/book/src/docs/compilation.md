@@ -505,4 +505,4 @@ If `evaluate()` fails, it's usually due to:
 
 - [Parameters](../themes/parameters.md) - Using parameters with compilation
 - [First Plot](../getting-started/first-plot.md) - Basic workflow
-- [Channels](./channels.md) - Expression and channel basics
+- [Channels](./channels/index.md) - Expression and channel basics

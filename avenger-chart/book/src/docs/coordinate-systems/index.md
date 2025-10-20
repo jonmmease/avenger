@@ -98,4 +98,4 @@ See the [roadmap](../../roadmap.md) for details.
 - Discover **[Zero-Dimensional](./zero-dimensional.md)** coordinates for KPI dashboards and callouts
 - Understand how **[Guides, Axes, and Legends](./guides-axes-legends/index.md)** relate to coordinate systems
 - Understand [Marks](../marks/index.md) that render in coordinate systems
-- Review [Channels](../channels.md) for encoding data
+- Review [Channels](../channels/index.md) for encoding data

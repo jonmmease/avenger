@@ -36,7 +36,7 @@ lit("red")
 lit(true)
 ```
 
-For details on how these work with scaling, see [Understanding Expressions vs Literals](../channels.md#understanding-expressions-vs-literals).
+For details on how these work with scaling, see [Understanding Expressions vs Literals](../channels/index.md#understanding-expressions-vs-literals).
 
 ### Operators
 
@@ -232,7 +232,7 @@ let status = when(col("temperature").gt(lit(30.0)), lit("hot"))
 # }
 ```
 
-For using conditionals within channel encoding (to bypass scales conditionally), see [Conditional Encodings](../channels.md#conditional-encodings).
+For using conditionals within channel encoding (to bypass scales conditionally), see [Conditional Encodings](../channels/index.md#conditional-encodings).
 
 ### Null Handling with `coalesce()`
 
@@ -687,8 +687,8 @@ let plot = Plot::<Cartesian>::new()
 
 ## See Also
 
-- [Channels](../channels.md) - How expressions are used in channel encodings
-- [Understanding Expressions vs Literals](../channels.md#understanding-expressions-vs-literals) - When values are scaled
+- [Channels](../channels/index.md) - How expressions are used in channel encodings
+- [Understanding Expressions vs Literals](../channels/index.md#understanding-expressions-vs-literals) - When values are scaled
 - [Aggregations](./aggregations.md) - Working with grouped data
 - [Parameters](../themes/parameters.md) - Dynamic expressions with runtime values
 - [DataFusion Documentation](https://datafusion.apache.org/) - Official DataFusion docs

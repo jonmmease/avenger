@@ -227,7 +227,7 @@ The bar is still 60% of the band width, but the bands themselves are smaller due
 ### See Also
 
 - [Bar Charts](../../guides/bar-charts.md#controlling-bar-width) for practical applications
-- [Channel References](../channels.md#channel-references) for using `:x` and `:y` with `.band()`
+- [Channel References](../channels/index.md#channel-references) for using `:x` and `:y` with `.band()`
 
 ## When to Use
 

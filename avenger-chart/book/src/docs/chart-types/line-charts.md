@@ -211,5 +211,5 @@ For comprehensive coverage of Line mark capabilities, see the [Line Mark Referen
 ## Next Steps
 
 - Learn about [Bar Charts](./bar-charts.md)
-- Explore [Aggregations](../data/aggregations.md) for data summaries
+- Explore [Aggregations](../channels/aggregations.md) for data summaries
 - Review [Scales](../scales/index.md) for data transformation options

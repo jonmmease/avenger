@@ -178,7 +178,7 @@ See individual [scale type pages](./scale-types.md) for scale-specific options l
 
 - [Domains](./domains.md) - Complete guide to domain specification, inference, and refinement
 - [Scale Types](./scale-types.md) - Reference guide to all 12 scale types with decision trees
-- [Channels](../channels.md) - How to apply scales to visual channels
-- [Understanding Expressions vs Literals](../channels.md#understanding-expressions-vs-literals) - When values are scaled vs bypass scaling
+- [Channels](../channels/index.md) - How to apply scales to visual channels
+- [Understanding Expressions vs Literals](../channels/index.md#understanding-expressions-vs-literals) - When values are scaled vs bypass scaling
 - [Legends](../guides-axes-legends/legends.md) - Automatically generated scale legends
 - [Axes](../guides-axes-legends/axes.md) - Scale-aware coordinate axes

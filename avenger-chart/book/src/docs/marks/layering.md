@@ -232,6 +232,6 @@ All marks share common options that affect layering:
 ## Next Steps
 
 - See the [Marks Overview](./index.md) for available mark types
-- Learn about [Channels](../channels.md) for encoding data
+- Learn about [Channels](../channels/index.md) for encoding data
 - Review [Scales](../scales/index.md) for understanding how scales are merged
 - Explore specific mark pages: [Symbol](./symbol.md), [Line](./line.md), [Rect](./rect.md)
