@@ -93,6 +93,52 @@ pub trait ChannelConfig: Sized {
         self.set_value(new_value);
         self
     }
+
+    /// Set whether this channel's scale should be shared across facets or free per facet
+    fn share_scale<S>(mut self, mode: S) -> Self
+    where
+        S: Into<ScaleSharing>,
+    {
+        let shared = matches!(mode.into(), ScaleSharing::Shared);
+        let mut value = self.get_value().clone();
+        value = match value {
+            ChannelValue::Scaled { expr, scale_name, band, scale_config, legend_config, .. } => {
+                ChannelValue::Scaled {
+                    expr,
+                    scale_name,
+                    band,
+                    scale_config,
+                    legend_config,
+                    share_across_facets: Some(shared),
+                }
+            }
+            ChannelValue::Conditional { conditions, otherwise, scale_config, legend_config, .. } => {
+                ChannelValue::Conditional {
+                    conditions,
+                    otherwise,
+                    scale_config,
+                    legend_config,
+                    share_across_facets: Some(shared),
+                }
+            }
+            other => other,
+        };
+        self.set_value(value);
+        self
+    }
+}
+
+/// Facet scale sharing modes for a channel
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ScaleSharing {
+    Shared,
+    Free,
+}
+
+impl From<bool> for ScaleSharing {
+    fn from(v: bool) -> Self {
+        if v { ScaleSharing::Shared } else { ScaleSharing::Free }
+    }
 }
 
 /// Trait for channels that support legends
@@ -135,7 +181,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             mut conditions,
             otherwise,
             scale_config,
-            legend_config,
+            legend_config, ..
         } => {
             conditions.push((condition_node, new_branch));
             ChannelValue::Conditional {
@@ -143,6 +189,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
                 otherwise,
                 scale_config,
                 legend_config,
+                share_across_facets: None,
             }
         }
         ChannelValue::Scaled {
@@ -151,17 +198,20 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             legend_config,
             scale_name: _,
             band: _,
+            ..
         } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
+            share_across_facets: None,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
             otherwise: ConditionalValue::Value { expr },
             scale_config: None,
             legend_config: None,
+            share_across_facets: None,
         },
     }
 }
@@ -179,7 +229,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             mut conditions,
             otherwise,
             scale_config,
-            legend_config,
+            legend_config, ..
         } => {
             conditions.push((condition_node, new_branch));
             ChannelValue::Conditional {
@@ -187,6 +237,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
                 otherwise,
                 scale_config,
                 legend_config,
+                share_across_facets: None,
             }
         }
         ChannelValue::Scaled {
@@ -195,17 +246,20 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             legend_config,
             scale_name: _,
             band: _,
+            ..
         } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
+            share_across_facets: None,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
             otherwise: ConditionalValue::Value { expr },
             scale_config: None,
             legend_config: None,
+            share_across_facets: None,
         },
     }
 }
@@ -225,6 +279,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             band,
             scale_config: Some(scale_config),
             legend_config,
+            share_across_facets: None,
         },
         ChannelValue::Conditional {
             conditions,
@@ -236,6 +291,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             otherwise,
             scale_config: Some(scale_config),
             legend_config,
+            share_across_facets: None,
         },
         ChannelValue::Value { .. } => {
             // Identity values don't support scale config
@@ -259,6 +315,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             band,
             scale_config,
             legend_config: Some(legend_config),
+            share_across_facets: None,
         },
         ChannelValue::Conditional {
             conditions,
@@ -270,6 +327,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             otherwise,
             scale_config,
             legend_config: Some(legend_config),
+            share_across_facets: None,
         },
         ChannelValue::Value { .. } => {
             // Identity values don't support legend config

@@ -36,6 +36,34 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
         }
     }
 
+    /// Configure whether this channel's scale is shared across facets or free per facet
+    pub fn share_scale(self, mode: crate::channel::config_traits::ScaleSharing) -> Self {
+        let shared = matches!(mode, crate::channel::config_traits::ScaleSharing::Shared);
+        let updated = match self.inner {
+            ChannelValue::Scaled { expr, scale_name, band, scale_config, legend_config, .. } => {
+                ChannelValue::Scaled {
+                    expr,
+                    scale_name,
+                    band,
+                    scale_config,
+                    legend_config,
+                    share_across_facets: Some(shared),
+                }
+            }
+            ChannelValue::Conditional { conditions, otherwise, scale_config, legend_config, .. } => {
+                ChannelValue::Conditional {
+                    conditions,
+                    otherwise,
+                    scale_config,
+                    legend_config,
+                    share_across_facets: Some(shared),
+                }
+            }
+            other => other,
+        };
+        Self { inner: updated, axis_config: self.axis_config }
+    }
+
     /// Disable scaling for this channel
     pub fn no_scale(self) -> Self {
         Self {

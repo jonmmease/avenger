@@ -7,7 +7,7 @@
 //! - Position channel specializations
 //! - Macros for channel definitions
 
-mod config_traits;
+pub mod config_traits;
 mod configs;
 mod descriptor;
 #[macro_use]

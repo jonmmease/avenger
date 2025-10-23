@@ -140,6 +140,9 @@ pub enum ChannelValue {
         scale_config: Option<Scale<Auto>>,
         /// Optional legend configuration
         legend_config: Option<Legend>,
+        /// Share this channel's scale across facets (if faceting)
+        #[serde(default)]
+        share_across_facets: Option<bool>,
     },
     /// Expression that bypasses scaling (identity transformation)
     Value {
@@ -157,6 +160,9 @@ pub enum ChannelValue {
         scale_config: Option<Scale<Auto>>,
         /// Optional legend configuration (applies to all Field branches)
         legend_config: Option<Legend>,
+        /// Share this channel's scale across facets (if faceting)
+        #[serde(default)]
+        share_across_facets: Option<bool>,
     },
 }
 
@@ -228,6 +234,15 @@ impl ChannelValue {
             _ => None,
         }
     }
+
+    /// Get per-channel facet sharing preference
+    pub fn get_share_across_facets(&self) -> Option<bool> {
+        match self {
+            ChannelValue::Scaled { share_across_facets, .. }
+            | ChannelValue::Conditional { share_across_facets, .. } => *share_across_facets,
+            _ => None,
+        }
+    }
 }
 
 impl ChannelValue {
@@ -294,6 +309,7 @@ impl ChannelValue {
                 scale_name,
                 scale_config,
                 legend_config,
+                share_across_facets,
                 ..
             } => ChannelValue::Scaled {
                 expr: expr.clone(),
@@ -301,6 +317,7 @@ impl ChannelValue {
                 band: Some(band),
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
+                share_across_facets,
             },
             other => other, // No-op for identity and conditional values
         }
@@ -315,6 +332,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config,
+                share_across_facets,
                 ..
             } => ChannelValue::Scaled {
                 expr: new_expr,
@@ -322,6 +340,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config,
+                share_across_facets,
             },
             ChannelValue::Value { .. } => ChannelValue::Value { expr: new_expr },
             ChannelValue::Conditional { .. } => {
@@ -332,6 +351,7 @@ impl ChannelValue {
                     band: None,
                     scale_config: None,
                     legend_config: None,
+                    share_across_facets: None,
                 }
             }
         }
@@ -352,6 +372,7 @@ impl ChannelValue {
                 band,
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
+                share_across_facets: None,
             },
             ChannelValue::Value { expr } => {
                 // Convert to scaled with custom scale
@@ -361,6 +382,7 @@ impl ChannelValue {
                     band: None,
                     scale_config: None,
                     legend_config: None,
+                    share_across_facets: None,
                 }
             }
             ChannelValue::Conditional { .. } => {
@@ -391,6 +413,7 @@ impl ChannelValue {
                 band,
                 scale_config: Some(scale_changes),
                 legend_config,
+                share_across_facets: None,
             },
             ChannelValue::Value { expr } => {
                 // Convert to scaled with scale config
@@ -400,6 +423,7 @@ impl ChannelValue {
                     band: None,
                     scale_config: Some(scale_changes),
                     legend_config: None,
+                    share_across_facets: None,
                 }
             }
             ChannelValue::Conditional {
@@ -412,6 +436,7 @@ impl ChannelValue {
                 otherwise,
                 scale_config: Some(scale_changes),
                 legend_config,
+                share_across_facets: None,
             },
         }
     }
@@ -442,6 +467,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config: Some(legend),
+                share_across_facets: None,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -453,6 +479,7 @@ impl ChannelValue {
                 otherwise,
                 scale_config,
                 legend_config: Some(legend),
+                share_across_facets: None,
             },
             ChannelValue::Value { .. } => {
                 // No-op for identity values - they don't have legends
@@ -541,6 +568,7 @@ impl From<Expr> for ChannelValue {
             band: None,
             scale_config: None,
             legend_config: None,
+            share_across_facets: None,
         }
     }
 }
