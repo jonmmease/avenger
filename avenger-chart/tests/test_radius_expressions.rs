@@ -32,6 +32,7 @@ async fn test_symbol_default_channel_values() {
         400.0,
         Arc::new(ctx.clone()),
         indexmap::IndexMap::new(),
+        std::collections::HashMap::new(),
     );
 
     // Build the CompiledMark
