@@ -7,7 +7,7 @@ use crate::legend::LegendPosition;
 use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr};
 use crate::plot::{PlotSubtitle, PlotTitle};
 use crate::serialization::LogicalExprNodeExt;
-use avenger_text::measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer};
+use avenger_text::measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer, TextBounds};
 use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
@@ -162,17 +162,16 @@ impl GridLayout {
 }
 
 /// Helper function to measure title/subtitle text height
-async fn measure_text_height(
-    text_expr: &datafusion_proto::protobuf::LogicalExprNode,
-    font_size_field: &crate::maybe::Maybe<Option<datafusion_proto::protobuf::LogicalExprNode>>,
-    font_family_field: &crate::maybe::Maybe<Option<datafusion_proto::protobuf::LogicalExprNode>>,
+async fn measure_text_bounds(
+    text_expr: &LogicalExprNode,
+    font_size_field: &crate::maybe::Maybe<Option<LogicalExprNode>>,
+    font_family_field: &crate::maybe::Maybe<Option<LogicalExprNode>>,
     theme_context: &crate::theme::ThemeContext,
     theme: &Theme,
     default_font_size: f32,
-    height_multiplier: f32,
     ctx: &datafusion::prelude::SessionContext,
     params: &IndexMap<String, datafusion::common::ScalarValue>,
-) -> Result<f32, AvengerChartError> {
+) -> Result<TextBounds, AvengerChartError> {
     // Evaluate font_size
     let font_size = match font_size_field {
         crate::maybe::Maybe::Set(Some(node)) => {
@@ -208,7 +207,7 @@ async fn measure_text_height(
     };
     let bounds = measurer.measure_text_bounds(&config);
 
-    Ok(bounds.line_height * height_multiplier)
+    Ok(bounds)
 }
 
 impl GridBuilder {
@@ -387,20 +386,19 @@ impl GridBuilder {
 
                 // Measure title height
                 let text_node: LogicalExprNode = t.text.clone().into();
-                let height = measure_text_height(
+                let bounds = measure_text_bounds(
                     &text_node,
                     &t.font_size,
                     &t.font_family,
                     &title_ctx,
                     theme,
                     DEFAULT_TITLE_FONT_SIZE,
-                    TITLE_ROW_HEIGHT_MULTIPLIER,
                     ctx,
                     params,
                 )
                 .await?;
 
-                grid.rows.push(length(height));
+                grid.rows.push(length(bounds.line_height * TITLE_ROW_HEIGHT_MULTIPLIER));
                 // Title spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Title, row_index, start_col);
@@ -416,20 +414,19 @@ impl GridBuilder {
 
                 // Measure subtitle height
                 let text_node: LogicalExprNode = s.text.clone().into();
-                let height = measure_text_height(
+                let bounds = measure_text_bounds(
                     &text_node,
                     &s.font_size,
                     &s.font_family,
                     &subtitle_ctx,
                     theme,
                     DEFAULT_SUBTITLE_FONT_SIZE,
-                    SUBTITLE_ROW_HEIGHT_MULTIPLIER,
                     ctx,
                     params,
                 )
                 .await?;
 
-                grid.rows.push(length(height));
+                grid.rows.push(length(bounds.line_height * SUBTITLE_ROW_HEIGHT_MULTIPLIER));
                 // Subtitle spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Subtitle, row_index, start_col);

@@ -45,6 +45,7 @@ pub mod test_facet_row;
 pub mod test_facet_row_shared;
 pub mod test_facet_row_free;
 pub mod test_facet_row_polar;
+pub mod test_facet_row_hybrid;
 pub mod test_polar_scatter;
 pub mod test_rect_legend;
 pub mod test_right_axis;
