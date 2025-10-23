@@ -528,6 +528,7 @@ pub fn resolve_all_channel_refs(
                     band,
                     scale_config,
                     legend_config,
+                    ..
                 } => {
                     let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels, ctx);
                     ChannelValue::Scaled {
@@ -536,6 +537,7 @@ pub fn resolve_all_channel_refs(
                         band: *band,
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
+                        share_across_facets: None,
                     }
                 }
                 ChannelValue::Value { expr } => {
@@ -549,6 +551,7 @@ pub fn resolve_all_channel_refs(
                     otherwise,
                     scale_config,
                     legend_config,
+                    ..
                 } => {
                     // Resolve channel references in conditions and otherwise
                     use crate::channel::ConditionalValue;
@@ -592,6 +595,7 @@ pub fn resolve_all_channel_refs(
                         otherwise: resolved_otherwise,
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
+                        share_across_facets: None,
                     }
                 }
             };

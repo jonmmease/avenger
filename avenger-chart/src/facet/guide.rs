@@ -100,13 +100,35 @@ impl CompiledGuide for FacetRowGuide {
             for (i, facet_val) in domain_vals.iter().enumerate() {
                 let filter_df = df.clone().filter(row_expr.clone().eq(lit(facet_val.clone())))?;
                 // Build inner scales and measure inner guide overflow for this band height
-                let inner_scales = source
-                    .subplot
-                    .build_scales_for_dataframe(&filter_df, plot_width, plot_height / domain_vals.len() as f32, ctx, params)
-                    .await?;
+                // Determine per-channel sharing for this subplot
+                let coord_channels: Vec<&str> = source.subplot.coord_transform.required_channels().to_vec();
+                let mut any_shared = false;
+                for &ch in &coord_channels {
+                    for m in &source.subplot.marks {
+                        if let Some(cv) = m.data_context().channels().get(ch) {
+                            if let Some(true) = cv.get_share_across_facets() {
+                                any_shared = true;
+                                break;
+                            }
+                        }
+                    }
+                    if any_shared { break; }
+                }
+                let band_h = plot_height / domain_vals.len() as f32;
+                let inner_scales = if any_shared {
+                    source
+                        .subplot
+                        .build_scales_for_dataframe(&df, plot_width, band_h, ctx, params)
+                        .await?
+                } else {
+                    source
+                        .subplot
+                        .build_scales_for_dataframe(&filter_df, plot_width, band_h, ctx, params)
+                        .await?
+                };
                 let overflow = source
                     .subplot
-                    .measure_guide_overflow_with_scales(&inner_scales, plot_width, plot_height / domain_vals.len() as f32, ctx, params)
+                    .measure_guide_overflow_with_scales(&inner_scales, plot_width, band_h, ctx, params)
                     .await?;
 
                 if i == 0 {

@@ -1,7 +1,8 @@
 use crate::error::AvengerChartError;
+use crate::coords::CoordinateSystem;
 use crate::facet::coord::FacetRow;
 use crate::marks::{ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState};
-use crate::plot::CompiledPlot;
+use crate::plot::{CompiledPlot, Plot};
 use crate::render::RenderContext;
 use crate::scales::ConfiguredScaleWithSpec;
 use avenger_scenegraph::marks::group::SceneGroup;
@@ -17,13 +18,12 @@ use std::sync::Arc;
 /// Facet mark for FacetRow outer coordinate system.
 /// Renders a provided inner plot for each band value in the `row` channel.
 #[derive(Clone)]
-pub struct Facet {
+pub struct Facet<InnerC: CoordinateSystem> {
     pub(crate) state: MarkState,
-    // Serialized CompiledPlot to avoid Send/Sync issues in Mark
-    pub(crate) compiled_subplot_json: Option<String>,
+    pub(crate) subplot: Option<Plot<InnerC>>,
 }
 
-impl Facet {
+impl<InnerC: CoordinateSystem> Facet<InnerC> {
     pub fn new() -> Self {
         Self {
             state: MarkState {
@@ -33,7 +33,7 @@ impl Facet {
                 zindex: None,
                 axis_configs: HashMap::new(),
             },
-            compiled_subplot_json: None,
+            subplot: None,
         }
     }
 
@@ -56,12 +56,12 @@ impl Facet {
         s
     }
 
-    /// Provide a compiled subplot (serialized as JSON)
-    pub fn subplot_compiled(mut self, compiled: &CompiledPlot) -> Self {
-        let json = serde_json::to_string(compiled).expect("serialize compiled subplot");
-        self.compiled_subplot_json = Some(json);
+    /// Provide a subplot Plot<InnerC>
+    pub fn subplot(mut self, plot: Plot<InnerC>) -> Self {
+        self.subplot = Some(plot);
         self
     }
+
 }
 
 /// Compiled facet mark specialized for FacetRow outer coords
@@ -72,7 +72,7 @@ pub struct CompiledFacetRow {
 }
 
 #[async_trait::async_trait]
-impl Mark<FacetRow> for Facet {
+impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
     fn state(&self) -> &MarkState {
         &self.state
     }
@@ -90,14 +90,19 @@ impl Mark<FacetRow> for Facet {
         compiled_state: CompiledMarkState,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-        let compiled_subplot: CompiledPlot = self
-            .compiled_subplot_json
-            .as_ref()
-            .ok_or_else(|| AvengerChartError::InternalError("Facet compiled subplot not set".into()))
-            .and_then(|s| serde_json::from_str(s).map_err(|e| AvengerChartError::InternalError(format!("Failed to deserialize subplot: {}", e))))?;
+        let compiled_subplot: Arc<CompiledPlot> = {
+            let plot_ref = self
+                .subplot
+                .as_ref()
+                .ok_or_else(|| AvengerChartError::InternalError("Facet subplot not set".into()))?;
+            let plot_clone = plot_ref.clone();
+            // Plot<InnerC> implements Clone; explicitly call Clone::clone
+            let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
+            Arc::new(plot_owned.compile(session_context).await?)
+        };
         Ok(Arc::new(CompiledFacetRow {
             state: compiled_state,
-            compiled_subplot: Arc::new(compiled_subplot),
+            compiled_subplot,
         }))
     }
 }
@@ -169,6 +174,36 @@ impl CompiledMark for CompiledFacetRow {
 
         let mut all_marks: Vec<SceneMark> = Vec::new();
 
+        // Compute per-channel sharing preferences by scanning inner marks
+        let required_channels: Vec<&str> = self.compiled_subplot.coord_transform.required_channels().to_vec();
+        let mut channel_shared: HashMap<String, bool> = HashMap::new();
+        for &ch in &required_channels {
+            let mut shared = false;
+            for m in &self.compiled_subplot.marks {
+                if let Some(cv) = m.data_context().channels().get(ch) {
+                    if let Some(s) = cv.get_share_across_facets() {
+                        if s { shared = true; break; }
+                    }
+                }
+            }
+            channel_shared.insert(ch.to_string(), shared);
+        }
+
+        // If any channel is shared, compute scales once across full data using approximate band height
+        let any_shared = channel_shared.values().any(|v| *v);
+        let shared_scales = if any_shared {
+            let approx_h = band_positions.first().map(|(_, (_, h))| *h).unwrap_or(context.plot_height);
+            Some(self.compiled_subplot.build_scales_for_dataframe(
+                &df,
+                context.plot_width,
+                approx_h,
+                ctx,
+                &context.params,
+            ).await?)
+        } else {
+            None
+        };
+
         for (facet_value, (y_pos, band_height)) in band_positions {
             // Filter df by facet_value
             let filter_df: DataFrame = df
@@ -176,13 +211,35 @@ impl CompiledMark for CompiledFacetRow {
                 .filter(row_expr.clone().eq(lit(facet_value.clone())))?;
 
             // Build scales and evaluate inner components for this partition
-            let scales = self.compiled_subplot.build_scales_for_dataframe(
-                &filter_df,
-                context.plot_width,
-                band_height,
-                ctx,
-                &context.params,
-            ).await?;
+            let mut scales = if let Some(ref shared) = shared_scales {
+                shared.clone()
+            } else {
+                self.compiled_subplot.build_scales_for_dataframe(
+                    &filter_df,
+                    context.plot_width,
+                    band_height,
+                    ctx,
+                    &context.params,
+                ).await?
+            };
+
+            // If some channels are free, rebuild facet-specific scales and override those channels
+            if any_shared {
+                let facet_scales = self.compiled_subplot.build_scales_for_dataframe(
+                    &filter_df,
+                    context.plot_width,
+                    band_height,
+                    ctx,
+                    &context.params,
+                ).await?;
+                for (ch, shared_flag) in &channel_shared {
+                    if !*shared_flag {
+                        if let Some(s) = facet_scales.get(ch) {
+                            scales.insert(ch.clone(), s.clone());
+                        }
+                    }
+                }
+            }
 
             let sub = self.compiled_subplot.evaluate_components_with_scales(
                 &filter_df,

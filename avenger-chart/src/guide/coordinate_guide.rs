@@ -13,7 +13,7 @@ use std::collections::HashMap;
 /// A CoordinateGuide represents the visual reference elements for a coordinate system.
 /// This includes both axes (configured at the channel level) and coordinate-specific
 /// options (configured at the plot level).
-pub trait CoordinateGuide: Clone + Default {
+pub trait CoordinateGuide: Clone + Default + Send + Sync {
     type Axis: Axis + Clone;
 
     /// Set axes that were configured at the channel level
