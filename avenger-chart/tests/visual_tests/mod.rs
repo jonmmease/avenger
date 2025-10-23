@@ -41,6 +41,7 @@ pub mod test_multiple_legends_background;
 pub mod test_param_fill_color;
 pub mod test_plot_background;
 pub mod test_plot_level_config;
+pub mod test_facet_row;
 pub mod test_polar_scatter;
 pub mod test_rect_legend;
 pub mod test_right_axis;

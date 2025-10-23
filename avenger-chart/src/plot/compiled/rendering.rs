@@ -491,6 +491,7 @@ impl CompiledPlot {
             plot_height,
             Arc::new(ctx.clone()),
             params.clone(),
+            scales.clone(),
         );
 
         // Clone the coordinate transform
@@ -502,11 +503,204 @@ impl CompiledPlot {
             &scalar_batch,
             &context,
             coord_transform,
-        )
+        ).await
+    }
+
+    /// Evaluate a single mark with an optional provided plot-level DataFrame fallback.
+    /// If `provided_plot_df` is Some, it is used when the mark has no explicit data and
+    /// the channels reference columns. Otherwise, falls back to this CompiledPlot's plot-level data.
+    pub(super) async fn evaluate_mark_with_plot_df(
+        &self,
+        mark: &dyn CompiledMark,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        plot_width: f32,
+        plot_height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        // Get channel mappings from DataContext
+        let channels = mark.data_context().channels();
+
+        // Resolve channel references
+        let channels = crate::channel::resolution::resolve_all_channel_refs(channels, ctx)?;
+
+        // Check if any channel expressions reference columns
+        let references_columns = channels.values().any(|channel_value| match channel_value {
+            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                expr.to_expr(ctx)
+                    .map(|e| !e.column_refs().is_empty())
+                    .unwrap_or(false)
+            }
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                ..
+            } => {
+                conditions.iter().any(|(condition, value)| {
+                    let cond_has_refs = condition
+                        .to_expr(ctx)
+                        .map(|e| !e.column_refs().is_empty())
+                        .unwrap_or(false);
+                    let value_has_refs = value
+                        .expr(ctx)
+                        .map(|e| !e.column_refs().is_empty())
+                        .unwrap_or(false);
+                    cond_has_refs || value_has_refs
+                }) || otherwise
+                    .expr(ctx)
+                    .map(|e| !e.column_refs().is_empty())
+                    .unwrap_or(false)
+            }
+        });
+
+        // Determine data source
+        let df_ref = if let Some(df_override) = provided_plot_df.cloned() {
+            Some(df_override)
+        } else if let Some(mark_df) = mark.data_context().dataframe_with_context(ctx) {
+            Some(mark_df)
+        } else if !references_columns {
+            None
+        } else if let Some(df) = self.data.as_ref().and_then(|node| {
+                node.to_logical_plan(ctx)
+                    .ok()
+                    .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+            }) {
+            Some(df)
+        } else {
+            return Err(AvengerChartError::InternalError(
+                "Mark expressions reference columns but no data is available".to_string(),
+            ));
+        };
+
+        // Sorting
+        let df = if let Some(df_ref) = df_ref {
+            if let Some(sort_channel_name) = mark.sorting_channel() {
+                if let Some(sort_channel) = channels.get(sort_channel_name) {
+                    let sort_expr =
+                        self.apply_channel_scale(sort_channel_name, sort_channel, scales, ctx)?;
+                    let sorted_df = df_ref.sort(vec![sort_expr.sort(true, false)])?;
+                    Arc::new(sorted_df)
+                } else {
+                    Arc::new(df_ref)
+                }
+            } else {
+                Arc::new(df_ref)
+            }
+        } else {
+            let empty_df = ctx
+                .sql("SELECT 1 as _dummy")
+                .await
+                .map_err(|e| AvengerChartError::DataFusionError(e))?;
+            Arc::new(empty_df)
+        };
+
+        // Channels split
+        let supported_channels = mark.supported_channels();
+        let mut array_channels = Vec::new();
+        let mut scalar_channels = Vec::new();
+        let mut has_array_data = false;
+        for channel_desc in &supported_channels {
+            if let Some(channel_value) = channels.get(channel_desc.name) {
+                let scaled_expr =
+                    self.apply_channel_scale(channel_desc.name, channel_value, scales, ctx)?;
+                if channel_desc.allow_column_ref && scaled_expr.any_column_refs() {
+                    array_channels.push((channel_desc.name, scaled_expr));
+                    has_array_data = true;
+                } else {
+                    scalar_channels.push((channel_desc.name, scaled_expr));
+                }
+            }
+        }
+
+        // Build array data batch
+        let data_batch = if has_array_data {
+            let mut select_exprs = vec![];
+            for (name, expr) in &array_channels {
+                select_exprs.push(expr.clone().alias(*name));
+            }
+            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let batch = if let Some(param_values) = datafusion_params {
+                (*df)
+                    .clone()
+                    .select(select_exprs)?
+                    .with_param_values(param_values)?
+                    .collect()
+                    .await?
+            } else {
+                (*df).clone().select(select_exprs)?.collect().await?
+            };
+            if batch.is_empty() {
+                None
+            } else {
+                use datafusion::arrow::compute::concat_batches;
+                let schema = batch[0].schema();
+                let combined = concat_batches(&schema, &batch)?;
+                Some(combined)
+            }
+        } else {
+            None
+        };
+
+        // Scalar data batch
+        let mut scalar_select_exprs = vec![];
+        for (name, expr) in &scalar_channels {
+            scalar_select_exprs.push(expr.clone().alias(*name));
+        }
+        let scalar_batch = if !scalar_select_exprs.is_empty() {
+            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let batch = if let Some(param_values) = datafusion_params {
+                (*df)
+                    .clone()
+                    .select(scalar_select_exprs)?
+                    .with_param_values(param_values)?
+                    .collect()
+                    .await?
+            } else {
+                (*df).clone().select(scalar_select_exprs)?.collect().await?
+            };
+            if batch.is_empty() {
+                return Ok(vec![]);
+            } else {
+                use datafusion::arrow::compute::concat_batches;
+                let schema = batch[0].schema();
+                concat_batches(&schema, &batch)?
+            }
+        } else {
+            use datafusion::arrow::array::Int32Array;
+            use datafusion::arrow::datatypes::{DataType, Field, Schema};
+            datafusion::arrow::record_batch::RecordBatch::try_new(
+                Arc::new(Schema::new(vec![Field::new(
+                    "_dummy",
+                    DataType::Int32,
+                    false,
+                )])),
+                vec![Arc::new(Int32Array::from(vec![0]))],
+            )?
+        };
+
+        self.validate_positional_channel_types(&data_batch, &scalar_batch)?;
+
+        let theme = self.get_theme();
+        let context = crate::render::RenderContext::new(
+            theme,
+            plot_width,
+            plot_height,
+            Arc::new(ctx.clone()),
+            params.clone(),
+            scales.clone(),
+        );
+        let coord_transform = self.coord_transform.clone_box();
+        mark.evaluate_from_data(
+            data_batch.as_ref(),
+            &scalar_batch,
+            &context,
+            coord_transform,
+        ).await
     }
 
     /// Create guide marks (axes, grids) for the coordinate system
-    async fn create_guide_marks(
+    pub(super) async fn create_guide_marks(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_width: f32,
@@ -874,6 +1068,7 @@ impl CompiledPlot {
             estimated_plot_height,
             Arc::new(ctx.clone()),
             merged_params.clone(),
+            std::collections::HashMap::new(),
         );
 
         let (
@@ -912,6 +1107,7 @@ impl CompiledPlot {
             plot_area_height,
             Arc::new(ctx.clone()),
             merged_params.clone(),
+            std::collections::HashMap::new(),
         );
 
         let final_configured_scales = self

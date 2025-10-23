@@ -1,9 +1,11 @@
 //! Rendering context that carries theme and dimensions through the rendering pipeline
 
+use crate::scales::ConfiguredScaleWithSpec;
 use crate::theme::Theme;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Context passed through the rendering pipeline
@@ -19,6 +21,8 @@ pub struct RenderContext {
     pub session_context: Arc<SessionContext>,
     /// Parameter values for prepared statements
     pub params: IndexMap<String, ScalarValue>,
+    /// Configured scales available during rendering (coordinate + non-positional)
+    pub scales: HashMap<String, ConfiguredScaleWithSpec>,
 }
 
 impl RenderContext {
@@ -28,6 +32,7 @@ impl RenderContext {
         plot_height: f32,
         session_context: Arc<SessionContext>,
         params: IndexMap<String, ScalarValue>,
+        scales: HashMap<String, ConfiguredScaleWithSpec>,
     ) -> Self {
         Self {
             theme,
@@ -35,6 +40,7 @@ impl RenderContext {
             plot_height,
             session_context,
             params,
+            scales,
         }
     }
 

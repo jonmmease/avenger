@@ -25,6 +25,7 @@ use crate::scales::{ScaleRange, ScaleSpec};
 use crate::serialization::SerializableExpr;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;
+use std::any::Any;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
@@ -94,7 +95,8 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
 }
 
 #[typetag::serde(tag = "type")]
-pub trait CompiledMark {
+#[async_trait::async_trait]
+pub trait CompiledMark: Any + Send + Sync {
     /// Get the mark's state (compiled version with CompiledDataContext)
     fn state(&self) -> &CompiledMarkState;
 
@@ -106,6 +108,11 @@ pub trait CompiledMark {
 
     /// Get the mark type name (e.g., "rect", "line", "symbol")
     fn mark_type(&self) -> &str;
+
+    /// Downcast support (override where needed)
+    fn as_any(&self) -> &dyn Any {
+        panic!("as_any not implemented for this mark type")
+    }
 
     /// Declare channels this mark supports
     fn supported_channels(&self) -> Vec<ChannelDescriptor>;
@@ -120,7 +127,7 @@ pub trait CompiledMark {
     ///
     /// # Returns
     /// A vector of scene marks ready for evaluation
-    fn evaluate_from_data(
+    async fn evaluate_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,

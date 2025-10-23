@@ -521,6 +521,7 @@ impl CompiledPlot {
             theme: self.get_theme(),
             session_context: Arc::new(ctx.clone()),
             params: params.clone(),
+            scales: std::collections::HashMap::new(),
         };
 
         // Iterate through all supported channels of this mark

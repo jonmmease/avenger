@@ -50,6 +50,7 @@ pub struct CompiledCartesianSymbol {
 }
 
 #[typetag::serde]
+#[async_trait::async_trait]
 impl CompiledMark for CompiledCartesianSymbol {
     fn state(&self) -> &CompiledMarkState {
         &self.state
@@ -122,7 +123,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         ]
     }
 
-    fn evaluate_from_data(
+    async fn evaluate_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,

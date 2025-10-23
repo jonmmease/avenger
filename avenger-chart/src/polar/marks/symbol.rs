@@ -51,6 +51,7 @@ pub struct CompiledPolarSymbol {
 
 // CompiledMark implementation
 #[typetag::serde]
+#[async_trait::async_trait]
 impl CompiledMark for CompiledPolarSymbol {
     fn state(&self) -> &CompiledMarkState {
         &self.state
@@ -123,7 +124,7 @@ impl CompiledMark for CompiledPolarSymbol {
         ]
     }
 
-    fn evaluate_from_data(
+    async fn evaluate_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,

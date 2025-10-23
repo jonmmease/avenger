@@ -9,6 +9,7 @@ pub mod guide;
 pub mod layout;
 pub mod legend;
 pub mod marks;
+pub mod facet;
 pub mod param;
 pub mod plot;
 pub mod polar;

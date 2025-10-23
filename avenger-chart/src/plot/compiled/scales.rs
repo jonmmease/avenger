@@ -974,6 +974,7 @@ mod tests {
             300.0,
             Arc::new(ctx.clone()),
             IndexMap::new(),
+            std::collections::HashMap::new(),
         );
 
         let (_, _, positional_scales, _) = compiled
@@ -1097,6 +1098,7 @@ mod tests {
             300.0,
             Arc::new(ctx.clone()),
             IndexMap::new(),
+            std::collections::HashMap::new(),
         );
 
         let (
@@ -1123,6 +1125,7 @@ mod tests {
             300.0,
             Arc::new(ctx.clone()),
             IndexMap::new(),
+            std::collections::HashMap::new(),
         );
 
         let final_scales = compiled
