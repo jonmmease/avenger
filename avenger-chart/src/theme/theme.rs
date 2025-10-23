@@ -160,11 +160,25 @@ impl Theme {
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
+            /* Facet title should match axis title typography */
+            facet title {
+                color: var(--text-color);
+                font-weight: 400;
+                font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
             axis label {
                 color: var(--text-tertiary);
                 font-weight: 300;
                 font-size: 0.833rem; /* 10px @ 12px base */
                 padding: 3;
+            }
+
+            /* Facet labels should match axis label typography */
+            facet label {
+                color: var(--text-tertiary);
+                font-weight: 300;
+                font-size: 0.833rem; /* 10px @ 12px base */
             }
 
             axis grid {

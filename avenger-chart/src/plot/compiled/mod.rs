@@ -130,10 +130,8 @@ impl CompiledPlot {
         use crate::channel::resolution::resolve_all_channel_refs;
         use crate::scales::{Scale, spec::Auto};
         use crate::scales::ConfiguredScaleWithSpec;
-        use crate::serialization::LogicalExprNodeExt;
         use avenger_scales::scales::ScaleImpl;
-        use datafusion::logical_expr::{Expr, ExprSchemable, lit};
-        use datafusion_common::ExprSchema;
+        use datafusion::logical_expr::{Expr, lit};
 
         // Collect channels that need scales
         let mut channels_with_scales = self.collect_channels_needing_scales(ctx);
@@ -143,7 +141,6 @@ impl CompiledPlot {
         }
 
         let mut configured: std::collections::HashMap<String, ConfiguredScaleWithSpec> = std::collections::HashMap::new();
-        let df_schema_ref = df.schema();
 
         // Build each scale using provided DataFrame for type inference and domain collection
         for channel in channels_with_scales.iter() {

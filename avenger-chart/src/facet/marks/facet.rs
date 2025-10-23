@@ -1,6 +1,7 @@
 use crate::error::AvengerChartError;
 use crate::coords::CoordinateSystem;
 use crate::facet::coord::FacetRow;
+use crate::facet::marks::facet_config::FacetRowChannelConfig;
 use crate::marks::{ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState};
 use crate::plot::{CompiledPlot, Plot};
 use crate::render::RenderContext;
@@ -21,6 +22,7 @@ use std::sync::Arc;
 pub struct Facet<InnerC: CoordinateSystem> {
     pub(crate) state: MarkState,
     pub(crate) subplot: Option<Plot<InnerC>>,
+    pub(crate) facet_row_title: Option<String>,
 }
 
 impl<InnerC: CoordinateSystem> Facet<InnerC> {
@@ -34,6 +36,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
                 axis_configs: HashMap::new(),
             },
             subplot: None,
+            facet_row_title: None,
         }
     }
 
@@ -56,6 +59,18 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s
     }
 
+    /// Configure row with facet options (e.g., title)
+    pub fn row_with<V, F>(self, value: V, f: F) -> Self
+    where
+        V: Into<ChannelValue>,
+        F: FnOnce(FacetRowChannelConfig) -> FacetRowChannelConfig,
+    {
+        let mut s = self.row(value);
+        let cfg = f(FacetRowChannelConfig::default());
+        s.facet_row_title = cfg.title;
+        s
+    }
+
     /// Provide a subplot Plot<InnerC>
     pub fn subplot(mut self, plot: Plot<InnerC>) -> Self {
         self.subplot = Some(plot);
@@ -69,6 +84,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
 pub struct CompiledFacetRow {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
+    pub(crate) facet_title: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -103,6 +119,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
         Ok(Arc::new(CompiledFacetRow {
             state: compiled_state,
             compiled_subplot,
+            facet_title: self.facet_row_title.clone(),
         }))
     }
 }
