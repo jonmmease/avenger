@@ -235,44 +235,11 @@ impl CompiledMark for CompiledFacetRow {
             None
         };
 
-        // Query x-axis position by evaluating the position expression if it exists
-        // Access axis through axis_specs instead of the guide to avoid downcast issues
-        let x_axis_position = if let Some(axis_spec) = self.compiled_subplot.axis_specs.get("x") {
-            // AxisSpec::Local contains Box<dyn Axis> - downcast to CartesianAxis
-            use crate::plot::AxisSpec;
-            let AxisSpec::Local(axis_box) = axis_spec;
-            use crate::cartesian::axis::CartesianAxis;
-            if let Some(cart_axis) = axis_box.as_any().downcast_ref::<CartesianAxis>() {
-                if let Some(pos_node) = cart_axis.position.as_option().and_then(|o| o.as_ref()) {
-                    // Has explicit position expression - evaluate it
-                    use crate::serialization::LogicalExprNodeExt;
-                    if let Ok(pos_expr) = pos_node.to_expr(ctx) {
-                        use crate::plot::compiled::expr_eval::evaluate_axis_position_expr;
-                        evaluate_axis_position_expr(&pos_expr, ctx, &context.params).await.ok()
-                    } else {
-                        // Couldn't convert to expr, use default
-                        Some(crate::cartesian::axis::AxisPosition::Bottom)
-                    }
-                } else {
-                    // No explicit position, use default for x-axis
-                    Some(crate::cartesian::axis::AxisPosition::Bottom)
-                }
-            } else {
-                // Not a Cartesian axis - assume bottom
-                Some(crate::cartesian::axis::AxisPosition::Bottom)
-            }
-        } else {
-            // No x-axis configured - assume bottom
-            Some(crate::cartesian::axis::AxisPosition::Bottom)
-        };
-
-        // Get total number of rows for edge detection
+        // Get total number of rows for grid dimensions
         let total_rows = band_positions.len();
 
-        // Check if x-scale is shared (for label suppression logic)
-        let x_scale_shared = channel_shared.get("x").copied().unwrap_or(false);
-
-        for (row_idx, (facet_value, (y_pos, band_height))) in band_positions.into_iter().enumerate() {
+        for (row_idx, (facet_value, (y_pos, band_height))) in band_positions.into_iter().enumerate()
+        {
             // Filter df by facet_value
             let filter_df: DataFrame = df
                 .clone()
@@ -314,46 +281,34 @@ impl CompiledMark for CompiledFacetRow {
                 }
             }
 
-            // Query subplot guide to determine if axis unification is supported
-            let mut facet_params = context.params.clone();
-            if let Some(guide) = self.compiled_subplot.compiled_guide.as_ref() {
-                if let Some(_info) = guide.facet_unifiable_channel(
-                    crate::guide::FacetDirection::Row,
-                    self.compiled_subplot.marks(),
-                    ctx,
-                ) {
-                    // Subplot guide supports row faceting unification - signal to suppress the axis
-                    facet_params.insert(
-                        "facet_unified_y".to_string(),
-                        datafusion::common::ScalarValue::Boolean(Some(true)),
-                    );
-                }
-            }
+            // Create FacetContext with position and sharing information
+            use crate::facet::context::FacetContext;
 
-            // Handle x-axis hiding for row faceting
-            // Determine if this is the edge row (where x-axis should be shown)
-            use crate::cartesian::axis::AxisPosition;
-            let is_edge_row = match x_axis_position {
-                Some(AxisPosition::Bottom) => row_idx == total_rows - 1,  // Bottom-most row
-                Some(AxisPosition::Top) => row_idx == 0,                   // Top-most row
-                _ => row_idx == total_rows - 1,  // Unknown position - assume bottom (most common default)
+            // Determine which channel is unified by querying the subplot guide
+            let unified_channel = if let Some(guide) = self.compiled_subplot.compiled_guide.as_ref()
+            {
+                guide
+                    .facet_unifiable_channel(
+                        crate::guide::FacetDirection::Row,
+                        self.compiled_subplot.marks(),
+                        ctx,
+                    )
+                    .map(|info| info.channel)
+            } else {
+                None
             };
 
-            // Hide x-axis title on non-edge rows
-            if !is_edge_row {
-                facet_params.insert(
-                    "facet_hide_x_title".to_string(),
-                    datafusion::common::ScalarValue::Boolean(Some(true)),
-                );
-            }
+            // Build FacetContext
+            let facet_ctx = FacetContext {
+                position: (row_idx, 0),           // col always 0 for row faceting
+                grid_dimensions: (total_rows, 1), // num_cols always 1 for row faceting
+                unified_channel,
+                scale_sharing: channel_shared.clone(),
+            };
 
-            // Hide x-axis labels on non-edge rows when x-scale is shared
-            if !is_edge_row && x_scale_shared {
-                facet_params.insert(
-                    "facet_hide_x_labels".to_string(),
-                    datafusion::common::ScalarValue::Boolean(Some(true)),
-                );
-            }
+            // Merge context into params
+            let mut facet_params = context.params.clone();
+            facet_params.extend(facet_ctx.to_params());
 
             let sub = self
                 .compiled_subplot
