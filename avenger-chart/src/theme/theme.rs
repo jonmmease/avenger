@@ -236,7 +236,7 @@ impl Theme {
             }
 
             facet rule {
-                color: var(--border-color);
+                color: var(--text-tertiary);
                 stroke-width: 0.5;
                 tick-size: 4;
             }
