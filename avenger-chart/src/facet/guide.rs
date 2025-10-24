@@ -570,12 +570,15 @@ impl CompiledGuide for FacetRowGuide {
                     .map(|n| n as f32)
                     .unwrap_or(4.0);
 
+                // Extend rule by half stroke width on each end for cleaner edges
+                let half_stroke = rule_stroke_width / 2.0;
+
                 // Create vertical rule mark
                 let rule_mark = avenger_scenegraph::marks::rule::SceneRuleMark {
                     x: x_rule.into(),
-                    y: y_top.into(),
+                    y: (y_top - half_stroke).into(),
                     x2: x_rule.into(),
-                    y2: y_bottom.into(),
+                    y2: (y_bottom + half_stroke).into(),
                     stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
                     stroke_width: rule_stroke_width.into(),
                     zindex: Some(5),
