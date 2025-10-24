@@ -169,8 +169,8 @@ impl CompiledMark for CompiledFacetRow {
             AvengerChartError::InternalError("Missing 'row' scale for FacetRow".into())
         })?;
 
-        // Build (facet_value -> (y_pos, band_height)) map
-        let band_positions = iter_band_positions(row_scale)?;
+        // Build initial (facet_value -> (y_pos, band_height)) map with current scale
+        let initial_band_positions = iter_band_positions(row_scale)?;
 
         // Get the inner plot-level DataFrame
         let ctx = &context.session_context;
@@ -215,11 +215,11 @@ impl CompiledMark for CompiledFacetRow {
 
         // If any channel is shared, compute scales once across full data using approximate band height
         let any_shared = channel_shared.values().any(|v| *v);
+        let approx_h = initial_band_positions
+            .first()
+            .map(|(_, (_, h))| *h)
+            .unwrap_or(context.plot_height);
         let shared_scales = if any_shared {
-            let approx_h = band_positions
-                .first()
-                .map(|(_, (_, h))| *h)
-                .unwrap_or(context.plot_height);
             Some(
                 self.compiled_subplot
                     .build_scales_for_dataframe(
@@ -234,6 +234,111 @@ impl CompiledMark for CompiledFacetRow {
         } else {
             None
         };
+
+        // PASS 1: Measure overflow for each facet partition to determine required spacing
+        // Determine which channel is unified (needed for accurate measurement)
+        let unified_channel = if let Some(guide) = self.compiled_subplot.compiled_guide.as_ref() {
+            guide
+                .facet_unifiable_channel(
+                    crate::guide::FacetDirection::Row,
+                    self.compiled_subplot.marks(),
+                    ctx,
+                )
+                .map(|info| info.channel)
+        } else {
+            None
+        };
+
+        let total_rows = initial_band_positions.len();
+        let mut overflow_measurements = Vec::new();
+
+        for (row_idx, (facet_value, (_y_pos, band_height))) in initial_band_positions.iter().enumerate() {
+            // Filter df by facet_value
+            let filter_df: DataFrame = df
+                .clone()
+                .filter(row_expr.clone().eq(lit(facet_value.clone())))?;
+
+            // Build scales for this partition (use shared scales if available)
+            let scales = if let Some(ref shared) = shared_scales {
+                shared.clone()
+            } else {
+                self.compiled_subplot
+                    .build_scales_for_dataframe(
+                        &filter_df,
+                        context.plot_width,
+                        *band_height,
+                        ctx,
+                        &context.params,
+                    )
+                    .await?
+            };
+
+            // Create FacetContext for accurate measurement (so hidden titles don't contribute)
+            use crate::facet::context::FacetContext;
+            let measure_facet_ctx = FacetContext {
+                position: (row_idx, 0),
+                grid_dimensions: (total_rows, 1),
+                unified_channel: unified_channel.clone(),
+                scale_sharing: channel_shared.clone(),
+            };
+
+            // Merge FacetContext into params for measurement
+            let mut measure_params = context.params.clone();
+            measure_params.extend(measure_facet_ctx.to_params());
+
+            // Measure guide overflow for this partition with FacetContext applied
+            let overflow = self
+                .compiled_subplot
+                .measure_guide_overflow_with_scales(
+                    &scales,
+                    context.plot_width,
+                    *band_height,
+                    ctx,
+                    &measure_params,
+                )
+                .await?;
+
+            overflow_measurements.push(overflow);
+        }
+
+        // Calculate required padding based on adjacent overflow measurements
+        let mut max_required_gap = 0.0f32;
+        for i in 0..overflow_measurements.len().saturating_sub(1) {
+            let gap = overflow_measurements[i].bottom + overflow_measurements[i + 1].top;
+            max_required_gap = max_required_gap.max(gap);
+        }
+
+        // Rebuild the row scale with measured padding_inner_px
+        let mut updated_scales = context.scales.clone();
+        if max_required_gap > 0.0 {
+            use avenger_scales::scalar::Scalar;
+
+            // Clone the existing row scale config and modify padding_inner_px option
+            let mut new_config = row_scale.configured().config.clone();
+            new_config.options.insert(
+                "padding_inner_px".to_string(),
+                Scalar::from_f32(max_required_gap),
+            );
+
+            // Create a new ConfiguredScale with the modified config
+            let new_configured = avenger_scales::scales::ConfiguredScale {
+                scale_impl: row_scale.configured().scale_impl.clone(),
+                config: new_config,
+            };
+
+            // Wrap in ConfiguredScaleWithSpec
+            updated_scales.insert(
+                "row".to_string(),
+                ConfiguredScaleWithSpec::new(row_scale.spec().clone(), new_configured),
+            );
+        }
+
+        // PASS 2: Render with updated scales
+        // Get updated band positions from rebuilt scale
+        let final_row_scale = updated_scales.get("row").ok_or_else(|| {
+            AvengerChartError::InternalError("Missing rebuilt 'row' scale".into())
+        })?;
+        let band_positions = iter_band_positions(final_row_scale)?;
 
         // Get total number of rows for grid dimensions
         let total_rows = band_positions.len();
@@ -284,25 +389,11 @@ impl CompiledMark for CompiledFacetRow {
             // Create FacetContext with position and sharing information
             use crate::facet::context::FacetContext;
 
-            // Determine which channel is unified by querying the subplot guide
-            let unified_channel = if let Some(guide) = self.compiled_subplot.compiled_guide.as_ref()
-            {
-                guide
-                    .facet_unifiable_channel(
-                        crate::guide::FacetDirection::Row,
-                        self.compiled_subplot.marks(),
-                        ctx,
-                    )
-                    .map(|info| info.channel)
-            } else {
-                None
-            };
-
-            // Build FacetContext
+            // Build FacetContext (unified_channel already computed in Pass 1)
             let facet_ctx = FacetContext {
                 position: (row_idx, 0),           // col always 0 for row faceting
                 grid_dimensions: (total_rows, 1), // num_cols always 1 for row faceting
-                unified_channel,
+                unified_channel: unified_channel.clone(),
                 scale_sharing: channel_shared.clone(),
             };
 
@@ -374,10 +465,9 @@ impl CompiledMark for CompiledFacetRow {
         // Configure band scale padding for facet row channel
         if channel == "row" && scale_impl.scale_type() == "band" {
             options.insert("outer_padding".to_string(), lit(0.0f32));
-            // Use pixel-based padding for precise subplot spacing
-            // Default to 40px which accommodates typical axis overflow
-            // TODO(Phase 3): Measure actual subplot overflow for exact spacing
-            options.insert("padding_inner_px".to_string(), lit(40.0f32));
+            // Initial padding_inner_px of 0 - will be dynamically measured and rebuilt
+            // during evaluate_from_data based on actual subplot overflow
+            options.insert("padding_inner_px".to_string(), lit(0.0f32));
         }
 
         options
