@@ -19,6 +19,9 @@ pub struct FacetRowGuide {
     pub facet_title: Option<String>,
     #[serde(skip)]
     unified_y_title: Option<String>,
+    /// The channel that can be unified (from subplot guide declaration)
+    #[serde(skip)]
+    unifiable_channel: Option<String>,
 }
 
 #[derive(Clone)]
@@ -40,7 +43,10 @@ impl CoordinateGuide for FacetRowGuide {
     ) {
         self.facet_sources.clear();
         for m in compiled_marks {
-            if let Some(facet) = m.as_any().downcast_ref::<crate::facet::marks::facet::CompiledFacetRow>() {
+            if let Some(facet) = m
+                .as_any()
+                .downcast_ref::<crate::facet::marks::facet::CompiledFacetRow>()
+            {
                 self.facet_sources.push(FacetSource {
                     subplot: facet.compiled_subplot.clone(),
                     data: facet.state.data.clone(),
@@ -63,31 +69,22 @@ impl CoordinateGuide for FacetRowGuide {
                 }
             }
         }
-        eprintln!("[FacetRowGuide] facet-by (row) title = {:?}", self.facet_title);
-
-        // Derive unified y title from inner marks (use first source)
-        // Only for Cartesian coordinate systems (with x and y channels)
+        // Derive unified title from subplot's guide declaration
+        // The subplot guide declares what channel can be unified for row faceting
         if self.unified_y_title.is_none() {
             if let Some(src) = self.facet_sources.first() {
-                // Check if subplot uses Cartesian coordinates
-                let required_channels = src.subplot.coord_transform.required_channels();
-                let has_y_channel = required_channels.contains(&"y");
-
-                if has_y_channel {
-                    if let Some(title) = crate::coords::extract_channel_title_from_marks(
-                        src.subplot.marks(), "y", _session_context
-                    ) {
-                        self.unified_y_title = Some(title);
-                    }
-                } else {
-                    eprintln!(
-                        "[FacetRowGuide] Subplot does not have 'y' channel (channels: {:?}), skipping y-axis unification",
-                        required_channels
-                    );
+                if let Some(info) = src.subplot.compiled_guide.as_ref().and_then(|g| {
+                    g.facet_unifiable_channel(
+                        crate::guide::FacetDirection::Row,
+                        src.subplot.marks(),
+                        _session_context,
+                    )
+                }) {
+                    self.unifiable_channel = Some(info.channel);
+                    self.unified_y_title = info.title;
                 }
             }
         }
-        eprintln!("[FacetRowGuide] unified y title = {:?}", self.unified_y_title);
     }
 
     fn update(&mut self, _other: Self) {}
@@ -113,9 +110,11 @@ impl CompiledGuide for FacetRowGuide {
         use datafusion::logical_expr::lit;
 
         // Need 'row' scale
-        let row_scale = scales
-            .get("row")
-            .ok_or_else(|| crate::error::AvengerChartError::InternalError("Missing 'row' scale for FacetRowGuide".into()))?;
+        let row_scale = scales.get("row").ok_or_else(|| {
+            crate::error::AvengerChartError::InternalError(
+                "Missing 'row' scale for FacetRowGuide".into(),
+            )
+        })?;
 
         // Extract discrete domain order
         let domain_vals = match row_scale.domain_values()? {
@@ -136,19 +135,27 @@ impl CompiledGuide for FacetRowGuide {
                 .channels()
                 .get("row")
                 .and_then(|cv| cv.expr(ctx))
-                .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet 'row' channel not found in guide".into()))?;
+                .ok_or_else(|| {
+                    crate::error::AvengerChartError::InternalError(
+                        "Facet 'row' channel not found in guide".into(),
+                    )
+                })?;
 
             // DataFrame for this facet source
-            let df = source
-                .data
-                .dataframe_with_context(ctx)
-                .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet guide could not access data".into()))?;
+            let df = source.data.dataframe_with_context(ctx).ok_or_else(|| {
+                crate::error::AvengerChartError::InternalError(
+                    "Facet guide could not access data".into(),
+                )
+            })?;
 
             for (i, facet_val) in domain_vals.iter().enumerate() {
-                let filter_df = df.clone().filter(row_expr.clone().eq(lit(facet_val.clone())))?;
+                let filter_df = df
+                    .clone()
+                    .filter(row_expr.clone().eq(lit(facet_val.clone())))?;
                 // Build inner scales and measure inner guide overflow for this band height
                 // Determine per-channel sharing for this subplot
-                let coord_channels: Vec<&str> = source.subplot.coord_transform.required_channels().to_vec();
+                let coord_channels: Vec<&str> =
+                    source.subplot.coord_transform.required_channels().to_vec();
                 let mut any_shared = false;
                 for &ch in &coord_channels {
                     for m in &source.subplot.marks {
@@ -159,7 +166,9 @@ impl CompiledGuide for FacetRowGuide {
                             }
                         }
                     }
-                    if any_shared { break; }
+                    if any_shared {
+                        break;
+                    }
                 }
                 let band_h = plot_height / domain_vals.len() as f32;
                 let inner_scales = if any_shared {
@@ -174,12 +183,9 @@ impl CompiledGuide for FacetRowGuide {
                         .await?
                 };
 
-                // Create params with facet_unified_y for overflow measurement
-                // (child subplots need this to correctly omit y-axis title space)
-                let required_channels = source.subplot.coord_transform.required_channels();
-                let is_cartesian = required_channels.contains(&"x") && required_channels.contains(&"y");
+                // Pass facet_unified_y param to suppress subplot y-axis title during measurement
                 let mut measure_params = params.clone();
-                if is_cartesian {
+                if self.unifiable_channel.is_some() {
                     measure_params.insert(
                         "facet_unified_y".to_string(),
                         datafusion::common::ScalarValue::Boolean(Some(true)),
@@ -188,7 +194,13 @@ impl CompiledGuide for FacetRowGuide {
 
                 let overflow = source
                     .subplot
-                    .measure_guide_overflow_with_scales(&inner_scales, plot_width, band_h, ctx, &measure_params)
+                    .measure_guide_overflow_with_scales(
+                        &inner_scales,
+                        plot_width,
+                        band_h,
+                        ctx,
+                        &measure_params,
+                    )
                     .await?;
 
                 if i == 0 {
@@ -286,30 +298,56 @@ impl CompiledGuide for FacetRowGuide {
                 ),
                 font_style: &avenger_text::types::FontStyle::Normal,
             };
-            let b_y = avenger_text::measurement::default_text_measurer().measure_text_bounds(&cfg_y);
+            let b_y =
+                avenger_text::measurement::default_text_measurer().measure_text_bounds(&cfg_y);
             b_y.height + 1.0
-        } else { 0.0 };
-        let gap_axis = if self.unified_y_title.is_some() { 6.0 } else { 0.0 };
+        } else {
+            0.0
+        };
+        let gap_axis = if self.unified_y_title.is_some() {
+            6.0
+        } else {
+            0.0
+        };
         // Axis side overflow should include child extent + gap + unified y title height
         let left_final = if axis_on_right {
             // Axis on right: left side uses facet-by (if placed left) otherwise just child left
-            if place_on_left { max_left.max(estimated_right) } else { max_left }
+            if place_on_left {
+                max_left.max(estimated_right)
+            } else {
+                max_left
+            }
         } else {
             // Axis on left: child left + gap + title height
-            max_left + if unified_y_height > 0.0 { gap_axis + unified_y_height } else { 0.0 }
+            max_left
+                + if unified_y_height > 0.0 {
+                    gap_axis + unified_y_height
+                } else {
+                    0.0
+                }
         };
         let right_final = if axis_on_right {
             // Axis on right: child right + gap + title height
-            max_right + if unified_y_height > 0.0 { gap_axis + unified_y_height } else { 0.0 }
+            max_right
+                + if unified_y_height > 0.0 {
+                    gap_axis + unified_y_height
+                } else {
+                    0.0
+                }
         } else {
             // Axis on left: right side uses facet-by (if placed right) otherwise just child right
-            if place_on_left { max_right } else { max_right.max(estimated_right) }
+            if place_on_left {
+                max_right
+            } else {
+                max_right.max(estimated_right)
+            }
         };
-        eprintln!(
-            "[FacetRowGuide] overflow metrics: max_left_child={:.2}, max_right_child={:.2}, max_label_h={:.2}, facet_title_h={:.2}, facet_side_extent={:.2}, unified_y_h={:.2}, place_on_left={}, axis_on_right={}, left_final={:.2}, right_final={:.2}",
-            max_left, max_right, max_label_height, title_height, estimated_right, unified_y_height, place_on_left, axis_on_right, left_final, right_final
-        );
-        Ok(OverflowSpaceRequirement { top, bottom, left: left_final, right: right_final })
+        Ok(OverflowSpaceRequirement {
+            top,
+            bottom,
+            left: left_final,
+            right: right_final,
+        })
     }
 
     async fn evaluate(
@@ -322,11 +360,11 @@ impl CompiledGuide for FacetRowGuide {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         _ctx: &SessionContext,
     ) -> Result<Vec<SceneMark>, crate::error::AvengerChartError> {
+        use crate::scales::ConfiguredScaleLegendExt;
+        use avenger_scales::scales::band;
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{TextAlign, TextBaseline};
         use std::sync::Arc as StdArc;
-        use crate::scales::ConfiguredScaleLegendExt;
-        use avenger_scales::scales::band;
 
         let mut marks: Vec<SceneMark> = Vec::new();
 
@@ -339,7 +377,9 @@ impl CompiledGuide for FacetRowGuide {
         // Domain labels and numeric positions
         let labels = row_scale.domain_labels()?;
         let positions = match row_scale.domain_values()? {
-            crate::scales::extensions::DomainValues::Discrete(vals) => row_scale.scale_scalars_to_numeric(&vals)?,
+            crate::scales::extensions::DomainValues::Discrete(vals) => {
+                row_scale.scale_scalars_to_numeric(&vals)?
+            }
             _ => Vec::new(),
         };
         let bandwidth = band::bandwidth(&row_scale.config)?;
@@ -368,42 +408,73 @@ impl CompiledGuide for FacetRowGuide {
                 .channels()
                 .get("row")
                 .and_then(|cv| cv.expr(_ctx))
-                .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet 'row' channel not found in guide".into()))?;
-            let df_src = source
-                .data
-                .dataframe_with_context(_ctx)
-                .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet guide could not access data".into()))?;
-            let coord_channels: Vec<&str> = source.subplot.coord_transform.required_channels().to_vec();
+                .ok_or_else(|| {
+                    crate::error::AvengerChartError::InternalError(
+                        "Facet 'row' channel not found in guide".into(),
+                    )
+                })?;
+            let df_src = source.data.dataframe_with_context(_ctx).ok_or_else(|| {
+                crate::error::AvengerChartError::InternalError(
+                    "Facet guide could not access data".into(),
+                )
+            })?;
+            let coord_channels: Vec<&str> =
+                source.subplot.coord_transform.required_channels().to_vec();
             let mut any_shared = false;
             for &ch in &coord_channels {
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
-                        if let Some(true) = cv.get_share_across_facets() { any_shared = true; break; }
+                        if let Some(true) = cv.get_share_across_facets() {
+                            any_shared = true;
+                            break;
+                        }
                     }
                 }
-                if any_shared { break; }
+                if any_shared {
+                    break;
+                }
             }
-            // Create params with facet_unified_y for overflow measurement
-            let required_channels = source.subplot.coord_transform.required_channels();
-            let is_cartesian = required_channels.contains(&"x") && required_channels.contains(&"y");
-            let mut eval_params = params.clone();
-            if is_cartesian {
-                eval_params.insert(
+            // Pass facet_unified_y param to suppress subplot y-axis title during measurement
+            let mut measure_params = params.clone();
+            if self.unifiable_channel.is_some() {
+                measure_params.insert(
                     "facet_unified_y".to_string(),
                     datafusion::common::ScalarValue::Boolean(Some(true)),
                 );
             }
 
             for facet_val in &domain_vals_eval {
-                let filter_df = df_src.clone().filter(row_expr.clone().eq(datafusion::logical_expr::lit(facet_val.clone())))?;
+                let filter_df = df_src.clone().filter(
+                    row_expr
+                        .clone()
+                        .eq(datafusion::logical_expr::lit(facet_val.clone())),
+                )?;
                 let inner_scales = if any_shared {
-                    source.subplot.build_scales_for_dataframe(&df_src, plot_width, band_h_eval, _ctx, params).await?
+                    source
+                        .subplot
+                        .build_scales_for_dataframe(&df_src, plot_width, band_h_eval, _ctx, params)
+                        .await?
                 } else {
-                    source.subplot.build_scales_for_dataframe(&filter_df, plot_width, band_h_eval, _ctx, params).await?
+                    source
+                        .subplot
+                        .build_scales_for_dataframe(
+                            &filter_df,
+                            plot_width,
+                            band_h_eval,
+                            _ctx,
+                            params,
+                        )
+                        .await?
                 };
                 let overflow = source
                     .subplot
-                    .measure_guide_overflow_with_scales(&inner_scales, plot_width, band_h_eval, _ctx, &eval_params)
+                    .measure_guide_overflow_with_scales(
+                        &inner_scales,
+                        plot_width,
+                        band_h_eval,
+                        _ctx,
+                        &measure_params,
+                    )
                     .await?;
                 max_left_child = max_left_child.max(overflow.left);
                 max_right_child = max_right_child.max(overflow.right);
@@ -414,7 +485,8 @@ impl CompiledGuide for FacetRowGuide {
         // Place facet labels at band centers, rotated 90 (CW on right, CCW on left)
         // Anchor at the text center so after rotation it's vertically centered.
         for (i, label) in labels.iter().enumerate() {
-            let y_center = plot_bounds.y + positions.get(i).cloned().unwrap_or(0.0) + bandwidth / 2.0;
+            let y_center =
+                plot_bounds.y + positions.get(i).cloned().unwrap_or(0.0) + bandwidth / 2.0;
             // Measure this label to position its center so left edge is at plot edge
             let config = avenger_text::measurement::TextMeasurementConfig {
                 text: label,
@@ -425,7 +497,8 @@ impl CompiledGuide for FacetRowGuide {
                 ),
                 font_style: &avenger_text::types::FontStyle::Normal,
             };
-            let bounds = avenger_text::measurement::default_text_measurer().measure_text_bounds(&config);
+            let bounds =
+                avenger_text::measurement::default_text_measurer().measure_text_bounds(&config);
             // With rotation, horizontal span ≈ bounds.height; side decides x and angle
             let x_center = if place_on_left {
                 plot_bounds.x - 0.5 * bounds.height
@@ -438,10 +511,17 @@ impl CompiledGuide for FacetRowGuide {
                 y: y_center.into(),
                 align: TextAlign::Center.into(),
                 baseline: TextBaseline::Middle.into(),
-                angle: if place_on_left { (-90.0_f32).into() } else { 90.0_f32.into() },
+                angle: if place_on_left {
+                    (-90.0_f32).into()
+                } else {
+                    90.0_f32.into()
+                },
                 font: font_family.to_string().into(),
                 font_size: font_px.into(),
-                color: avenger_common::types::ColorOrGradient::Color(theme.text_color(&guide_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0])).into(),
+                color: avenger_common::types::ColorOrGradient::Color(
+                    theme.text_color(&guide_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                )
+                .into(),
                 zindex: Some(5),
                 ..Default::default()
             };
@@ -482,9 +562,7 @@ impl CompiledGuide for FacetRowGuide {
                 .child("facet")
                 .child("title");
             let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
-            let title_color = theme
-                .text_color(&title_ctx)
-                .unwrap_or([0.0, 0.0, 0.0, 1.0]);
+            let title_color = theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
             // Center vertically, and place next to label column (gap = 6px)
             let gap = 6.0_f32;
             let title_family_owned2 = theme
@@ -516,7 +594,11 @@ impl CompiledGuide for FacetRowGuide {
                 baseline: avenger_text::types::TextBaseline::Middle.into(),
                 font: title_family_owned2.clone().into(),
                 font_size: title_font_px.into(),
-                angle: if place_on_left { (-90.0_f32).into() } else { 90.0_f32.into() },
+                angle: if place_on_left {
+                    (-90.0_f32).into()
+                } else {
+                    90.0_f32.into()
+                },
                 color: avenger_common::types::ColorOrGradient::Color(title_color).into(),
                 zindex: Some(6),
                 ..Default::default()
@@ -534,35 +616,30 @@ impl CompiledGuide for FacetRowGuide {
             let y_family_owned = theme
                 .font_family(&y_ctx)
                 .unwrap_or_else(|| "sans-serif".to_string());
-            let cfg_y = avenger_text::measurement::TextMeasurementConfig {
-                text: y_title,
-                font: y_family_owned.as_str(),
-                font_size: y_font_px,
-                font_weight: &avenger_text::types::FontWeight::Name(
-                    avenger_text::types::FontWeightNameSpec::Normal,
-                ),
-                font_style: &avenger_text::types::FontStyle::Normal,
-            };
-            let b_y = avenger_text::measurement::default_text_measurer().measure_text_bounds(&cfg_y);
             // Axis side corresponds to child-dominant side: if labels are on left, axis is on right
             let axis_on_right = place_on_left;
             let gap = 6.0_f32;
-            // Place the title adjacent to axis labels: center offset by child_side + gap ± 0.5*title_height
-            let x_center = if axis_on_right {
-                plot_bounds.x + plot_width + (max_right_child + gap + 0.5 * b_y.height)
+            // Position title adjacent to subplot axis labels (max_left/right_child is just label space)
+            // Center the title in the gap between labels and plot edge
+            let x_bottom = if axis_on_right {
+                plot_bounds.x + plot_width + max_right_child + gap
             } else {
-                plot_bounds.x - (max_left_child + gap + 0.5 * b_y.height)
+                plot_bounds.x - max_left_child - gap
             };
             let y_center = plot_bounds.y + 0.5 * plot_height;
-            let y_mark = avenger_scenegraph::marks::text::SceneTextMark {
+            let y_mark = SceneTextMark {
                 text: y_title.clone().into(),
-                x: x_center.into(),
+                x: x_bottom.into(),
                 y: y_center.into(),
                 align: TextAlign::Center.into(),
-                baseline: TextBaseline::Middle.into(),
+                baseline: TextBaseline::Bottom.into(),
                 font: y_family_owned.clone().into(),
                 font_size: y_font_px.into(),
-                angle: if axis_on_right { 90.0_f32.into() } else { (-90.0_f32).into() },
+                angle: if axis_on_right {
+                    90.0_f32.into()
+                } else {
+                    (-90.0_f32).into()
+                },
                 color: avenger_common::types::ColorOrGradient::Color(y_color).into(),
                 zindex: Some(6),
                 ..Default::default()

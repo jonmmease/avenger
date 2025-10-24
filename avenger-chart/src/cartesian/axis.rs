@@ -40,6 +40,8 @@ pub struct CartesianAxis {
     pub title_font_family: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub label_font_family: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub show_title: Maybe<Option<LogicalExprNode>>,
 }
 
 impl CartesianAxis {
@@ -124,6 +126,16 @@ impl CartesianAxis {
         let expr = font.into_expr();
         self.label_font_family = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize label_font_family expr"),
+        ));
+        self
+    }
+
+    /// Show or hide the axis title only (labels unaffected)
+    pub fn show_title(mut self, show: impl crate::plot::IntoExpr) -> Self {
+        use crate::serialization::LogicalExprNodeExt;
+        let expr = show.into_expr();
+        self.show_title = Maybe::Set(Some(
+            LogicalExprNode::from_expr(expr).expect("Failed to serialize show_title expr"),
         ));
         self
     }
@@ -280,6 +292,23 @@ impl CartesianAxis {
             theme.font_family(&title_ctx)
         };
 
+        // Evaluate show_title (default true), allow a facet-unified-y hint to disable inner y titles
+        let mut show_title =
+            if let Some(node) = self.show_title.as_option().and_then(|o| o.as_ref()) {
+                let expr = node.to_expr(ctx)?;
+                evaluate_bool_expr(&expr, ctx, params).await.unwrap_or(true)
+            } else {
+                true
+            };
+        // Check for facet_unified_y param to suppress y-axis title in faceted subplots
+        if channel == "y" {
+            if let Some(datafusion_common::ScalarValue::Boolean(Some(true))) =
+                params.get("facet_unified_y")
+            {
+                show_title = false;
+            }
+        }
+
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {
             orientation,
@@ -307,6 +336,7 @@ impl CartesianAxis {
             title_font_weight: theme.font_weight(&title_ctx),
             label_font_family,
             title_font_family,
+            title_visible: Some(show_title),
         };
 
         // Evaluate title expression if present

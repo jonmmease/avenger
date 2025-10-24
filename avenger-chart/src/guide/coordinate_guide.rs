@@ -6,7 +6,26 @@ use crate::error::AvengerChartError;
 use crate::guide::OverflowSpaceRequirement;
 use crate::layout::LayoutBounds;
 use avenger_scenegraph::marks::mark::SceneMark;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Direction of faceting for determining which channel can be unified
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FacetDirection {
+    /// Vertical stacking (row faceting) - can potentially unify y-axis
+    Row,
+    /// Horizontal arrangement (column faceting) - can potentially unify x-axis
+    Column,
+}
+
+/// Information about which channel can be unified in faceting
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnifiableChannelInfo {
+    /// The channel name (e.g., "y", "x", "r")
+    pub channel: String,
+    /// The title to use for the unified axis (extracted from marks)
+    pub title: Option<String>,
+}
 
 /// Trait for visual guides in coordinate systems
 ///
@@ -81,4 +100,39 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_height: f32,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> avenger_scenegraph::marks::group::Clip;
+
+    /// Determine which channel axis can be unified when this subplot is used in faceting.
+    ///
+    /// This allows each guide type to declare what makes sense to unify based on:
+    /// - The faceting direction (row vs column)
+    /// - The guide's coordinate system semantics
+    /// - The marks in the subplot (for extracting channel titles)
+    ///
+    /// # Arguments
+    /// * `facet_direction` - Whether faceting is by row (vertical) or column (horizontal)
+    /// * `marks` - The marks in the subplot, used to extract channel titles
+    /// * `session_context` - For expression evaluation when extracting titles
+    ///
+    /// # Returns
+    /// Information about the unifiable channel, or None if no axis can be unified
+    ///
+    /// # Design Rationale
+    /// The Guide (not the coordinate system) declares what makes sense to unify because:
+    /// - 3D Cartesian has ["x", "y", "z"] but only z might make sense for row faceting
+    /// - Polar has ["r", "theta"] and might want to unify r for row faceting
+    /// - Geographic coordinates have special semantics
+    ///
+    /// # Examples
+    /// - CartesianGuide: Returns "y" for Row, "x" for Column
+    /// - PolarGuide: Could return "r" for Row (future)
+    /// - 3DCartesianGuide: Could return "z" for Row (future)
+    fn facet_unifiable_channel(
+        &self,
+        _facet_direction: FacetDirection,
+        _marks: &[std::sync::Arc<dyn crate::marks::CompiledMark>],
+        _session_context: &datafusion::prelude::SessionContext,
+    ) -> Option<UnifiableChannelInfo> {
+        // Default: no unification
+        None
+    }
 }

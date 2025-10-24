@@ -115,10 +115,12 @@ pub fn make_numeric_axis_marks(
         .marks
         .push(make_tick_labels(&ticks, &scale, config)?.into());
 
-    // Add title
-    axis_elements_group
-        .marks
-        .push(make_title(title, &scale, &axis_elements_group.bounding_box(), config)?.into());
+    // Add title if visible and non-empty
+    if config.title_visible.unwrap_or(true) && !title.is_empty() {
+        axis_elements_group
+            .marks
+            .push(make_title(title, &scale, &axis_elements_group.bounding_box(), config)?.into());
+    }
 
     // Add the axis elements group to the main group
     main_group.marks.push(axis_elements_group.into());
