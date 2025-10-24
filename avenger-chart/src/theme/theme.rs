@@ -230,6 +230,11 @@ impl Theme {
                 padding: 4;
             }
 
+            /* === Facet Elements === */
+            facet {
+                spacing: 3;
+            }
+
             /* === Mark Defaults === */
             mark[type="symbol"] {
                 stroke: var(--categorical-color-0);
@@ -741,6 +746,19 @@ impl Theme {
         params: IndexMap<String, datafusion_common::ScalarValue>,
     ) -> ThemeContext {
         ThemeContext::new("chart-subtitle", params)
+    }
+
+    /// Build a facet context
+    pub fn facet_context(&self) -> ThemeContext {
+        self.facet_context_with_params(IndexMap::new())
+    }
+
+    /// Build a facet context with params
+    pub fn facet_context_with_params(
+        &self,
+        params: IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> ThemeContext {
+        ThemeContext::new("facet", params)
     }
 
     /// Get font family for a context
