@@ -258,13 +258,27 @@ impl CompiledMark for CompiledFacetRow {
                 }
             }
 
+            // Create facet-specific params with unified axis control
+            // Check if subplot uses Cartesian coordinates (has x and y channels)
+            let required_channels = self.compiled_subplot.coord_transform.required_channels();
+            let is_cartesian = required_channels.contains(&"x") && required_channels.contains(&"y");
+
+            let mut facet_params = context.params.clone();
+            if is_cartesian {
+                // For Cartesian subplots, signal that y-axis should be unified
+                facet_params.insert(
+                    "facet_unified_y".to_string(),
+                    datafusion::common::ScalarValue::Boolean(Some(true)),
+                );
+            }
+
             let sub = self.compiled_subplot.evaluate_components_with_scales(
                 &filter_df,
                 &scales,
                 context.plot_width,
                 band_height,
                 ctx,
-                &context.params,
+                &facet_params,
             ).await?;
 
             // Wrap data marks in a clipped group translated to band position

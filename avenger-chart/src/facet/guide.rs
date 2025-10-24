@@ -4,7 +4,6 @@ use crate::marks::CompiledMark;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_text::measurement::TextMeasurer;
-use tracing::debug;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -67,10 +66,24 @@ impl CoordinateGuide for FacetRowGuide {
         eprintln!("[FacetRowGuide] facet-by (row) title = {:?}", self.facet_title);
 
         // Derive unified y title from inner marks (use first source)
+        // Only for Cartesian coordinate systems (with x and y channels)
         if self.unified_y_title.is_none() {
             if let Some(src) = self.facet_sources.first() {
-                if let Some(title) = crate::coords::extract_channel_title_from_marks(src.subplot.marks(), "y", _session_context) {
-                    self.unified_y_title = Some(title);
+                // Check if subplot uses Cartesian coordinates
+                let required_channels = src.subplot.coord_transform.required_channels();
+                let has_y_channel = required_channels.contains(&"y");
+
+                if has_y_channel {
+                    if let Some(title) = crate::coords::extract_channel_title_from_marks(
+                        src.subplot.marks(), "y", _session_context
+                    ) {
+                        self.unified_y_title = Some(title);
+                    }
+                } else {
+                    eprintln!(
+                        "[FacetRowGuide] Subplot does not have 'y' channel (channels: {:?}), skipping y-axis unification",
+                        required_channels
+                    );
                 }
             }
         }
@@ -160,14 +173,22 @@ impl CompiledGuide for FacetRowGuide {
                         .build_scales_for_dataframe(&filter_df, plot_width, band_h, ctx, params)
                         .await?
                 };
-                let mut merged = params.clone();
-                merged.insert(
-                    "facet_unified_y".to_string(),
-                    datafusion::common::ScalarValue::Boolean(Some(true)),
-                );
+
+                // Create params with facet_unified_y for overflow measurement
+                // (child subplots need this to correctly omit y-axis title space)
+                let required_channels = source.subplot.coord_transform.required_channels();
+                let is_cartesian = required_channels.contains(&"x") && required_channels.contains(&"y");
+                let mut measure_params = params.clone();
+                if is_cartesian {
+                    measure_params.insert(
+                        "facet_unified_y".to_string(),
+                        datafusion::common::ScalarValue::Boolean(Some(true)),
+                    );
+                }
+
                 let overflow = source
                     .subplot
-                    .measure_guide_overflow_with_scales(&inner_scales, plot_width, band_h, ctx, &merged)
+                    .measure_guide_overflow_with_scales(&inner_scales, plot_width, band_h, ctx, &measure_params)
                     .await?;
 
                 if i == 0 {
@@ -336,105 +357,59 @@ impl CompiledGuide for FacetRowGuide {
         let font_family = font_family_owned.as_str();
 
         // Decide side based on child overflow (prefer left if right child overflow > left)
+        let domain_vals_eval = row_scale.domain_labels().unwrap_or_default();
+        let band_h_eval = plot_height / domain_vals_eval.len().max(1) as f32;
         let mut max_left_child = 0.0_f32;
         let mut max_right_child = 0.0_f32;
-        {
-            let domain_vals_eval = row_scale.domain_labels().unwrap_or_default();
-            let band_h_eval = plot_height / domain_vals_eval.len().max(1) as f32;
-            for source in &self.facet_sources {
-                let row_expr = source
-                    .data
-                    .channels()
-                    .get("row")
-                    .and_then(|cv| cv.expr(_ctx))
-                    .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet 'row' channel not found in guide".into()))?;
-                let df_src = source
-                    .data
-                    .dataframe_with_context(_ctx)
-                    .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet guide could not access data".into()))?;
-                let coord_channels: Vec<&str> = source.subplot.coord_transform.required_channels().to_vec();
-                let mut any_shared = false;
-                for &ch in &coord_channels {
-                    for m in &source.subplot.marks {
-                        if let Some(cv) = m.data_context().channels().get(ch) {
-                            if let Some(true) = cv.get_share_across_facets() { any_shared = true; break; }
-                        }
+
+        for source in &self.facet_sources {
+            let row_expr = source
+                .data
+                .channels()
+                .get("row")
+                .and_then(|cv| cv.expr(_ctx))
+                .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet 'row' channel not found in guide".into()))?;
+            let df_src = source
+                .data
+                .dataframe_with_context(_ctx)
+                .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet guide could not access data".into()))?;
+            let coord_channels: Vec<&str> = source.subplot.coord_transform.required_channels().to_vec();
+            let mut any_shared = false;
+            for &ch in &coord_channels {
+                for m in &source.subplot.marks {
+                    if let Some(cv) = m.data_context().channels().get(ch) {
+                        if let Some(true) = cv.get_share_across_facets() { any_shared = true; break; }
                     }
-                    if any_shared { break; }
                 }
-                for facet_val in &domain_vals_eval {
-                    let filter_df = df_src.clone().filter(row_expr.clone().eq(datafusion::logical_expr::lit(facet_val.clone())))?;
-                    let inner_scales = if any_shared {
-                        source.subplot.build_scales_for_dataframe(&df_src, plot_width, band_h_eval, _ctx, params).await?
-                    } else {
-                        source.subplot.build_scales_for_dataframe(&filter_df, plot_width, band_h_eval, _ctx, params).await?
-                    };
-                    // Measure with unified-y hint to suppress inner y titles
-                    let mut merged = params.clone();
-                    merged.insert(
-                        "facet_unified_y".to_string(),
-                        datafusion::common::ScalarValue::Boolean(Some(true)),
-                    );
-                    let overflow = source
-                        .subplot
-                        .measure_guide_overflow_with_scales(&inner_scales, plot_width, band_h_eval, _ctx, &merged)
-                        .await?;
-                    max_left_child = max_left_child.max(overflow.left);
-                    max_right_child = max_right_child.max(overflow.right);
-                }
+                if any_shared { break; }
+            }
+            // Create params with facet_unified_y for overflow measurement
+            let required_channels = source.subplot.coord_transform.required_channels();
+            let is_cartesian = required_channels.contains(&"x") && required_channels.contains(&"y");
+            let mut eval_params = params.clone();
+            if is_cartesian {
+                eval_params.insert(
+                    "facet_unified_y".to_string(),
+                    datafusion::common::ScalarValue::Boolean(Some(true)),
+                );
+            }
+
+            for facet_val in &domain_vals_eval {
+                let filter_df = df_src.clone().filter(row_expr.clone().eq(datafusion::logical_expr::lit(facet_val.clone())))?;
+                let inner_scales = if any_shared {
+                    source.subplot.build_scales_for_dataframe(&df_src, plot_width, band_h_eval, _ctx, params).await?
+                } else {
+                    source.subplot.build_scales_for_dataframe(&filter_df, plot_width, band_h_eval, _ctx, params).await?
+                };
+                let overflow = source
+                    .subplot
+                    .measure_guide_overflow_with_scales(&inner_scales, plot_width, band_h_eval, _ctx, &eval_params)
+                    .await?;
+                max_left_child = max_left_child.max(overflow.left);
+                max_right_child = max_right_child.max(overflow.right);
             }
         }
         let place_on_left = max_right_child > max_left_child;
-
-        // Decide side for labels/title: left when child right overflow exceeds left
-        let place_on_left = {
-            let domain_vals_eval = row_scale.domain_labels().unwrap_or_default();
-            let band_h_eval = plot_height / domain_vals_eval.len().max(1) as f32;
-            let mut l = 0.0_f32;
-            let mut r = 0.0_f32;
-            for source in &self.facet_sources {
-                let row_expr = source
-                    .data
-                    .channels()
-                    .get("row")
-                    .and_then(|cv| cv.expr(_ctx))
-                    .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet 'row' channel not found in guide".into()))?;
-                let df_src = source
-                    .data
-                    .dataframe_with_context(_ctx)
-                    .ok_or_else(|| crate::error::AvengerChartError::InternalError("Facet guide could not access data".into()))?;
-                let coord_channels: Vec<&str> = source.subplot.coord_transform.required_channels().to_vec();
-                let mut any_shared = false;
-                for &ch in &coord_channels {
-                    for m in &source.subplot.marks {
-                        if let Some(cv) = m.data_context().channels().get(ch) {
-                            if let Some(true) = cv.get_share_across_facets() { any_shared = true; break; }
-                        }
-                    }
-                    if any_shared { break; }
-                }
-                for facet_val in &domain_vals_eval {
-                    let filter_df = df_src.clone().filter(row_expr.clone().eq(datafusion::logical_expr::lit(facet_val.clone())))?;
-                    let inner_scales = if any_shared {
-                        source.subplot.build_scales_for_dataframe(&df_src, plot_width, band_h_eval, _ctx, params).await?
-                    } else {
-                        source.subplot.build_scales_for_dataframe(&filter_df, plot_width, band_h_eval, _ctx, params).await?
-                    };
-                    let mut merged = params.clone();
-                    merged.insert(
-                        "facet_unified_y".to_string(),
-                        datafusion::common::ScalarValue::Boolean(Some(true)),
-                    );
-                    let overflow = source
-                        .subplot
-                        .measure_guide_overflow_with_scales(&inner_scales, plot_width, band_h_eval, _ctx, &merged)
-                        .await?;
-                    l = l.max(overflow.left);
-                    r = r.max(overflow.right);
-                }
-            }
-            r > l
-        };
 
         // Place facet labels at band centers, rotated 90 (CW on right, CCW on left)
         // Anchor at the text center so after rotation it's vertically centered.

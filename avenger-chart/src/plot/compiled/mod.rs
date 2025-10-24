@@ -242,15 +242,15 @@ impl CompiledPlot {
     /// Measure guide overflow for the inner plot using provided scales and dimensions.
     pub async fn measure_guide_overflow_with_scales(
         &self,
-        scales: &std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
         plot_area_width: f32,
         plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<crate::guide::OverflowSpaceRequirement, crate::error::AvengerChartError> {
         if let Some(guide) = &self.compiled_guide {
             // Downcast to ConfiguredScale for the guide API
-            let configured: std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale> =
+            let configured: HashMap<String, avenger_scales::scales::ConfiguredScale> =
                 scales
                     .iter()
                     .map(|(k, v)| (k.clone(), v.configured().clone()))
@@ -332,8 +332,16 @@ impl CompiledPlot {
         };
 
         // Evaluate guide marks
+        // Note: facet context (e.g., facet_unified_y) is set by the facet mark and passed via params
         let guide_marks = self
-            .create_guide_marks(scales, plot_area_width, plot_area_height, &plot_bounds, params, ctx)
+            .create_guide_marks(
+                scales,
+                plot_area_width,
+                plot_area_height,
+                &plot_bounds,
+                params,
+                ctx,
+            )
             .await?;
 
         // Clip region for data marks (rectangular plot area)
