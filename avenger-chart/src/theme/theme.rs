@@ -235,6 +235,12 @@ impl Theme {
                 spacing: 3;
             }
 
+            facet rule {
+                color: var(--border-color);
+                stroke-width: 0.5;
+                tick-size: 4;
+            }
+
             /* === Mark Defaults === */
             mark[type="symbol"] {
                 stroke: var(--categorical-color-0);
