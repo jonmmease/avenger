@@ -308,6 +308,11 @@ impl CompiledMark for CompiledFacetRow {
             max_required_gap = max_required_gap.max(gap);
         }
 
+        // Add small safety buffer to account for text measurement imprecision
+        // (bounding box calculations may slightly underestimate actual text extents)
+        const SAFETY_BUFFER_PX: f32 = 3.0;
+        max_required_gap += SAFETY_BUFFER_PX;
+
         // Rebuild the row scale with measured padding_inner_px
         let mut updated_scales = context.scales.clone();
         if max_required_gap > 0.0 {
