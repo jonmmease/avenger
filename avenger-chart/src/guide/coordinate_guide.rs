@@ -135,4 +135,28 @@ pub trait CompiledGuide: Send + Sync + 'static {
         // Default: no unification
         None
     }
+
+    /// Query the position of an axis by channel name
+    ///
+    /// Returns the position (Top/Bottom/Left/Right) for the specified channel's axis,
+    /// or None if the channel has no axis or position cannot be determined.
+    ///
+    /// This is used by faceting to determine which rows/columns should show axis labels.
+    /// For example, in row faceting with x-axis at bottom, only the bottom row shows
+    /// x-axis labels. If x-axis is at top, only the top row shows labels.
+    ///
+    /// # Arguments
+    /// * `channel` - The channel name (e.g., "x", "y", "r")
+    ///
+    /// # Returns
+    /// The axis position, or None if not applicable or cannot be determined
+    ///
+    /// # Limitations (Phase 2)
+    /// Currently cannot evaluate axis position expressions - returns None if axis
+    /// has an explicit position expression. This will be improved in Phase 3 when
+    /// we add GuideContext with evaluated state.
+    fn axis_position(&self, _channel: &str) -> Option<crate::cartesian::axis::AxisPosition> {
+        // Default: no position info available
+        None
+    }
 }

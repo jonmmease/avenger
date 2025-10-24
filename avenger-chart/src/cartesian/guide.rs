@@ -416,4 +416,33 @@ impl CompiledGuide for CartesianGuide {
             title,
         })
     }
+
+    fn axis_position(&self, channel: &str) -> Option<crate::cartesian::axis::AxisPosition> {
+        use crate::cartesian::axis::AxisPosition;
+
+        // Check if we have an axis configured for this channel
+        if let Some(axis) = self.axes.get(channel) {
+            // If axis has explicit position expression, we can't evaluate it without context in Phase 2
+            // This is a known limitation that will be resolved in Phase 3 with GuideContext
+            if axis.position.as_option().and_then(|o| o.as_ref()).is_some() {
+                // Has explicit position expression - can't determine without evaluation
+                // Return None so caller can use reasonable fallback
+                None
+            } else {
+                // No explicit position, use defaults based on channel name
+                match channel {
+                    "x" => Some(AxisPosition::Bottom),
+                    "y" => Some(AxisPosition::Left),
+                    _ => Some(AxisPosition::Bottom),
+                }
+            }
+        } else {
+            // No axis configured for this channel, use defaults
+            match channel {
+                "x" => Some(AxisPosition::Bottom),
+                "y" => Some(AxisPosition::Left),
+                _ => None,
+            }
+        }
+    }
 }

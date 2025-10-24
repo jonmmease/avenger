@@ -98,10 +98,12 @@ pub fn make_band_axis_marks(
         .into(),
     );
 
-    // Add tick labels
-    axis_elements_group
-        .marks
-        .push(make_tick_labels(&scale, config)?.into());
+    // Add tick labels (if visible)
+    if config.labels_visible.unwrap_or(true) {
+        axis_elements_group
+            .marks
+            .push(make_tick_labels(&scale, config)?.into());
+    }
 
     // Add title if visible and non-empty
     if config.title_visible.unwrap_or(true) && !title.is_empty() {
