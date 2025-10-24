@@ -25,6 +25,7 @@ pub struct Facet<InnerC: CoordinateSystem> {
     pub(crate) state: MarkState,
     pub(crate) subplot: Option<Plot<InnerC>>,
     pub(crate) facet_row_title: Option<String>,
+    pub(crate) facet_spacing: Option<f32>,
 }
 
 impl<InnerC: CoordinateSystem> Facet<InnerC> {
@@ -39,6 +40,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
             },
             subplot: None,
             facet_row_title: None,
+            facet_spacing: None,
         }
     }
 
@@ -61,7 +63,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s
     }
 
-    /// Configure row with facet options (e.g., title)
+    /// Configure row with facet options (e.g., title, spacing)
     pub fn row_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -70,6 +72,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         let mut s = self.row(value);
         let cfg = f(FacetRowChannelConfig::default());
         s.facet_row_title = cfg.title;
+        s.facet_spacing = cfg.spacing;
         s
     }
 
@@ -86,6 +89,7 @@ pub struct CompiledFacetRow {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
+    pub(crate) facet_spacing: Option<f32>,
 }
 
 #[async_trait::async_trait]
@@ -121,6 +125,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             state: compiled_state,
             compiled_subplot,
             facet_title: self.facet_row_title.clone(),
+            facet_spacing: self.facet_spacing,
         }))
     }
 }
@@ -308,10 +313,20 @@ impl CompiledMark for CompiledFacetRow {
             max_required_gap = max_required_gap.max(gap);
         }
 
-        // Add small safety buffer to account for text measurement imprecision
-        // (bounding box calculations may slightly underestimate actual text extents)
-        const SAFETY_BUFFER_PX: f32 = 3.0;
-        max_required_gap += SAFETY_BUFFER_PX;
+        // Add spacing from facet configuration or theme
+        // Priority: 1) facet_spacing field, 2) theme 'facet { spacing }', 3) default 3.0
+        let spacing = if let Some(explicit_spacing) = self.facet_spacing {
+            explicit_spacing
+        } else {
+            let facet_ctx = context.theme.facet_context_with_params(context.params.clone());
+            context
+                .theme
+                .query(&facet_ctx, "spacing")
+                .and_then(|v| v.as_number())
+                .map(|n| n as f32)
+                .unwrap_or(3.0)
+        };
+        max_required_gap += spacing;
 
         // Rebuild the row scale with measured padding_inner_px
         let mut updated_scales = context.scales.clone();
