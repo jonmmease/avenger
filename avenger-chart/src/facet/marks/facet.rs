@@ -419,7 +419,10 @@ impl CompiledMark for CompiledFacetRow {
         // Configure band scale padding for facet row channel
         if channel == "row" && scale_impl.scale_type() == "band" {
             options.insert("outer_padding".to_string(), lit(0.0f32));
-            options.insert("inner_padding".to_string(), lit(0.1f32));
+            // Use pixel-based padding for precise subplot spacing
+            // Default to 40px which accommodates typical axis overflow
+            // TODO(Phase 3): Measure actual subplot overflow for exact spacing
+            options.insert("padding_inner_px".to_string(), lit(40.0f32));
         }
 
         options

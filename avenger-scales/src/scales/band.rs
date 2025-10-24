@@ -36,7 +36,14 @@ use super::{
 /// - **padding_inner** (f32, default: 0.0): Padding between adjacent bands
 ///   as a fraction [0, 1] of the step size. A value of 0.2 means 20% of the step is used for padding.
 ///
+/// - **padding_inner_px** (f32, default: None): Padding between adjacent bands in pixels.
+///   When set, overrides `padding_inner` by calculating the appropriate normalized value.
+///   Useful for precise layout control where gaps should be exact pixel values.
+///
 /// - **padding_outer** (f32, default: 0.0): Alias for `padding`. Kept for backward compatibility.
+///
+/// - **padding_outer_px** (f32, default: None): Outer padding in pixels. When set, overrides
+///   `padding` / `padding_outer` by calculating the appropriate step-based value.
 ///
 /// - **round** (boolean, default: false): When true, band positions and widths are rounded
 ///   to integer pixel values for crisp rendering.
@@ -128,7 +135,9 @@ impl ScaleImpl for BandScale {
                     "padding_inner",
                     OptionConstraint::FloatRange { min: 0.0, max: 1.0 }
                 ),
+                OptionDefinition::optional("padding_inner_px", OptionConstraint::NonNegativeFloat),
                 OptionDefinition::optional("padding_outer", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional("padding_outer_px", OptionConstraint::NonNegativeFloat),
                 OptionDefinition::optional("round", OptionConstraint::Boolean),
                 OptionDefinition::optional("range_offset", OptionConstraint::Float),
                 OptionDefinition::optional(
@@ -245,14 +254,6 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
 
     let align = config.option_f32("align", 0.5);
     let band = config.option_f32("band", 0.0);
-
-    // Handle padding options: 'padding' is primary for outer, 'padding_outer' is kept for compatibility
-    let padding_inner = config.option_f32("padding_inner", 0.0);
-    let base_padding_outer = config
-        .options
-        .get("padding_outer")
-        .and_then(|v| v.as_f32().ok())
-        .unwrap_or_else(|| config.option_f32("padding", 0.0));
     let round = config.option_boolean("round", false);
     let range_offset = config.option_f32("range_offset", 0.0);
     let (range_start, range_stop) = config.numeric_interval_range()?;
@@ -269,18 +270,6 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
         )));
     }
 
-    if !(0.0..=1.0).contains(&padding_inner) || !padding_inner.is_finite() {
-        return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "padding_inner is {padding_inner} but must be between 0 and 1"
-        )));
-    }
-
-    if base_padding_outer < 0.0 || !base_padding_outer.is_finite() {
-        return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "padding_outer is {base_padding_outer} but must be non-negative"
-        )));
-    }
-
     if !range_start.is_finite() || !range_stop.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
             "range is ({range_start}, {range_stop}) but both ends must be finite"
@@ -294,32 +283,51 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
         (range_start, range_stop)
     };
 
+    // Compute effective padding values (handles pixel-based padding options)
+    let (padding_inner, mut padding_outer) = compute_effective_padding(config, stop - start)?;
+
+    // Validate computed padding values
+    if !(0.0..=1.0).contains(&padding_inner) || !padding_inner.is_finite() {
+        return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+            "computed padding_inner is {padding_inner} but must be between 0 and 1"
+        )));
+    }
+
+    if padding_outer < 0.0 || !padding_outer.is_finite() {
+        return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+            "computed padding_outer is {padding_outer} but must be non-negative"
+        )));
+    }
+
     // Get clip padding in pixels
     let clip_padding_lower = config.option_f32("clip_padding_lower", 0.0);
     let clip_padding_upper = config.option_f32("clip_padding_upper", 0.0);
 
-    // Calculate base step size without clip padding to convert pixels to step units
-    let base_step =
-        (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(base_padding_outer)));
+    // Apply clip padding if specified
+    if clip_padding_lower > 0.0 || clip_padding_upper > 0.0 {
+        // Calculate base step size without clip padding to convert pixels to step units
+        let base_step =
+            (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
 
-    // Convert pixel padding to step units
-    let clip_padding_lower_steps = if base_step > 0.0 {
-        clip_padding_lower / base_step
-    } else {
-        0.0
-    };
-    let clip_padding_upper_steps = if base_step > 0.0 {
-        clip_padding_upper / base_step
-    } else {
-        0.0
-    };
+        // Convert pixel padding to step units
+        let clip_padding_lower_steps = if base_step > 0.0 {
+            clip_padding_lower / base_step
+        } else {
+            0.0
+        };
+        let clip_padding_upper_steps = if base_step > 0.0 {
+            clip_padding_upper / base_step
+        } else {
+            0.0
+        };
 
-    // For band scale, we need to handle asymmetric padding differently than numeric scales
-    // We'll use the average of lower/upper clip padding to maintain band alignment
-    let clip_padding_avg_steps = (clip_padding_lower_steps + clip_padding_upper_steps) / 2.0;
+        // For band scale, we need to handle asymmetric padding differently than numeric scales
+        // We'll use the average of lower/upper clip padding to maintain band alignment
+        let clip_padding_avg_steps = (clip_padding_lower_steps + clip_padding_upper_steps) / 2.0;
 
-    // Total outer padding is the max of base padding and average clip padding
-    let padding_outer = base_padding_outer.max(clip_padding_avg_steps);
+        // Total outer padding is the max of current padding and average clip padding
+        padding_outer = padding_outer.max(clip_padding_avg_steps);
+    }
 
     let step = (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
     let step = if round { step.floor() } else { step };
@@ -363,45 +371,43 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
 
     let (range_start, range_stop) = config.numeric_interval_range()?;
 
-    // Handle padding options: 'padding' is primary for outer, 'padding_outer' is kept for compatibility
-    let padding_inner = config.option_f32("padding_inner", 0.0);
-    let base_padding_outer = config
-        .options
-        .get("padding_outer")
-        .and_then(|v| v.as_f32().ok())
-        .unwrap_or_else(|| config.option_f32("padding", 0.0));
-
-    // Get clip padding in pixels
-    let clip_padding_lower = config.option_f32("clip_padding_lower", 0.0);
-    let clip_padding_upper = config.option_f32("clip_padding_upper", 0.0);
-
     let (start, stop) = if range_stop < range_start {
         (range_stop, range_start)
     } else {
         (range_start, range_stop)
     };
 
-    // Calculate base step size without clip padding to convert pixels to step units
-    let base_step =
-        (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(base_padding_outer)));
+    // Compute effective padding values (handles pixel-based padding options)
+    let (padding_inner, mut padding_outer) = compute_effective_padding(config, stop - start)?;
 
-    // Convert pixel padding to step units
-    let clip_padding_lower_steps = if base_step > 0.0 {
-        clip_padding_lower / base_step
-    } else {
-        0.0
-    };
-    let clip_padding_upper_steps = if base_step > 0.0 {
-        clip_padding_upper / base_step
-    } else {
-        0.0
-    };
+    // Get clip padding in pixels
+    let clip_padding_lower = config.option_f32("clip_padding_lower", 0.0);
+    let clip_padding_upper = config.option_f32("clip_padding_upper", 0.0);
 
-    // For band scale, we use the average of lower/upper clip padding
-    let clip_padding_avg_steps = (clip_padding_lower_steps + clip_padding_upper_steps) / 2.0;
+    // Apply clip padding if specified
+    if clip_padding_lower > 0.0 || clip_padding_upper > 0.0 {
+        // Calculate base step size without clip padding to convert pixels to step units
+        let base_step =
+            (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
 
-    // Total outer padding is the max of base padding and average clip padding
-    let padding_outer = base_padding_outer.max(clip_padding_avg_steps);
+        // Convert pixel padding to step units
+        let clip_padding_lower_steps = if base_step > 0.0 {
+            clip_padding_lower / base_step
+        } else {
+            0.0
+        };
+        let clip_padding_upper_steps = if base_step > 0.0 {
+            clip_padding_upper / base_step
+        } else {
+            0.0
+        };
+
+        // For band scale, we use the average of lower/upper clip padding
+        let clip_padding_avg_steps = (clip_padding_lower_steps + clip_padding_upper_steps) / 2.0;
+
+        // Total outer padding is the max of current padding and average clip padding
+        padding_outer = padding_outer.max(clip_padding_avg_steps);
+    }
 
     let step = (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
     let step = if config.option_boolean("round", false) {
@@ -435,38 +441,37 @@ pub fn step(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
         (range_start, range_stop)
     };
 
-    let padding_inner = config.option_f32("padding_inner", 0.0);
-    let base_padding_outer = config
-        .options
-        .get("padding_outer")
-        .and_then(|v| v.as_f32().ok())
-        .unwrap_or_else(|| config.option_f32("padding", 0.0));
+    // Compute effective padding values (handles pixel-based padding options)
+    let (padding_inner, mut padding_outer) = compute_effective_padding(config, stop - start)?;
 
     // Get clip padding in pixels
     let clip_padding_lower = config.option_f32("clip_padding_lower", 0.0);
     let clip_padding_upper = config.option_f32("clip_padding_upper", 0.0);
 
-    // Calculate base step size without clip padding to convert pixels to step units
-    let base_step =
-        (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(base_padding_outer)));
+    // Apply clip padding if specified
+    if clip_padding_lower > 0.0 || clip_padding_upper > 0.0 {
+        // Calculate base step size without clip padding to convert pixels to step units
+        let base_step =
+            (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
 
-    // Convert pixel padding to step units
-    let clip_padding_lower_steps = if base_step > 0.0 {
-        clip_padding_lower / base_step
-    } else {
-        0.0
-    };
-    let clip_padding_upper_steps = if base_step > 0.0 {
-        clip_padding_upper / base_step
-    } else {
-        0.0
-    };
+        // Convert pixel padding to step units
+        let clip_padding_lower_steps = if base_step > 0.0 {
+            clip_padding_lower / base_step
+        } else {
+            0.0
+        };
+        let clip_padding_upper_steps = if base_step > 0.0 {
+            clip_padding_upper / base_step
+        } else {
+            0.0
+        };
 
-    // For band scale, we use the average of lower/upper clip padding
-    let clip_padding_avg_steps = (clip_padding_lower_steps + clip_padding_upper_steps) / 2.0;
+        // For band scale, we use the average of lower/upper clip padding
+        let clip_padding_avg_steps = (clip_padding_lower_steps + clip_padding_upper_steps) / 2.0;
 
-    // Total outer padding is the max of base padding and average clip padding
-    let padding_outer = base_padding_outer.max(clip_padding_avg_steps);
+        // Total outer padding is the max of current padding and average clip padding
+        padding_outer = padding_outer.max(clip_padding_avg_steps);
+    }
 
     let step = (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
 
@@ -489,6 +494,69 @@ pub fn bandspace(count: usize, padding_inner: Option<f32>, padding_outer: Option
 
     let count = count as f32;
     count - padding_inner + padding_outer * 2.0
+}
+
+/// Computes effective padding values, handling pixel-based padding options.
+///
+/// When `padding_inner_px` or `padding_outer_px` are set, converts them to normalized
+/// padding values. Pixel-based options take precedence over normalized options.
+///
+/// Returns (padding_inner, padding_outer)
+fn compute_effective_padding(
+    config: &ScaleConfig,
+    range_size: f32,
+) -> Result<(f32, f32), AvengerScaleError> {
+    let n = config.domain.len();
+
+    // Get base normalized padding values
+    let base_padding_inner = config.option_f32("padding_inner", 0.0);
+    let base_padding_outer = config
+        .options
+        .get("padding_outer")
+        .and_then(|v| v.as_f32().ok())
+        .unwrap_or_else(|| config.option_f32("padding", 0.0));
+
+    // Check for pixel-based padding options
+    let padding_inner_px = config.options.get("padding_inner_px").and_then(|v| v.as_f32().ok());
+    let padding_outer_px = config.options.get("padding_outer_px").and_then(|v| v.as_f32().ok());
+
+    // If no pixel-based options, return base values
+    if padding_inner_px.is_none() && padding_outer_px.is_none() {
+        return Ok((base_padding_inner, base_padding_outer));
+    }
+
+    // Calculate base step to convert pixels to normalized values
+    // Use base padding values to avoid circular dependency
+    let base_step = range_size / 1.0_f32.max(bandspace(n, Some(base_padding_inner), Some(base_padding_outer)));
+
+    // Convert padding_outer_px to normalized if provided
+    let padding_outer = if let Some(px) = padding_outer_px {
+        if base_step > 0.0 {
+            px / base_step
+        } else {
+            base_padding_outer
+        }
+    } else {
+        base_padding_outer
+    };
+
+    // Convert padding_inner_px to normalized if provided
+    // Formula derived from: gap_px = step * padding_inner
+    // Solving for padding_inner when gap_px is specified:
+    // padding_inner = gap_px * (n + 2*padding_outer) / (range + gap_px)
+    let padding_inner = if let Some(px) = padding_inner_px {
+        let numerator = px * (n as f32 + 2.0 * padding_outer);
+        let denominator = range_size + px;
+        if denominator > 0.0 {
+            (numerator / denominator).clamp(0.0, 1.0)
+        } else {
+            base_padding_inner
+        }
+    } else {
+        base_padding_inner
+    };
+
+    Ok((padding_inner, padding_outer))
 }
 
 #[cfg(test)]
@@ -893,6 +961,44 @@ mod tests {
 
         assert_eq!(bandwidth(&config)?, 37.0, "Bandwidth should be 37");
         assert_eq!(step(&config)?, 37.0, "Step should be 37");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_band_scale_padding_inner_px() -> Result<(), AvengerScaleError> {
+        // Test padding_inner_px produces exact pixel gaps
+        let domain = Arc::new(StringArray::from(vec!["A", "B", "C"]));
+        let range = Arc::new(Float32Array::from(vec![0.0, 300.0]));
+
+        let config = ScaleConfig {
+            domain: domain.clone(),
+            range: range.clone(),
+            options: vec![
+                ("padding_inner_px".to_string(), 20.0.into()),  // Want exactly 20px gaps
+                ("padding".to_string(), 0.0.into()),
+            ]
+            .into_iter()
+            .collect(),
+            context: ScaleContext::default(),
+        };
+
+        let scale = BandScale;
+        let values = domain.clone() as ArrayRef;
+        let positions = scale.scale_to_numeric(&config, &values)?;
+        let position_values = positions.as_vec(3, None);
+        let bw = bandwidth(&config)?;
+        let step_val = step(&config)?;
+
+        // Verify gap between bands is exactly 20px
+        let gap_1_2 = position_values[1] - (position_values[0] + bw);
+        let gap_2_3 = position_values[2] - (position_values[1] + bw);
+
+        assert_approx_eq!(f32, gap_1_2, 20.0, F32Margin { epsilon: 0.01, ..Default::default() });
+        assert_approx_eq!(f32, gap_2_3, 20.0, F32Margin { epsilon: 0.01, ..Default::default() });
+
+        // Verify step = bandwidth + gap
+        assert_approx_eq!(f32, step_val, bw + 20.0, F32Margin { epsilon: 0.01, ..Default::default() });
 
         Ok(())
     }
