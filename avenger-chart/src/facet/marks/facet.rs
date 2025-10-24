@@ -345,6 +345,30 @@ impl CompiledMark for CompiledFacetRow {
         })?;
         let band_positions = iter_band_positions(final_row_scale)?;
 
+        // CRITICAL: Rebuild shared scales with the NEW band height after padding adjustment
+        // The initial shared_scales were built with the approximate height BEFORE padding,
+        // which causes incorrect data scaling (x-axis doesn't align with y=0)
+        let shared_scales = if any_shared {
+            let new_band_height = band_positions
+                .first()
+                .map(|(_, (_, h))| *h)
+                .unwrap_or(context.plot_height);
+
+            Some(
+                self.compiled_subplot
+                    .build_scales_for_dataframe(
+                        &df,
+                        context.plot_width,
+                        new_band_height,
+                        ctx,
+                        &context.params,
+                    )
+                    .await?,
+            )
+        } else {
+            shared_scales
+        };
+
         // Get total number of rows for grid dimensions
         let total_rows = band_positions.len();
 
