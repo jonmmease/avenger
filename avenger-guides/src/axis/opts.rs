@@ -26,6 +26,7 @@ pub struct AxisConfig {
     pub title_font_weight: Option<f32>,
     pub label_font_family: Option<String>,
     pub title_font_family: Option<String>,
+    pub title_visible: Option<bool>,
 }
 
 impl Default for AxisConfig {
@@ -48,6 +49,7 @@ impl Default for AxisConfig {
             title_font_weight: None,
             label_font_family: None,
             title_font_family: None,
+            title_visible: None,
         }
     }
 }

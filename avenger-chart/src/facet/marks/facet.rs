@@ -1,8 +1,10 @@
-use crate::error::AvengerChartError;
 use crate::coords::CoordinateSystem;
+use crate::error::AvengerChartError;
 use crate::facet::coord::FacetRow;
 use crate::facet::marks::facet_config::FacetRowChannelConfig;
-use crate::marks::{ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState};
+use crate::marks::{
+    ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
+};
 use crate::plot::{CompiledPlot, Plot};
 use crate::render::RenderContext;
 use crate::scales::ConfiguredScaleWithSpec;
@@ -76,7 +78,6 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         self.subplot = Some(plot);
         self
     }
-
 }
 
 /// Compiled facet mark specialized for FacetRow outer coords
@@ -164,21 +165,18 @@ impl CompiledMark for CompiledFacetRow {
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Get row scale
-        let row_scale = context
-            .scales
-            .get("row")
-            .ok_or_else(|| AvengerChartError::InternalError("Missing 'row' scale for FacetRow".into()))?;
+        let row_scale = context.scales.get("row").ok_or_else(|| {
+            AvengerChartError::InternalError("Missing 'row' scale for FacetRow".into())
+        })?;
 
         // Build (facet_value -> (y_pos, band_height)) map
         let band_positions = iter_band_positions(row_scale)?;
 
         // Get the inner plot-level DataFrame
         let ctx = &context.session_context;
-        let df = self
-            .state
-            .data
-            .dataframe_with_context(ctx)
-            .ok_or_else(|| AvengerChartError::InternalError("Facet mark requires plot or mark data".into()))?;
+        let df = self.state.data.dataframe_with_context(ctx).ok_or_else(|| {
+            AvengerChartError::InternalError("Facet mark requires plot or mark data".into())
+        })?;
 
         // Extract the raw expression for the row channel to filter by facet value
         let row_expr = self
@@ -187,19 +185,28 @@ impl CompiledMark for CompiledFacetRow {
             .channels()
             .get("row")
             .and_then(|cv| cv.expr(ctx))
-            .ok_or_else(|| AvengerChartError::InternalError("Facet 'row' channel not found".into()))?;
+            .ok_or_else(|| {
+                AvengerChartError::InternalError("Facet 'row' channel not found".into())
+            })?;
 
         let mut all_marks: Vec<SceneMark> = Vec::new();
 
         // Compute per-channel sharing preferences by scanning inner marks
-        let required_channels: Vec<&str> = self.compiled_subplot.coord_transform.required_channels().to_vec();
+        let required_channels: Vec<&str> = self
+            .compiled_subplot
+            .coord_transform
+            .required_channels()
+            .to_vec();
         let mut channel_shared: HashMap<String, bool> = HashMap::new();
         for &ch in &required_channels {
             let mut shared = false;
             for m in &self.compiled_subplot.marks {
                 if let Some(cv) = m.data_context().channels().get(ch) {
                     if let Some(s) = cv.get_share_across_facets() {
-                        if s { shared = true; break; }
+                        if s {
+                            shared = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -209,14 +216,21 @@ impl CompiledMark for CompiledFacetRow {
         // If any channel is shared, compute scales once across full data using approximate band height
         let any_shared = channel_shared.values().any(|v| *v);
         let shared_scales = if any_shared {
-            let approx_h = band_positions.first().map(|(_, (_, h))| *h).unwrap_or(context.plot_height);
-            Some(self.compiled_subplot.build_scales_for_dataframe(
-                &df,
-                context.plot_width,
-                approx_h,
-                ctx,
-                &context.params,
-            ).await?)
+            let approx_h = band_positions
+                .first()
+                .map(|(_, (_, h))| *h)
+                .unwrap_or(context.plot_height);
+            Some(
+                self.compiled_subplot
+                    .build_scales_for_dataframe(
+                        &df,
+                        context.plot_width,
+                        approx_h,
+                        ctx,
+                        &context.params,
+                    )
+                    .await?,
+            )
         } else {
             None
         };
@@ -231,24 +245,29 @@ impl CompiledMark for CompiledFacetRow {
             let mut scales = if let Some(ref shared) = shared_scales {
                 shared.clone()
             } else {
-                self.compiled_subplot.build_scales_for_dataframe(
-                    &filter_df,
-                    context.plot_width,
-                    band_height,
-                    ctx,
-                    &context.params,
-                ).await?
+                self.compiled_subplot
+                    .build_scales_for_dataframe(
+                        &filter_df,
+                        context.plot_width,
+                        band_height,
+                        ctx,
+                        &context.params,
+                    )
+                    .await?
             };
 
             // If some channels are free, rebuild facet-specific scales and override those channels
             if any_shared {
-                let facet_scales = self.compiled_subplot.build_scales_for_dataframe(
-                    &filter_df,
-                    context.plot_width,
-                    band_height,
-                    ctx,
-                    &context.params,
-                ).await?;
+                let facet_scales = self
+                    .compiled_subplot
+                    .build_scales_for_dataframe(
+                        &filter_df,
+                        context.plot_width,
+                        band_height,
+                        ctx,
+                        &context.params,
+                    )
+                    .await?;
                 for (ch, shared_flag) in &channel_shared {
                     if !*shared_flag {
                         if let Some(s) = facet_scales.get(ch) {
@@ -258,28 +277,33 @@ impl CompiledMark for CompiledFacetRow {
                 }
             }
 
-            // Create facet-specific params with unified axis control
-            // Check if subplot uses Cartesian coordinates (has x and y channels)
-            let required_channels = self.compiled_subplot.coord_transform.required_channels();
-            let is_cartesian = required_channels.contains(&"x") && required_channels.contains(&"y");
-
+            // Query subplot guide to determine if axis unification is supported
             let mut facet_params = context.params.clone();
-            if is_cartesian {
-                // For Cartesian subplots, signal that y-axis should be unified
-                facet_params.insert(
-                    "facet_unified_y".to_string(),
-                    datafusion::common::ScalarValue::Boolean(Some(true)),
-                );
+            if let Some(guide) = self.compiled_subplot.compiled_guide.as_ref() {
+                if let Some(_info) = guide.facet_unifiable_channel(
+                    crate::guide::FacetDirection::Row,
+                    self.compiled_subplot.marks(),
+                    ctx,
+                ) {
+                    // Subplot guide supports row faceting unification - signal to suppress the axis
+                    facet_params.insert(
+                        "facet_unified_y".to_string(),
+                        datafusion::common::ScalarValue::Boolean(Some(true)),
+                    );
+                }
             }
 
-            let sub = self.compiled_subplot.evaluate_components_with_scales(
-                &filter_df,
-                &scales,
-                context.plot_width,
-                band_height,
-                ctx,
-                &facet_params,
-            ).await?;
+            let sub = self
+                .compiled_subplot
+                .evaluate_components_with_scales(
+                    &filter_df,
+                    &scales,
+                    context.plot_width,
+                    band_height,
+                    ctx,
+                    &facet_params,
+                )
+                .await?;
 
             // Wrap data marks in a clipped group translated to band position
             let data_group = SceneGroup {
@@ -350,7 +374,9 @@ fn iter_band_positions(
     let configured = scale.configured();
     let domain_vals = configured.domain_values()?;
     let positions = match domain_vals {
-        crate::scales::extensions::DomainValues::Discrete(vals) => configured.scale_scalars_to_numeric(&vals)?,
+        crate::scales::extensions::DomainValues::Discrete(vals) => {
+            configured.scale_scalars_to_numeric(&vals)?
+        }
         _ => Vec::new(),
     };
     let bandwidth = band::bandwidth(&configured.config)?;

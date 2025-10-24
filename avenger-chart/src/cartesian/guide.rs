@@ -392,4 +392,28 @@ impl CompiledGuide for CartesianGuide {
             height: plot_height,
         }
     }
+
+    fn facet_unifiable_channel(
+        &self,
+        facet_direction: crate::guide::FacetDirection,
+        marks: &[Arc<dyn crate::marks::CompiledMark>],
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> Option<crate::guide::UnifiableChannelInfo> {
+        use crate::coords::extract_channel_title_from_marks;
+        use crate::guide::{FacetDirection, UnifiableChannelInfo};
+
+        // Cartesian can unify y-axis in row faceting, x-axis in column faceting
+        let channel = match facet_direction {
+            FacetDirection::Row => "y",
+            FacetDirection::Column => "x",
+        };
+
+        // Extract the title from the marks
+        let title = extract_channel_title_from_marks(marks, channel, session_context);
+
+        Some(UnifiableChannelInfo {
+            channel: channel.to_string(),
+            title,
+        })
+    }
 }
