@@ -517,8 +517,14 @@ fn compute_effective_padding(
         .unwrap_or_else(|| config.option_f32("padding", 0.0));
 
     // Check for pixel-based padding options
-    let padding_inner_px = config.options.get("padding_inner_px").and_then(|v| v.as_f32().ok());
-    let padding_outer_px = config.options.get("padding_outer_px").and_then(|v| v.as_f32().ok());
+    let padding_inner_px = config
+        .options
+        .get("padding_inner_px")
+        .and_then(|v| v.as_f32().ok());
+    let padding_outer_px = config
+        .options
+        .get("padding_outer_px")
+        .and_then(|v| v.as_f32().ok());
 
     // If no pixel-based options, return base values
     if padding_inner_px.is_none() && padding_outer_px.is_none() {
@@ -527,7 +533,12 @@ fn compute_effective_padding(
 
     // Calculate base step to convert pixels to normalized values
     // Use base padding values to avoid circular dependency
-    let base_step = range_size / 1.0_f32.max(bandspace(n, Some(base_padding_inner), Some(base_padding_outer)));
+    let base_step = range_size
+        / 1.0_f32.max(bandspace(
+            n,
+            Some(base_padding_inner),
+            Some(base_padding_outer),
+        ));
 
     // Convert padding_outer_px to normalized if provided
     let padding_outer = if let Some(px) = padding_outer_px {
@@ -975,7 +986,7 @@ mod tests {
             domain: domain.clone(),
             range: range.clone(),
             options: vec![
-                ("padding_inner_px".to_string(), 20.0.into()),  // Want exactly 20px gaps
+                ("padding_inner_px".to_string(), 20.0.into()), // Want exactly 20px gaps
                 ("padding".to_string(), 0.0.into()),
             ]
             .into_iter()
@@ -994,11 +1005,35 @@ mod tests {
         let gap_1_2 = position_values[1] - (position_values[0] + bw);
         let gap_2_3 = position_values[2] - (position_values[1] + bw);
 
-        assert_approx_eq!(f32, gap_1_2, 20.0, F32Margin { epsilon: 0.01, ..Default::default() });
-        assert_approx_eq!(f32, gap_2_3, 20.0, F32Margin { epsilon: 0.01, ..Default::default() });
+        assert_approx_eq!(
+            f32,
+            gap_1_2,
+            20.0,
+            F32Margin {
+                epsilon: 0.01,
+                ..Default::default()
+            }
+        );
+        assert_approx_eq!(
+            f32,
+            gap_2_3,
+            20.0,
+            F32Margin {
+                epsilon: 0.01,
+                ..Default::default()
+            }
+        );
 
         // Verify step = bandwidth + gap
-        assert_approx_eq!(f32, step_val, bw + 20.0, F32Margin { epsilon: 0.01, ..Default::default() });
+        assert_approx_eq!(
+            f32,
+            step_val,
+            bw + 20.0,
+            F32Margin {
+                epsilon: 0.01,
+                ..Default::default()
+            }
+        );
 
         Ok(())
     }

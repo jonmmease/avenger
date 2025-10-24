@@ -180,15 +180,6 @@ impl CompiledGuide for FacetRowGuide {
                         .await?
                 };
 
-                // Pass facet_unified_y param to suppress subplot y-axis title during measurement
-                let mut measure_params = params.clone();
-                if self.unifiable_channel.is_some() {
-                    measure_params.insert(
-                        "facet_unified_y".to_string(),
-                        datafusion::common::ScalarValue::Boolean(Some(true)),
-                    );
-                }
-
                 let overflow = source
                     .subplot
                     .measure_guide_overflow_with_scales(
@@ -196,7 +187,7 @@ impl CompiledGuide for FacetRowGuide {
                         plot_width,
                         band_h,
                         ctx,
-                        &measure_params,
+                        params,
                     )
                     .await?;
 
@@ -431,14 +422,6 @@ impl CompiledGuide for FacetRowGuide {
                     break;
                 }
             }
-            // Pass facet_unified_y param to suppress subplot y-axis title during measurement
-            let mut measure_params = params.clone();
-            if self.unifiable_channel.is_some() {
-                measure_params.insert(
-                    "facet_unified_y".to_string(),
-                    datafusion::common::ScalarValue::Boolean(Some(true)),
-                );
-            }
 
             for facet_val in &domain_vals_eval {
                 let filter_df = df_src.clone().filter(
@@ -470,7 +453,7 @@ impl CompiledGuide for FacetRowGuide {
                         plot_width,
                         band_h_eval,
                         _ctx,
-                        &measure_params,
+                        params,
                     )
                     .await?;
                 max_left_child = max_left_child.max(overflow.left);

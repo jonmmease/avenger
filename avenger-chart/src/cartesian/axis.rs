@@ -292,7 +292,7 @@ impl CartesianAxis {
             theme.font_family(&title_ctx)
         };
 
-        // Evaluate show_title (default true), allow a facet-unified-y hint to disable inner y titles
+        // Evaluate show_title (default true)
         let mut show_title =
             if let Some(node) = self.show_title.as_option().and_then(|o| o.as_ref()) {
                 let expr = node.to_expr(ctx)?;
@@ -300,35 +300,39 @@ impl CartesianAxis {
             } else {
                 true
             };
-        // Check for facet_unified_y param to suppress y-axis title in faceted subplots
-        if channel == "y" {
-            if let Some(datafusion_common::ScalarValue::Boolean(Some(true))) =
-                params.get("facet_unified_y")
-            {
-                show_title = false;
-            }
+
+        // Try to get facet context and apply facet-aware title/label visibility
+        use crate::facet::context::FacetContext;
+
+        // Get facet context if present
+        let facet_ctx = FacetContext::from_params(params);
+
+        // Apply facet context rules to title/label visibility
+        if let Some(ref ctx) = facet_ctx {
+            // Convert AxisOrientation to facet::context::AxisPosition
+            use crate::facet::context::AxisPosition as FacetAxisPosition;
+            let facet_axis_position = match orientation {
+                AxisOrientation::Top => FacetAxisPosition::Top,
+                AxisOrientation::Bottom => FacetAxisPosition::Bottom,
+                AxisOrientation::Left => FacetAxisPosition::Left,
+                AxisOrientation::Right => FacetAxisPosition::Right,
+            };
+
+            show_title = show_title && ctx.should_show_title(channel, facet_axis_position);
         }
 
-        // Check for facet_hide_x_title param to suppress x-axis title in faceted subplots
-        if channel == "x" {
-            if let Some(datafusion_common::ScalarValue::Boolean(Some(true))) =
-                params.get("facet_hide_x_title")
-            {
-                show_title = false;
-            }
-        }
-
-        // Determine if labels should be visible (x-axis only for faceting)
-        let labels_visible = if channel == "x" {
-            if let Some(datafusion_common::ScalarValue::Boolean(Some(true))) =
-                params.get("facet_hide_x_labels")
-            {
-                Some(false)
-            } else {
-                None // Use default (true)
-            }
+        // Apply facet context rules to label visibility
+        let labels_visible = if let Some(ref ctx) = facet_ctx {
+            use crate::facet::context::AxisPosition as FacetAxisPosition;
+            let facet_axis_position = match orientation {
+                AxisOrientation::Top => FacetAxisPosition::Top,
+                AxisOrientation::Bottom => FacetAxisPosition::Bottom,
+                AxisOrientation::Left => FacetAxisPosition::Left,
+                AxisOrientation::Right => FacetAxisPosition::Right,
+            };
+            Some(ctx.should_show_labels(channel, facet_axis_position))
         } else {
-            None // y-axis and other axes always show labels
+            None // No facet context = show labels (default)
         };
 
         // Create axis config with plot dimensions and theme
