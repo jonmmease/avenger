@@ -362,15 +362,53 @@ impl CompiledGuide for FacetRowGuide {
             None => return Ok(marks),
         };
 
-        // Domain labels and numeric positions
+        // Domain labels
         let labels = row_scale.domain_labels()?;
-        let positions = match row_scale.domain_values()? {
+        let n = labels.len();
+
+        // Get positions and bandwidth from the scale
+        let scale_positions = match row_scale.domain_values()? {
             crate::scales::extensions::DomainValues::Discrete(vals) => {
                 row_scale.scale_scalars_to_numeric(&vals)?
             }
             _ => Vec::new(),
         };
-        let bandwidth = band::bandwidth(&row_scale.config)?;
+        let _scale_bandwidth = band::bandwidth(&row_scale.config)?;
+
+        // IMPORTANT: The scale might not have the correct padding_inner_px that was added
+        // by the facet mark after measuring overflow. This can cause misalignment between
+        // guide labels and subplot centers.
+        //
+        // Strategy: Use the first position from the scale (which includes any outer padding/offset),
+        // and calculate step/bandwidth based on plot_height and the padding_inner fraction from the scale.
+        let first_pos = scale_positions.first().cloned().unwrap_or(0.0);
+
+        // Get padding_inner as a fraction from the scale's config
+        let padding_inner_fraction = row_scale.config.option_f32("padding_inner", 0.1);
+
+        // We have the constraint: first_pos + (n-1) * step + bandwidth = plot_height
+        // And: bandwidth = step * (1 - padding_inner_fraction)
+        // Substituting:
+        //   first_pos + (n-1) * step + step * (1 - padding_inner) = plot_height
+        //   first_pos + step * ((n-1) + (1 - padding_inner)) = plot_height
+        //   first_pos + step * (n - padding_inner) = plot_height
+        //   step = (plot_height - first_pos) / (n - padding_inner)
+        let actual_step = if n >= 1 {
+            (plot_height - first_pos) / (n as f32 - padding_inner_fraction)
+        } else {
+            plot_height
+        };
+
+        let actual_bandwidth = actual_step * (1.0 - padding_inner_fraction);
+
+        // Recalculate positions with correct spacing
+        let positions: Vec<f32> = (0..n)
+            .map(|i| {
+                first_pos + i as f32 * actual_step
+            })
+            .collect();
+
+        let bandwidth = actual_bandwidth;
 
         // Theme-based font for rendering (match measurement)
         let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
