@@ -98,8 +98,8 @@ impl Theme {
                 /* Tertiary text: Lighter, 35% toward background */
                 --text-tertiary: color-mix(in srgb, var(--text-color) 65%, var(--bg-color) 35%);
 
-                /* Guide elements: Between tertiary text and grid, 50% toward background */
-                --guide-color: color-mix(in srgb, var(--text-color) 50%, var(--bg-color) 50%);
+                /* Guide elements: Very subtle, closer to grid, 75% toward background */
+                --guide-color: color-mix(in srgb, var(--text-color) 25%, var(--bg-color) 75%);
 
                 /* Border/domain: Very close to text, 10% toward background */
                 --border-color: color-mix(in srgb, var(--text-color) 90%, var(--bg-color) 10%);
