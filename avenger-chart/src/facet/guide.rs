@@ -256,7 +256,7 @@ impl CompiledGuide for FacetRowGuide {
         };
 
         // Compute facet-by side overflow: include label column + spacing + facet title (rotated width)
-        let gap = if self.facet_title.is_some() { 6.0 } else { 0.0 };
+        let gap = if self.facet_title.is_some() { 10.0 } else { 0.0 };
         let estimated_right = if self.facet_title.is_some() {
             max_label_height + gap + title_height + 1.0
         } else {
@@ -293,7 +293,7 @@ impl CompiledGuide for FacetRowGuide {
             0.0
         };
         let gap_axis = if self.unified_y_title.is_some() {
-            6.0
+            10.0
         } else {
             0.0
         };
@@ -508,6 +508,104 @@ impl CompiledGuide for FacetRowGuide {
             marks.push(SceneMark::Text(StdArc::new(text)));
         }
 
+        // Render vertical rule between labels and title (if title present)
+        if let Some(_title_text) = &self.facet_title {
+            if !labels.is_empty() && labels.len() > 1 {
+                // Get y positions of first and last labels
+                let y_top = plot_bounds.y + positions.first().cloned().unwrap_or(0.0) + bandwidth / 2.0;
+                let y_bottom = plot_bounds.y + positions.last().cloned().unwrap_or(0.0) + bandwidth / 2.0;
+
+                // Measure label column width
+                let labels_for_rule = row_scale.domain_labels().unwrap_or_default();
+                let measurer = avenger_text::measurement::default_text_measurer();
+                let label_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                    .child("facet")
+                    .child("label");
+                let label_font_px = theme.font_size(&label_ctx).unwrap_or(12.0_f32);
+                let root_ctx = crate::theme::ThemeContext::new(":root", params.clone());
+                let label_family = theme
+                    .font_family(&label_ctx)
+                    .or_else(|| theme.font_family(&root_ctx))
+                    .unwrap_or_else(|| "sans-serif".to_string());
+                let mut max_label_height = 0.0_f32;
+                for l in &labels_for_rule {
+                    let cfg = avenger_text::measurement::TextMeasurementConfig {
+                        text: l,
+                        font: label_family.as_str(),
+                        font_size: label_font_px,
+                        font_weight: &avenger_text::types::FontWeight::Name(
+                            avenger_text::types::FontWeightNameSpec::Normal,
+                        ),
+                        font_style: &avenger_text::types::FontStyle::Normal,
+                    };
+                    let b = measurer.measure_text_bounds(&cfg);
+                    max_label_height = max_label_height.max(b.height);
+                }
+
+                // Position rule between label column and title (gap/2)
+                let gap = 10.0_f32;
+                let x_rule = if place_on_left {
+                    plot_bounds.x - (max_label_height + gap / 2.0)
+                } else {
+                    plot_bounds.x + plot_width + max_label_height + gap / 2.0
+                };
+
+                // Query rule styling from theme
+                let rule_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                    .child("facet")
+                    .child("rule");
+                let rule_stroke = theme.text_color(&rule_ctx).unwrap_or([0.5, 0.5, 0.5, 1.0]);
+                let rule_stroke_width = theme
+                    .query(&rule_ctx, "stroke-width")
+                    .and_then(|v| v.as_number())
+                    .map(|n| n as f32)
+                    .unwrap_or(1.0);
+
+                // Query tick size from theme
+                let tick_size = theme
+                    .query(&rule_ctx, "tick-size")
+                    .and_then(|v| v.as_number())
+                    .map(|n| n as f32)
+                    .unwrap_or(4.0);
+
+                // Create vertical rule mark
+                let rule_mark = avenger_scenegraph::marks::rule::SceneRuleMark {
+                    x: x_rule.into(),
+                    y: y_top.into(),
+                    x2: x_rule.into(),
+                    y2: y_bottom.into(),
+                    stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
+                    stroke_width: rule_stroke_width.into(),
+                    zindex: Some(5),
+                    ..Default::default()
+                };
+                marks.push(SceneMark::Rule(rule_mark));
+
+                // Add tick marks at each label position
+                for (i, _label) in labels.iter().enumerate() {
+                    let y_center = plot_bounds.y + positions.get(i).cloned().unwrap_or(0.0) + bandwidth / 2.0;
+
+                    let (x_tick_start, x_tick_end) = if place_on_left {
+                        (x_rule, x_rule + tick_size)
+                    } else {
+                        (x_rule - tick_size, x_rule)
+                    };
+
+                    let tick_mark = avenger_scenegraph::marks::rule::SceneRuleMark {
+                        x: x_tick_start.into(),
+                        y: y_center.into(),
+                        x2: x_tick_end.into(),
+                        y2: y_center.into(),
+                        stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
+                        stroke_width: rule_stroke_width.into(),
+                        zindex: Some(5),
+                        ..Default::default()
+                    };
+                    marks.push(SceneMark::Rule(tick_mark));
+                }
+            }
+        }
+
         // Render facet title (if present), rotated 90 CW and centered vertically on RHS
         if let Some(title_text) = &self.facet_title {
             // Measure label column height to position title to the right of it
@@ -544,7 +642,7 @@ impl CompiledGuide for FacetRowGuide {
             let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
             let title_color = theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
             // Center vertically, and place next to label column (gap = 6px)
-            let gap = 6.0_f32;
+            let gap = 10.0_f32;
             let title_family_owned2 = theme
                 .font_family(&title_ctx)
                 .unwrap_or_else(|| "sans-serif".to_string());
@@ -598,7 +696,7 @@ impl CompiledGuide for FacetRowGuide {
                 .unwrap_or_else(|| "sans-serif".to_string());
             // Axis side corresponds to child-dominant side: if labels are on left, axis is on right
             let axis_on_right = place_on_left;
-            let gap = 6.0_f32;
+            let gap = 10.0_f32;
             // Position title adjacent to subplot axis labels (max_left/right_child is just label space)
             // Center the title in the gap between labels and plot edge
             let x_bottom = if axis_on_right {
