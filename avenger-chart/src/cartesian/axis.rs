@@ -309,6 +309,28 @@ impl CartesianAxis {
             }
         }
 
+        // Check for facet_hide_x_title param to suppress x-axis title in faceted subplots
+        if channel == "x" {
+            if let Some(datafusion_common::ScalarValue::Boolean(Some(true))) =
+                params.get("facet_hide_x_title")
+            {
+                show_title = false;
+            }
+        }
+
+        // Determine if labels should be visible (x-axis only for faceting)
+        let labels_visible = if channel == "x" {
+            if let Some(datafusion_common::ScalarValue::Boolean(Some(true))) =
+                params.get("facet_hide_x_labels")
+            {
+                Some(false)
+            } else {
+                None // Use default (true)
+            }
+        } else {
+            None // y-axis and other axes always show labels
+        };
+
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {
             orientation,
@@ -337,6 +359,7 @@ impl CartesianAxis {
             label_font_family,
             title_font_family,
             title_visible: Some(show_title),
+            labels_visible,
         };
 
         // Evaluate title expression if present

@@ -235,7 +235,44 @@ impl CompiledMark for CompiledFacetRow {
             None
         };
 
-        for (facet_value, (y_pos, band_height)) in band_positions {
+        // Query x-axis position by evaluating the position expression if it exists
+        // Access axis through axis_specs instead of the guide to avoid downcast issues
+        let x_axis_position = if let Some(axis_spec) = self.compiled_subplot.axis_specs.get("x") {
+            // AxisSpec::Local contains Box<dyn Axis> - downcast to CartesianAxis
+            use crate::plot::AxisSpec;
+            let AxisSpec::Local(axis_box) = axis_spec;
+            use crate::cartesian::axis::CartesianAxis;
+            if let Some(cart_axis) = axis_box.as_any().downcast_ref::<CartesianAxis>() {
+                if let Some(pos_node) = cart_axis.position.as_option().and_then(|o| o.as_ref()) {
+                    // Has explicit position expression - evaluate it
+                    use crate::serialization::LogicalExprNodeExt;
+                    if let Ok(pos_expr) = pos_node.to_expr(ctx) {
+                        use crate::plot::compiled::expr_eval::evaluate_axis_position_expr;
+                        evaluate_axis_position_expr(&pos_expr, ctx, &context.params).await.ok()
+                    } else {
+                        // Couldn't convert to expr, use default
+                        Some(crate::cartesian::axis::AxisPosition::Bottom)
+                    }
+                } else {
+                    // No explicit position, use default for x-axis
+                    Some(crate::cartesian::axis::AxisPosition::Bottom)
+                }
+            } else {
+                // Not a Cartesian axis - assume bottom
+                Some(crate::cartesian::axis::AxisPosition::Bottom)
+            }
+        } else {
+            // No x-axis configured - assume bottom
+            Some(crate::cartesian::axis::AxisPosition::Bottom)
+        };
+
+        // Get total number of rows for edge detection
+        let total_rows = band_positions.len();
+
+        // Check if x-scale is shared (for label suppression logic)
+        let x_scale_shared = channel_shared.get("x").copied().unwrap_or(false);
+
+        for (row_idx, (facet_value, (y_pos, band_height))) in band_positions.into_iter().enumerate() {
             // Filter df by facet_value
             let filter_df: DataFrame = df
                 .clone()
@@ -291,6 +328,31 @@ impl CompiledMark for CompiledFacetRow {
                         datafusion::common::ScalarValue::Boolean(Some(true)),
                     );
                 }
+            }
+
+            // Handle x-axis hiding for row faceting
+            // Determine if this is the edge row (where x-axis should be shown)
+            use crate::cartesian::axis::AxisPosition;
+            let is_edge_row = match x_axis_position {
+                Some(AxisPosition::Bottom) => row_idx == total_rows - 1,  // Bottom-most row
+                Some(AxisPosition::Top) => row_idx == 0,                   // Top-most row
+                _ => row_idx == total_rows - 1,  // Unknown position - assume bottom (most common default)
+            };
+
+            // Hide x-axis title on non-edge rows
+            if !is_edge_row {
+                facet_params.insert(
+                    "facet_hide_x_title".to_string(),
+                    datafusion::common::ScalarValue::Boolean(Some(true)),
+                );
+            }
+
+            // Hide x-axis labels on non-edge rows when x-scale is shared
+            if !is_edge_row && x_scale_shared {
+                facet_params.insert(
+                    "facet_hide_x_labels".to_string(),
+                    datafusion::common::ScalarValue::Boolean(Some(true)),
+                );
             }
 
             let sub = self

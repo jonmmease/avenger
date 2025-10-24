@@ -13,18 +13,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct FacetRowGuide {
     // Collected facet sources from compiled marks (populated via set_compiled_marks)
-    #[serde(skip)]
     facet_sources: Vec<FacetSource>,
     /// Optional facet title rendered above the label column
     pub facet_title: Option<String>,
-    #[serde(skip)]
     unified_y_title: Option<String>,
     /// The channel that can be unified (from subplot guide declaration)
-    #[serde(skip)]
     unifiable_channel: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct FacetSource {
     subplot: std::sync::Arc<crate::plot::CompiledPlot>,
     data: crate::marks::CompiledDataContext,

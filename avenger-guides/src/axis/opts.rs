@@ -27,6 +27,7 @@ pub struct AxisConfig {
     pub label_font_family: Option<String>,
     pub title_font_family: Option<String>,
     pub title_visible: Option<bool>,
+    pub labels_visible: Option<bool>,
 }
 
 impl Default for AxisConfig {
@@ -50,6 +51,7 @@ impl Default for AxisConfig {
             label_font_family: None,
             title_font_family: None,
             title_visible: None,
+            labels_visible: None,
         }
     }
 }
