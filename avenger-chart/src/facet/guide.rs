@@ -554,7 +554,9 @@ impl CompiledGuide for FacetRowGuide {
                 let rule_ctx = crate::theme::ThemeContext::new("guide", params.clone())
                     .child("facet")
                     .child("rule");
-                let rule_stroke = theme.text_color(&rule_ctx).unwrap_or([0.5, 0.5, 0.5, 1.0]);
+                let mut rule_stroke = theme.text_color(&rule_ctx).unwrap_or([0.5, 0.5, 0.5, 1.0]);
+                // Ensure fully opaque to avoid overlapping darkening
+                rule_stroke[3] = 1.0;
                 let rule_stroke_width = theme
                     .query(&rule_ctx, "stroke-width")
                     .and_then(|v| v.as_number())
