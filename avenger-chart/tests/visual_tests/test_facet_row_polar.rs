@@ -15,20 +15,31 @@ async fn facet_row_iris_polar_scatter() {
     let outer = Plot::<FacetRow>::new()
         .data(df)
         .mark(
-            Facet::new()
-                .row(col("species"))
-                .subplot(
-                    Plot::<Polar>::new().mark(
-                        Symbol::new()
-                            .r_with(col("sepal_length"), |c| c.scale_with::<Linear>(|s| s).share_scale(ScaleSharing::Shared))
-                            .theta_with(col("sepal_width"), |c| c.scale_with::<Linear>(|s| s).share_scale(ScaleSharing::Shared))
-                            .size(36.0)
-                            .fill("#cd5c5c"),
-                    ),
+            Facet::new().row(col("species")).subplot(
+                Plot::<Polar>::new().mark(
+                    Symbol::new()
+                        .r_with(col("sepal_length"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .share_scale(ScaleSharing::Shared)
+                        })
+                        .theta_with(col("sepal_width"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .share_scale(ScaleSharing::Shared)
+                        })
+                        .size(36.0)
+                        .fill("#cd5c5c"),
                 ),
+            ),
         )
         .canvas_size(600.0, 500.0);
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
-    assert_visual_match_default(&compiled, &ctx, None, "facet", "facet_row_iris_polar_scatter").await;
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet",
+        "facet_row_iris_polar_scatter",
+    )
+    .await;
 }

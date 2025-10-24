@@ -993,7 +993,7 @@ impl Theme {
                         if card >= cardinality {
                             // Take the first (smallest) cardinality >= requested
                             best_card = Some(card);
-                            break;  // Found smallest match, stop searching
+                            break; // Found smallest match, stop searching
                         } else {
                             // Track largest cardinality < requested as fallback
                             largest_below = Some(card);
@@ -1017,7 +1017,7 @@ impl Theme {
                         &property,
                         channel,
                         range_kind,
-                        Some(best),  // Use selected cardinality, not requested
+                        Some(best), // Use selected cardinality, not requested
                     ) {
                         return Some(range);
                     }

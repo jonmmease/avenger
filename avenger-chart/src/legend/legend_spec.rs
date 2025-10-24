@@ -377,7 +377,8 @@ impl Legend {
         use crate::serialization::LogicalExprNodeExt;
         let expr = width.into_expr();
         self.background_stroke_width = Maybe::Set(Some(
-            LogicalExprNode::from_expr(expr).expect("Failed to serialize background_stroke_width expr"),
+            LogicalExprNode::from_expr(expr)
+                .expect("Failed to serialize background_stroke_width expr"),
         ));
         self
     }

@@ -79,7 +79,10 @@ fn test_root_font_size_cascades_in_media_query() {
         assert_eq!(color.green, 0, "Small height should have red title");
         assert_eq!(color.blue, 0, "Small height should have red title");
     } else {
-        panic!("Expected color value for small height, got {:?}", color_small);
+        panic!(
+            "Expected color value for small height, got {:?}",
+            color_small
+        );
     }
 
     // Font size should cascade from root change: 2.0rem * 10px = 20px
@@ -107,7 +110,10 @@ fn test_root_font_size_cascades_in_media_query() {
         assert_eq!(color.green, 255, "Large height should have green title");
         assert_eq!(color.blue, 0, "Large height should have green title");
     } else {
-        panic!("Expected color value for large height, got {:?}", color_large);
+        panic!(
+            "Expected color value for large height, got {:?}",
+            color_large
+        );
     }
 
     // Font size should cascade from root change: 2.0rem * 14px = 28px
@@ -126,7 +132,10 @@ fn test_root_font_size_cascades_in_media_query() {
     let ctx_axis = ThemeContext::new("axis", params_axis_small);
     let ctx_axis_title = ctx_axis.child("title");
     let axis_font_size_small = theme.font_size(&ctx_axis_title);
-    println!("Small (250px) axis title font-size: {:?}", axis_font_size_small);
+    println!(
+        "Small (250px) axis title font-size: {:?}",
+        axis_font_size_small
+    );
 
     if let Some(size) = axis_font_size_small {
         assert_eq!(

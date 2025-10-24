@@ -754,10 +754,14 @@ mod tests {
         let screen_width = 100.0; // Small screen width
 
         // With the fallback mechanism, this should return a solution based on data range only
-        let result = compute_domain_from_data_with_padding_linear(&points, &radii, &radii, screen_width);
+        let result =
+            compute_domain_from_data_with_padding_linear(&points, &radii, &radii, screen_width);
 
         // Should succeed and return a domain covering the data range
-        assert!(result.is_ok(), "Should fall back to data-only domain when symbols are too large");
+        assert!(
+            result.is_ok(),
+            "Should fall back to data-only domain when symbols are too large"
+        );
 
         let (d_min, d_max) = result.unwrap();
 
@@ -767,7 +771,10 @@ mod tests {
 
         // Verify all data points are within domain
         for &point in &points {
-            assert!(point >= d_min && point <= d_max, "All points should be within domain");
+            assert!(
+                point >= d_min && point <= d_max,
+                "All points should be within domain"
+            );
         }
     }
 }

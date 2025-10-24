@@ -1,6 +1,6 @@
 use crate::coords::{CoordinateSystem, CoordinateSystemTransform};
-use crate::facet::guide::FacetRowGuide;
 use crate::error::AvengerChartError;
+use crate::facet::guide::FacetRowGuide;
 use avenger_common::value::ScalarOrArray;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

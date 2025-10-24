@@ -104,8 +104,14 @@ async fn test_media_query_legend_position_height() {
 
     // Create sample stock price data
     let dates = vec![
-        "2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01",
-        "2020-05-01", "2020-06-01", "2020-07-01", "2020-08-01",
+        "2020-01-01",
+        "2020-02-01",
+        "2020-03-01",
+        "2020-04-01",
+        "2020-05-01",
+        "2020-06-01",
+        "2020-07-01",
+        "2020-08-01",
     ];
 
     let aapl_prices = vec![75.0, 73.0, 68.0, 71.0, 77.0, 79.0, 91.0, 95.0];
@@ -190,8 +196,7 @@ async fn test_media_query_legend_position_height() {
                         .axis(|a| a.grid(true).title("Stock Price ($)"))
                 })
                 .stroke_with(col("symbol"), |c| {
-                    c.scale_with::<Ordinal>(|s| s)
-                        .legend(|l| l.title("Stock"))
+                    c.scale_with::<Ordinal>(|s| s).legend(|l| l.title("Stock"))
                 })
                 .stroke_width(2.5),
         )
@@ -342,14 +347,12 @@ async fn test_media_query_legend_position_combined() {
     for category in ["A", "B", "C"] {
         for i in 0..8 {
             x_values.push(i as f64);
-            y_values.push(
-                match category {
-                    "A" => 2.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin(),
-                    "B" => 3.0 + i as f64 * 0.7 + (i as f64 * 0.4).cos(),
-                    "C" => 1.5 + i as f64 * 0.6 + (i as f64 * 0.5).sin(),
-                    _ => 0.0,
-                }
-            );
+            y_values.push(match category {
+                "A" => 2.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin(),
+                "B" => 3.0 + i as f64 * 0.7 + (i as f64 * 0.4).cos(),
+                "C" => 1.5 + i as f64 * 0.6 + (i as f64 * 0.5).sin(),
+                _ => 0.0,
+            });
             categories.push(category.to_string());
         }
     }

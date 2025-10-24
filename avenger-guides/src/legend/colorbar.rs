@@ -126,6 +126,7 @@ pub fn make_colorbar_marks(
                 grid_color: None,
                 grid_width: None,
                 tick_length: None,
+                title_visible: Some(true),
             };
 
             let numeric_scale = scale.clone().with_range_interval((0.0, gradient_width));
@@ -333,6 +334,7 @@ pub fn make_colorbar_marks(
                 grid_color: None,
                 grid_width: None,
                 tick_length: None,
+                title_visible: Some(true),
             };
 
             // Create scale with horizontal range
@@ -487,6 +489,7 @@ pub fn make_colorbar_marks(
                 grid_color: None,
                 grid_width: None,
                 tick_length: None,
+                title_visible: Some(true),
             };
 
             let numeric_scale = scale.clone().with_range_interval((gradient_height, 0.0));
@@ -689,6 +692,7 @@ pub fn make_colorbar_marks(
                 grid_color: None,
                 grid_width: None,
                 tick_length: None,
+                title_visible: Some(true),
             };
 
             // Create a new scale with desired range for the axis

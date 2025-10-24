@@ -1,6 +1,6 @@
 use avenger_chart::prelude::*;
-use datafusion::prelude::*;
 use datafusion::common::ScalarValue;
+use datafusion::prelude::*;
 use indexmap::IndexMap;
 
 #[tokio::main]
@@ -8,12 +8,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = SessionContext::new();
 
     // Simple test data
-    let df = ctx.sql("SELECT * FROM (VALUES
+    let df = ctx
+        .sql(
+            "SELECT * FROM (VALUES
         ('2020-01-01'::DATE, 100.0, 'AAPL'),
         ('2020-02-01'::DATE, 105.0, 'AAPL'),
         ('2020-01-01'::DATE, 200.0, 'GOOG'),
         ('2020-02-01'::DATE, 210.0, 'GOOG')
-    ) AS t(date, price, symbol)").await?;
+    ) AS t(date, price, symbol)",
+        )
+        .await?;
 
     // CSS with height-based media query
     let css = r#"
@@ -44,9 +48,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .x(col("date"))
                 .y(col("price"))
                 .stroke_with(col("symbol"), |c| {
-                    c.scale_with::<Ordinal>(|s| s)
-                        .legend(|l| l.title("Stock"))
-                })
+                    c.scale_with::<Ordinal>(|s| s).legend(|l| l.title("Stock"))
+                }),
         );
 
     let compiled = plot.compile(&ctx).await?;
@@ -65,10 +68,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Save to files for inspection
     use avenger_chart::doc::render::render_evaluated_plot_to_png;
-    if let Err(e) = render_evaluated_plot_to_png(&result_bottom, "/tmp/test_legend_bottom.png").await {
+    if let Err(e) =
+        render_evaluated_plot_to_png(&result_bottom, "/tmp/test_legend_bottom.png").await
+    {
         eprintln!("Failed to render bottom legend: {:?}", e);
     }
-    if let Err(e) = render_evaluated_plot_to_png(&result_right, "/tmp/test_legend_right.png").await {
+    if let Err(e) = render_evaluated_plot_to_png(&result_right, "/tmp/test_legend_right.png").await
+    {
         eprintln!("Failed to render right legend: {:?}", e);
     }
 

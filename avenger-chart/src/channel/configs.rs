@@ -281,6 +281,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_across_facets: None,
         };
 
         assert_channel_value_eq(&config.into_inner(), &expected);
@@ -306,6 +307,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_across_facets: None,
         };
 
         assert_channel_value_eq(&config.into_inner(), &expected);
@@ -348,6 +350,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_across_facets: None,
         };
 
         assert_channel_value_eq(&config.into_inner(), &expected);
@@ -474,6 +477,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_across_facets: None,
         };
 
         assert_channel_value_eq(&config.into_inner(), &expected);

@@ -238,8 +238,14 @@ impl ChannelValue {
     /// Get per-channel facet sharing preference
     pub fn get_share_across_facets(&self) -> Option<bool> {
         match self {
-            ChannelValue::Scaled { share_across_facets, .. }
-            | ChannelValue::Conditional { share_across_facets, .. } => *share_across_facets,
+            ChannelValue::Scaled {
+                share_across_facets,
+                ..
+            }
+            | ChannelValue::Conditional {
+                share_across_facets,
+                ..
+            } => *share_across_facets,
             _ => None,
         }
     }
@@ -794,6 +800,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_across_facets: None,
         };
         // Conditional values don't have a single column name
         assert_eq!(cv.as_column_name(&ctx), None);
