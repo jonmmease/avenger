@@ -284,7 +284,8 @@ impl LegendRenderer for CompiledColorbar {
             // Check theme for title font weight
             let title_ctx = legend_ctx.child("title");
             if let Some(weight) = theme.font_weight(&title_ctx) {
-                legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+                legend_config.title_font_weight =
+                    Some(avenger_text::types::FontWeight::Number(weight));
             }
         }
 
@@ -312,7 +313,8 @@ impl LegendRenderer for CompiledColorbar {
             // Check theme for tick font weight
             let tick_ctx = legend_ctx.child("tick");
             if let Some(weight) = theme.font_weight(&tick_ctx) {
-                legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+                legend_config.label_font_weight =
+                    Some(avenger_text::types::FontWeight::Number(weight));
             }
         }
 

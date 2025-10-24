@@ -102,25 +102,34 @@ pub trait ChannelConfig: Sized {
         let shared = matches!(mode.into(), ScaleSharing::Shared);
         let mut value = self.get_value().clone();
         value = match value {
-            ChannelValue::Scaled { expr, scale_name, band, scale_config, legend_config, .. } => {
-                ChannelValue::Scaled {
-                    expr,
-                    scale_name,
-                    band,
-                    scale_config,
-                    legend_config,
-                    share_across_facets: Some(shared),
-                }
-            }
-            ChannelValue::Conditional { conditions, otherwise, scale_config, legend_config, .. } => {
-                ChannelValue::Conditional {
-                    conditions,
-                    otherwise,
-                    scale_config,
-                    legend_config,
-                    share_across_facets: Some(shared),
-                }
-            }
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                ..
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config,
+                share_across_facets: Some(shared),
+            },
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                ..
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                share_across_facets: Some(shared),
+            },
             other => other,
         };
         self.set_value(value);
@@ -137,7 +146,11 @@ pub enum ScaleSharing {
 
 impl From<bool> for ScaleSharing {
     fn from(v: bool) -> Self {
-        if v { ScaleSharing::Shared } else { ScaleSharing::Free }
+        if v {
+            ScaleSharing::Shared
+        } else {
+            ScaleSharing::Free
+        }
     }
 }
 
@@ -181,7 +194,8 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             mut conditions,
             otherwise,
             scale_config,
-            legend_config, ..
+            legend_config,
+            ..
         } => {
             conditions.push((condition_node, new_branch));
             ChannelValue::Conditional {
@@ -229,7 +243,8 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             mut conditions,
             otherwise,
             scale_config,
-            legend_config, ..
+            legend_config,
+            ..
         } => {
             conditions.push((condition_node, new_branch));
             ChannelValue::Conditional {

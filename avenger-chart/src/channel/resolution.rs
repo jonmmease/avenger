@@ -627,6 +627,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -638,6 +639,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
 
@@ -668,6 +670,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -679,6 +682,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -690,6 +694,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
 
@@ -727,6 +732,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
 
@@ -753,6 +759,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -763,6 +770,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
 
@@ -796,6 +804,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -806,6 +815,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
 
@@ -840,6 +850,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -850,6 +861,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -861,6 +873,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
 
@@ -928,6 +941,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -939,6 +953,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -950,6 +965,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -961,6 +977,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
 
@@ -985,6 +1002,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
         channels.insert(
@@ -995,6 +1013,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_across_facets: None,
             },
         );
 

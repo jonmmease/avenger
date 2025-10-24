@@ -408,9 +408,9 @@ impl CompiledPlot {
                 || {
                     let bg_ctx = legend_ctx.child("background");
                     let base_font_size = theme.get_base_font_size(&legend_ctx.params);
-                    theme.query(&bg_ctx, "stroke-width").and_then(|value| {
-                        value.as_font_size(&legend_ctx.params, base_font_size)
-                    })
+                    theme
+                        .query(&bg_ctx, "stroke-width")
+                        .and_then(|value| value.as_font_size(&legend_ctx.params, base_font_size))
                 },
                 |l, v| l.background_stroke_width(v),
             );
@@ -420,9 +420,9 @@ impl CompiledPlot {
                 || {
                     let bg_ctx = legend_ctx.child("background");
                     let base_font_size = theme.get_base_font_size(&legend_ctx.params);
-                    theme.query(&bg_ctx, "padding").and_then(|value| {
-                        value.as_font_size(&legend_ctx.params, base_font_size)
-                    })
+                    theme
+                        .query(&bg_ctx, "padding")
+                        .and_then(|value| value.as_font_size(&legend_ctx.params, base_font_size))
                 },
                 |l, v| l.background_padding(v),
             );
@@ -432,9 +432,9 @@ impl CompiledPlot {
                 || {
                     let bg_ctx = legend_ctx.child("background");
                     let base_font_size = theme.get_base_font_size(&legend_ctx.params);
-                    theme.query(&bg_ctx, "corner-radius").and_then(|value| {
-                        value.as_font_size(&legend_ctx.params, base_font_size)
-                    })
+                    theme
+                        .query(&bg_ctx, "corner-radius")
+                        .and_then(|value| value.as_font_size(&legend_ctx.params, base_font_size))
                 },
                 |l, v| l.background_corner_radius(v),
             );
@@ -444,7 +444,8 @@ impl CompiledPlot {
             // it will be determined at evaluate time with actual parameters
             if matches!(legend.position, crate::maybe::Maybe::Unset) {
                 // Check if theme has any media queries that affect legend position
-                let has_media_queries = theme.has_media_queries_for_property(&legend_ctx, "position");
+                let has_media_queries =
+                    theme.has_media_queries_for_property(&legend_ctx, "position");
 
                 if !has_media_queries {
                     // No media queries, apply static position from theme
@@ -791,28 +792,35 @@ impl CompiledPlot {
                         // This handles media queries that depend on runtime parameters
                         if let Some(theme) = &self.theme {
                             // Determine legend type for theme context
-                            let legend_type = if let Some(scale) = scales.get(primary_channel.name.as_str()) {
-                                if let Some(mark) = self
-                                    .marks
-                                    .iter()
-                                    .find(|m| m.data_context().channels().contains_key(primary_channel.name.as_str()))
-                                {
-                                    mark.preferred_legend_renderer(&primary_channel.name, scale.configured())
-                                        .map(|renderer| match renderer.name() {
-                                            "CompiledSymbolLegend" => "symbol",
-                                            "CompiledLineLegend" => "line",
-                                            "CompiledColorbar" => "colorbar",
-                                            "CompiledRectLegend" => "rect",
-                                            _ => "symbol",
+                            let legend_type =
+                                if let Some(scale) = scales.get(primary_channel.name.as_str()) {
+                                    if let Some(mark) = self.marks.iter().find(|m| {
+                                        m.data_context()
+                                            .channels()
+                                            .contains_key(primary_channel.name.as_str())
+                                    }) {
+                                        mark.preferred_legend_renderer(
+                                            &primary_channel.name,
+                                            scale.configured(),
+                                        )
+                                        .map(|renderer| {
+                                            match renderer.name() {
+                                                "CompiledSymbolLegend" => "symbol",
+                                                "CompiledLineLegend" => "line",
+                                                "CompiledColorbar" => "colorbar",
+                                                "CompiledRectLegend" => "rect",
+                                                _ => "symbol",
+                                            }
                                         })
+                                    } else {
+                                        None
+                                    }
                                 } else {
                                     None
-                                }
-                            } else {
-                                None
-                            };
+                                };
 
-                            let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
+                            let legend_ctx =
+                                theme.legend_context_with_params(legend_type, params.clone());
                             if let Some(theme_value) = theme.query(&legend_ctx, "position") {
                                 if let Some(position_str) = theme_value.as_string() {
                                     match position_str.to_lowercase().as_str() {

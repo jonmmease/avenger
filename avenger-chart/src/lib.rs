@@ -5,11 +5,11 @@ pub mod color;
 pub mod coords;
 pub mod doc;
 pub mod error;
+pub mod facet;
 pub mod guide;
 pub mod layout;
 pub mod legend;
 pub mod marks;
-pub mod facet;
 pub mod param;
 pub mod plot;
 pub mod polar;
@@ -42,6 +42,7 @@ mod serialization_tests {
             band: None,
             scale_config: None,
             legend_config: None,
+            share_across_facets: None,
         };
 
         // Serialize to JSON

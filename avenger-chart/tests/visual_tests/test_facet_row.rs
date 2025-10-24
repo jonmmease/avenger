@@ -12,21 +12,17 @@ async fn facet_row_iris_scatter() {
         .expect("load iris dataset");
 
     // Build outer facet row plot
-    let outer = Plot::<FacetRow>::new()
-        .data(df)
-        .mark(
-            Facet::new()
-                .row(col("species"))
-                .subplot(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x(col("sepal_length"))
-                            .y(col("sepal_width"))
-                            .size(36.0)
-                            .fill("#4682b4"),
-                    ),
-                ),
-        );
+    let outer = Plot::<FacetRow>::new().data(df).mark(
+        Facet::new().row(col("species")).subplot(
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("sepal_length"))
+                    .y(col("sepal_width"))
+                    .size(36.0)
+                    .fill("#4682b4"),
+            ),
+        ),
+    );
 
     let compiled = outer.compile(&ctx).await.expect("compile outer");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "facet_row_iris_scatter").await;

@@ -128,8 +128,8 @@ impl CompiledPlot {
         crate::error::AvengerChartError,
     > {
         use crate::channel::resolution::resolve_all_channel_refs;
-        use crate::scales::{Scale, spec::Auto};
         use crate::scales::ConfiguredScaleWithSpec;
+        use crate::scales::{Scale, spec::Auto};
         use avenger_scales::scales::ScaleImpl;
         use datafusion::logical_expr::{Expr, lit};
 
@@ -140,7 +140,8 @@ impl CompiledPlot {
             channels_with_scales.insert(ch.clone());
         }
 
-        let mut configured: std::collections::HashMap<String, ConfiguredScaleWithSpec> = std::collections::HashMap::new();
+        let mut configured: std::collections::HashMap<String, ConfiguredScaleWithSpec> =
+            std::collections::HashMap::new();
 
         // Build each scale using provided DataFrame for type inference and domain collection
         for channel in channels_with_scales.iter() {
@@ -151,7 +152,8 @@ impl CompiledPlot {
 
             for mark in &self.marks {
                 let channels = mark.data_context().channels();
-                let resolved = resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
+                let resolved =
+                    resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
                 if let Some(channel_value) = resolved.get(channel) {
                     if let Some(expr) = channel_value.expr(ctx) {
                         // Try to infer type directly from schema for simple column refs
@@ -171,7 +173,9 @@ impl CompiledPlot {
                             chosen_spec = mark.preferred_scale_type(channel, &dt);
                             expr_opt = Some(expr);
                             break;
-                        } else if let Ok(projected) = df.clone().select(vec![expr.clone().alias("__t")]) {
+                        } else if let Ok(projected) =
+                            df.clone().select(vec![expr.clone().alias("__t")])
+                        {
                             // Fallback: project the expression
                             let dt = projected.schema().field(0).data_type().clone();
                             data_type = Some(dt.clone());
@@ -183,26 +187,39 @@ impl CompiledPlot {
                 }
             }
 
-            let scale_spec = chosen_spec.ok_or_else(|| crate::error::AvengerChartError::InternalError(format!(
-                "Failed to infer scale specification for channel '{}' (no matching mark expr)", channel
-            )))?;
+            let scale_spec = chosen_spec.ok_or_else(|| {
+                crate::error::AvengerChartError::InternalError(format!(
+                    "Failed to infer scale specification for channel '{}' (no matching mark expr)",
+                    channel
+                ))
+            })?;
 
             let mut scale = Scale::<Auto>::from_spec(scale_spec);
 
             // Apply coord and mark default options
             if let Some(dt) = &data_type {
                 // Get an impl for option discovery
-                let scale_impl: std::sync::Arc<dyn ScaleImpl> = scale.get_scale_impl().ok_or_else(|| {
-                    crate::error::AvengerChartError::InternalError(format!("Failed to create scale impl for '{}'", channel))
-                })?;
+                let scale_impl: std::sync::Arc<dyn ScaleImpl> =
+                    scale.get_scale_impl().ok_or_else(|| {
+                        crate::error::AvengerChartError::InternalError(format!(
+                            "Failed to create scale impl for '{}'",
+                            channel
+                        ))
+                    })?;
 
                 // Coordinate defaults
-                let coord_opts = self.coord_transform.default_scale_options(channel, scale_impl.as_ref());
+                let coord_opts = self
+                    .coord_transform
+                    .default_scale_options(channel, scale_impl.as_ref());
                 for (k, v) in coord_opts {
                     scale = scale.option(&k, lit(v));
                 }
                 // Mark defaults (first mark that had expr)
-                if let Some(mark) = self.marks.iter().find(|m| m.data_context().channels().contains_key(channel.as_str())) {
+                if let Some(mark) = self
+                    .marks
+                    .iter()
+                    .find(|m| m.data_context().channels().contains_key(channel.as_str()))
+                {
                     let mark_opts = mark.default_scale_options(channel, scale_impl.as_ref(), dt);
                     for (k, v) in mark_opts {
                         scale = scale.option(&k, v);
@@ -211,7 +228,11 @@ impl CompiledPlot {
             }
 
             // Apply default range for positional channels
-            if let Some((min, max)) = self.coord_transform.default_range(channel, plot_area_width as f64, plot_area_height as f64) {
+            if let Some((min, max)) = self.coord_transform.default_range(
+                channel,
+                plot_area_width as f64,
+                plot_area_height as f64,
+            ) {
                 scale = scale.range_interval(lit(min), lit(max));
             }
 
@@ -233,7 +254,10 @@ impl CompiledPlot {
                 .clone()
                 .create_configured_scale(plot_area_width, plot_area_height, ctx, params)
                 .await?;
-            configured.insert(channel.clone(), ConfiguredScaleWithSpec::new(scale, configured_scale));
+            configured.insert(
+                channel.clone(),
+                ConfiguredScaleWithSpec::new(scale, configured_scale),
+            );
         }
 
         Ok(configured)
@@ -250,11 +274,10 @@ impl CompiledPlot {
     ) -> Result<crate::guide::OverflowSpaceRequirement, crate::error::AvengerChartError> {
         if let Some(guide) = &self.compiled_guide {
             // Downcast to ConfiguredScale for the guide API
-            let configured: HashMap<String, avenger_scales::scales::ConfiguredScale> =
-                scales
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.configured().clone()))
-                    .collect();
+            let configured: HashMap<String, avenger_scales::scales::ConfiguredScale> = scales
+                .iter()
+                .map(|(k, v)| (k.clone(), v.configured().clone()))
+                .collect();
             let theme = self.get_theme();
             guide
                 .measure_overflow(

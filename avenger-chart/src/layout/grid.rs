@@ -7,7 +7,9 @@ use crate::legend::LegendPosition;
 use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr};
 use crate::plot::{PlotSubtitle, PlotTitle};
 use crate::serialization::LogicalExprNodeExt;
-use avenger_text::measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer, TextBounds};
+use avenger_text::measurement::{
+    TextBounds, TextMeasurementConfig, TextMeasurer, default_text_measurer,
+};
 use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
@@ -398,7 +400,8 @@ impl GridBuilder {
                 )
                 .await?;
 
-                grid.rows.push(length(bounds.line_height * TITLE_ROW_HEIGHT_MULTIPLIER));
+                grid.rows
+                    .push(length(bounds.line_height * TITLE_ROW_HEIGHT_MULTIPLIER));
                 // Title spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Title, row_index, start_col);
@@ -426,7 +429,8 @@ impl GridBuilder {
                 )
                 .await?;
 
-                grid.rows.push(length(bounds.line_height * SUBTITLE_ROW_HEIGHT_MULTIPLIER));
+                grid.rows
+                    .push(length(bounds.line_height * SUBTITLE_ROW_HEIGHT_MULTIPLIER));
                 // Subtitle spans from left overflow (if present) or plot area to the end
                 let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
                 grid.add_component(ComponentType::Subtitle, row_index, start_col);

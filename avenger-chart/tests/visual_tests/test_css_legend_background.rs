@@ -26,18 +26,14 @@ async fn test_line_legend_background_from_css() {
 
     let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
-    let plot = Plot::<Cartesian>::new()
-        .theme(theme)
-        .data(df)
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke_with(col("series"), |c| {
-                    c.scale_with::<Ordinal>(|s| s)
-                        .legend(|l| l.title("Series"))
-                })
-        );
+    let plot = Plot::<Cartesian>::new().theme(theme).data(df).mark(
+        Line::new()
+            .x(col("x"))
+            .y(col("y"))
+            .stroke_with(col("series"), |c| {
+                c.scale_with::<Ordinal>(|s| s).legend(|l| l.title("Series"))
+            }),
+    );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(&compiled, &ctx, None, "css", "line_legend_background_css").await;
@@ -67,18 +63,15 @@ async fn test_symbol_legend_background_from_css() {
 
     let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
-    let plot = Plot::<Cartesian>::new()
-        .theme(theme)
-        .data(df)
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill_with(col("category"), |c| {
-                    c.scale_with::<Ordinal>(|s| s)
-                        .legend(|l| l.title("Category"))
-                })
-        );
+    let plot = Plot::<Cartesian>::new().theme(theme).data(df).mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Category"))
+            }),
+    );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(&compiled, &ctx, None, "css", "symbol_legend_background_css").await;
@@ -107,20 +100,17 @@ async fn test_rect_legend_background_from_css() {
 
     let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
-    let plot = Plot::<Cartesian>::new()
-        .theme(theme)
-        .data(df)
-        .mark(
-            Rect::new()
-                .x(col("category"))
-                .x2_with(col(":x"), |c| c.band(1.0))
-                .y(lit(0.0))
-                .y2(col("value"))
-                .fill_with(col("category"), |c| {
-                    c.scale_with::<Ordinal>(|s| s)
-                        .legend(|l| l.title("Category"))
-                })
-        );
+    let plot = Plot::<Cartesian>::new().theme(theme).data(df).mark(
+        Rect::new()
+            .x(col("category"))
+            .x2_with(col(":x"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(col("value"))
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Category"))
+            }),
+    );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(&compiled, &ctx, None, "css", "rect_legend_background_css").await;

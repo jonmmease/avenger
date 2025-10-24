@@ -503,7 +503,8 @@ impl CompiledPlot {
             &scalar_batch,
             &context,
             coord_transform,
-        ).await
+        )
+        .await
     }
 
     /// Evaluate a single mark with an optional provided plot-level DataFrame fallback.
@@ -527,11 +528,10 @@ impl CompiledPlot {
 
         // Check if any channel expressions reference columns
         let references_columns = channels.values().any(|channel_value| match channel_value {
-            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                expr.to_expr(ctx)
-                    .map(|e| !e.column_refs().is_empty())
-                    .unwrap_or(false)
-            }
+            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr
+                .to_expr(ctx)
+                .map(|e| !e.column_refs().is_empty())
+                .unwrap_or(false),
             ChannelValue::Conditional {
                 conditions,
                 otherwise,
@@ -562,10 +562,10 @@ impl CompiledPlot {
         } else if !references_columns {
             None
         } else if let Some(df) = self.data.as_ref().and_then(|node| {
-                node.to_logical_plan(ctx)
-                    .ok()
-                    .map(|plan| DataFrame::new(ctx.state().clone(), plan))
-            }) {
+            node.to_logical_plan(ctx)
+                .ok()
+                .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+        }) {
             Some(df)
         } else {
             return Err(AvengerChartError::InternalError(
@@ -696,7 +696,8 @@ impl CompiledPlot {
             &scalar_batch,
             &context,
             coord_transform,
-        ).await
+        )
+        .await
     }
 
     /// Create guide marks (axes, grids) for the coordinate system

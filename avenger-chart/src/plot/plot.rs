@@ -283,7 +283,8 @@ impl<C: CoordinateSystem> Plot<C> {
 
             let compiled_mark = if needs_aggregation {
                 // Apply aggregation and update channel expressions
-                self.compile_mark_with_aggregation(m, mark_state, df, session_context).await?
+                self.compile_mark_with_aggregation(m, mark_state, df, session_context)
+                    .await?
             } else {
                 // No aggregation needed - compile as-is
                 let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
