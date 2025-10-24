@@ -375,9 +375,21 @@ impl CompiledGuide for FacetRowGuide {
         };
         let _scale_bandwidth = band::bandwidth(&row_scale.config)?;
 
-        // IMPORTANT: The scale might not have the correct padding_inner_px that was added
-        // by the facet mark after measuring overflow. This can cause misalignment between
-        // guide labels and subplot centers.
+        // ARCHITECTURAL NOTE: The scale received here doesn't have the correct padding_inner_px
+        // that was added by the facet mark after measuring overflow. This causes misalignment
+        // between guide labels and subplot centers.
+        //
+        // ROOT CAUSE: The facet mark rebuilds the row scale with updated padding (facet.rs:331-354)
+        // after measuring guide overflow, but this updated scale doesn't propagate back to the
+        // outer Plot's guide evaluation. The guide receives the original scale without padding.
+        //
+        // IDEAL SOLUTION: Have marks return updated scales along with scene marks, so those
+        // scales can be used for subsequent guide evaluation. This would require changing the
+        // CompiledMark trait to return (Vec<SceneMark>, HashMap<String, ConfiguredScaleWithSpec>).
+        //
+        // CURRENT WORKAROUND: Calculate the correct positions and bandwidth mathematically based on
+        // plot_height and the padding_inner fraction. This ensures guide labels are centered on
+        // subplots despite having an outdated scale.
         //
         // Strategy: Use the first position from the scale (which includes any outer padding/offset),
         // and calculate step/bandwidth based on plot_height and the padding_inner fraction from the scale.
