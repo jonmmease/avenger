@@ -299,7 +299,7 @@ impl CompiledPlot {
         plot_height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
 
@@ -459,7 +459,7 @@ impl CompiledPlot {
             };
             if batch.is_empty() {
                 // Create empty batch with correct schema
-                return Ok(vec![]);
+                return Ok((vec![], Box::new(())));
             } else {
                 // Concat all batches into a single RecordBatch
                 use datafusion::arrow::compute::concat_batches;
@@ -519,7 +519,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
 
@@ -660,7 +660,7 @@ impl CompiledPlot {
                 (*df).clone().select(scalar_select_exprs)?.collect().await?
             };
             if batch.is_empty() {
-                return Ok(vec![]);
+                return Ok((vec![], Box::new(())));
             } else {
                 use datafusion::arrow::compute::concat_batches;
                 let schema = batch[0].schema();
@@ -935,8 +935,9 @@ impl CompiledPlot {
 
         // Render marks
         let mut mark_groups = Vec::new();
+        let mut layout_infos: Vec<Box<dyn crate::layout::LayoutInfo>> = Vec::new();
         for mark in &self.marks {
-            let scene_marks = self
+            let (scene_marks, layout_info) = self
                 .evaluate_mark(
                     mark.as_ref(),
                     scales,
@@ -947,12 +948,16 @@ impl CompiledPlot {
                 )
                 .await?;
             mark_groups.extend(scene_marks);
+            layout_infos.push(layout_info);
         }
 
-        // Create guide marks (axes, grids, backgrounds)
+        // Merge scale updates from layout info
+        let merged_scales = crate::layout::merge_scale_updates(scales, &layout_infos);
+
+        // Create guide marks (axes, grids, backgrounds) using merged scales
         let guide_marks = self
             .create_guide_marks(
-                scales,
+                &merged_scales,
                 plot_area_width,
                 plot_area_height,
                 plot_bounds,

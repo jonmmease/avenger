@@ -28,12 +28,12 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
+use std::collections::HashMap;
 use datafusion::scalar::ScalarValue;
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 use std::any::Any;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Expression for computing radius/padding requirements for marks
@@ -126,14 +126,29 @@ pub trait CompiledMark: Any + Send + Sync {
     /// * `coord` - Coordinate system for position transformations
     ///
     /// # Returns
-    /// A vector of scene marks ready for evaluation
+    /// A tuple of:
+    /// - A vector of scene marks ready for evaluation
+    /// - Layout information (Box<dyn LayoutInfo>) that marks can use to communicate layout data.
+    ///   Most marks return `Box::new(())` (no layout info). Layout marks like Facet return
+    ///   `Box::new(ScaleUpdates { ... })` to update scales based on measured content.
+    ///
+    /// # Layout Info Guidelines
+    ///
+    /// Layout info should ONLY be used by **layout marks** that:
+    /// - Have a single instance per plot/layer
+    /// - Have global layout responsibility
+    /// - Measure content to determine dimensions
+    ///
+    /// Examples: Facet, Sankey, Treemap, Force-directed graph
+    ///
+    /// **Do NOT use for regular data marks** (Symbol, Line, Rect, etc.)
     async fn evaluate_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError>;
+    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError>;
 
     /// Whether this mark type supports the order encoding channel
     fn supports_order(&self) -> bool {

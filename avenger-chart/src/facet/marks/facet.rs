@@ -168,7 +168,7 @@ impl CompiledMark for CompiledFacetRow {
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
         // Get row scale
         let row_scale = context.scales.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing 'row' scale for FacetRow".into())
@@ -329,7 +329,7 @@ impl CompiledMark for CompiledFacetRow {
         max_required_gap += spacing;
 
         // Rebuild the row scale with measured padding_inner_px
-        let mut updated_scales = context.scales.clone();
+        let mut updated_scales = HashMap::new();
         if max_required_gap > 0.0 {
             use avenger_scales::scalar::Scalar;
 
@@ -353,9 +353,13 @@ impl CompiledMark for CompiledFacetRow {
             );
         }
 
+        // Create a merged scales map for pass 2 rendering
+        let mut merged_scales_for_rendering = context.scales.clone();
+        merged_scales_for_rendering.extend(updated_scales.clone());
+
         // PASS 2: Render with updated scales
         // Get updated band positions from rebuilt scale
-        let final_row_scale = updated_scales.get("row").ok_or_else(|| {
+        let final_row_scale = merged_scales_for_rendering.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing rebuilt 'row' scale".into())
         })?;
         let band_positions = iter_band_positions(final_row_scale)?;
@@ -480,7 +484,10 @@ impl CompiledMark for CompiledFacetRow {
             }
         }
 
-        Ok(all_marks)
+        Ok((
+            all_marks,
+            Box::new(crate::layout::ScaleUpdates::new(updated_scales)),
+        ))
     }
 
     fn preferred_scale_type(

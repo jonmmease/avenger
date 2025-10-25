@@ -331,8 +331,9 @@ impl CompiledPlot {
 
         // Evaluate marks using projected DataFrame as the plot-level fallback
         let mut data_marks = Vec::new();
+        let mut layout_infos = Vec::new();
         for mark in &self.marks {
-            let marks = self
+            let (marks, layout_info) = self
                 .evaluate_mark_with_plot_df(
                     mark.as_ref(),
                     scales,
@@ -344,7 +345,11 @@ impl CompiledPlot {
                 )
                 .await?;
             data_marks.extend(marks);
+            layout_infos.push(layout_info);
         }
+
+        // Merge scale updates from layout info
+        let merged_scales = crate::layout::merge_scale_updates(scales, &layout_infos);
 
         // Plot bounds are the full plot area for subplots
         let plot_bounds = crate::layout::LayoutBounds {
@@ -354,11 +359,11 @@ impl CompiledPlot {
             height: plot_area_height,
         };
 
-        // Evaluate guide marks
+        // Evaluate guide marks using merged scales
         // Note: facet context (e.g., facet_unified_y) is set by the facet mark and passed via params
         let guide_marks = self
             .create_guide_marks(
-                scales,
+                &merged_scales,
                 plot_area_width,
                 plot_area_height,
                 &plot_bounds,

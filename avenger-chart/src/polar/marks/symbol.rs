@@ -130,7 +130,7 @@ impl CompiledMark for CompiledPolarSymbol {
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
         use crate::marks::util::{
             coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
         };
@@ -250,7 +250,7 @@ impl CompiledMark for CompiledPolarSymbol {
             y_adjustment: None,
         };
 
-        Ok(vec![SceneMark::Symbol(symbol_mark)])
+        Ok((vec![SceneMark::Symbol(symbol_mark)], Box::new(())))
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {

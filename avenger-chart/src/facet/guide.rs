@@ -349,7 +349,6 @@ impl CompiledGuide for FacetRowGuide {
         _ctx: &SessionContext,
     ) -> Result<Vec<SceneMark>, crate::error::AvengerChartError> {
         use crate::scales::ConfiguredScaleLegendExt;
-        use avenger_scales::scales::band;
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{TextAlign, TextBaseline};
         use std::sync::Arc as StdArc;
@@ -364,63 +363,28 @@ impl CompiledGuide for FacetRowGuide {
 
         // Domain labels
         let labels = row_scale.domain_labels()?;
-        let n = labels.len();
 
-        // Get positions and bandwidth from the scale
-        let scale_positions = match row_scale.domain_values()? {
+        // Get centered positions using band=0.5
+        // The scale now has the correct padding_inner_px from the facet mark (via scale updates),
+        // and by setting band=0.5, we get positions at the center of each band
+        let mut centered_config = row_scale.config.clone();
+        centered_config.options.insert(
+            "band".to_string(),
+            avenger_scales::scalar::Scalar::from_f32(0.5),
+        );
+
+        let centered_scale = avenger_scales::scales::ConfiguredScale {
+            scale_impl: row_scale.scale_impl.clone(),
+            config: centered_config,
+        };
+
+        let positions = match row_scale.domain_values()? {
             crate::scales::extensions::DomainValues::Discrete(vals) => {
-                row_scale.scale_scalars_to_numeric(&vals)?
+                use crate::scales::extensions::ConfiguredScaleLegendExt;
+                centered_scale.scale_scalars_to_numeric(&vals)?
             }
             _ => Vec::new(),
         };
-        let _scale_bandwidth = band::bandwidth(&row_scale.config)?;
-
-        // ARCHITECTURAL NOTE: The scale received here doesn't have the correct padding_inner_px
-        // that was added by the facet mark after measuring overflow. This causes misalignment
-        // between guide labels and subplot centers.
-        //
-        // ROOT CAUSE: The facet mark rebuilds the row scale with updated padding (facet.rs:331-354)
-        // after measuring guide overflow, but this updated scale doesn't propagate back to the
-        // outer Plot's guide evaluation. The guide receives the original scale without padding.
-        //
-        // IDEAL SOLUTION: Have marks return updated scales along with scene marks, so those
-        // scales can be used for subsequent guide evaluation. This would require changing the
-        // CompiledMark trait to return (Vec<SceneMark>, HashMap<String, ConfiguredScaleWithSpec>).
-        //
-        // CURRENT WORKAROUND: Calculate the correct positions and bandwidth mathematically based on
-        // plot_height and the padding_inner fraction. This ensures guide labels are centered on
-        // subplots despite having an outdated scale.
-        //
-        // Strategy: Use the first position from the scale (which includes any outer padding/offset),
-        // and calculate step/bandwidth based on plot_height and the padding_inner fraction from the scale.
-        let first_pos = scale_positions.first().cloned().unwrap_or(0.0);
-
-        // Get padding_inner as a fraction from the scale's config
-        let padding_inner_fraction = row_scale.config.option_f32("padding_inner", 0.1);
-
-        // We have the constraint: first_pos + (n-1) * step + bandwidth = plot_height
-        // And: bandwidth = step * (1 - padding_inner_fraction)
-        // Substituting:
-        //   first_pos + (n-1) * step + step * (1 - padding_inner) = plot_height
-        //   first_pos + step * ((n-1) + (1 - padding_inner)) = plot_height
-        //   first_pos + step * (n - padding_inner) = plot_height
-        //   step = (plot_height - first_pos) / (n - padding_inner)
-        let actual_step = if n >= 1 {
-            (plot_height - first_pos) / (n as f32 - padding_inner_fraction)
-        } else {
-            plot_height
-        };
-
-        let actual_bandwidth = actual_step * (1.0 - padding_inner_fraction);
-
-        // Recalculate positions with correct spacing
-        let positions: Vec<f32> = (0..n)
-            .map(|i| {
-                first_pos + i as f32 * actual_step
-            })
-            .collect();
-
-        let bandwidth = actual_bandwidth;
 
         // Theme-based font for rendering (match measurement)
         let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
@@ -514,9 +478,10 @@ impl CompiledGuide for FacetRowGuide {
 
         // Place facet labels at band centers, rotated 90 (CW on right, CCW on left)
         // Anchor at the text center so after rotation it's vertically centered.
+        // Positions are already centered (band=0.5), so no offset needed
         for (i, label) in labels.iter().enumerate() {
             let y_center =
-                plot_bounds.y + positions.get(i).cloned().unwrap_or(0.0) + bandwidth / 2.0;
+                plot_bounds.y + positions.get(i).cloned().unwrap_or(0.0);
             // Measure this label to position its center so left edge is at plot edge
             let config = avenger_text::measurement::TextMeasurementConfig {
                 text: label,
@@ -561,9 +526,9 @@ impl CompiledGuide for FacetRowGuide {
         // Render vertical rule between labels and title (if title present)
         if let Some(_title_text) = &self.facet_title {
             if !labels.is_empty() && labels.len() > 1 {
-                // Get y positions of first and last labels
-                let y_top = plot_bounds.y + positions.first().cloned().unwrap_or(0.0) + bandwidth / 2.0;
-                let y_bottom = plot_bounds.y + positions.last().cloned().unwrap_or(0.0) + bandwidth / 2.0;
+                // Get y positions of first and last labels (already centered)
+                let y_top = plot_bounds.y + positions.first().cloned().unwrap_or(0.0);
+                let y_bottom = plot_bounds.y + positions.last().cloned().unwrap_or(0.0);
 
                 // Measure label column width
                 let labels_for_rule = row_scale.domain_labels().unwrap_or_default();
@@ -636,9 +601,9 @@ impl CompiledGuide for FacetRowGuide {
                 };
                 marks.push(SceneMark::Rule(rule_mark));
 
-                // Add tick marks at each label position
+                // Add tick marks at each label position (already centered)
                 for (i, _label) in labels.iter().enumerate() {
-                    let y_center = plot_bounds.y + positions.get(i).cloned().unwrap_or(0.0) + bandwidth / 2.0;
+                    let y_center = plot_bounds.y + positions.get(i).cloned().unwrap_or(0.0);
 
                     let (x_tick_start, x_tick_end) = if place_on_left {
                         (x_rule, x_rule + tick_size)

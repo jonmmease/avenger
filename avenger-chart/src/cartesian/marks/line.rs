@@ -144,7 +144,7 @@ impl CompiledMark for CompiledCartesianLine {
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
         use crate::marks::util::{
             coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
             coerce_numeric_channel_with_renderer,
@@ -292,7 +292,7 @@ impl CompiledMark for CompiledCartesianLine {
                 zindex: self.state.zindex,
             };
 
-            return Ok(vec![SceneMark::Line(line_mark)]);
+            return Ok((vec![SceneMark::Line(line_mark)], Box::new(())));
         }
 
         // Complex case: need to partition based on varying style properties
@@ -516,7 +516,7 @@ impl CompiledMark for CompiledCartesianLine {
             scene_marks.push(SceneMark::Line(line_mark));
         }
 
-        Ok(scene_marks)
+        Ok((scene_marks, Box::new(())))
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
