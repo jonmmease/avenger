@@ -124,6 +124,23 @@ impl CompiledGuide for FacetRowGuide {
         let mut top: f32 = 0.0;
         let mut bottom: f32 = 0.0;
 
+        // Determine unified channel for accurate measurement (same logic as Facet mark)
+        let unified_channel = if let Some(source) = self.facet_sources.first() {
+            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
+                guide
+                    .facet_unifiable_channel(
+                        crate::guide::FacetDirection::Row,
+                        &source.subplot.marks,
+                        ctx,
+                    )
+                    .map(|info| info.channel)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // For each facet source (there could be more than one Facet mark)
         for source in &self.facet_sources {
             // Row expression from channels
@@ -180,6 +197,19 @@ impl CompiledGuide for FacetRowGuide {
                         .await?
                 };
 
+                // Create FacetContext for accurate measurement (so hidden titles don't contribute)
+                use crate::facet::context::FacetContext;
+                let measure_facet_ctx = FacetContext {
+                    position: (i, 0),
+                    grid_dimensions: (domain_vals.len(), 1),
+                    unified_channel: unified_channel.clone(),
+                    scale_sharing: Default::default(), // Will be set properly later
+                };
+
+                // Merge FacetContext into params for measurement
+                let mut measure_params = params.clone();
+                measure_params.extend(measure_facet_ctx.to_params());
+
                 let overflow = source
                     .subplot
                     .measure_guide_overflow_with_scales(
@@ -187,7 +217,7 @@ impl CompiledGuide for FacetRowGuide {
                         plot_width,
                         band_h,
                         ctx,
-                        params,
+                        &measure_params,
                     )
                     .await?;
 
@@ -404,6 +434,23 @@ impl CompiledGuide for FacetRowGuide {
         let mut max_left_child = 0.0_f32;
         let mut max_right_child = 0.0_f32;
 
+        // Determine unified channel for accurate child overflow measurement
+        let unified_channel = if let Some(source) = self.facet_sources.first() {
+            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
+                guide
+                    .facet_unifiable_channel(
+                        crate::guide::FacetDirection::Row,
+                        &source.subplot.marks,
+                        _ctx,
+                    )
+                    .map(|info| info.channel)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         for source in &self.facet_sources {
             let row_expr = source
                 .data
@@ -437,7 +484,7 @@ impl CompiledGuide for FacetRowGuide {
                 }
             }
 
-            for facet_val in &domain_vals_eval {
+            for (i, facet_val) in domain_vals_eval.iter().enumerate() {
                 let filter_df = df_src.clone().filter(
                     row_expr
                         .clone()
@@ -460,6 +507,20 @@ impl CompiledGuide for FacetRowGuide {
                         )
                         .await?
                 };
+
+                // Create FacetContext for accurate child overflow measurement
+                use crate::facet::context::FacetContext;
+                let eval_facet_ctx = FacetContext {
+                    position: (i, 0),
+                    grid_dimensions: (domain_vals_eval.len(), 1),
+                    unified_channel: unified_channel.clone(),
+                    scale_sharing: Default::default(),
+                };
+
+                // Merge FacetContext into params for child overflow measurement
+                let mut eval_params = params.clone();
+                eval_params.extend(eval_facet_ctx.to_params());
+
                 let overflow = source
                     .subplot
                     .measure_guide_overflow_with_scales(
@@ -467,7 +528,7 @@ impl CompiledGuide for FacetRowGuide {
                         plot_width,
                         band_h_eval,
                         _ctx,
-                        params,
+                        &eval_params,
                     )
                     .await?;
                 max_left_child = max_left_child.max(overflow.left);
@@ -716,7 +777,7 @@ impl CompiledGuide for FacetRowGuide {
                 .unwrap_or_else(|| "sans-serif".to_string());
             // Axis side corresponds to child-dominant side: if labels are on left, axis is on right
             let axis_on_right = place_on_left;
-            let gap = 10.0_f32;
+            let gap = 6.0_f32;
             // Position title adjacent to subplot axis labels (max_left/right_child is just label space)
             // Center the title in the gap between labels and plot edge
             let x_bottom = if axis_on_right {
