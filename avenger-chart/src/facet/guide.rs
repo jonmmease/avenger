@@ -28,6 +28,13 @@ struct FacetSource {
     user_title: Option<String>,
 }
 
+impl FacetRowGuide {
+    /// Get the unified channel (if any) for this facet guide
+    fn get_unified_channel(&self) -> Option<String> {
+        self.unifiable_channel.clone()
+    }
+}
+
 impl CoordinateGuide for FacetRowGuide {
     type Axis = crate::cartesian::axis::CartesianAxis;
 
@@ -124,22 +131,8 @@ impl CompiledGuide for FacetRowGuide {
         let mut top: f32 = 0.0;
         let mut bottom: f32 = 0.0;
 
-        // Determine unified channel for accurate measurement (same logic as Facet mark)
-        let unified_channel = if let Some(source) = self.facet_sources.first() {
-            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                guide
-                    .facet_unifiable_channel(
-                        crate::guide::FacetDirection::Row,
-                        &source.subplot.marks,
-                        ctx,
-                    )
-                    .map(|info| info.channel)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        // Get unified channel once from stored configuration
+        let unified_channel = self.get_unified_channel();
 
         // For each facet source (there could be more than one Facet mark)
         for source in &self.facet_sources {
@@ -162,10 +155,20 @@ impl CompiledGuide for FacetRowGuide {
                 )
             })?;
 
-            for (i, facet_val) in domain_vals.iter().enumerate() {
+            // Use SubplotIterator to ensure consistent FacetContext across all subplots
+            use crate::facet::subplot_iterator::SubplotIterator;
+            let subplot_iter = SubplotIterator::new(
+                domain_vals.clone(),
+                unified_channel.clone(),
+                params.clone(),
+            );
+            let band_h = plot_height / subplot_iter.len() as f32;
+
+            for iteration in subplot_iter {
                 let filter_df = df
                     .clone()
-                    .filter(row_expr.clone().eq(lit(facet_val.clone())))?;
+                    .filter(row_expr.clone().eq(lit(iteration.facet_value.clone())))?;
+
                 // Build inner scales and measure inner guide overflow for this band height
                 // Determine per-channel sharing for this subplot
                 let coord_channels: Vec<&str> =
@@ -184,7 +187,7 @@ impl CompiledGuide for FacetRowGuide {
                         break;
                     }
                 }
-                let band_h = plot_height / domain_vals.len() as f32;
+
                 let inner_scales = if any_shared {
                     source
                         .subplot
@@ -197,19 +200,7 @@ impl CompiledGuide for FacetRowGuide {
                         .await?
                 };
 
-                // Create FacetContext for accurate measurement (so hidden titles don't contribute)
-                use crate::facet::context::FacetContext;
-                let measure_facet_ctx = FacetContext {
-                    position: (i, 0),
-                    grid_dimensions: (domain_vals.len(), 1),
-                    unified_channel: unified_channel.clone(),
-                    scale_sharing: Default::default(), // Will be set properly later
-                };
-
-                // Merge FacetContext into params for measurement
-                let mut measure_params = params.clone();
-                measure_params.extend(measure_facet_ctx.to_params());
-
+                // iteration.params already has correct FacetContext - guaranteed by SubplotIterator
                 let overflow = source
                     .subplot
                     .measure_guide_overflow_with_scales(
@@ -217,14 +208,14 @@ impl CompiledGuide for FacetRowGuide {
                         plot_width,
                         band_h,
                         ctx,
-                        &measure_params,
+                        &iteration.params,
                     )
                     .await?;
 
-                if i == 0 {
+                if iteration.index == 0 {
                     top = top.max(overflow.top);
                 }
-                if i == domain_vals.len() - 1 {
+                if iteration.index == domain_vals.len() - 1 {
                     bottom = bottom.max(overflow.bottom);
                 }
                 max_left = max_left.max(overflow.left);
@@ -429,27 +420,20 @@ impl CompiledGuide for FacetRowGuide {
         let font_family = font_family_owned.as_str();
 
         // Decide side based on child overflow (prefer left if right child overflow > left)
-        let domain_vals_eval = row_scale.domain_labels().unwrap_or_default();
+        let domain_labels_eval = row_scale.domain_labels().unwrap_or_default();
+
+        // Convert domain labels to ScalarValues for SubplotIterator
+        let domain_vals_eval: Vec<datafusion::common::ScalarValue> = domain_labels_eval
+            .iter()
+            .map(|s| datafusion::common::ScalarValue::Utf8(Some(s.clone())))
+            .collect();
+
         let band_h_eval = plot_height / domain_vals_eval.len().max(1) as f32;
         let mut max_left_child = 0.0_f32;
         let mut max_right_child = 0.0_f32;
 
-        // Determine unified channel for accurate child overflow measurement
-        let unified_channel = if let Some(source) = self.facet_sources.first() {
-            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                guide
-                    .facet_unifiable_channel(
-                        crate::guide::FacetDirection::Row,
-                        &source.subplot.marks,
-                        _ctx,
-                    )
-                    .map(|info| info.channel)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        // Get unified channel once from stored configuration
+        let unified_channel = self.get_unified_channel();
 
         for source in &self.facet_sources {
             let row_expr = source
@@ -484,11 +468,19 @@ impl CompiledGuide for FacetRowGuide {
                 }
             }
 
-            for (i, facet_val) in domain_vals_eval.iter().enumerate() {
+            // Use SubplotIterator to ensure consistent FacetContext across all subplots
+            use crate::facet::subplot_iterator::SubplotIterator;
+            let subplot_iter = SubplotIterator::new(
+                domain_vals_eval.clone(),
+                unified_channel.clone(),
+                params.clone(),
+            );
+
+            for iteration in subplot_iter {
                 let filter_df = df_src.clone().filter(
                     row_expr
                         .clone()
-                        .eq(datafusion::logical_expr::lit(facet_val.clone())),
+                        .eq(datafusion::logical_expr::lit(iteration.facet_value.clone())),
                 )?;
                 let inner_scales = if any_shared {
                     source
@@ -508,19 +500,7 @@ impl CompiledGuide for FacetRowGuide {
                         .await?
                 };
 
-                // Create FacetContext for accurate child overflow measurement
-                use crate::facet::context::FacetContext;
-                let eval_facet_ctx = FacetContext {
-                    position: (i, 0),
-                    grid_dimensions: (domain_vals_eval.len(), 1),
-                    unified_channel: unified_channel.clone(),
-                    scale_sharing: Default::default(),
-                };
-
-                // Merge FacetContext into params for child overflow measurement
-                let mut eval_params = params.clone();
-                eval_params.extend(eval_facet_ctx.to_params());
-
+                // iteration.params already has correct FacetContext - guaranteed by SubplotIterator
                 let overflow = source
                     .subplot
                     .measure_guide_overflow_with_scales(
@@ -528,7 +508,7 @@ impl CompiledGuide for FacetRowGuide {
                         plot_width,
                         band_h_eval,
                         _ctx,
-                        &eval_params,
+                        &iteration.params,
                     )
                     .await?;
                 max_left_child = max_left_child.max(overflow.left);
