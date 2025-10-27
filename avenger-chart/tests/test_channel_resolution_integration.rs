@@ -97,17 +97,16 @@ async fn test_unresolved_channel_reference_fails() -> Result<(), Box<dyn std::er
             .y2(col("value")),
     );
 
-    // This should fail during rendering
+    // This should fail during rendering (references are validated during evaluation now)
     let dimensions = CanvasDimensions {
         size: [400.0, 300.0],
         scale: 1.0,
     };
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
-    let compiled = plot.compile(&ctx).await.unwrap();
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
     let result = canvas.render_plot(&compiled, &ctx, None).await;
-
-    // We expect an error because :nonexistent can't be resolved
+    // We expect an error because :nonexistent can't be resolved at evaluation time
     assert!(result.is_err());
 
     Ok(())

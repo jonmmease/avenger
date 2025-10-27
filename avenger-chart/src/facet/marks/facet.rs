@@ -515,7 +515,7 @@ impl CompiledMark for CompiledFacetRow {
 
         // Configure band scale padding for facet row channel
         if channel == "row" && scale_impl.scale_type() == "band" {
-            options.insert("outer_padding".to_string(), lit(0.0f32));
+            options.insert("padding_outer".to_string(), lit(0.0f32));
             // Initial padding_inner_px of 0 - will be dynamically measured and rebuilt
             // during evaluate_from_data based on actual subplot overflow
             options.insert("padding_inner_px".to_string(), lit(0.0f32));

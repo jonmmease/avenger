@@ -405,7 +405,7 @@ pub(crate) async fn make_wgpu_adapter(
     };
 
     match instance.request_adapter(&fallback_options).await {
-        Ok(adapter) => return Ok(adapter),
+        Ok(adapter) => Ok(adapter),
         Err(_) => Err(AvengerWgpuError::MakeWgpuAdapterError),
     }
 }

@@ -3,36 +3,35 @@ use datafusion::prelude::*;
 
 #[tokio::test]
 async fn test_reference_to_conditional_channel() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a simple DataFrame
+    // Test that references to conditional channels resolve to their 'otherwise' expression
+    // This test uses numeric conditionals to avoid DataFusion type coercion issues
     let ctx = SessionContext::new();
     let df = ctx
         .sql(
-            "SELECT 
-                'A' as category, 
-                10.0 as value,
-                true as flag
-            UNION ALL
-            SELECT 'B', 20.0, false
-            UNION ALL  
-            SELECT 'C', 15.0, true",
+            "SELECT
+                10.0 as x_val,
+                20.0 as y_val,
+                5.0 as size_val,
+                true as flag",
         )
         .await?;
 
-    // Create a plot with a conditional channel that is referenced
+    // Create a plot where one channel references a conditional channel
+    // NEW BEHAVIOR: References to conditional channels should resolve to the 'otherwise' expression
     let plot = Plot::<Cartesian>::new().canvas_size(400.0, 300.0).mark(
         Symbol::new()
             .data(df.clone())
-            .x(col("value"))
-            .y(col("value"))
-            // Create a conditional fill channel
-            .fill_with(col("category"), |c| {
-                c.when_value(col("flag").eq(lit(false)), lit("red"))
+            .x(col("x_val"))
+            .y(col("y_val"))
+            // Create a conditional size channel with 'size_val' as the otherwise value
+            .size_with(col("size_val"), |c| {
+                c.when_value(col("flag").eq(lit(false)), lit(10.0))
             })
-            // stroke references the conditional fill channel - this should error
-            .stroke(col(":fill")),
+            // stroke_width references the conditional size channel
+            // This should resolve to col("size_val") (the 'otherwise' expression)
+            .stroke_width(col(":size")),
     );
 
-    // Try to render - this should handle the unresolved reference gracefully
     use avenger_common::canvas::CanvasDimensions;
     use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
 
@@ -43,25 +42,16 @@ async fn test_reference_to_conditional_channel() -> Result<(), Box<dyn std::erro
     let config = CanvasConfig::default();
     let mut canvas = PngCanvas::new(dimensions, config).await?;
 
-    // This should fail with an error about conditional channel reference
-    let compiled = plot.compile(&ctx).await.unwrap();
+    // NEW BEHAVIOR: This should succeed because :size resolves to col("size_val")
+    let compiled = plot.compile(&ctx).await?;
     let result = canvas.render_plot(&compiled, &ctx, None).await;
 
-    // We expect an error
+    // The render should succeed
     assert!(
-        result.is_err(),
-        "Expected error when referencing conditional channel"
+        result.is_ok(),
+        "Expected successful render when referencing conditional channel (should resolve to 'otherwise' expression), got error: {:?}",
+        result.err()
     );
-
-    if let Err(e) = result {
-        let error_str = e.to_string();
-        println!("Error: {}", error_str);
-        assert!(
-            error_str.contains("conditional") || error_str.contains("Cannot reference"),
-            "Expected error about conditional channel reference, got: {}",
-            error_str
-        );
-    }
 
     Ok(())
 }

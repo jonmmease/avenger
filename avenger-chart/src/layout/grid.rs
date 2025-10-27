@@ -441,6 +441,12 @@ impl GridBuilder {
         // 4. Add rows for top-positioned legends
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Top) {
             let height = self.measure_legend_container_height(channels, legend_sizes);
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "LAYOUT: top legend container height={:.1} channels={:?}",
+                    height, channels
+                );
+            }
             grid.rows.push(length(height));
             // Top legends should align with plot area, not include left overflow
             grid.add_component(
@@ -468,7 +474,7 @@ impl GridBuilder {
         let plot_row_size = match &layout_spec.plot_area {
             crate::layout::sizing::EvaluatedSizeMode::Fixed { height, .. }
             | crate::layout::sizing::EvaluatedSizeMode::Height(height) => length(*height),
-            _ => fr(1.0), // Flexible - takes remaining vertical space
+            _ => fr(1.0),
         };
         grid.rows.push(plot_row_size);
         grid.add_component(ComponentType::PlotArea, plot_row_index, plot_col_index);
@@ -530,6 +536,12 @@ impl GridBuilder {
         // 11. Add rows for bottom-positioned legends
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Bottom) {
             let height = self.measure_legend_container_height(channels, legend_sizes);
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "LAYOUT: bottom legend container height={:.1} channels={:?}",
+                    height, channels
+                );
+            }
             grid.rows.push(length(height));
             // Bottom legends should align with plot area, not include left overflow
             grid.add_component(

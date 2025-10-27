@@ -274,15 +274,6 @@ impl CompiledMark for CompiledCartesianSymbol {
                 let size_expr = resolve_channel("size");
                 let stroke_width_expr = resolve_channel("stroke_width");
 
-                if std::env::var("AVENGER_DEBUG_RADIUS").is_ok() {
-                    eprintln!(
-                        "DEBUG Symbol: radius_expression called for dimension '{}'",
-                        dimension
-                    );
-                    eprintln!("  size_expr: {:?}", size_expr);
-                    eprintln!("  stroke_width_expr: {:?}", stroke_width_expr);
-                }
-
                 // For symbols: radius = sqrt(area) * 0.5 + stroke_width / 2 + 4px
                 // The size channel represents the area of the bounding square
                 // The base circle SVG path has radius 0.5 for a unit square (size=1)

@@ -76,8 +76,7 @@ fn collect_markdown(
             let mut content = String::new();
             file.read_to_string(&mut content)?;
 
-            let mut fence_counter = 0usize;
-            for code in extract_render_blocks(&content) {
+            for (fence_counter, code) in extract_render_blocks(&content).into_iter().enumerate() {
                 let slug = make_slug(&rel, fence_counter);
                 let fn_ident = make_fn_ident(&slug);
                 let (processed_code, image_count) = process_render_code(&code);
@@ -89,7 +88,6 @@ fn collect_markdown(
                     code: processed_code,
                     image_count,
                 });
-                fence_counter += 1;
             }
         }
     }
@@ -159,11 +157,11 @@ fn make_fn_ident(slug: &str) -> String {
 
 fn extract_render_blocks(content: &str) -> Vec<String> {
     let mut blocks = Vec::new();
-    let mut lines = content.lines();
+    let lines = content.lines();
     let mut current = Vec::new();
     let mut capture = false;
 
-    while let Some(line) = lines.next() {
+    for line in lines {
         if let Some(info) = line.strip_prefix("```") {
             if capture {
                 blocks.push(current.join("\n"));
@@ -356,7 +354,7 @@ fn generate_render_snippets(out_path: &Path, snippets: &[RenderBlock]) -> io::Re
 fn normalize_hidden_line(line: &str) -> String {
     let trimmed = line.trim_start();
     if let Some(stripped) = trimmed.strip_prefix("# ") {
-        format!("{}", stripped)
+        stripped.to_string()
     } else if trimmed == "#" {
         String::new()
     } else {

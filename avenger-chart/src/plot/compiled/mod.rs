@@ -3,7 +3,7 @@
 pub(crate) mod expr_eval;
 mod legends;
 pub(crate) mod rendering;
-mod scales;
+pub(crate) mod scales;  // Made public so plot.rs can call build_scale_builder_from_marks
 mod titles;
 mod validation;
 
@@ -22,6 +22,7 @@ use crate::guide::CompiledGuide;
 use crate::layout::LayoutSpec;
 use crate::legend::Legend;
 use crate::marks::CompiledMark;
+use crate::plot::compiled::scales::build_scale_builder_from_marks;
 use crate::serialization::SerializableDataFrame;
 use crate::theme::Theme;
 
@@ -60,6 +61,10 @@ pub struct CompiledPlot {
 
     /// Scale specifications (temporarily kept for building scales)
     pub(crate) scale_specs: HashMap<String, ScaleSpec>,
+
+    // Note: We intentionally do not persist a ScaleBuilder here. Scales are
+    // rebuilt per evaluation using current params to ensure correctness for
+    // paramized data queries and to keep direct vs serialized paths identical.
 
     /// Plot-level data (temporarily kept for mark inheritance)
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
@@ -101,6 +106,113 @@ impl CompiledPlot {
     /// Get compiled mark renderers
     pub fn marks(&self) -> &[Arc<dyn CompiledMark>] {
         &self.marks
+    }
+
+    /// Build scales with specific dimensions for the current evaluation.
+    ///
+    /// We rebuild a temporary ScaleBuilder on each call using the current params
+    /// so domain inference reflects paramized data queries. This keeps direct
+    /// and serialized paths identical and avoids stale caches.
+    pub async fn build_scales_with_dimensions(
+        &self,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        ctx: &datafusion::prelude::SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> Result<std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>, crate::error::AvengerChartError> {
+        // Always rebuild a temporary ScaleBuilder using current params.
+        let builder = build_scale_builder_from_marks(
+            &self.marks,
+            &self.scale_specs,
+            &self.coord_transform,
+            &self.data,
+            ctx,
+            params,
+            self.get_theme().as_ref(),
+        )
+        .await?;
+
+        // Build coordinate system ranges map
+        let mut coord_system_ranges = std::collections::HashMap::new();
+        for channel in builder.channel_builders().keys() {
+            use crate::channel::value::strip_trailing_numbers;
+            let base = strip_trailing_numbers(channel);
+            if let Some((min, max)) = self
+                .coord_transform
+                .default_range(base, plot_area_width as f64, plot_area_height as f64)
+            {
+                coord_system_ranges.insert(channel.clone(), (min, max));
+            }
+        }
+
+        let theme = self.get_theme();
+        let built = builder
+            .build_scales(
+                plot_area_width,
+                plot_area_height,
+                &coord_system_ranges,
+                &self.scale_specs,
+                &self.marks,
+                theme.as_ref(),
+                ctx,
+                params,
+            )
+            .await?;
+
+        Ok(built)
+    }
+
+    /// Build scales from an existing ScaleBuilder with specific dimensions.
+    ///
+    /// This is more efficient than `build_scales_with_dimensions` when you need to
+    /// build scales multiple times (e.g., initial layout pass and final render pass)
+    /// because it reuses the cached data queries from the provided builder.
+    ///
+    /// Typical usage:
+    /// ```ignore
+    /// // Build once (queries data)
+    /// let builder = build_scale_builder_from_marks(...).await?;
+    ///
+    /// // Reuse multiple times (no queries)
+    /// let initial_scales = plot.build_scales_from_builder(&builder, 400.0, 300.0, ctx, params).await?;
+    /// let final_scales = plot.build_scales_from_builder(&builder, 800.0, 600.0, ctx, params).await?;
+    /// ```
+    pub async fn build_scales_from_builder(
+        &self,
+        builder: &crate::scales::ScaleBuilder,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        ctx: &datafusion::prelude::SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> Result<std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>, crate::error::AvengerChartError> {
+        // Build coordinate system ranges map
+        let mut coord_system_ranges = std::collections::HashMap::new();
+        for channel in builder.channel_builders().keys() {
+            use crate::channel::value::strip_trailing_numbers;
+            let base = strip_trailing_numbers(channel);
+            if let Some((min, max)) = self
+                .coord_transform
+                .default_range(base, plot_area_width as f64, plot_area_height as f64)
+            {
+                coord_system_ranges.insert(channel.clone(), (min, max));
+            }
+        }
+
+        let theme = self.get_theme();
+        let built = builder
+            .build_scales(
+                plot_area_width,
+                plot_area_height,
+                &coord_system_ranges,
+                &self.scale_specs,
+                &self.marks,
+                theme.as_ref(),
+                ctx,
+                params,
+            )
+            .await?;
+
+        Ok(built)
     }
 
     /// Get scale specifications
@@ -246,7 +358,7 @@ impl CompiledPlot {
                 .infer_domain_from_data(plot_area_width, plot_area_height, ctx, params)
                 .await?;
             scale = scale
-                .normalize_domain(plot_area_width, plot_area_height, ctx)
+                .normalize_domain(plot_area_width, plot_area_height, ctx, params)
                 .await?;
 
             // Create configured
