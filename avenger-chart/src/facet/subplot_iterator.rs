@@ -6,6 +6,7 @@
 //! - unified_channel is computed consistently
 //! - FacetContext is always present in params
 
+use crate::facet::dimension_config::FacetDimensionConfig;
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 
@@ -20,17 +21,19 @@ pub struct SubplotIteration {
     pub params: IndexMap<String, ScalarValue>,
 }
 
-/// Iterator over subplots in a faceted row layout
+/// Iterator over subplots in a faceted layout (generic over row/column dimension)
 ///
 /// Ensures each subplot gets correct FacetContext with:
-/// - position matching the iteration index
-/// - grid_dimensions matching the total number of subplots
+/// - position matching the iteration index (parameterized by DimConfig)
+/// - grid_dimensions matching the total number of subplots (parameterized by DimConfig)
 /// - unified_channel for proper axis handling
 ///
 /// # Example
 ///
 /// ```ignore
-/// let iterator = SubplotIterator::new(
+/// use crate::facet::dimension_config::RowDimensionConfig;
+///
+/// let iterator = SubplotIterator::<RowDimensionConfig>::new(
 ///     domain_vals,
 ///     unified_channel,
 ///     params.clone(),
@@ -48,15 +51,16 @@ pub struct SubplotIteration {
 ///     ).await?;
 /// }
 /// ```
-pub struct SubplotIterator {
+pub struct SubplotIterator<DimConfig: FacetDimensionConfig> {
     domain_vals: Vec<ScalarValue>,
     unified_channel: Option<String>,
     base_params: IndexMap<String, ScalarValue>,
     scale_sharing: std::collections::HashMap<String, bool>,
     current_index: usize,
+    _phantom: std::marker::PhantomData<DimConfig>,
 }
 
-impl SubplotIterator {
+impl<DimConfig: FacetDimensionConfig> SubplotIterator<DimConfig> {
     /// Create a new subplot iterator
     ///
     /// # Arguments
@@ -76,6 +80,7 @@ impl SubplotIterator {
             base_params,
             scale_sharing,
             current_index: 0,
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -90,7 +95,7 @@ impl SubplotIterator {
     }
 }
 
-impl Iterator for SubplotIterator {
+impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
     type Item = SubplotIteration;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -101,11 +106,11 @@ impl Iterator for SubplotIterator {
         let index = self.current_index;
         let facet_value = self.domain_vals[index].clone();
 
-        // Create FacetContext with invariants enforced
+        // Create FacetContext with invariants enforced, using DimConfig for position/grid
         use crate::facet::context::FacetContext;
         let facet_ctx = FacetContext {
-            position: (index, 0),
-            grid_dimensions: (self.domain_vals.len(), 1),
+            position: DimConfig::index_to_position(index),
+            grid_dimensions: DimConfig::count_to_grid_dimensions(self.domain_vals.len()),
             unified_channel: self.unified_channel.clone(),
             scale_sharing: self.scale_sharing.clone(),
         };
@@ -129,11 +134,12 @@ impl Iterator for SubplotIterator {
     }
 }
 
-impl ExactSizeIterator for SubplotIterator {}
+impl<DimConfig: FacetDimensionConfig> ExactSizeIterator for SubplotIterator<DimConfig> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::facet::dimension_config::RowDimensionConfig;
     use datafusion::common::ScalarValue;
 
     #[test]
@@ -147,7 +153,7 @@ mod tests {
         let params = IndexMap::new();
         let scale_sharing = std::collections::HashMap::new();
 
-        let iter = SubplotIterator::new(domain_vals.clone(), unified_channel.clone(), params, scale_sharing);
+        let iter = SubplotIterator::<RowDimensionConfig>::new(domain_vals.clone(), unified_channel.clone(), params, scale_sharing);
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 3);
@@ -188,7 +194,7 @@ mod tests {
         let params = IndexMap::new();
         let scale_sharing = std::collections::HashMap::new();
 
-        let iter = SubplotIterator::new(domain_vals, None, params, scale_sharing);
+        let iter = SubplotIterator::<RowDimensionConfig>::new(domain_vals, None, params, scale_sharing);
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 2);
@@ -208,7 +214,7 @@ mod tests {
         let params = IndexMap::new();
         let scale_sharing = std::collections::HashMap::new();
 
-        let mut iter = SubplotIterator::new(domain_vals, None, params, scale_sharing);
+        let mut iter = SubplotIterator::<RowDimensionConfig>::new(domain_vals, None, params, scale_sharing);
         assert_eq!(iter.size_hint(), (3, Some(3)));
 
         iter.next();
@@ -228,7 +234,7 @@ mod tests {
         base_params.insert("custom_param".to_string(), ScalarValue::Int32(Some(42)));
         let scale_sharing = std::collections::HashMap::new();
 
-        let iter = SubplotIterator::new(domain_vals, None, base_params.clone(), scale_sharing);
+        let iter = SubplotIterator::<RowDimensionConfig>::new(domain_vals, None, base_params.clone(), scale_sharing);
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 1);

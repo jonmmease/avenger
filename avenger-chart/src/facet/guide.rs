@@ -1,3 +1,4 @@
+use crate::facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig};
 use crate::guide::{CompiledGuide, CoordinateGuide, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;
@@ -61,8 +62,8 @@ impl CoordinateGuide for FacetRowGuide {
         // Derive default facet title if not explicitly set on any facet mark
         if self.facet_title.is_none() {
             if let Some(src) = self.facet_sources.first() {
-                // Try to extract a column name from 'row' channel
-                if let Some(cv) = src.data.channels().get("row") {
+                // Try to extract a column name from channel
+                if let Some(cv) = src.data.channels().get(RowDimensionConfig::channel_name()) {
                     if let Some(name) = cv.as_column_name(_session_context) {
                         self.facet_title = Some(name);
                     }
@@ -79,7 +80,7 @@ impl CoordinateGuide for FacetRowGuide {
             if let Some(src) = self.facet_sources.first() {
                 if let Some(info) = src.subplot.compiled_guide.as_ref().and_then(|g| {
                     g.facet_unifiable_channel(
-                        crate::guide::FacetDirection::Row,
+                        RowDimensionConfig::facet_direction(),
                         src.subplot.marks(),
                         _session_context,
                     )
@@ -113,10 +114,10 @@ impl CompiledGuide for FacetRowGuide {
         use crate::scales::ConfiguredScaleLegendExt;
         use datafusion::logical_expr::lit;
 
-        // Need 'row' scale
-        let row_scale = scales.get("row").ok_or_else(|| {
+        // Need row scale
+        let row_scale = scales.get(RowDimensionConfig::channel_name()).ok_or_else(|| {
             crate::error::AvengerChartError::InternalError(
-                "Missing 'row' scale for FacetRowGuide".into(),
+                format!("Missing '{}' scale for FacetRowGuide", RowDimensionConfig::channel_name()).into(),
             )
         })?;
 
@@ -140,11 +141,11 @@ impl CompiledGuide for FacetRowGuide {
             let row_expr = source
                 .data
                 .channels()
-                .get("row")
+                .get(RowDimensionConfig::channel_name())
                 .and_then(|cv| cv.expr(ctx))
                 .ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
-                        "Facet 'row' channel not found in guide".into(),
+                        format!("Facet '{}' channel not found in guide", RowDimensionConfig::channel_name()).into(),
                     )
                 })?;
 
@@ -175,7 +176,7 @@ impl CompiledGuide for FacetRowGuide {
 
             // Use SubplotIterator to ensure consistent FacetContext across all subplots
             use crate::facet::subplot_iterator::SubplotIterator;
-            let subplot_iter = SubplotIterator::new(
+            let subplot_iter = SubplotIterator::<RowDimensionConfig>::new(
                 domain_vals.clone(),
                 unified_channel.clone(),
                 params.clone(),
@@ -377,7 +378,7 @@ impl CompiledGuide for FacetRowGuide {
         let mut marks: Vec<SceneMark> = Vec::new();
 
         // Row scale
-        let row_scale = match scales.get("row") {
+        let row_scale = match scales.get(RowDimensionConfig::channel_name()) {
             Some(s) => s,
             None => return Ok(marks),
         };
@@ -424,11 +425,11 @@ impl CompiledGuide for FacetRowGuide {
             let row_expr = source
                 .data
                 .channels()
-                .get("row")
+                .get(RowDimensionConfig::channel_name())
                 .and_then(|cv| cv.expr(_ctx))
                 .ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
-                        "Facet 'row' channel not found in guide".into(),
+                        format!("Facet '{}' channel not found in guide", RowDimensionConfig::channel_name()).into(),
                     )
                 })?;
             let df_src = source.data.dataframe_with_context(_ctx).ok_or_else(|| {
@@ -456,7 +457,7 @@ impl CompiledGuide for FacetRowGuide {
 
             // Use SubplotIterator to ensure consistent FacetContext across all subplots
             use crate::facet::subplot_iterator::SubplotIterator;
-            let subplot_iter = SubplotIterator::new(
+            let subplot_iter = SubplotIterator::<RowDimensionConfig>::new(
                 domain_vals_eval.clone(),
                 unified_channel.clone(),
                 params.clone(),

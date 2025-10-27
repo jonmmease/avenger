@@ -1,6 +1,7 @@
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::facet::coord::FacetRow;
+use crate::facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig};
 use crate::facet::marks::facet_config::FacetRowChannelConfig;
 use crate::marks::{
     ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
@@ -58,7 +59,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
     /// Set the faceting channel for rows
     pub fn row<V: Into<ChannelValue>>(self, value: V) -> Self {
         let mut s = self;
-        s.state.data = s.state.data.with_channel_value("row", value.into());
+        s.state.data = s.state.data.with_channel_value(RowDimensionConfig::channel_name(), value.into());
         s
     }
 
@@ -195,7 +196,7 @@ impl CompiledMark for CompiledFacetRow {
 
     fn supported_channels(&self) -> Vec<ChannelDescriptor> {
         vec![ChannelDescriptor {
-            name: "row",
+            name: RowDimensionConfig::channel_name(),
             required: true,
             default_value: None,
             allow_column_ref: true,
@@ -230,8 +231,8 @@ impl CompiledMark for CompiledFacetRow {
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
         // Get row scale
-        let row_scale = context.scales.get("row").ok_or_else(|| {
-            AvengerChartError::InternalError("Missing 'row' scale for FacetRow".into())
+        let row_scale = context.scales.get(RowDimensionConfig::channel_name()).ok_or_else(|| {
+            AvengerChartError::InternalError(format!("Missing '{}' scale for FacetRow", RowDimensionConfig::channel_name()).into())
         })?;
 
         // Validate that row scale is a band scale
@@ -259,10 +260,10 @@ impl CompiledMark for CompiledFacetRow {
             .state
             .data
             .channels()
-            .get("row")
+            .get(RowDimensionConfig::channel_name())
             .and_then(|cv| cv.expr(ctx))
             .ok_or_else(|| {
-                AvengerChartError::InternalError("Facet 'row' channel not found".into())
+                AvengerChartError::InternalError(format!("Facet '{}' channel not found", RowDimensionConfig::channel_name()).into())
             })?;
 
         let mut all_marks: Vec<SceneMark> = Vec::new();
@@ -313,7 +314,7 @@ impl CompiledMark for CompiledFacetRow {
         let unified_channel = if let Some(guide) = self.compiled_subplot.compiled_guide.as_ref() {
             guide
                 .facet_unifiable_channel(
-                    crate::guide::FacetDirection::Row,
+                    RowDimensionConfig::facet_direction(),
                     self.compiled_subplot.marks(),
                     ctx,
                 )
@@ -330,7 +331,7 @@ impl CompiledMark for CompiledFacetRow {
 
         // Create SubplotIterator for logical iteration (FacetContext management)
         use crate::facet::subplot_iterator::SubplotIterator;
-        let subplot_iter = SubplotIterator::new(
+        let subplot_iter = SubplotIterator::<RowDimensionConfig>::new(
             domain_vals,
             unified_channel.clone(),
             context.params.clone(),
@@ -385,7 +386,10 @@ impl CompiledMark for CompiledFacetRow {
         // Calculate required padding based on adjacent overflow measurements
         let mut max_required_gap = 0.0f32;
         for i in 0..overflow_measurements.len().saturating_sub(1) {
-            let gap = overflow_measurements[i].bottom + overflow_measurements[i + 1].top;
+            let gap = RowDimensionConfig::calculate_adjacent_overflow(
+                &overflow_measurements[i],
+                &overflow_measurements[i + 1],
+            );
             max_required_gap = max_required_gap.max(gap);
         }
 
@@ -424,7 +428,7 @@ impl CompiledMark for CompiledFacetRow {
 
             // Wrap in ConfiguredScaleWithSpec
             updated_scales.insert(
-                "row".to_string(),
+                RowDimensionConfig::channel_name().to_string(),
                 ConfiguredScaleWithSpec::new(row_scale.spec().clone(), new_configured),
             );
         }
@@ -435,8 +439,8 @@ impl CompiledMark for CompiledFacetRow {
 
         // ========== PASS 2: RENDERING PHASE ==========
         // Get updated band positions from rebuilt scale
-        let final_row_scale = merged_scales_for_rendering.get("row").ok_or_else(|| {
-            AvengerChartError::InternalError("Missing rebuilt 'row' scale".into())
+        let final_row_scale = merged_scales_for_rendering.get(RowDimensionConfig::channel_name()).ok_or_else(|| {
+            AvengerChartError::InternalError(format!("Missing rebuilt '{}' scale", RowDimensionConfig::channel_name()).into())
         })?;
         let band_positions: Vec<_> = BandPositionIterator::from_scale(final_row_scale)?
             .map(|bp| (bp.value, (bp.position, bp.bandwidth)))
@@ -470,7 +474,7 @@ impl CompiledMark for CompiledFacetRow {
             .collect();
 
         // Create SubplotIterator for Pass 2 (FacetContext management)
-        let subplot_iter_pass2 = SubplotIterator::new(
+        let subplot_iter_pass2 = SubplotIterator::<RowDimensionConfig>::new(
             domain_vals_final,
             unified_channel.clone(),
             context.params.clone(),
@@ -572,7 +576,7 @@ impl CompiledMark for CompiledFacetRow {
         channel: &str,
         data_type: &datafusion::arrow::datatypes::DataType,
     ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
-        if channel == "row" {
+        if channel == RowDimensionConfig::channel_name() {
             // Use band scale for row faceting regardless of domain type (categorical input expected)
             Some(Box::new(crate::scales::spec::Band::default()))
         } else {
@@ -591,7 +595,7 @@ impl CompiledMark for CompiledFacetRow {
         let mut options = HashMap::new();
 
         // Configure band scale padding for facet row channel
-        if channel == "row" && scale_impl.scale_type() == "band" {
+        if channel == RowDimensionConfig::channel_name() && scale_impl.scale_type() == "band" {
             options.insert("padding_outer".to_string(), lit(0.0f32));
             // Initial padding_inner_px of 0 - will be dynamically measured and rebuilt
             // during evaluate_from_data based on actual subplot overflow
