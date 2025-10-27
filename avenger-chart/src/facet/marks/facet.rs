@@ -129,6 +129,47 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
     }
 }
 
+/// Default spacing between facets in pixels when not specified by theme or configuration
+const DEFAULT_FACET_SPACING: f32 = 3.0;
+
+// Helper methods for CompiledFacetRow (not part of CompiledMark trait)
+impl CompiledFacetRow {
+    /// Helper method to build scales for a dataframe, reusing shared scales if available
+    ///
+    /// If `shared_scales_opt` contains scales, clones and returns them.
+    /// Otherwise, builds new scales from the dataframe using ScaleBuilder.
+    async fn build_scales_helper(
+        &self,
+        shared_scales_opt: &Option<std::collections::HashMap<String, ConfiguredScaleWithSpec>>,
+        filter_df: &DataFrame,
+        plot_width: f32,
+        band_height: f32,
+        ctx: &SessionContext,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> Result<std::collections::HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        if let Some(shared) = shared_scales_opt {
+            Ok(shared.clone())
+        } else {
+            self.compiled_subplot
+                .build_scales_for_dataframe(filter_df, plot_width, band_height, ctx, params)
+                .await
+        }
+    }
+
+    /// Helper to extract band height from band positions vector
+    ///
+    /// Returns the bandwidth from the first band position, or fallback_height if empty.
+    fn extract_band_height(
+        band_positions: &[(datafusion::common::ScalarValue, (f32, f32))],
+        fallback_height: f32,
+    ) -> f32 {
+        band_positions
+            .first()
+            .map(|(_, (_, h))| *h)
+            .unwrap_or(fallback_height)
+    }
+}
+
 #[typetag::serde]
 #[async_trait::async_trait]
 impl CompiledMark for CompiledFacetRow {
@@ -161,6 +202,26 @@ impl CompiledMark for CompiledFacetRow {
         }]
     }
 
+    /// Evaluate faceted row layout using a two-pass rendering algorithm
+    ///
+    /// # Two-Pass Algorithm
+    ///
+    /// **Pass 1 (Measurement)**: Measure guide overflow to determine spacing
+    /// - Build scales with approximate band height
+    /// - Measure each subplot's axis labels/titles
+    /// - Calculate max overflow (top/bottom) across all facets
+    /// - Adjust band height to accommodate overflow
+    ///
+    /// **Pass 2 (Rendering)**: Render with corrected dimensions
+    /// - Rebuild shared scales with final band height (CRITICAL for data alignment)
+    /// - Position and render each subplot with correct spacing
+    /// - Facet labels are rendered by the guide system (not by this mark)
+    ///
+    /// # Scale Sharing
+    ///
+    /// - Shared scales: Built once with all data, same domain across facets
+    /// - Free scales: Built per-facet with filtered data, independent domains
+    /// - After padding adjustment, shared scales MUST be rebuilt to prevent misalignment
     async fn evaluate_from_data(
         &self,
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
@@ -172,6 +233,14 @@ impl CompiledMark for CompiledFacetRow {
         let row_scale = context.scales.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing 'row' scale for FacetRow".into())
         })?;
+
+        // Validate that row scale is a band scale
+        if row_scale.configured().scale_impl.scale_type() != "band" {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "FacetRow requires band scale on 'row' channel, got scale type: {}",
+                row_scale.configured().scale_impl.scale_type()
+            )));
+        }
 
         // Build initial (facet_value -> (y_pos, band_height)) map with current scale
         use crate::facet::band_positions::BandPositionIterator;
@@ -204,7 +273,7 @@ impl CompiledMark for CompiledFacetRow {
             .coord_transform
             .required_channels()
             .to_vec();
-        let mut channel_shared: HashMap<String, bool> = HashMap::new();
+        let mut scale_sharing_by_channel: HashMap<String, bool> = HashMap::new();
         for &ch in &required_channels {
             let mut shared = false;
             for m in &self.compiled_subplot.marks {
@@ -217,22 +286,19 @@ impl CompiledMark for CompiledFacetRow {
                     }
                 }
             }
-            channel_shared.insert(ch.to_string(), shared);
+            scale_sharing_by_channel.insert(ch.to_string(), shared);
         }
 
         // If any channel is shared, compute scales once across full data using approximate band height
-        let any_shared = channel_shared.values().any(|v| *v);
-        let approx_h = initial_band_positions
-            .first()
-            .map(|(_, (_, h))| *h)
-            .unwrap_or(context.plot_height);
-        let shared_scales = if any_shared {
+        let any_shared = scale_sharing_by_channel.values().any(|v| *v);
+        let initial_band_height = Self::extract_band_height(&initial_band_positions, context.plot_height);
+        let initial_shared_scales = if any_shared {
             Some(
                 self.compiled_subplot
                     .build_scales_for_dataframe(
                         &df,
                         context.plot_width,
-                        approx_h,
+                        initial_band_height,
                         ctx,
                         &context.params,
                     )
@@ -242,7 +308,7 @@ impl CompiledMark for CompiledFacetRow {
             None
         };
 
-        // PASS 1: Measure overflow for each facet partition to determine required spacing
+        // ========== PASS 1: MEASUREMENT PHASE ==========
         // Determine which channel is unified (needed for accurate measurement)
         let unified_channel = if let Some(guide) = self.compiled_subplot.compiled_guide.as_ref() {
             guide
@@ -256,42 +322,50 @@ impl CompiledMark for CompiledFacetRow {
             None
         };
 
-        let total_rows = initial_band_positions.len();
+        // Extract domain values from band positions for SubplotIterator
+        let domain_vals: Vec<datafusion::common::ScalarValue> = initial_band_positions
+            .iter()
+            .map(|(val, _)| val.clone())
+            .collect();
+
+        // Create SubplotIterator for logical iteration (FacetContext management)
+        use crate::facet::subplot_iterator::SubplotIterator;
+        let subplot_iter = SubplotIterator::new(
+            domain_vals,
+            unified_channel.clone(),
+            context.params.clone(),
+            scale_sharing_by_channel.clone(),
+        );
+
+        // Create BandPositionIterator for geometric iteration (layout positions)
+        let band_iter = BandPositionIterator::from_scale(row_scale)?;
+
+        // Safety check: both iterators must have same length
+        assert_eq!(
+            subplot_iter.len(),
+            band_iter.len(),
+            "SubplotIterator and BandPositionIterator length mismatch in Pass 1"
+        );
+
         let mut overflow_measurements = Vec::new();
 
-        for (row_idx, (facet_value, (_y_pos, band_height))) in initial_band_positions.iter().enumerate() {
+        for (iteration, band_pos) in subplot_iter.zip(band_iter) {
             // Filter df by facet_value
             let filter_df: DataFrame = df
                 .clone()
-                .filter(row_expr.clone().eq(lit(facet_value.clone())))?;
+                .filter(row_expr.clone().eq(lit(iteration.facet_value.clone())))?;
 
             // Build scales for this partition (use shared scales if available)
-            let scales = if let Some(ref shared) = shared_scales {
-                shared.clone()
-            } else {
-                self.compiled_subplot
-                    .build_scales_for_dataframe(
-                        &filter_df,
-                        context.plot_width,
-                        *band_height,
-                        ctx,
-                        &context.params,
-                    )
-                    .await?
-            };
-
-            // Create FacetContext for accurate measurement (so hidden titles don't contribute)
-            use crate::facet::context::FacetContext;
-            let measure_facet_ctx = FacetContext {
-                position: (row_idx, 0),
-                grid_dimensions: (total_rows, 1),
-                unified_channel: unified_channel.clone(),
-                scale_sharing: channel_shared.clone(),
-            };
-
-            // Merge FacetContext into params for measurement
-            let mut measure_params = context.params.clone();
-            measure_params.extend(measure_facet_ctx.to_params());
+            let scales = self
+                .build_scales_helper(
+                    &initial_shared_scales,
+                    &filter_df,
+                    context.plot_width,
+                    band_pos.bandwidth,
+                    ctx,
+                    &iteration.params, // Use SubplotIterator's params (has FacetContext)
+                )
+                .await?;
 
             // Measure guide overflow for this partition with FacetContext applied
             let overflow = self
@@ -299,9 +373,9 @@ impl CompiledMark for CompiledFacetRow {
                 .measure_guide_overflow_with_scales(
                     &scales,
                     context.plot_width,
-                    *band_height,
+                    band_pos.bandwidth,
                     ctx,
-                    &measure_params,
+                    &iteration.params, // Use SubplotIterator's params (has FacetContext)
                 )
                 .await?;
 
@@ -316,7 +390,7 @@ impl CompiledMark for CompiledFacetRow {
         }
 
         // Add spacing from facet configuration or theme
-        // Priority: 1) facet_spacing field, 2) theme 'facet { spacing }', 3) default 3.0
+        // Priority: 1) facet_spacing field, 2) theme 'facet { spacing }', 3) DEFAULT_FACET_SPACING
         let spacing = if let Some(explicit_spacing) = self.facet_spacing {
             explicit_spacing
         } else {
@@ -326,7 +400,7 @@ impl CompiledMark for CompiledFacetRow {
                 .query(&facet_ctx, "spacing")
                 .and_then(|v| v.as_number())
                 .map(|n| n as f32)
-                .unwrap_or(3.0)
+                .unwrap_or(DEFAULT_FACET_SPACING)
         };
         max_required_gap += spacing;
 
@@ -359,7 +433,7 @@ impl CompiledMark for CompiledFacetRow {
         let mut merged_scales_for_rendering = context.scales.clone();
         merged_scales_for_rendering.extend(updated_scales.clone());
 
-        // PASS 2: Render with updated scales
+        // ========== PASS 2: RENDERING PHASE ==========
         // Get updated band positions from rebuilt scale
         let final_row_scale = merged_scales_for_rendering.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing rebuilt 'row' scale".into())
@@ -369,67 +443,81 @@ impl CompiledMark for CompiledFacetRow {
             .collect();
 
         // CRITICAL: Rebuild shared scales with the NEW band height after padding adjustment
-        // The initial shared_scales were built with the approximate height BEFORE padding,
+        // The initial_shared_scales were built with the approximate height BEFORE padding,
         // which causes incorrect data scaling (x-axis doesn't align with y=0)
-        let shared_scales = if any_shared {
-            let new_band_height = band_positions
-                .first()
-                .map(|(_, (_, h))| *h)
-                .unwrap_or(context.plot_height);
+        let final_shared_scales = if any_shared {
+            let final_band_height = Self::extract_band_height(&band_positions, context.plot_height);
 
             Some(
                 self.compiled_subplot
                     .build_scales_for_dataframe(
                         &df,
                         context.plot_width,
-                        new_band_height,
+                        final_band_height,
                         ctx,
                         &context.params,
                     )
                     .await?,
             )
         } else {
-            shared_scales
+            initial_shared_scales
         };
 
-        // Get total number of rows for grid dimensions
-        let total_rows = band_positions.len();
+        // Extract domain values from final band positions for SubplotIterator
+        let domain_vals_final: Vec<datafusion::common::ScalarValue> = band_positions
+            .iter()
+            .map(|(val, _)| val.clone())
+            .collect();
 
-        for (row_idx, (facet_value, (y_pos, band_height))) in band_positions.into_iter().enumerate()
-        {
+        // Create SubplotIterator for Pass 2 (FacetContext management)
+        let subplot_iter_pass2 = SubplotIterator::new(
+            domain_vals_final,
+            unified_channel.clone(),
+            context.params.clone(),
+            scale_sharing_by_channel.clone(),
+        );
+
+        // Create BandPositionIterator for Pass 2 (layout positions)
+        let band_iter_pass2 = BandPositionIterator::from_scale(final_row_scale)?;
+
+        // Safety check: both iterators must have same length
+        assert_eq!(
+            subplot_iter_pass2.len(),
+            band_iter_pass2.len(),
+            "SubplotIterator and BandPositionIterator length mismatch in Pass 2"
+        );
+
+        for (iteration, band_pos) in subplot_iter_pass2.zip(band_iter_pass2) {
             // Filter df by facet_value
             let filter_df: DataFrame = df
                 .clone()
-                .filter(row_expr.clone().eq(lit(facet_value.clone())))?;
+                .filter(row_expr.clone().eq(lit(iteration.facet_value.clone())))?;
 
             // Build scales and evaluate inner components for this partition
-            let mut scales = if let Some(ref shared) = shared_scales {
-                shared.clone()
-            } else {
-                self.compiled_subplot
-                    .build_scales_for_dataframe(
-                        &filter_df,
-                        context.plot_width,
-                        band_height,
-                        ctx,
-                        &context.params,
-                    )
-                    .await?
-            };
+            let mut scales = self
+                .build_scales_helper(
+                    &final_shared_scales,
+                    &filter_df,
+                    context.plot_width,
+                    band_pos.bandwidth,
+                    ctx,
+                    &iteration.params, // Use SubplotIterator's params (has FacetContext)
+                )
+                .await?;
 
             // If some channels are free, rebuild facet-specific scales and override those channels
             if any_shared {
                 let facet_scales = self
-                    .compiled_subplot
-                    .build_scales_for_dataframe(
+                    .build_scales_helper(
+                        &None, // Always build fresh for free channels
                         &filter_df,
                         context.plot_width,
-                        band_height,
+                        band_pos.bandwidth,
                         ctx,
-                        &context.params,
+                        &iteration.params, // Use SubplotIterator's params (has FacetContext)
                     )
                     .await?;
-                for (ch, shared_flag) in &channel_shared {
+                for (ch, shared_flag) in &scale_sharing_by_channel {
                     if !*shared_flag {
                         if let Some(s) = facet_scales.get(ch) {
                             scales.insert(ch.clone(), s.clone());
@@ -438,36 +526,21 @@ impl CompiledMark for CompiledFacetRow {
                 }
             }
 
-            // Create FacetContext with position and sharing information
-            use crate::facet::context::FacetContext;
-
-            // Build FacetContext (unified_channel already computed in Pass 1)
-            let facet_ctx = FacetContext {
-                position: (row_idx, 0),           // col always 0 for row faceting
-                grid_dimensions: (total_rows, 1), // num_cols always 1 for row faceting
-                unified_channel: unified_channel.clone(),
-                scale_sharing: channel_shared.clone(),
-            };
-
-            // Merge context into params
-            let mut facet_params = context.params.clone();
-            facet_params.extend(facet_ctx.to_params());
-
             let sub = self
                 .compiled_subplot
                 .evaluate_components_with_scales(
                     &filter_df,
                     &scales,
                     context.plot_width,
-                    band_height,
+                    band_pos.bandwidth,
                     ctx,
-                    &facet_params,
+                    &iteration.params, // Use SubplotIterator's params (has FacetContext)
                 )
                 .await?;
 
             // Wrap data marks in a clipped group translated to band position
             let data_group = SceneGroup {
-                origin: [0.0, y_pos],
+                origin: [0.0, band_pos.position],
                 marks: sub.data_marks,
                 clip: sub.clip,
                 zindex: Some(0),
@@ -478,7 +551,7 @@ impl CompiledMark for CompiledFacetRow {
             // Wrap guide marks (axes) in a non-clipped translated group
             if !sub.guide_marks.is_empty() {
                 let guide_group = SceneGroup {
-                    origin: [0.0, y_pos],
+                    origin: [0.0, band_pos.position],
                     marks: sub.guide_marks,
                     clip: avenger_scenegraph::marks::group::Clip::None,
                     zindex: Some(1),

@@ -155,13 +155,31 @@ impl CompiledGuide for FacetRowGuide {
                 )
             })?;
 
+            // Compute per-channel scale sharing preferences BEFORE iteration
+            let coord_channels: Vec<&str> =
+                source.subplot.coord_transform.required_channels().to_vec();
+            let mut scale_sharing_by_channel = std::collections::HashMap::new();
+            for &ch in &coord_channels {
+                let mut shared = false;
+                for m in &source.subplot.marks {
+                    if let Some(cv) = m.data_context().channels().get(ch) {
+                        if let Some(true) = cv.get_share_across_facets() {
+                            shared = true;
+                            break;
+                        }
+                    }
+                }
+                scale_sharing_by_channel.insert(ch.to_string(), shared);
+            }
+            let any_shared = scale_sharing_by_channel.values().any(|v| *v);
+
             // Use SubplotIterator to ensure consistent FacetContext across all subplots
             use crate::facet::subplot_iterator::SubplotIterator;
             let subplot_iter = SubplotIterator::new(
                 domain_vals.clone(),
                 unified_channel.clone(),
                 params.clone(),
-                std::collections::HashMap::new(), // TODO: Pass actual scale_sharing when guide needs it
+                scale_sharing_by_channel.clone(),
             );
             let band_h = plot_height / subplot_iter.len() as f32;
 
@@ -169,25 +187,6 @@ impl CompiledGuide for FacetRowGuide {
                 let filter_df = df
                     .clone()
                     .filter(row_expr.clone().eq(lit(iteration.facet_value.clone())))?;
-
-                // Build inner scales and measure inner guide overflow for this band height
-                // Determine per-channel sharing for this subplot
-                let coord_channels: Vec<&str> =
-                    source.subplot.coord_transform.required_channels().to_vec();
-                let mut any_shared = false;
-                for &ch in &coord_channels {
-                    for m in &source.subplot.marks {
-                        if let Some(cv) = m.data_context().channels().get(ch) {
-                            if let Some(true) = cv.get_share_across_facets() {
-                                any_shared = true;
-                                break;
-                            }
-                        }
-                    }
-                    if any_shared {
-                        break;
-                    }
-                }
 
                 let inner_scales = if any_shared {
                     source
@@ -437,22 +436,23 @@ impl CompiledGuide for FacetRowGuide {
                     "Facet guide could not access data".into(),
                 )
             })?;
+            // Compute per-channel scale sharing preferences
             let coord_channels: Vec<&str> =
                 source.subplot.coord_transform.required_channels().to_vec();
-            let mut any_shared = false;
+            let mut scale_sharing_by_channel = std::collections::HashMap::new();
             for &ch in &coord_channels {
+                let mut shared = false;
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
                         if let Some(true) = cv.get_share_across_facets() {
-                            any_shared = true;
+                            shared = true;
                             break;
                         }
                     }
                 }
-                if any_shared {
-                    break;
-                }
+                scale_sharing_by_channel.insert(ch.to_string(), shared);
             }
+            let any_shared = scale_sharing_by_channel.values().any(|v| *v);
 
             // Use SubplotIterator to ensure consistent FacetContext across all subplots
             use crate::facet::subplot_iterator::SubplotIterator;
@@ -460,7 +460,7 @@ impl CompiledGuide for FacetRowGuide {
                 domain_vals_eval.clone(),
                 unified_channel.clone(),
                 params.clone(),
-                std::collections::HashMap::new(), // TODO: Pass actual scale_sharing when guide needs it
+                scale_sharing_by_channel.clone(),
             );
 
             for iteration in subplot_iter {
