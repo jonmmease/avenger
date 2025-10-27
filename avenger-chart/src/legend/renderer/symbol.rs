@@ -308,6 +308,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         if let Some(size) = theme.font_size(&label_ctx) {
             legend_config.label_font_size = Some(size);
         }
+        // Do not change renderer defaults for label-padding unless tests opt in elsewhere.
         if let Some(node) = config
             .title_font_weight
             .as_option()

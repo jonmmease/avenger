@@ -92,7 +92,7 @@ impl CoordinateSystemTransform for Cartesian {
                     options.insert("zero".to_string(), ScalarValue::Boolean(Some(true)));
                 }
 
-                // Nice domain for better tick values
+                // Nice domain for better tick values (both axes)
                 options.insert("nice".to_string(), ScalarValue::Boolean(Some(true)));
 
                 // Pixel-aligned positions for crisp rendering

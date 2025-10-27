@@ -66,7 +66,9 @@
       "Bash(timeout 240 cargo test --package avenger-chart --test visual_regression visual_tests::test_media_query_guide_background::test_media_query_guide_background_responsive -- --exact --nocapture 2)",
       "Bash(1)",
       "Bash(timeout 240 cargo test --package avenger-chart --test visual_regression visual_tests::test_media_query_guide_background::test_media_query_guide_background_responsive -- --exact --nocapture)",
-      "Bash(mdbook:*)"
+      "Bash(mdbook:*)",
+      "mcp__codex__codex",
+      "Read(//tmp/old_baselines/**)"
     ]
   },
   "enableAllProjectMcpServers": false

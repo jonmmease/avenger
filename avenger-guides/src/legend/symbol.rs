@@ -145,7 +145,7 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
 
     let mut groups: Vec<SceneMark> = Vec::with_capacity(len + 1); // +1 for potential title
 
-    // Add title if present
+    // Add title if present (restore previous measurement-based Top baseline placement)
     if let Some(ref title_text) = config.title {
         let title_font_size = config.title_font_size.unwrap_or(12.0);
         let title_font = config
@@ -167,9 +167,8 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         };
         let title_bounds = measurer.measure_text_bounds(&title_config);
 
-        // Use Top baseline and position title exactly at the desired padding from top
-        let title_y = vertical_padding; // Use the vertical padding variable
-
+        // Use Top baseline and position title at vertical padding from top
+        let title_y = vertical_padding;
         let title_mark = SceneTextMark {
             text: title_text.clone().into(),
             x: content_offset_x.into(),
@@ -180,14 +179,13 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             color: ColorOrGradient::Color(config.title_color.unwrap_or([0.173, 0.173, 0.173, 1.0]))
                 .into(),
             align: TextAlign::Left.into(),
-            baseline: TextBaseline::Top.into(), // Changed to Top baseline
+            baseline: TextBaseline::Top.into(),
             ..Default::default()
         };
         groups.push(SceneMark::Text(Arc::new(title_mark)));
 
-        // Set content offset to title + its height + small gap
-        // Round to pixel boundary
-        content_offset_y = (title_y + title_bounds.height + 2.0).round(); // Title position + height + 2px gap
+        // Advance content offset by measured height plus a small gap (2px)
+        content_offset_y = (title_y + title_bounds.height + 2.0).round();
     }
 
     let mut y = content_offset_y.round();

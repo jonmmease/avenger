@@ -277,6 +277,7 @@ impl CompiledPlot {
                     ))
                 })?;
 
+                // Optional debugging for size scale behavior
                 // Apply the scale transformation
                 use crate::scales::ConfiguredScaleDataFusionExt;
                 // Convert SerializableExpr to Expr first
@@ -1077,16 +1078,29 @@ impl CompiledPlot {
             std::collections::HashMap::new(),
         );
 
-        let (
-            initial_scales,
-            configured_non_positional,
-            configured_positional,
-            radius_sensitive_scales,
-        ) = self.build_initial_scales(&initial_context).await?;
+        // PHASE 3: Build ScaleBuilder once - queries data and caches extents
+        use crate::plot::compiled::scales::build_scale_builder_from_marks;
+        let scale_builder = build_scale_builder_from_marks(
+            &self.marks,
+            &self.scale_specs,
+            &self.coord_transform,
+            &self.data,
+            ctx,
+            &merged_params,
+            self.get_theme().as_ref(),
+        )
+        .await?;
 
-        // Merge configured scales for layout computation
-        let mut initial_configured_scales = configured_non_positional.clone();
-        initial_configured_scales.extend(configured_positional.clone());
+        // Build initial scales from cached builder (no query!)
+        let initial_configured_scales = self
+            .build_scales_from_builder(
+                &scale_builder,
+                initial_context.plot_width,
+                initial_context.plot_height,
+                &initial_context.session_context,
+                &initial_context.params,
+            )
+            .await?;
 
         // STAGE 2: COMPUTE LAYOUT USING INITIAL SCALES
         let layout = self
@@ -1116,12 +1130,14 @@ impl CompiledPlot {
             std::collections::HashMap::new(),
         );
 
+        // Rebuild scales with final dimensions using cached builder (no query!)
         let final_configured_scales = self
-            .rebuild_scales_with_final_dimensions(
-                &initial_scales,
-                &configured_non_positional,
-                &final_context,
-                &radius_sensitive_scales,
+            .build_scales_from_builder(
+                &scale_builder,
+                final_context.plot_width,
+                final_context.plot_height,
+                &final_context.session_context,
+                &final_context.params,
             )
             .await?;
 

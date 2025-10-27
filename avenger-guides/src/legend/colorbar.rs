@@ -37,9 +37,7 @@ pub fn make_colorbar_marks(
                 .as_ref()
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config
-                .label_font_family
-                .as_ref()
-                .map(|s| s.as_str())
+                .label_font_family.as_deref()
                 .unwrap_or("sans-serif");
 
             // Get the domain min and max values to measure their formatted width
@@ -234,9 +232,7 @@ pub fn make_colorbar_marks(
                 .as_ref()
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config
-                .label_font_family
-                .as_ref()
-                .map(|s| s.as_str())
+                .label_font_family.as_deref()
                 .unwrap_or("sans-serif");
 
             // Get the domain min and max values to measure their formatted width
@@ -427,9 +423,7 @@ pub fn make_colorbar_marks(
                 .as_ref()
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config
-                .label_font_family
-                .as_ref()
-                .map(|s| s.as_str())
+                .label_font_family.as_deref()
                 .unwrap_or("sans-serif");
 
             let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
@@ -616,9 +610,7 @@ pub fn make_colorbar_marks(
                 .as_ref()
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config
-                .label_font_family
-                .as_ref()
-                .map(|s| s.as_str())
+                .label_font_family.as_deref()
                 .unwrap_or("sans-serif");
 
             let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {

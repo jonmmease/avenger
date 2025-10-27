@@ -215,6 +215,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             config.label_font_weight.as_ref(),
         );
         groups.push(SceneMark::Group(group));
+        // Advance by group height (no additional per-entry spacing by default)
         line_group_y = (line_group_y + legend_group_height).round();
     }
 
@@ -229,6 +230,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     // The background rect always exists and defines our coordinate system
     // Add symmetric padding on all sides and round to pixel boundaries
     let bg_width = (content_bbox.width() + bg_padding * 2.0).round();
+    // Total height: rows + symmetric padding + title height
     let bg_height = (legend_group_height * len as f32 + bg_padding * 2.0 + title_height).round();
 
     // Create a background rect at origin (0, 0)

@@ -201,7 +201,7 @@ impl LegendRenderer for CompiledLineLegend {
             None
         };
 
-        // Evaluate symbol size (line length) from expression, theme, or default
+        // Evaluate symbol size (line length) from expression, theme, or default (16.0)
         let line_length =
             if let Some(node) = config.symbol_size.as_option().and_then(|o| o.as_ref()) {
                 // Expression is set - evaluate it
@@ -213,11 +213,11 @@ impl LegendRenderer for CompiledLineLegend {
                 theme
                     .query(&legend_ctx, "symbol-size")
                     .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
-                    .unwrap_or(16.0) // Default line length
+                    .unwrap_or(16.0)
             };
 
         // Initialize config with defaults
-        // Use longer line length for better dash pattern visibility
+        // Initialize config using defaults
         let mut legend_config = LineLegendConfig {
             title,
             text: ScalarOrArray::new_array(text_values),
@@ -227,7 +227,7 @@ impl LegendRenderer for CompiledLineLegend {
             inner_height: 100.0,
             outer_margin: 0.0, // Don't offset legend entries
             line_length: ScalarOrArray::new_scalar(line_length),
-            text_padding: 4.0, // Consistent with symbol legend
+            text_padding: 4.0, // Consistent with symbol legend (may be overridden by theme)
             ..Default::default()
         };
 
@@ -330,6 +330,12 @@ impl LegendRenderer for CompiledLineLegend {
         }
         if let Some(size) = theme.font_size(&label_ctx) {
             legend_config.label_font_size = Some(size);
+        }
+        if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
+            eprintln!(
+                "LINE LEGEND DEBUG: text_padding={:.1} entry_margin={:.1}",
+                legend_config.text_padding, legend_config.entry_margin
+            );
         }
         if let Some(node) = config
             .title_font_weight

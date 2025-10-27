@@ -8,6 +8,8 @@ use crate::plot::compiled::expr_eval::{
 };
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation};
+use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_geometry::rtree::EnvelopeUtils;
 use avenger_scenegraph::marks::group::SceneGroup;
 use serde::{Deserialize, Serialize};
 
@@ -185,6 +187,14 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(node) = config.format_number.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             legend_config.format_number = Some(evaluate_string_expr(&expr, ctx, params).await?);
+        }
+
+        // Debug: print colorbar configuration if requested
+        if std::env::var("AVENGER_DEBUG_COLORBAR").is_ok() {
+            eprintln!(
+                "COLORBAR DEBUG: orient={:?} thickness={:?}",
+                legend_config.orientation, legend_config.colorbar_width
+            );
         }
 
         // Evaluate and apply legend colors (from config or theme)
@@ -413,6 +423,16 @@ impl LegendRenderer for CompiledColorbar {
 
         let mut colorbar_group =
             make_colorbar_marks(configured_scale, &title, plot_origin, &legend_config)?;
+
+        if std::env::var("AVENGER_DEBUG_COLORBAR_GROUP").is_ok() {
+            let bbox = colorbar_group.bounding_box();
+            let lower = bbox.lower();
+            let upper = bbox.upper();
+            eprintln!(
+                "COLORBAR GROUP BBOX: lower=({:.1},{:.1}) upper=({:.1},{:.1}) w={:.1} h={:.1}",
+                lower[0], lower[1], upper[0], upper[1], bbox.width(), bbox.height()
+            );
+        }
 
         // Position the colorbar group
         colorbar_group.origin = [x, y];

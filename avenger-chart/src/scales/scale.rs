@@ -112,6 +112,14 @@ impl<S: ScaleSpec> Scale<S> {
         }
     }
 
+    /// Return a clone of the underlying scale spec if explicitly set
+    /// This allows callers to honor user-chosen scale types (e.g., Ordinal)
+    pub fn get_scale_spec(&self) -> Option<Box<dyn ScaleSpec>> {
+        self.scale_spec
+            .as_option()
+            .map(|spec| spec.clone_box())
+    }
+
     /// Update this scale with properties from another scale
     /// Properties that are Set in `other` override properties in `self`
     pub fn update(mut self, other: Scale<Auto>) -> Self {
@@ -479,6 +487,7 @@ impl<S: ScaleSpec> Scale<S> {
         plot_area_width: f32,
         plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<Self, AvengerChartError> {
         // Skip for non-numeric ranges
         if !matches!(self.range.as_ref(), Maybe::Set(ScaleRange::Numeric(_, _))) {
@@ -499,9 +508,8 @@ impl<S: ScaleSpec> Scale<S> {
         }
 
         // Create ConfiguredScale to apply normalization
-        let empty_params = indexmap::IndexMap::new();
         let configured = self
-            .create_configured_scale(plot_area_width, plot_area_height, ctx, &empty_params)
+            .create_configured_scale(plot_area_width, plot_area_height, ctx, params)
             .await?;
 
         // Update domain with normalized values
@@ -604,12 +612,21 @@ impl<S: ScaleSpec> Scale<S> {
                         Arc::new(Float32Array::from(float_values)) as ArrayRef
                     }
                     DomainKind::Categorical => {
-                        // Categorical domains need string values
-                        let mut string_values = Vec::new();
-                        for scalar in scalars {
-                            string_values.push(scalar.as_scalar_string()?);
+                        // Categorical domains may be numeric (ordinal) or string
+                        let all_numeric = scalars.iter().all(|s| s.as_f32().is_ok());
+                        if all_numeric {
+                            let mut float_values = Vec::new();
+                            for scalar in scalars {
+                                float_values.push(scalar.as_f32()?);
+                            }
+                            Arc::new(Float32Array::from(float_values)) as ArrayRef
+                        } else {
+                            let mut string_values = Vec::new();
+                            for scalar in scalars {
+                                string_values.push(scalar.as_scalar_string()?);
+                            }
+                            Arc::new(StringArray::from(string_values)) as ArrayRef
                         }
-                        Arc::new(StringArray::from(string_values)) as ArrayRef
                     }
                     DomainKind::Temporal => {
                         // Temporal domains - convert to appropriate temporal type

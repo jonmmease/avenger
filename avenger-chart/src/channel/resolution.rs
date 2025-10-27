@@ -29,6 +29,7 @@
 //!     band: None,
 //!     scale_config: None,
 //!     legend_config: None,
+//!     share_across_facets: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
 //!     expr: LogicalExprNode::from_expr(col(":y") + lit(10.0)).expect("Failed to serialize expr"),  // References y channel
@@ -36,6 +37,7 @@
 //!     band: None,
 //!     scale_config: None,
 //!     legend_config: None,
+//!     share_across_facets: None,
 //! });
 //!
 //! // Resolve references (function would be imported from this module)
@@ -256,14 +258,9 @@ fn validate_channel_refs(
                 });
             }
 
-            if let Some(referenced_channel) = channels.get(ref_name) {
-                // Check if the referenced channel is conditional
-                if matches!(referenced_channel, ChannelValue::Conditional { .. }) {
-                    return Err(ChannelResolutionError::ConditionalChannelReference {
-                        channel: ref_name.clone(),
-                        referenced_by: name.clone(),
-                    });
-                }
+            if let Some(_referenced_channel) = channels.get(ref_name) {
+                // Conditional channels are now allowed - they will resolve to their 'otherwise' expression
+                // No validation error needed here
             } else {
                 let available_channels: Vec<String> = channels.keys().cloned().collect();
                 return Err(ChannelResolutionError::UndefinedChannel {
@@ -478,12 +475,25 @@ pub fn resolve_channel_refs(
 
                     // Look up the channel
                     if let Some(channel_value) = channels.get(channel_name) {
-                        // Return the expression directly (already resolved)
-                        // For conditional values, we can't resolve here - keep as-is
-                        if let Some(resolved_expr) = channel_value.expr(ctx) {
+                        // For conditional channels, extract the 'otherwise' expression
+                        if let ChannelValue::Conditional { otherwise, .. } = channel_value {
+                            // Extract the expression from the 'otherwise' ConditionalValue
+                            let otherwise_node = match otherwise {
+                                crate::channel::value::ConditionalValue::Scaled { expr } => expr,
+                                crate::channel::value::ConditionalValue::Value { expr } => expr,
+                            };
+                            // Convert LogicalExprNode to Expr using to_expr
+                            if let Ok(otherwise_datafusion_expr) = otherwise_node.to_expr(ctx) {
+                                Ok(Transformed::yes(otherwise_datafusion_expr))
+                            } else {
+                                // Failed to convert, keep as-is
+                                Ok(Transformed::no(e))
+                            }
+                        } else if let Some(resolved_expr) = channel_value.expr(ctx) {
+                            // Non-conditional channel - use expr() method
                             Ok(Transformed::yes(resolved_expr))
                         } else {
-                            // Conditional value - can't resolve yet
+                            // No expression available - keep as-is
                             Ok(Transformed::no(e))
                         }
                     } else {

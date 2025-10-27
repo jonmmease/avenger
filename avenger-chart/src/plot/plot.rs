@@ -327,9 +327,32 @@ impl<C: CoordinateSystem> Plot<C> {
 
         let compiled_guide = Arc::from(guide.build());
 
-        // 4. Build CompiledPlot
+        // 4. Prepare serialized logical plan for plot-level data (for rebuilds)
+        let coord_transform = self.coord_system.create_transform();
+        let data_plan_node = match &self.data {
+            Some(df) => {
+                let plan = df.logical_plan().clone();
+                Some(LogicalPlanNode::from_logical_plan(&plan).map_err(|e| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to serialize logical plan: {}",
+                        e
+                    ))
+                })?)
+            }
+            None => None,
+        };
+
+        // Build default params for scale building
+        let default_params: IndexMap<String, datafusion::common::ScalarValue> = self
+            .params
+            .iter()
+            .map(|p| (p.name.clone(), p.default.clone()))
+            .collect();
+
+        // 5. Build CompiledPlot (we do not store a persistent ScaleBuilder; it is
+        // rebuilt per evaluation using current params for correctness.)
         Ok(CompiledPlot {
-            coord_transform: self.coord_system.create_transform(),
+            coord_transform,
             compiled_guide: Some(compiled_guide),
             marks: compiled_marks,
             axis_specs,
@@ -340,23 +363,8 @@ impl<C: CoordinateSystem> Plot<C> {
             theme: self.theme,
             scale_to_coord_channel,
             scale_specs,
-            data: match self.data {
-                Some(df) => {
-                    let plan = df.logical_plan().clone();
-                    Some(LogicalPlanNode::from_logical_plan(&plan).map_err(|e| {
-                        AvengerChartError::InternalError(format!(
-                            "Failed to serialize logical plan: {}",
-                            e
-                        ))
-                    })?)
-                }
-                None => None,
-            },
-            default_params: self
-                .params
-                .iter()
-                .map(|p| (p.name.clone(), p.default.clone()))
-                .collect(),
+            data: data_plan_node,
+            default_params,
         })
     }
 
