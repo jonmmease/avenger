@@ -13,7 +13,6 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::SessionContext;
-use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -175,7 +174,10 @@ impl CompiledMark for CompiledFacetRow {
         })?;
 
         // Build initial (facet_value -> (y_pos, band_height)) map with current scale
-        let initial_band_positions = iter_band_positions(row_scale)?;
+        use crate::facet::band_positions::BandPositionIterator;
+        let initial_band_positions: Vec<_> = BandPositionIterator::from_scale(row_scale)?
+            .map(|bp| (bp.value, (bp.position, bp.bandwidth)))
+            .collect();
 
         // Get the inner plot-level DataFrame
         let ctx = &context.session_context;
@@ -362,7 +364,9 @@ impl CompiledMark for CompiledFacetRow {
         let final_row_scale = merged_scales_for_rendering.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing rebuilt 'row' scale".into())
         })?;
-        let band_positions = iter_band_positions(final_row_scale)?;
+        let band_positions: Vec<_> = BandPositionIterator::from_scale(final_row_scale)?
+            .map(|bp| (bp.value, (bp.position, bp.bandwidth)))
+            .collect();
 
         // CRITICAL: Rebuild shared scales with the NEW band height after padding adjustment
         // The initial shared_scales were built with the approximate height BEFORE padding,
@@ -525,29 +529,3 @@ impl CompiledMark for CompiledFacetRow {
     }
 }
 
-/// Helper: iterate band positions for a configured band scale
-fn iter_band_positions(
-    scale: &ConfiguredScaleWithSpec,
-) -> Result<Vec<(ScalarValue, (f32, f32))>, AvengerChartError> {
-    use crate::scales::ConfiguredScaleLegendExt;
-    use avenger_scales::scales::band;
-
-    let configured = scale.configured();
-    let domain_vals = configured.domain_values()?;
-    let positions = match domain_vals {
-        crate::scales::extensions::DomainValues::Discrete(vals) => {
-            configured.scale_scalars_to_numeric(&vals)?
-        }
-        _ => Vec::new(),
-    };
-    let bandwidth = band::bandwidth(&configured.config)?;
-
-    let mut out = Vec::new();
-    if let crate::scales::extensions::DomainValues::Discrete(vals) = configured.domain_values()? {
-        for (i, v) in vals.into_iter().enumerate() {
-            let pos = positions.get(i).cloned().unwrap_or(0.0);
-            out.push((v, (pos, bandwidth)));
-        }
-    }
-    Ok(out)
-}

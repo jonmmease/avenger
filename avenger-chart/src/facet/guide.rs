@@ -388,25 +388,10 @@ impl CompiledGuide for FacetRowGuide {
 
         // Get centered positions using band=0.5
         // The scale now has the correct padding_inner_px from the facet mark (via scale updates),
-        // and by setting band=0.5, we get positions at the center of each band
-        let mut centered_config = row_scale.config.clone();
-        centered_config.options.insert(
-            "band".to_string(),
-            avenger_scales::scalar::Scalar::from_f32(0.5),
-        );
-
-        let centered_scale = avenger_scales::scales::ConfiguredScale {
-            scale_impl: row_scale.scale_impl.clone(),
-            config: centered_config,
-        };
-
-        let positions = match row_scale.domain_values()? {
-            crate::scales::extensions::DomainValues::Discrete(vals) => {
-                use crate::scales::extensions::ConfiguredScaleLegendExt;
-                centered_scale.scale_scalars_to_numeric(&vals)?
-            }
-            _ => Vec::new(),
-        };
+        // Use BandPositionIterator with band=0.5 to get positions at the center of each band
+        use crate::facet::band_positions::BandPositionIterator;
+        let band_positions: Vec<_> = BandPositionIterator::from_configured_scale_with_band(row_scale, 0.5)?
+            .collect();
 
         // Theme-based font for rendering (match measurement)
         let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
@@ -522,9 +507,8 @@ impl CompiledGuide for FacetRowGuide {
         // Place facet labels at band centers, rotated 90 (CW on right, CCW on left)
         // Anchor at the text center so after rotation it's vertically centered.
         // Positions are already centered (band=0.5), so no offset needed
-        for (i, label) in labels.iter().enumerate() {
-            let y_center =
-                plot_bounds.y + positions.get(i).cloned().unwrap_or(0.0);
+        for (label, band_pos) in labels.iter().zip(&band_positions) {
+            let y_center = plot_bounds.y + band_pos.position;
             // Measure this label to position its center so left edge is at plot edge
             let config = avenger_text::measurement::TextMeasurementConfig {
                 text: label,
@@ -570,8 +554,8 @@ impl CompiledGuide for FacetRowGuide {
         if let Some(_title_text) = &self.facet_title {
             if !labels.is_empty() && labels.len() > 1 {
                 // Get y positions of first and last labels (already centered)
-                let y_top = plot_bounds.y + positions.first().cloned().unwrap_or(0.0);
-                let y_bottom = plot_bounds.y + positions.last().cloned().unwrap_or(0.0);
+                let y_top = plot_bounds.y + band_positions.first().map(|bp| bp.position).unwrap_or(0.0);
+                let y_bottom = plot_bounds.y + band_positions.last().map(|bp| bp.position).unwrap_or(0.0);
 
                 // Measure label column width
                 let labels_for_rule = row_scale.domain_labels().unwrap_or_default();
@@ -645,8 +629,8 @@ impl CompiledGuide for FacetRowGuide {
                 marks.push(SceneMark::Rule(rule_mark));
 
                 // Add tick marks at each label position (already centered)
-                for (i, _label) in labels.iter().enumerate() {
-                    let y_center = plot_bounds.y + positions.get(i).cloned().unwrap_or(0.0);
+                for band_pos in &band_positions {
+                    let y_center = plot_bounds.y + band_pos.position;
 
                     let (x_tick_start, x_tick_end) = if place_on_left {
                         (x_rule, x_rule + tick_size)
