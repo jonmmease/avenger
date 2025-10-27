@@ -34,6 +34,7 @@ pub struct SubplotIteration {
 ///     domain_vals,
 ///     unified_channel,
 ///     params.clone(),
+///     scale_sharing,
 /// );
 ///
 /// for iteration in iterator {
@@ -51,6 +52,7 @@ pub struct SubplotIterator {
     domain_vals: Vec<ScalarValue>,
     unified_channel: Option<String>,
     base_params: IndexMap<String, ScalarValue>,
+    scale_sharing: std::collections::HashMap<String, bool>,
     current_index: usize,
 }
 
@@ -61,15 +63,18 @@ impl SubplotIterator {
     /// * `domain_vals` - The domain values to iterate over (one per subplot)
     /// * `unified_channel` - Which channel (if any) has a unified axis label
     /// * `base_params` - Base parameters to merge FacetContext into
+    /// * `scale_sharing` - Per-channel scale sharing status (true = shared, false = independent)
     pub fn new(
         domain_vals: Vec<ScalarValue>,
         unified_channel: Option<String>,
         base_params: IndexMap<String, ScalarValue>,
+        scale_sharing: std::collections::HashMap<String, bool>,
     ) -> Self {
         Self {
             domain_vals,
             unified_channel,
             base_params,
+            scale_sharing,
             current_index: 0,
         }
     }
@@ -102,7 +107,7 @@ impl Iterator for SubplotIterator {
             position: (index, 0),
             grid_dimensions: (self.domain_vals.len(), 1),
             unified_channel: self.unified_channel.clone(),
-            scale_sharing: Default::default(),
+            scale_sharing: self.scale_sharing.clone(),
         };
 
         // Merge FacetContext into params
@@ -140,8 +145,9 @@ mod tests {
         ];
         let unified_channel = Some("y".to_string());
         let params = IndexMap::new();
+        let scale_sharing = std::collections::HashMap::new();
 
-        let iter = SubplotIterator::new(domain_vals.clone(), unified_channel.clone(), params);
+        let iter = SubplotIterator::new(domain_vals.clone(), unified_channel.clone(), params, scale_sharing);
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 3);
@@ -180,8 +186,9 @@ mod tests {
             ScalarValue::Utf8(Some("B".into())),
         ];
         let params = IndexMap::new();
+        let scale_sharing = std::collections::HashMap::new();
 
-        let iter = SubplotIterator::new(domain_vals, None, params);
+        let iter = SubplotIterator::new(domain_vals, None, params, scale_sharing);
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 2);
@@ -199,8 +206,9 @@ mod tests {
             ScalarValue::Utf8(Some("C".into())),
         ];
         let params = IndexMap::new();
+        let scale_sharing = std::collections::HashMap::new();
 
-        let mut iter = SubplotIterator::new(domain_vals, None, params);
+        let mut iter = SubplotIterator::new(domain_vals, None, params, scale_sharing);
         assert_eq!(iter.size_hint(), (3, Some(3)));
 
         iter.next();
@@ -218,8 +226,9 @@ mod tests {
         let domain_vals = vec![ScalarValue::Utf8(Some("A".into()))];
         let mut base_params = IndexMap::new();
         base_params.insert("custom_param".to_string(), ScalarValue::Int32(Some(42)));
+        let scale_sharing = std::collections::HashMap::new();
 
-        let iter = SubplotIterator::new(domain_vals, None, base_params.clone());
+        let iter = SubplotIterator::new(domain_vals, None, base_params.clone(), scale_sharing);
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 1);
