@@ -1,3 +1,4 @@
+pub mod band_positions;
 pub mod context;
 pub mod coord;
 pub mod guide;
