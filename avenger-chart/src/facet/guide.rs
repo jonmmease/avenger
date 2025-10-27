@@ -161,6 +161,7 @@ impl CompiledGuide for FacetRowGuide {
                 domain_vals.clone(),
                 unified_channel.clone(),
                 params.clone(),
+                std::collections::HashMap::new(), // TODO: Pass actual scale_sharing when guide needs it
             );
             let band_h = plot_height / subplot_iter.len() as f32;
 
@@ -474,6 +475,7 @@ impl CompiledGuide for FacetRowGuide {
                 domain_vals_eval.clone(),
                 unified_channel.clone(),
                 params.clone(),
+                std::collections::HashMap::new(), // TODO: Pass actual scale_sharing when guide needs it
             );
 
             for iteration in subplot_iter {
