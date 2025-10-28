@@ -1,17 +1,21 @@
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::facet::coord::{FacetCol, FacetRow};
+use crate::facet::context::FacetContext;
+use crate::facet::coord::{FacetCol, FacetRow, GridFacet};
 use crate::facet::dimension_config::{ColDimensionConfig, FacetDimensionConfig, RowDimensionConfig};
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
+use crate::facet::subplot_iterator::{SubplotIteration, SubplotIterator};
 use crate::marks::{
     ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
 };
 use crate::plot::{CompiledPlot, Plot};
 use crate::render::RenderContext;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Facet mark for FacetRow or FacetCol outer coordinate system.
@@ -386,3 +390,686 @@ impl CompiledMark for CompiledFacetCol {
     }
 }
 
+
+// ============================================================================
+// GridFacet Implementation
+// ============================================================================
+
+/// Merge row and column SubplotIteration contexts into a unified GridFacet context
+///
+/// This helper takes FacetContext information from both row and column subplot iterations
+/// and combines them into a single FacetContext suitable for GridFacet subplots.
+///
+/// The merged context contains:
+/// - `position`: (row_iteration.index, col_iteration.index)
+/// - `grid_dimensions`: (num_rows, num_cols)
+/// - `unified_channels`: {"x", "y"} (both axes unified in GridFacet)
+/// - `scale_sharing`: from either iteration (should be identical)
+pub fn merge_grid_facet_contexts(
+    row_iteration: &SubplotIteration,
+    col_iteration: &SubplotIteration,
+    num_rows: usize,
+    num_cols: usize,
+) -> IndexMap<String, ScalarValue> {
+    let mut params = row_iteration.params.clone();
+
+    // Extract existing contexts (if any)
+    let row_ctx = FacetContext::from_params(&row_iteration.params);
+    let col_ctx = FacetContext::from_params(&col_iteration.params);
+
+    // Get scale_sharing from either context (should be identical)
+    let scale_sharing = row_ctx
+        .as_ref()
+        .map(|c| c.scale_sharing.clone())
+        .or_else(|| col_ctx.as_ref().map(|c| c.scale_sharing.clone()))
+        .unwrap_or_default();
+
+    // Build unified GridFacet context
+    let mut unified_channels = HashSet::new();
+    unified_channels.insert("x".to_string());
+    unified_channels.insert("y".to_string());
+
+    let grid_ctx = FacetContext {
+        position: (row_iteration.index, col_iteration.index),
+        grid_dimensions: (num_rows, num_cols),
+        unified_channels,
+        scale_sharing,
+    };
+
+    // Merge into params
+    params.extend(grid_ctx.to_params());
+    params
+}
+
+/// Compiled facet mark specialized for GridFacet outer coords (2D row×col grid)
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledFacetGrid {
+    pub(crate) state: CompiledMarkState,
+    pub(crate) compiled_subplot: Arc<CompiledPlot>,
+    pub(crate) row_title: Option<String>,
+    pub(crate) col_title: Option<String>,
+    pub(crate) facet_spacing: Option<f32>,
+}
+
+#[async_trait::async_trait]
+impl<InnerC: CoordinateSystem + Clone> Mark<GridFacet> for Facet<InnerC> {
+    fn state(&self) -> &MarkState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut MarkState {
+        &mut self.state
+    }
+
+    fn data_context(&self) -> &crate::marks::DataContext {
+        &self.state.data
+    }
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        let compiled_subplot: Arc<CompiledPlot> = {
+            let plot_ref = self
+                .subplot
+                .as_ref()
+                .ok_or_else(|| AvengerChartError::InternalError("Facet subplot not set".into()))?;
+            let plot_clone = plot_ref.clone();
+            let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
+            Arc::new(plot_owned.compile(session_context).await?)
+        };
+        Ok(Arc::new(CompiledFacetGrid {
+            state: compiled_state,
+            compiled_subplot,
+            row_title: self.facet_row_title.clone(),
+            col_title: self.facet_col_title.clone(),
+            facet_spacing: self.facet_spacing,
+        }))
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledFacetGrid {
+    fn state(&self) -> &CompiledMarkState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
+        &mut self.state
+    }
+
+    fn data_context(&self) -> &crate::marks::CompiledDataContext {
+        &self.state.data
+    }
+
+    fn mark_type(&self) -> &str {
+        "facet_grid"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        vec![
+            ChannelDescriptor {
+                name: "row",
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "col",
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+        ]
+    }
+
+    /// Evaluate grid facet layout (2D row×col grid)
+    async fn evaluate_from_data(
+        &self,
+        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        _scalars: &datafusion::arrow::record_batch::RecordBatch,
+        context: &RenderContext,
+        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
+        use crate::scales::ConfiguredScaleLegendExt;
+        use datafusion::logical_expr::lit;
+
+        // Validate required channels with helpful error messages
+        let _row_channel = self
+            .state
+            .data
+            .channels()
+            .get("row")
+            .ok_or_else(|| AvengerChartError::InvalidArgument(
+                "GridFacet requires .row() channel expression.\n\
+                 Example: Facet::new().row(col(\"Species\")).col(col(\"Year\")).subplot(...)".to_string()
+            ))?;
+
+        let _col_channel = self
+            .state
+            .data
+            .channels()
+            .get("col")
+            .ok_or_else(|| AvengerChartError::InvalidArgument(
+                "GridFacet requires .col() channel expression.\n\
+                 Example: Facet::new().row(col(\"Species\")).col(col(\"Year\")).subplot(...)".to_string()
+            ))?;
+
+        // Get row and col scales (may not exist for degenerate single-value cases)
+        let row_scale_opt = context.scales.get("row");
+        let col_scale_opt = context.scales.get("col");
+
+        // Handle degenerate cases where a scale doesn't exist (single unique value in that dimension)
+        let row_domain_vals = if let Some(row_scale) = row_scale_opt {
+            match row_scale.domain_values()? {
+                crate::scales::extensions::DomainValues::Discrete(vals) => vals,
+                _ => return Err(AvengerChartError::InternalError("GridFacet requires discrete row scale".into())),
+            }
+        } else {
+            // No row scale means single value - get it from the data
+            let row_expr = self
+                .state
+                .data
+                .channels()
+                .get("row")
+                .and_then(|cv| cv.expr(&context.session_context))
+                .ok_or_else(|| AvengerChartError::InternalError("GridFacet 'row' channel not found".into()))?;
+
+            let df = self
+                .state
+                .data
+                .dataframe_with_context(&context.session_context)
+                .ok_or_else(|| AvengerChartError::InternalError("GridFacet could not access data".into()))?;
+
+            let distinct_df = df.clone()
+                .select(vec![row_expr.clone()])?
+                .distinct()?;
+
+            let batches = distinct_df.collect().await?;
+            if batches.is_empty() || batches[0].num_rows() == 0 {
+                vec![]
+            } else {
+                let col = batches[0].column(0);
+                use datafusion::common::ScalarValue;
+                vec![ScalarValue::try_from_array(col, 0)?]
+            }
+        };
+
+        let col_domain_vals = if let Some(col_scale) = col_scale_opt {
+            match col_scale.domain_values()? {
+                crate::scales::extensions::DomainValues::Discrete(vals) => vals,
+                _ => return Err(AvengerChartError::InternalError("GridFacet requires discrete col scale".into())),
+            }
+        } else {
+            // No col scale means single value - get it from the data
+            let col_expr = self
+                .state
+                .data
+                .channels()
+                .get("col")
+                .and_then(|cv| cv.expr(&context.session_context))
+                .ok_or_else(|| AvengerChartError::InternalError("GridFacet 'col' channel not found".into()))?;
+
+            let df = self
+                .state
+                .data
+                .dataframe_with_context(&context.session_context)
+                .ok_or_else(|| AvengerChartError::InternalError("GridFacet could not access data".into()))?;
+
+            let distinct_df = df.clone()
+                .select(vec![col_expr.clone()])?
+                .distinct()?;
+
+            let batches = distinct_df.collect().await?;
+            if batches.is_empty() || batches[0].num_rows() == 0 {
+                vec![]
+            } else {
+                let col = batches[0].column(0);
+                use datafusion::common::ScalarValue;
+                vec![ScalarValue::try_from_array(col, 0)?]
+            }
+        };
+
+        // Get row and col expressions
+        let row_expr = self
+            .state
+            .data
+            .channels()
+            .get("row")
+            .and_then(|cv| cv.expr(&context.session_context))
+            .ok_or_else(|| AvengerChartError::InternalError("GridFacet 'row' channel not found".into()))?;
+        let col_expr = self
+            .state
+            .data
+            .channels()
+            .get("col")
+            .and_then(|cv| cv.expr(&context.session_context))
+            .ok_or_else(|| AvengerChartError::InternalError("GridFacet 'col' channel not found".into()))?;
+
+        // Get DataFrame
+        let df = self
+            .state
+            .data
+            .dataframe_with_context(&context.session_context)
+            .ok_or_else(|| AvengerChartError::InternalError("GridFacet could not access data".into()))?;
+
+        // Compute scale sharing
+        let coord_channels: Vec<&str> = self.compiled_subplot.coord_transform.required_channels().to_vec();
+        let mut scale_sharing_by_channel = std::collections::HashMap::new();
+        for &ch in &coord_channels {
+            let mut shared = false;
+            for m in &self.compiled_subplot.marks {
+                if let Some(cv) = m.data_context().channels().get(ch) {
+                    if let Some(true) = cv.get_share_across_facets() {
+                        shared = true;
+                        break;
+                    }
+                }
+            }
+            scale_sharing_by_channel.insert(ch.to_string(), shared);
+        }
+
+        // ====================================================================================
+        // PASS 1: Measure overflow for all grid cells to calculate required subplot spacing
+        // ====================================================================================
+
+        let (num_rows, num_cols) = (row_domain_vals.len(), col_domain_vals.len());
+
+        // Initial band dimensions (will be recalculated after measuring required spacing)
+        let mut band_w = context.plot_width / num_cols.max(1) as f32;
+        let mut band_h = context.plot_height / num_rows.max(1) as f32;
+
+        // Build initial base scales from full DataFrame
+        let mut base_scales = self.compiled_subplot
+            .build_scales_for_dataframe(&df, band_w, band_h, &context.session_context, &context.params)
+            .await?;
+
+        // Create a 2D array to store overflow measurements for each grid cell
+        // overflow_grid[row_idx][col_idx] = OverflowSpaceRequirement
+        let mut overflow_grid: Vec<Vec<crate::guide::OverflowSpaceRequirement>> =
+            vec![vec![crate::guide::OverflowSpaceRequirement::default(); num_cols]; num_rows];
+
+        // Measure overflow for each grid cell using nested SubplotIterators
+        use crate::facet::dimension_config::{RowDimensionConfig, ColDimensionConfig};
+
+        let row_iter_pass1 = SubplotIterator::<RowDimensionConfig>::new(
+            row_domain_vals.clone(),
+            context.params.clone(),
+            scale_sharing_by_channel.clone(),
+        );
+
+        for row_iteration in row_iter_pass1 {
+            let col_iter_pass1 = SubplotIterator::<ColDimensionConfig>::new(
+                col_domain_vals.clone(),
+                context.params.clone(),
+                scale_sharing_by_channel.clone(),
+            );
+
+            for col_iteration in col_iter_pass1 {
+                // Merge row and col contexts into unified GridFacet context
+                let merged_params = merge_grid_facet_contexts(
+                    &row_iteration,
+                    &col_iteration,
+                    num_rows,
+                    num_cols,
+                );
+
+                // Filter data for this cell
+                let filter_df = df
+                    .clone()
+                    .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
+                    .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
+
+                let cell_count = filter_df.clone().count().await?;
+                let cell_is_empty = cell_count == 0;
+
+                // Build scales for measurement using build_scales_helper
+                let inner_scales = if cell_is_empty {
+                    base_scales.clone()
+                } else {
+                    // Start with base scales for shared channels
+                    let mut scales = base_scales.clone();
+
+                    // Build free scales for unshared channels
+                    for (ch, shared_flag) in &scale_sharing_by_channel {
+                        if !*shared_flag {
+                            let facet_scales = self.compiled_subplot
+                                .build_scales_for_dataframe(&filter_df, band_w, band_h, &context.session_context, &merged_params)
+                                .await?;
+                            if let Some(s) = facet_scales.get(ch) {
+                                scales.insert(ch.clone(), s.clone());
+                            }
+                        }
+                    }
+                    scales
+                };
+
+                // Measure overflow for this cell with merged params
+                let overflow = self.compiled_subplot
+                    .measure_guide_overflow_with_scales(&inner_scales, band_w, band_h, &context.session_context, &merged_params)
+                    .await?;
+
+                overflow_grid[row_iteration.index][col_iteration.index] = overflow;
+            }
+        }
+
+        // Calculate required vertical spacing (between rows)
+        let mut max_vertical_gap = 0.0_f32;
+        for row_idx in 0..num_rows.saturating_sub(1) {
+            for col_idx in 0..num_cols {
+                let gap = RowDimensionConfig::calculate_adjacent_overflow(
+                    &overflow_grid[row_idx][col_idx],
+                    &overflow_grid[row_idx + 1][col_idx],
+                );
+                max_vertical_gap = max_vertical_gap.max(gap);
+            }
+        }
+
+        // Calculate required horizontal spacing (between columns)
+        let mut max_horizontal_gap = 0.0_f32;
+        for row_idx in 0..num_rows {
+            for col_idx in 0..num_cols.saturating_sub(1) {
+                let gap = ColDimensionConfig::calculate_adjacent_overflow(
+                    &overflow_grid[row_idx][col_idx],
+                    &overflow_grid[row_idx][col_idx + 1],
+                );
+                max_horizontal_gap = max_horizontal_gap.max(gap);
+            }
+        }
+
+        // Add configured facet_spacing to both dimensions
+        const DEFAULT_FACET_SPACING: f32 = 3.0;
+        let spacing = self.facet_spacing.unwrap_or_else(|| {
+            let facet_ctx = context.theme.facet_context_with_params(context.params.clone());
+            context.theme
+                .query(&facet_ctx, "spacing")
+                .and_then(|v| v.as_number())
+                .map(|n| n as f32)
+                .unwrap_or(DEFAULT_FACET_SPACING)
+        });
+
+        max_vertical_gap += spacing;
+        max_horizontal_gap += spacing;
+
+        // Debug: log measured spacing and gaps
+        tracing::debug!(
+            num_rows = num_rows,
+            num_cols = num_cols,
+            spacing = spacing,
+            max_vertical_gap = max_vertical_gap,
+            max_horizontal_gap = max_horizontal_gap,
+            "GridFacet: computed facet spacing (including theme spacing)"
+        );
+
+        // Rebuild row and col scales with measured spacing
+        let mut updated_scales = context.scales.clone();
+
+        if max_vertical_gap > 0.0 && row_scale_opt.is_some() {
+            use avenger_scales::scalar::Scalar;
+            let row_scale = row_scale_opt.unwrap();
+            let mut new_config = row_scale.configured().config.clone();
+            new_config.options.insert(
+                "padding_inner_px".to_string(),
+                Scalar::from_f32(max_vertical_gap),
+            );
+            let new_configured = avenger_scales::scales::ConfiguredScale {
+                scale_impl: row_scale.configured().scale_impl.clone(),
+                config: new_config,
+            };
+            updated_scales.insert(
+                "row".to_string(),
+                crate::scales::ConfiguredScaleWithSpec::new(row_scale.spec().clone(), new_configured),
+            );
+            tracing::debug!(
+                padding_inner_px = max_vertical_gap,
+                "GridFacet: updated row scale padding_inner_px"
+            );
+        }
+
+        if max_horizontal_gap > 0.0 && col_scale_opt.is_some() {
+            use avenger_scales::scalar::Scalar;
+            let col_scale = col_scale_opt.unwrap();
+            let mut new_config = col_scale.configured().config.clone();
+            new_config.options.insert(
+                "padding_inner_px".to_string(),
+                Scalar::from_f32(max_horizontal_gap),
+            );
+            let new_configured = avenger_scales::scales::ConfiguredScale {
+                scale_impl: col_scale.configured().scale_impl.clone(),
+                config: new_config,
+            };
+            updated_scales.insert(
+                "col".to_string(),
+                crate::scales::ConfiguredScaleWithSpec::new(col_scale.spec().clone(), new_configured),
+            );
+            tracing::debug!(
+                padding_inner_px = max_horizontal_gap,
+                "GridFacet: updated col scale padding_inner_px"
+            );
+        }
+
+        // Recalculate band dimensions using updated scales with spacing
+        // After setting padding_inner_px, the band scale automatically reduces bandwidth
+        // to make room for gaps. Extract this new bandwidth.
+        if let Some(row_scale) = updated_scales.get("row") {
+            if let Ok(band_iter) = crate::facet::band_positions::BandPositionIterator::from_scale(row_scale) {
+                let positions: Vec<_> = band_iter.collect();
+                if let Some(first) = positions.first() {
+                    band_h = first.bandwidth;
+                }
+            }
+        }
+
+        if let Some(col_scale) = updated_scales.get("col") {
+            if let Ok(band_iter) = crate::facet::band_positions::BandPositionIterator::from_scale(col_scale) {
+                let positions: Vec<_> = band_iter.collect();
+                if let Some(first) = positions.first() {
+                    band_w = first.bandwidth;
+                }
+            }
+        }
+
+        // Rebuild base scales with new band dimensions
+        base_scales = self.compiled_subplot
+            .build_scales_for_dataframe(&df, band_w, band_h, &context.session_context, &context.params)
+            .await?;
+
+        // ====================================================================================
+        // PASS 2: Render all grid cells using measured spacing
+        // ====================================================================================
+
+        // Get band positions from updated scales for proper positioning with spacing
+        use crate::facet::band_positions::BandPositionIterator;
+        let row_band_iter_pass2 = if let Some(row_scale) = updated_scales.get("row") {
+            Some(BandPositionIterator::from_scale(row_scale)?)
+        } else {
+            None
+        };
+        let col_band_iter_pass2 = if let Some(col_scale) = updated_scales.get("col") {
+            Some(BandPositionIterator::from_scale(col_scale)?)
+        } else {
+            None
+        };
+
+        let mut marks: Vec<SceneMark> = Vec::new();
+
+        // Create nested SubplotIterators for Pass 2 rendering
+        let row_iter_pass2 = SubplotIterator::<RowDimensionConfig>::new(
+            row_domain_vals.clone(),
+            context.params.clone(),
+            scale_sharing_by_channel.clone(),
+        );
+
+        // Zip row iterator with row band positions (or use fallback positions)
+        let row_iter_with_bands = if let Some(band_iter) = row_band_iter_pass2 {
+            row_iter_pass2.zip(band_iter).collect::<Vec<_>>()
+        } else {
+            // Fallback: use index-based positions without band scale
+            row_iter_pass2
+                .enumerate()
+                .map(|(idx, iter)| {
+                    let band_pos = crate::facet::band_positions::BandPosition::new(
+                        iter.facet_value.clone(),
+                        idx as f32 * band_h,
+                        band_h,
+                    );
+                    (iter, band_pos)
+                })
+                .collect()
+        };
+
+        // Render each grid cell using nested loops
+        for (row_iteration, row_band_pos) in row_iter_with_bands {
+            let col_iter_pass2 = SubplotIterator::<ColDimensionConfig>::new(
+                col_domain_vals.clone(),
+                context.params.clone(),
+                scale_sharing_by_channel.clone(),
+            );
+
+            // Zip col iterator with col band positions (or use fallback positions)
+            let col_iter_with_bands = if let Some(_band_iter) = col_band_iter_pass2.as_ref() {
+                // Need to recreate the band iterator for each row since iterators aren't Clone
+                let col_scale = updated_scales.get("col").unwrap();
+                let band_iter = BandPositionIterator::from_scale(col_scale)?;
+                col_iter_pass2.zip(band_iter).collect::<Vec<_>>()
+            } else {
+                col_iter_pass2
+                    .enumerate()
+                    .map(|(idx, iter)| {
+                        let band_pos = crate::facet::band_positions::BandPosition::new(
+                            iter.facet_value.clone(),
+                            idx as f32 * band_w,
+                            band_w,
+                        );
+                        (iter, band_pos)
+                    })
+                    .collect()
+            };
+
+            for (col_iteration, col_band_pos) in col_iter_with_bands {
+                // Merge row and col contexts into unified GridFacet context
+                let merged_params = merge_grid_facet_contexts(
+                    &row_iteration,
+                    &col_iteration,
+                    num_rows,
+                    num_cols,
+                );
+
+                // Filter to rows matching both row AND col values
+                let filter_df = df
+                    .clone()
+                    .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
+                    .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
+
+                // Check if this cell has any data
+                let cell_count = filter_df.clone().count().await?;
+                let cell_is_empty = cell_count == 0;
+
+                // Build scales using build_scales_helper pattern
+                let inner_scales = if cell_is_empty {
+                    base_scales.clone()
+                } else {
+                    // Start with base scales for shared channels
+                    let mut scales = base_scales.clone();
+
+                    // Build free scales for unshared channels
+                    for (ch, shared_flag) in &scale_sharing_by_channel {
+                        if !*shared_flag {
+                            let facet_scales = self.compiled_subplot
+                                .build_scales_for_dataframe(&filter_df, band_w, band_h, &context.session_context, &merged_params)
+                                .await?;
+                            if let Some(s) = facet_scales.get(ch) {
+                                scales.insert(ch.clone(), s.clone());
+                            }
+                        }
+                    }
+                    scales
+                };
+
+                // Calculate subplot position from band positions
+                let x_offset = col_band_pos.start();
+                let y_offset = row_band_pos.start();
+
+                // Render subplot using evaluate_components_with_scales
+                let sub = self
+                    .compiled_subplot
+                    .evaluate_components_with_scales(
+                        &filter_df,
+                        &inner_scales,
+                        band_w,
+                        band_h,
+                        &context.session_context,
+                        &merged_params,
+                    )
+                    .await?;
+
+                // Wrap data marks in a clipped group translated to grid cell position
+                use avenger_scenegraph::marks::group::SceneGroup;
+                let data_group = SceneGroup {
+                    origin: [x_offset, y_offset].into(),
+                    marks: sub.data_marks,
+                    clip: sub.clip,
+                    zindex: Some(0),
+                    ..Default::default()
+                };
+                marks.push(SceneMark::Group(data_group));
+
+                // Wrap guide marks (axes) in a non-clipped translated group
+                if !sub.guide_marks.is_empty() {
+                    let guide_group = SceneGroup {
+                        origin: [x_offset, y_offset].into(),
+                        marks: sub.guide_marks,
+                        clip: avenger_scenegraph::marks::group::Clip::None,
+                        zindex: Some(1),
+                        ..Default::default()
+                    };
+                    marks.push(SceneMark::Group(guide_group));
+                }
+            }
+        }
+
+        // Return marks and scale updates so guides receive the updated scales with spacing
+        Ok((
+            marks,
+            Box::new(crate::layout::ScaleUpdates::new(updated_scales)),
+        ))
+    }
+
+    fn preferred_scale_type(
+        &self,
+        channel: &str,
+        _data_type: &datafusion::arrow::datatypes::DataType,
+    ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
+        if channel == "row" || channel == "col" {
+            // Use band scale for grid faceting channels
+            Some(Box::new(crate::scales::spec::Band::default()))
+        } else {
+            None
+        }
+    }
+
+    fn default_scale_options(
+        &self,
+        channel: &str,
+        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+        _data_type: &datafusion::arrow::datatypes::DataType,
+    ) -> std::collections::HashMap<String, datafusion::logical_expr::Expr> {
+        use datafusion::logical_expr::lit;
+        use std::collections::HashMap;
+        let mut options = HashMap::new();
+
+        // Configure band scale padding for grid facet channels
+        if (channel == "row" || channel == "col") && scale_impl.scale_type() == "band" {
+            options.insert("padding_outer".to_string(), lit(0.0f32));
+            options.insert("padding_inner_px".to_string(), lit(0.0f32));
+        }
+
+        options
+    }
+}

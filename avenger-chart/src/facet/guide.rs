@@ -30,10 +30,6 @@ struct FacetSource {
 }
 
 impl FacetRowGuide {
-    /// Get the unified channel (if any) for this facet guide
-    fn get_unified_channel(&self) -> Option<String> {
-        self.unifiable_channel.clone()
-    }
 }
 
 impl CoordinateGuide for FacetRowGuide {
@@ -132,9 +128,6 @@ impl CompiledGuide for FacetRowGuide {
         let mut top: f32 = 0.0;
         let mut bottom: f32 = 0.0;
 
-        // Get unified channel once from stored configuration
-        let unified_channel = self.get_unified_channel();
-
         // For each facet source (there could be more than one Facet mark)
         for source in &self.facet_sources {
             // Row expression from channels
@@ -178,7 +171,6 @@ impl CompiledGuide for FacetRowGuide {
             use crate::facet::subplot_iterator::SubplotIterator;
             let subplot_iter = SubplotIterator::<RowDimensionConfig>::new(
                 domain_vals.clone(),
-                unified_channel.clone(),
                 params.clone(),
                 scale_sharing_by_channel.clone(),
             );
@@ -226,65 +218,40 @@ impl CompiledGuide for FacetRowGuide {
         // Add space for facet labels by measuring text bounds
         // For 90° rotation, horizontal footprint ≈ text height
         let labels = row_scale.domain_labels().unwrap_or_default();
-        let measurer = avenger_text::measurement::default_text_measurer();
+
         // Resolve facet-label theme (fallbacks kept for now)
         let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
             .child("facet")
             .child("label");
-        let font_px = theme.font_size(&guide_ctx).unwrap_or(12.0_f32);
+        let label_font_px = theme.font_size(&guide_ctx).unwrap_or(12.0_f32);
         let root_ctx = crate::theme::ThemeContext::new(":root", params.clone());
-        let font_family_owned = theme
+        let label_font_family = theme
             .font_family(&guide_ctx)
             .or_else(|| theme.font_family(&root_ctx))
             .unwrap_or_else(|| "sans-serif".to_string());
-        let font_family = font_family_owned.as_str();
-        let _text_rgba = theme.text_color(&guide_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
-        let mut max_label_height = 0.0_f32;
-        for label in &labels {
-            let config = avenger_text::measurement::TextMeasurementConfig {
-                text: label,
-                font: font_family,
-                font_size: font_px,
-                font_weight: &avenger_text::types::FontWeight::Name(
-                    avenger_text::types::FontWeightNameSpec::Normal,
-                ),
-                font_style: &avenger_text::types::FontStyle::Normal,
-            };
-            let bounds = measurer.measure_text_bounds(&config);
-            max_label_height = max_label_height.max(bounds.height);
-        }
-        // If there's a facet title, measure it (used for facet-by side placement and overflow)
-        let title_height = if let Some(title_text) = &self.facet_title {
-            let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("title");
-            let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
-            let title_family_owned = theme
-                .font_family(&title_ctx)
-                .unwrap_or_else(|| "sans-serif".to_string());
-            let cfg = avenger_text::measurement::TextMeasurementConfig {
-                text: title_text,
-                font: title_family_owned.as_str(),
-                font_size: title_font_px,
-                font_weight: &avenger_text::types::FontWeight::Name(
-                    avenger_text::types::FontWeightNameSpec::Normal,
-                ),
-                font_style: &avenger_text::types::FontStyle::Normal,
-            };
-            let b = avenger_text::measurement::default_text_measurer().measure_text_bounds(&cfg);
-            b.height
-        } else {
-            0.0
-        };
 
-        // Compute facet-by side overflow: include label column + spacing + facet title (rotated width)
-        let gap = if self.facet_title.is_some() { 10.0 } else { 0.0 };
-        let estimated_right = if self.facet_title.is_some() {
-            max_label_height + gap + title_height + 1.0
-        } else {
-            // No title: just the label column (use full label_height for edge safety)
-            max_label_height + 1.0
+        // Resolve facet title theme
+        let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+            .child("facet")
+            .child("title");
+        let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
+        let title_font_family = theme
+            .font_family(&title_ctx)
+            .unwrap_or_else(|| "sans-serif".to_string());
+
+        // Use guide_utils to measure facet label slab
+        use crate::facet::guide_utils::{FacetLabelMeasurementConfig, measure_facet_label_slab};
+
+        let measurement_config = FacetLabelMeasurementConfig {
+            labels: labels.clone(),
+            is_rotated: true,  // Row labels are vertical
+            font_family: label_font_family.clone(),
+            font_size_px: label_font_px,
+            title: self.facet_title.clone(),
+            title_font_family: title_font_family.clone(),
+            title_font_size_px: title_font_px,
         };
+        let estimated_right = measure_facet_label_slab(&measurement_config);
 
         // Prefer placing labels/title on left when child right overflow exceeds left
         let place_on_left = max_right > max_left;
@@ -386,11 +353,11 @@ impl CompiledGuide for FacetRowGuide {
         // Domain labels
         let labels = row_scale.domain_labels()?;
 
-        // Get centered positions using band=0.5
-        // The scale now has the correct padding_inner_px from the facet mark (via scale updates),
-        // Use BandPositionIterator with band=0.5 to get positions at the center of each band
+        // Get band positions from the scale
+        // The scale now has the correct padding_inner_px from the facet mark (via scale updates).
+        // We'll use .center() on each BandPosition for label/tick positioning.
         use crate::facet::band_positions::BandPositionIterator;
-        let band_positions: Vec<_> = BandPositionIterator::from_configured_scale_with_band(row_scale, 0.5)?
+        let band_positions: Vec<_> = BandPositionIterator::from_configured_scale(row_scale)?
             .collect();
 
         // Theme-based font for rendering (match measurement)
@@ -417,9 +384,6 @@ impl CompiledGuide for FacetRowGuide {
         let band_h_eval = plot_height / domain_vals_eval.len().max(1) as f32;
         let mut max_left_child = 0.0_f32;
         let mut max_right_child = 0.0_f32;
-
-        // Get unified channel once from stored configuration
-        let unified_channel = self.get_unified_channel();
 
         for source in &self.facet_sources {
             let row_expr = source
@@ -459,7 +423,6 @@ impl CompiledGuide for FacetRowGuide {
             use crate::facet::subplot_iterator::SubplotIterator;
             let subplot_iter = SubplotIterator::<RowDimensionConfig>::new(
                 domain_vals_eval.clone(),
-                unified_channel.clone(),
                 params.clone(),
                 scale_sharing_by_channel.clone(),
             );
@@ -505,232 +468,40 @@ impl CompiledGuide for FacetRowGuide {
         }
         let place_on_left = max_right_child > max_left_child;
 
-        // Place facet labels at band centers, rotated 90 (CW on right, CCW on left)
-        // Anchor at the text center so after rotation it's vertically centered.
-        // Positions are already centered (band=0.5), so no offset needed
-        for (label, band_pos) in labels.iter().zip(&band_positions) {
-            let y_center = plot_bounds.y + band_pos.position;
-            // Measure this label to position its center so left edge is at plot edge
-            let config = avenger_text::measurement::TextMeasurementConfig {
-                text: label,
-                font: font_family,
-                font_size: font_px,
-                font_weight: &avenger_text::types::FontWeight::Name(
-                    avenger_text::types::FontWeightNameSpec::Normal,
-                ),
-                font_style: &avenger_text::types::FontStyle::Normal,
-            };
-            let bounds =
-                avenger_text::measurement::default_text_measurer().measure_text_bounds(&config);
-            // With rotation, horizontal span ≈ bounds.height; side decides x and angle
-            let x_center = if place_on_left {
-                plot_bounds.x - 0.5 * bounds.height
-            } else {
-                plot_bounds.x + plot_width + 0.5 * bounds.height
-            };
-            let text = SceneTextMark {
-                text: label.clone().into(),
-                x: x_center.into(),
-                y: y_center.into(),
-                align: TextAlign::Center.into(),
-                baseline: TextBaseline::Middle.into(),
-                angle: if place_on_left {
-                    (-90.0_f32).into()
-                } else {
-                    90.0_f32.into()
-                },
-                font: font_family.to_string().into(),
-                font_size: font_px.into(),
-                color: avenger_common::types::ColorOrGradient::Color(
-                    theme.text_color(&guide_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
-                )
-                .into(),
-                zindex: Some(5),
-                ..Default::default()
-            };
-            marks.push(SceneMark::Text(StdArc::new(text)));
-        }
+        // Resolve title font properties for rendering
+        let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+            .child("facet")
+            .child("title");
+        let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
+        let title_font_family = theme
+            .font_family(&title_ctx)
+            .unwrap_or_else(|| "sans-serif".to_string());
 
-        // Render vertical rule between labels and title (if title present)
-        if let Some(_title_text) = &self.facet_title {
-            if !labels.is_empty() && labels.len() > 1 {
-                // Get y positions of first and last labels (already centered)
-                let y_top = plot_bounds.y + band_positions.first().map(|bp| bp.position).unwrap_or(0.0);
-                let y_bottom = plot_bounds.y + band_positions.last().map(|bp| bp.position).unwrap_or(0.0);
+        // Use guide_utils to render facet label slab (labels + rule + title)
+        use crate::facet::guide_utils::{FacetLabelRenderConfig, render_facet_label_slab};
 
-                // Measure label column width
-                let labels_for_rule = row_scale.domain_labels().unwrap_or_default();
-                let measurer = avenger_text::measurement::default_text_measurer();
-                let label_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                    .child("facet")
-                    .child("label");
-                let label_font_px = theme.font_size(&label_ctx).unwrap_or(12.0_f32);
-                let root_ctx = crate::theme::ThemeContext::new(":root", params.clone());
-                let label_family = theme
-                    .font_family(&label_ctx)
-                    .or_else(|| theme.font_family(&root_ctx))
-                    .unwrap_or_else(|| "sans-serif".to_string());
-                let mut max_label_height = 0.0_f32;
-                for l in &labels_for_rule {
-                    let cfg = avenger_text::measurement::TextMeasurementConfig {
-                        text: l,
-                        font: label_family.as_str(),
-                        font_size: label_font_px,
-                        font_weight: &avenger_text::types::FontWeight::Name(
-                            avenger_text::types::FontWeightNameSpec::Normal,
-                        ),
-                        font_style: &avenger_text::types::FontStyle::Normal,
-                    };
-                    let b = measurer.measure_text_bounds(&cfg);
-                    max_label_height = max_label_height.max(b.height);
-                }
+        // Create plot bounds with correct width/height from parameters
+        let render_plot_bounds = LayoutBounds {
+            x: plot_bounds.x,
+            y: plot_bounds.y,
+            width: plot_width,
+            height: plot_height,
+        };
 
-                // Position rule between label column and title (gap/2)
-                let gap = 10.0_f32;
-                let x_rule = if place_on_left {
-                    plot_bounds.x - (max_label_height + gap / 2.0)
-                } else {
-                    plot_bounds.x + plot_width + max_label_height + gap / 2.0
-                };
+        let render_config = FacetLabelRenderConfig {
+            labels: labels.clone(),
+            band_positions: band_positions.clone(),
+            plot_bounds: render_plot_bounds,
+            is_rotated: true,  // Row labels are vertical
+            place_at_end: !place_on_left,  // place_at_end=true means right side
+            font_family: font_family.to_string(),
+            font_size_px: font_px,
+            title: self.facet_title.clone(),
+            title_font_family: title_font_family.clone(),
+            title_font_size_px: title_font_px,
+        };
 
-                // Query rule styling from theme
-                let rule_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                    .child("facet")
-                    .child("rule");
-                let mut rule_stroke = theme.text_color(&rule_ctx).unwrap_or([0.5, 0.5, 0.5, 1.0]);
-                // Ensure fully opaque to avoid overlapping darkening
-                rule_stroke[3] = 1.0;
-                let rule_stroke_width = theme
-                    .query(&rule_ctx, "stroke-width")
-                    .and_then(|v| v.as_number())
-                    .map(|n| n as f32)
-                    .unwrap_or(1.0);
-
-                // Query tick size from theme
-                let tick_size = theme
-                    .query(&rule_ctx, "tick-size")
-                    .and_then(|v| v.as_number())
-                    .map(|n| n as f32)
-                    .unwrap_or(4.0);
-
-                // Extend rule by half stroke width on each end for cleaner edges
-                let half_stroke = rule_stroke_width / 2.0;
-
-                // Create vertical rule mark
-                let rule_mark = avenger_scenegraph::marks::rule::SceneRuleMark {
-                    x: x_rule.into(),
-                    y: (y_top - half_stroke).into(),
-                    x2: x_rule.into(),
-                    y2: (y_bottom + half_stroke).into(),
-                    stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
-                    stroke_width: rule_stroke_width.into(),
-                    zindex: Some(5),
-                    ..Default::default()
-                };
-                marks.push(SceneMark::Rule(rule_mark));
-
-                // Add tick marks at each label position (already centered)
-                for band_pos in &band_positions {
-                    let y_center = plot_bounds.y + band_pos.position;
-
-                    let (x_tick_start, x_tick_end) = if place_on_left {
-                        (x_rule, x_rule + tick_size)
-                    } else {
-                        (x_rule - tick_size, x_rule)
-                    };
-
-                    let tick_mark = avenger_scenegraph::marks::rule::SceneRuleMark {
-                        x: x_tick_start.into(),
-                        y: y_center.into(),
-                        x2: x_tick_end.into(),
-                        y2: y_center.into(),
-                        stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
-                        stroke_width: rule_stroke_width.into(),
-                        zindex: Some(5),
-                        ..Default::default()
-                    };
-                    marks.push(SceneMark::Rule(tick_mark));
-                }
-            }
-        }
-
-        // Render facet title (if present), rotated 90 CW and centered vertically on RHS
-        if let Some(title_text) = &self.facet_title {
-            // Measure label column height to position title to the right of it
-            let labels = row_scale.domain_labels().unwrap_or_default();
-            let measurer = avenger_text::measurement::default_text_measurer();
-            let label_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("label");
-            let label_font_px = theme.font_size(&label_ctx).unwrap_or(12.0_f32);
-            let root_ctx = crate::theme::ThemeContext::new(":root", params.clone());
-            let label_family = theme
-                .font_family(&label_ctx)
-                .or_else(|| theme.font_family(&root_ctx))
-                .unwrap_or_else(|| "sans-serif".to_string());
-            let mut max_label_height = 0.0_f32;
-            for l in &labels {
-                let cfg = avenger_text::measurement::TextMeasurementConfig {
-                    text: l,
-                    font: label_family.as_str(),
-                    font_size: label_font_px,
-                    font_weight: &avenger_text::types::FontWeight::Name(
-                        avenger_text::types::FontWeightNameSpec::Normal,
-                    ),
-                    font_style: &avenger_text::types::FontStyle::Normal,
-                };
-                let b = measurer.measure_text_bounds(&cfg);
-                max_label_height = max_label_height.max(b.height);
-            }
-
-            // Title font
-            let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("title");
-            let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
-            let title_color = theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
-            // Center vertically, and place next to label column (gap = 6px)
-            let gap = 10.0_f32;
-            let title_family_owned2 = theme
-                .font_family(&title_ctx)
-                .unwrap_or_else(|| "sans-serif".to_string());
-            let cfg_title = avenger_text::measurement::TextMeasurementConfig {
-                text: title_text,
-                font: title_family_owned2.as_str(),
-                font_size: title_font_px,
-                font_weight: &avenger_text::types::FontWeight::Name(
-                    avenger_text::types::FontWeightNameSpec::Normal,
-                ),
-                font_style: &avenger_text::types::FontStyle::Normal,
-            };
-            let b_title = measurer.measure_text_bounds(&cfg_title);
-            let x_center = if place_on_left {
-                // Place to the left of the label column: subtract label col width + gap + half title width
-                plot_bounds.x - (max_label_height + gap + 0.5 * b_title.height)
-            } else {
-                // Place to the right of the label column
-                plot_bounds.x + plot_width + max_label_height + gap + 0.5 * b_title.height
-            };
-            let y_center = plot_bounds.y + 0.5 * plot_height;
-            let title_mark = avenger_scenegraph::marks::text::SceneTextMark {
-                text: title_text.clone().into(),
-                x: x_center.into(),
-                y: y_center.into(),
-                align: avenger_text::types::TextAlign::Center.into(),
-                baseline: avenger_text::types::TextBaseline::Middle.into(),
-                font: title_family_owned2.clone().into(),
-                font_size: title_font_px.into(),
-                angle: if place_on_left {
-                    (-90.0_f32).into()
-                } else {
-                    90.0_f32.into()
-                },
-                color: avenger_common::types::ColorOrGradient::Color(title_color).into(),
-                zindex: Some(6),
-                ..Default::default()
-            };
-            marks.push(SceneMark::Text(StdArc::new(title_mark)));
-        }
+        marks.extend(render_facet_label_slab(&render_config, theme, params));
 
         // Render unified y-axis title if available (always on, placed on the axis side)
         if let Some(y_title) = &self.unified_y_title {
@@ -807,9 +578,6 @@ pub struct FacetColGuide {
 }
 
 impl FacetColGuide {
-    fn get_unified_channel(&self) -> Option<String> {
-        self.unifiable_channel.clone()
-    }
 }
 
 impl CoordinateGuide for FacetColGuide {
@@ -905,8 +673,6 @@ impl CompiledGuide for FacetColGuide {
         let mut left: f32 = 0.0;
         let mut right: f32 = 0.0;
 
-        let unified_channel = self.get_unified_channel();
-
         for source in &self.facet_sources {
             let col_expr = source
                 .data
@@ -946,7 +712,6 @@ impl CompiledGuide for FacetColGuide {
             use crate::facet::subplot_iterator::SubplotIterator;
             let subplot_iter = SubplotIterator::<ColDimensionConfig>::new(
                 domain_vals.clone(),
-                unified_channel.clone(),
                 params.clone(),
                 scale_sharing_by_channel.clone(),
             );
@@ -1170,7 +935,6 @@ impl CompiledGuide for FacetColGuide {
 
         let mut subplot_max_bottom: f32 = 0.0;
         let mut subplot_max_top: f32 = 0.0;
-        let unified_channel = self.get_unified_channel();
 
         // Measure subplot overflow to know where x-axis labels end
         if let Some(source) = self.facet_sources.first() {
@@ -1208,7 +972,6 @@ impl CompiledGuide for FacetColGuide {
             use crate::facet::subplot_iterator::SubplotIterator;
             let subplot_iter = SubplotIterator::<ColDimensionConfig>::new(
                 domain_vals.clone(),
-                unified_channel.clone(),
                 params.clone(),
                 scale_sharing_by_channel.clone(),
             );
@@ -1242,7 +1005,7 @@ impl CompiledGuide for FacetColGuide {
         }
 
         use crate::facet::band_positions::BandPositionIterator;
-        let band_positions: Vec<_> = BandPositionIterator::from_configured_scale_with_band(col_scale, 0.5)?
+        let band_positions: Vec<_> = BandPositionIterator::from_configured_scale(col_scale)?
             .collect();
 
         // Theme-based font for labels (use facet label theme context matching RowFacet)
@@ -1281,171 +1044,40 @@ impl CompiledGuide for FacetColGuide {
             false  // no subplots → labels above
         };
 
-        // Measure label heights to position from overflow boundary
-        let measurer = avenger_text::measurement::default_text_measurer();
-        let mut max_label_height = 0.0_f32;
-        for label in &labels {
-            let config = avenger_text::measurement::TextMeasurementConfig {
-                text: label,
-                font: label_font_family,
-                font_size: label_font_px,
-                font_weight: &avenger_text::types::FontWeight::Name(
-                    avenger_text::types::FontWeightNameSpec::Normal,
-                ),
-                font_style: &avenger_text::types::FontStyle::Normal,
-            };
-            let bounds = measurer.measure_text_bounds(&config);
-            max_label_height = max_label_height.max(bounds.height);
-        }
+        // Resolve title font properties for rendering
+        let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+            .child("facet")
+            .child("title");
+        let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
+        let title_font_family = theme
+            .font_family(&title_ctx)
+            .unwrap_or_else(|| "sans-serif".to_string());
 
-        // Position labels from the plot edge working into overflow region
-        // Use baseline positioning: Top baseline when below, Bottom baseline when above
-        let y_label = if place_below {
-            plot_bounds.y + plot_height  // Start at bottom edge, baseline Top grows down
-        } else {
-            plot_bounds.y  // Start at top edge, baseline Bottom grows up
+        // Use guide_utils to render facet label slab (labels + rule + title)
+        use crate::facet::guide_utils::{FacetLabelRenderConfig, render_facet_label_slab};
+
+        // Create plot bounds with correct width/height from parameters
+        let render_plot_bounds = LayoutBounds {
+            x: plot_bounds.x,
+            y: plot_bounds.y,
+            width: plot_width,
+            height: plot_height,
         };
 
-        // Render labels horizontally centered at band centers
-        for (label, band_pos) in labels.iter().zip(&band_positions) {
-            let x_center = plot_bounds.x + band_pos.position;
+        let render_config = FacetLabelRenderConfig {
+            labels: labels.clone(),
+            band_positions: band_positions.clone(),
+            plot_bounds: render_plot_bounds,
+            is_rotated: false,  // Col labels are horizontal
+            place_at_end: place_below,  // place_at_end=true means bottom
+            font_family: label_font_family.to_string(),
+            font_size_px: label_font_px,
+            title: self.facet_title.clone(),
+            title_font_family: title_font_family.clone(),
+            title_font_size_px: title_font_px,
+        };
 
-            let label_mark = SceneTextMark {
-                text: label.clone().into(),
-                x: x_center.into(),
-                y: y_label.into(),
-                align: TextAlign::Center.into(),
-                baseline: if place_below { TextBaseline::Top } else { TextBaseline::Bottom }.into(),
-                angle: 0.0_f32.into(),
-                font: label_font_family.to_string().into(),
-                font_size: label_font_px.into(),
-                color: avenger_common::types::ColorOrGradient::Color(
-                    theme.text_color(&label_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
-                )
-                .into(),
-                zindex: Some(5),
-                ..Default::default()
-            };
-            marks.push(SceneMark::Text(StdArc::new(label_mark)));
-        }
-
-        // Render horizontal rule between labels and title (if title present)
-        if let Some(_title_text) = &self.facet_title {
-            if !labels.is_empty() && labels.len() > 1 {
-                // Get x positions of first and last labels (already centered at band positions)
-                let x_left = plot_bounds.x + band_positions.first().map(|bp| bp.position).unwrap_or(0.0);
-                let x_right = plot_bounds.x + band_positions.last().map(|bp| bp.position).unwrap_or(0.0);
-
-                // Position rule between label row and title (gap/2)
-                let gap = 10.0_f32;
-                let y_rule = if place_below {
-                    y_label + max_label_height + gap / 2.0
-                } else {
-                    y_label - max_label_height - gap / 2.0
-                };
-
-                // Query rule styling from theme
-                let rule_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                    .child("facet")
-                    .child("rule");
-                let mut rule_stroke = theme.text_color(&rule_ctx).unwrap_or([0.5, 0.5, 0.5, 1.0]);
-                // Ensure fully opaque to avoid overlapping darkening
-                rule_stroke[3] = 1.0;
-                let rule_stroke_width = theme
-                    .query(&rule_ctx, "stroke-width")
-                    .and_then(|v| v.as_number())
-                    .map(|n| n as f32)
-                    .unwrap_or(1.0);
-
-                // Query tick size from theme
-                let tick_size = theme
-                    .query(&rule_ctx, "tick-size")
-                    .and_then(|v| v.as_number())
-                    .map(|n| n as f32)
-                    .unwrap_or(4.0);
-
-                // Extend rule by half stroke width on each end for cleaner edges
-                let half_stroke = rule_stroke_width / 2.0;
-
-                // Create horizontal rule mark
-                let rule_mark = avenger_scenegraph::marks::rule::SceneRuleMark {
-                    x: (x_left - half_stroke).into(),
-                    y: y_rule.into(),
-                    x2: (x_right + half_stroke).into(),
-                    y2: y_rule.into(),
-                    stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
-                    stroke_width: rule_stroke_width.into(),
-                    zindex: Some(5),
-                    ..Default::default()
-                };
-                marks.push(SceneMark::Rule(rule_mark));
-
-                // Add tick marks at each label position (band centers)
-                // Ticks point toward labels (away from title)
-                for band_pos in &band_positions {
-                    let x_center = plot_bounds.x + band_pos.position;
-
-                    let (y_tick_start, y_tick_end) = if place_below {
-                        (y_rule - tick_size, y_rule)  // Ticks point down toward labels below
-                    } else {
-                        (y_rule, y_rule + tick_size)  // Ticks point up toward labels above
-                    };
-
-                    let tick_mark = avenger_scenegraph::marks::rule::SceneRuleMark {
-                        x: x_center.into(),
-                        y: y_tick_start.into(),
-                        x2: x_center.into(),
-                        y2: y_tick_end.into(),
-                        stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
-                        stroke_width: rule_stroke_width.into(),
-                        zindex: Some(5),
-                        ..Default::default()
-                    };
-                    marks.push(SceneMark::Rule(tick_mark));
-                }
-            }
-        }
-
-        // Render facet title (use facet title theme context matching RowFacet)
-        if let Some(title) = &self.facet_title {
-            let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("title");
-            let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
-            let title_font_family_owned = theme
-                .font_family(&title_ctx)
-                .or_else(|| theme.font_family(&root_ctx))
-                .unwrap_or_else(|| "sans-serif".to_string());
-            let title_font_family = title_font_family_owned.as_str();
-
-            // Configurable gap between labels and title (matching measure_overflow)
-            let gap = 10.0_f32;
-
-            // Position title after labels with gap
-            let y_title = if place_below {
-                y_label + max_label_height + gap
-            } else {
-                y_label - max_label_height - gap
-            };
-
-            let title_mark = SceneTextMark {
-                text: title.clone().into(),
-                x: (plot_bounds.x + plot_width / 2.0).into(),
-                y: y_title.into(),
-                align: TextAlign::Center.into(),
-                baseline: if place_below { TextBaseline::Top } else { TextBaseline::Bottom }.into(),
-                angle: 0.0_f32.into(),
-                font: title_font_family.to_string().into(),
-                font_size: title_font_px.into(),
-                color: avenger_common::types::ColorOrGradient::Color(
-                    theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
-                )
-                .into(),
-                zindex: Some(6),
-                ..Default::default()
-            };
-            marks.push(SceneMark::Text(StdArc::new(title_mark)));
-        }
+        marks.extend(render_facet_label_slab(&render_config, theme, params));
 
         // Render unified x-axis title (use facet title theme context matching RowFacet)
         // The unified x-axis title should always be positioned near the x-axes,
@@ -1508,6 +1140,942 @@ impl CompiledGuide for FacetColGuide {
                     theme.text_color(&unified_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
                 )
                 .into(),
+                zindex: Some(6),
+                ..Default::default()
+            };
+            marks.push(SceneMark::Text(StdArc::new(unified_mark)));
+        }
+
+        Ok(marks)
+    }
+
+    fn get_clip(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        _scales: &HashMap<String, ConfiguredScale>,
+    ) -> avenger_scenegraph::marks::group::Clip {
+        avenger_scenegraph::marks::group::Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: plot_width,
+            height: plot_height,
+        }
+    }
+}
+
+// ============================================================================
+// GridFacetGuide - 2D Grid Faceting Guide
+// ============================================================================
+
+/// Guide for GridFacet coordinate system
+///
+/// Renders facet labels for both row (vertical) and column (horizontal) dimensions,
+/// creating a 2D grid of subplots. Row labels appear on the left, column labels
+/// appear above or below based on x-axis position.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct GridFacetGuide {
+    facet_sources: Vec<FacetSource>,
+
+    // Row dimension
+    pub row_title: Option<String>,
+    unified_y_title: Option<String>,
+    unifiable_row_channel: Option<String>,
+
+    // Column dimension
+    pub col_title: Option<String>,
+    unified_x_title: Option<String>,
+    unifiable_col_channel: Option<String>,
+}
+
+impl GridFacetGuide {
+}
+
+impl CoordinateGuide for GridFacetGuide {
+    type Axis = crate::cartesian::axis::CartesianAxis;
+
+    fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {}
+
+    fn set_compiled_marks(
+        &mut self,
+        compiled_marks: Vec<std::sync::Arc<dyn CompiledMark>>,
+        _session_context: &SessionContext,
+    ) {
+        self.facet_sources.clear();
+        for m in compiled_marks {
+            if let Some(facet) = m
+                .as_any()
+                .downcast_ref::<crate::facet::marks::facet::CompiledFacetGrid>()
+            {
+                self.facet_sources.push(FacetSource {
+                    subplot: facet.compiled_subplot.clone(),
+                    data: facet.state.data.clone(),
+                    user_title: None, // Grid stores separate row/col titles
+                });
+
+                // Use user-specified titles from facet if available
+                if self.row_title.is_none() && facet.row_title.is_some() {
+                    self.row_title = facet.row_title.clone();
+                }
+                if self.col_title.is_none() && facet.col_title.is_some() {
+                    self.col_title = facet.col_title.clone();
+                }
+            }
+        }
+
+        // Derive row title from row channel (fallback if not explicitly set)
+        if self.row_title.is_none() {
+            if let Some(src) = self.facet_sources.first() {
+                if let Some(cv) = src.data.channels().get("row") {
+                    if let Some(name) = cv.as_column_name(_session_context) {
+                        self.row_title = Some(name);
+                    }
+                }
+            }
+        }
+
+        // Derive col title from col channel (fallback if not explicitly set)
+        if self.col_title.is_none() {
+            if let Some(src) = self.facet_sources.first() {
+                if let Some(cv) = src.data.channels().get("col") {
+                    if let Some(name) = cv.as_column_name(_session_context) {
+                        self.col_title = Some(name);
+                    }
+                }
+            }
+        }
+
+        // Derive unified y-title from subplot guide (for row dimension)
+        if self.unified_y_title.is_none() {
+            if let Some(src) = self.facet_sources.first() {
+                use crate::facet::dimension_config::RowDimensionConfig;
+                if let Some(info) = src.subplot.compiled_guide.as_ref().and_then(|g| {
+                    g.facet_unifiable_channel(
+                        RowDimensionConfig::facet_direction(),
+                        src.subplot.marks(),
+                        _session_context,
+                    )
+                }) {
+                    self.unifiable_row_channel = Some(info.channel);
+                    self.unified_y_title = info.title;
+                }
+            }
+        }
+
+        // Derive unified x-title from subplot guide (for col dimension)
+        if self.unified_x_title.is_none() {
+            if let Some(src) = self.facet_sources.first() {
+                use crate::facet::dimension_config::ColDimensionConfig;
+                if let Some(info) = src.subplot.compiled_guide.as_ref().and_then(|g| {
+                    g.facet_unifiable_channel(
+                        ColDimensionConfig::facet_direction(),
+                        src.subplot.marks(),
+                        _session_context,
+                    )
+                }) {
+                    self.unifiable_col_channel = Some(info.channel);
+                    self.unified_x_title = info.title;
+                }
+            }
+        }
+    }
+
+    fn update(&mut self, _other: Self) {}
+
+    fn build(self) -> Box<dyn CompiledGuide> {
+        Box::new(self)
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl CompiledGuide for GridFacetGuide {
+    async fn measure_overflow(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &crate::theme::Theme,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &SessionContext,
+    ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
+        use crate::scales::ConfiguredScaleLegendExt;
+        use datafusion::logical_expr::lit;
+
+        // Get row and col scales (may not exist for degenerate single-value cases)
+        let row_scale_opt = scales.get("row");
+        let col_scale_opt = scales.get("col");
+
+        // If either scale is missing, this is a degenerate case - return empty marks
+        if row_scale_opt.is_none() || col_scale_opt.is_none() {
+            return Ok(OverflowSpaceRequirement::default());
+        }
+
+        let row_scale = row_scale_opt.unwrap();
+        let col_scale = col_scale_opt.unwrap();
+
+        // Extract domain values
+        let row_domain_vals = match row_scale.domain_values()? {
+            crate::scales::extensions::DomainValues::Discrete(vals) => vals,
+            _ => vec![],
+        };
+        let col_domain_vals = match col_scale.domain_values()? {
+            crate::scales::extensions::DomainValues::Discrete(vals) => vals,
+            _ => vec![],
+        };
+
+        // Skip if single row or single col (degenerate grid)
+        let skip_row_labels = row_domain_vals.len() <= 1;
+        let skip_col_labels = col_domain_vals.len() <= 1;
+
+        let mut max_top: f32 = 0.0;
+        let mut max_bottom: f32 = 0.0;
+        let mut max_left: f32 = 0.0;
+        let mut max_right: f32 = 0.0;
+
+        // Measure subplot overflows using GridSubplotIterator
+        for source in &self.facet_sources {
+            let row_expr = source
+                .data
+                .channels()
+                .get("row")
+                .and_then(|cv| cv.expr(ctx))
+                .ok_or_else(|| {
+                    crate::error::AvengerChartError::InternalError(
+                        "Facet 'row' channel not found in guide".into(),
+                    )
+                })?;
+            let col_expr = source
+                .data
+                .channels()
+                .get("col")
+                .and_then(|cv| cv.expr(ctx))
+                .ok_or_else(|| {
+                    crate::error::AvengerChartError::InternalError(
+                        "Facet 'col' channel not found in guide".into(),
+                    )
+                })?;
+
+            let df = source.data.dataframe_with_context(ctx).ok_or_else(|| {
+                crate::error::AvengerChartError::InternalError(
+                    "Facet guide could not access data".into(),
+                )
+            })?;
+
+            // Compute scale sharing
+            let coord_channels: Vec<&str> =
+                source.subplot.coord_transform.required_channels().to_vec();
+            let mut scale_sharing_by_channel = std::collections::HashMap::new();
+            for &ch in &coord_channels {
+                let mut shared = false;
+                for m in &source.subplot.marks {
+                    if let Some(cv) = m.data_context().channels().get(ch) {
+                        if let Some(true) = cv.get_share_across_facets() {
+                            shared = true;
+                            break;
+                        }
+                    }
+                }
+                scale_sharing_by_channel.insert(ch.to_string(), shared);
+            }
+
+            use crate::facet::dimension_config::{RowDimensionConfig, ColDimensionConfig};
+            use crate::facet::subplot_iterator::SubplotIterator;
+
+            let num_rows = row_domain_vals.len();
+            let num_cols = col_domain_vals.len();
+            let band_w = plot_width / num_cols.max(1) as f32;
+            let band_h = plot_height / num_rows.max(1) as f32;
+
+            // Build base scales from full DataFrame (used as fallback for empty cells)
+            let base_scales = source
+                .subplot
+                .build_scales_for_dataframe(&df, band_w, band_h, ctx, params)
+                .await?;
+
+            // Use nested SubplotIterators to iterate over grid cells
+            let row_iter = SubplotIterator::<RowDimensionConfig>::new(
+                row_domain_vals.clone(),
+                params.clone(),
+                scale_sharing_by_channel.clone(),
+            );
+
+            for row_iteration in row_iter {
+                let col_iter = SubplotIterator::<ColDimensionConfig>::new(
+                    col_domain_vals.clone(),
+                    params.clone(),
+                    scale_sharing_by_channel.clone(),
+                );
+
+                for col_iteration in col_iter {
+                    // Merge row and col contexts into unified GridFacet context
+                    let merged_params = crate::facet::marks::facet::merge_grid_facet_contexts(
+                        &row_iteration,
+                        &col_iteration,
+                        num_rows,
+                        num_cols,
+                    );
+
+                    // Filter to rows matching both row AND col values
+                    let filter_df = df
+                        .clone()
+                        .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
+                        .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
+
+                    // Check if this cell has any data
+                    let cell_count = filter_df.clone().count().await?;
+                    let cell_is_empty = cell_count == 0;
+
+                    // Build scales for this subplot
+                    let mut inner_scales = base_scales.clone();
+
+                    // For independent (free) channels, rebuild from cell data if cell is non-empty
+                    if !cell_is_empty {
+                        for (ch, shared_flag) in &scale_sharing_by_channel {
+                            if !*shared_flag {
+                                // This channel is independent - rebuild from filtered data
+                                let facet_scales = source
+                                    .subplot
+                                    .build_scales_for_dataframe(&filter_df, band_w, band_h, ctx, &merged_params)
+                                    .await?;
+
+                                if let Some(s) = facet_scales.get(ch) {
+                                    inner_scales.insert(ch.clone(), s.clone());
+                                }
+                            }
+                        }
+                    }
+
+                    let overflow = source
+                        .subplot
+                        .measure_guide_overflow_with_scales(
+                            &inner_scales,
+                            band_w,
+                            band_h,
+                            ctx,
+                            &merged_params,
+                        )
+                        .await?;
+
+                    // Track top/bottom overflow (for first/last row)
+                    if row_iteration.index == 0 {
+                        max_top = max_top.max(overflow.top);
+                    }
+                    if row_iteration.index == num_rows - 1 {
+                        max_bottom = max_bottom.max(overflow.bottom);
+                    }
+
+                    // Track left/right overflow (for first/last col)
+                    if col_iteration.index == 0 {
+                        max_left = max_left.max(overflow.left);
+                    }
+                    if col_iteration.index == num_cols - 1 {
+                        max_right = max_right.max(overflow.right);
+                    }
+                }
+            }
+        }
+
+        // Measure row labels (if not degenerate)
+        let row_label_space = if !skip_row_labels {
+            let row_labels = row_scale.domain_labels()?;
+            let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("label");
+            let label_font_px = theme.font_size(&guide_ctx).unwrap_or(12.0_f32);
+            let root_ctx = crate::theme::ThemeContext::new(":root", params.clone());
+            let label_font_family = theme
+                .font_family(&guide_ctx)
+                .or_else(|| theme.font_family(&root_ctx))
+                .unwrap_or_else(|| "sans-serif".to_string());
+
+            let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("title");
+            let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
+            let title_font_family = theme
+                .font_family(&title_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string());
+
+            use crate::facet::guide_utils::{FacetLabelMeasurementConfig, measure_facet_label_slab};
+            let measurement_config = FacetLabelMeasurementConfig {
+                labels: row_labels,
+                is_rotated: true,  // Row labels are vertical
+                font_family: label_font_family,
+                font_size_px: label_font_px,
+                title: self.row_title.clone(),
+                title_font_family: title_font_family,
+                title_font_size_px: title_font_px,
+            };
+            measure_facet_label_slab(&measurement_config)
+        } else {
+            0.0
+        };
+
+        // Measure col labels (if not degenerate)
+        let col_label_space = if !skip_col_labels {
+            let col_labels = col_scale.domain_labels()?;
+            let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("label");
+            let label_font_px = theme.font_size(&guide_ctx).unwrap_or(12.0_f32);
+            let root_ctx = crate::theme::ThemeContext::new(":root", params.clone());
+            let label_font_family = theme
+                .font_family(&guide_ctx)
+                .or_else(|| theme.font_family(&root_ctx))
+                .unwrap_or_else(|| "sans-serif".to_string());
+
+            let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("title");
+            let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
+            let title_font_family = theme
+                .font_family(&title_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string());
+
+            use crate::facet::guide_utils::{FacetLabelMeasurementConfig, measure_facet_label_slab};
+            let measurement_config = FacetLabelMeasurementConfig {
+                labels: col_labels,
+                is_rotated: false,  // Col labels are horizontal
+                font_family: label_font_family,
+                font_size_px: label_font_px,
+                title: self.col_title.clone(),
+                title_font_family: title_font_family,
+                title_font_size_px: title_font_px,
+            };
+            measure_facet_label_slab(&measurement_config)
+        } else {
+            0.0
+        };
+
+        // Measure unified y-title (rotated, on right side)
+        let unified_y_height = if let Some(y_title) = &self.unified_y_title {
+            let y_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("title");
+            let y_font_px = theme.font_size(&y_ctx).unwrap_or(12.0_f32);
+            let y_family_owned = theme
+                .font_family(&y_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string());
+            let cfg_y = avenger_text::measurement::TextMeasurementConfig {
+                text: y_title,
+                font: y_family_owned.as_str(),
+                font_size: y_font_px,
+                font_weight: &avenger_text::types::FontWeight::Name(
+                    avenger_text::types::FontWeightNameSpec::Normal,
+                ),
+                font_style: &avenger_text::types::FontStyle::Normal,
+            };
+            let b_y =
+                avenger_text::measurement::default_text_measurer().measure_text_bounds(&cfg_y);
+            b_y.height + 1.0
+        } else {
+            0.0
+        };
+
+        // Measure unified x-title (horizontal, position based on x-axis)
+        let unified_x_height = if let Some(x_title) = &self.unified_x_title {
+            let x_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("title");
+            let x_font_px = theme.font_size(&x_ctx).unwrap_or(12.0_f32);
+            let x_family_owned = theme
+                .font_family(&x_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string());
+            let cfg_x = avenger_text::measurement::TextMeasurementConfig {
+                text: x_title,
+                font: x_family_owned.as_str(),
+                font_size: x_font_px,
+                font_weight: &avenger_text::types::FontWeight::Name(
+                    avenger_text::types::FontWeightNameSpec::Normal,
+                ),
+                font_style: &avenger_text::types::FontStyle::Normal,
+            };
+            let b_x =
+                avenger_text::measurement::default_text_measurer().measure_text_bounds(&cfg_x);
+            b_x.height + 1.0
+        } else {
+            0.0
+        };
+
+        // Determine if col labels go below (when x-axis at top)
+        let place_col_below = if let Some(source) = self.facet_sources.first() {
+            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
+                match guide.axis_position("x") {
+                    Some(crate::cartesian::axis::AxisPosition::Top) => true,
+                    Some(crate::cartesian::axis::AxisPosition::Bottom) => false,
+                    None => max_top > max_bottom,
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // Determine row label placement (opposite side of y-axis, like FacetRow)
+        // If right overflow > left overflow, y-axis is on right, so row labels go left
+        let place_row_on_left = max_right > max_left;
+
+        // Allocate overflow space
+        let gap_axis = 6.0_f32;
+
+        // Left/right overflow depends on row label placement
+        let (left_final, right_final) = if place_row_on_left {
+            // Row labels on left, y-axis on right
+            (
+                row_label_space + max_left,
+                max_right + if unified_y_height > 0.0 {
+                    gap_axis + unified_y_height
+                } else {
+                    0.0
+                },
+            )
+        } else {
+            // Row labels on right, y-axis on left
+            (
+                max_left + if unified_y_height > 0.0 {
+                    gap_axis + unified_y_height
+                } else {
+                    0.0
+                },
+                row_label_space + max_right,
+            )
+        };
+
+        // Top/bottom overflow depends on col label placement
+        let (top_final, bottom_final) = if place_col_below {
+            (
+                // Top: subplot top overflow + optional unified x-title
+                max_top + if unified_x_height > 0.0 {
+                    gap_axis + unified_x_height
+                } else {
+                    0.0
+                },
+                // Bottom: col labels + subplot bottom overflow
+                col_label_space + max_bottom,
+            )
+        } else {
+            (
+                // Top: col labels + subplot top overflow
+                col_label_space + max_top,
+                // Bottom: subplot bottom overflow + optional unified x-title
+                max_bottom + if unified_x_height > 0.0 {
+                    gap_axis + unified_x_height
+                } else {
+                    0.0
+                },
+            )
+        };
+
+        Ok(OverflowSpaceRequirement {
+            top: top_final,
+            bottom: bottom_final,
+            left: left_final,
+            right: right_final,
+        })
+    }
+
+    async fn evaluate(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+        plot_bounds: &LayoutBounds,
+        theme: &crate::theme::Theme,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &SessionContext,
+    ) -> Result<Vec<SceneMark>, crate::error::AvengerChartError> {
+        use crate::scales::ConfiguredScaleLegendExt;
+        use avenger_scenegraph::marks::text::SceneTextMark;
+        use avenger_text::types::{TextAlign, TextBaseline};
+        use std::sync::Arc as StdArc;
+
+        let mut marks: Vec<SceneMark> = Vec::new();
+
+        // Get row and col scales (may not exist for degenerate single-value cases)
+        let row_scale = match scales.get("row") {
+            Some(s) => s,
+            None => return Ok(marks),  // Degenerate case: no row scale
+        };
+        let col_scale = match scales.get("col") {
+            Some(s) => s,
+            None => return Ok(marks),  // Degenerate case: no col scale
+        };
+
+        // Extract domain values and labels
+        let row_domain_vals = match row_scale.domain_values()? {
+            crate::scales::extensions::DomainValues::Discrete(vals) => vals,
+            _ => vec![],
+        };
+        let col_domain_vals = match col_scale.domain_values()? {
+            crate::scales::extensions::DomainValues::Discrete(vals) => vals,
+            _ => vec![],
+        };
+
+        let row_labels = row_scale.domain_labels()?;
+        let col_labels = col_scale.domain_labels()?;
+
+        // Skip if single row or single col (degenerate grid)
+        let skip_row_labels = row_domain_vals.len() <= 1;
+        let skip_col_labels = col_domain_vals.len() <= 1;
+
+        // Get band positions for both dimensions
+        // These scales have the correct spacing from the facet mark (via scale updates).
+        // We'll use .center() on each BandPosition for label/tick positioning.
+        use crate::facet::band_positions::BandPositionIterator;
+        let row_band_positions: Vec<_> =
+            BandPositionIterator::from_configured_scale(row_scale)?.collect();
+        let col_band_positions: Vec<_> =
+            BandPositionIterator::from_configured_scale(col_scale)?.collect();
+
+        // Debug: log scale options and computed band centers used for labels
+        if cfg!(debug_assertions) || std::env::var("RUST_LOG").is_ok() {
+            use avenger_scales::scales::band;
+            let row_bw = band::bandwidth(&row_scale.config)?;
+            let col_bw = band::bandwidth(&col_scale.config)?;
+            let row_pad_inner_px = row_scale.config.option_f32("padding_inner_px", 0.0);
+            let col_pad_inner_px = col_scale.config.option_f32("padding_inner_px", 0.0);
+            tracing::debug!(
+                row_bw = row_bw,
+                col_bw = col_bw,
+                row_pad_inner_px = row_pad_inner_px,
+                col_pad_inner_px = col_pad_inner_px,
+                "GridFacetGuide: bandwidth and padding_inner_px"
+            );
+            for (i, bp) in col_band_positions.iter().enumerate() {
+                let label = col_labels.get(i).cloned().unwrap_or_default();
+                tracing::debug!(
+                    i = i,
+                    ?label,
+                    center = bp.center(),
+                    bw = col_bw,
+                    "GridFacetGuide: col label center position"
+                );
+            }
+            for (i, bp) in row_band_positions.iter().enumerate() {
+                let label = row_labels.get(i).cloned().unwrap_or_default();
+                tracing::debug!(
+                    i = i,
+                    ?label,
+                    center = bp.center(),
+                    bw = row_bw,
+                    "GridFacetGuide: row label center position"
+                );
+            }
+        }
+
+        // Measure subplot overflows to determine row and col label placement
+        let mut subplot_max_top: f32 = 0.0;
+        let mut subplot_max_bottom: f32 = 0.0;
+        let mut subplot_max_left: f32 = 0.0;
+        let mut subplot_max_right: f32 = 0.0;
+
+        if let Some(source) = self.facet_sources.first() {
+            let row_expr = source
+                .data
+                .channels()
+                .get("row")
+                .and_then(|cv| cv.expr(ctx))
+                .ok_or_else(|| {
+                    crate::error::AvengerChartError::InternalError(
+                        "Facet 'row' channel not found".into(),
+                    )
+                })?;
+            let col_expr = source
+                .data
+                .channels()
+                .get("col")
+                .and_then(|cv| cv.expr(ctx))
+                .ok_or_else(|| {
+                    crate::error::AvengerChartError::InternalError(
+                        "Facet 'col' channel not found".into(),
+                    )
+                })?;
+
+            let df = source.data.dataframe_with_context(ctx).ok_or_else(|| {
+                crate::error::AvengerChartError::InternalError("Facet guide could not access data".into())
+            })?;
+
+            let coord_channels: Vec<&str> = source.subplot.coord_transform.required_channels().to_vec();
+            let mut scale_sharing_by_channel = std::collections::HashMap::new();
+            for &ch in &coord_channels {
+                let mut shared = false;
+                for m in &source.subplot.marks {
+                    if let Some(cv) = m.data_context().channels().get(ch) {
+                        if let Some(true) = cv.get_share_across_facets() {
+                            shared = true;
+                            break;
+                        }
+                    }
+                }
+                scale_sharing_by_channel.insert(ch.to_string(), shared);
+            }
+
+            use crate::facet::dimension_config::{RowDimensionConfig, ColDimensionConfig};
+            use crate::facet::subplot_iterator::SubplotIterator;
+
+            let num_rows = row_domain_vals.len();
+            let num_cols = col_domain_vals.len();
+            let band_w = plot_width / num_cols.max(1) as f32;
+            let band_h = plot_height / num_rows.max(1) as f32;
+
+            // Build base scales from full DataFrame (used as fallback for empty cells)
+            let base_scales = source.subplot.build_scales_for_dataframe(&df, band_w, band_h, ctx, params).await?;
+
+            // Use nested SubplotIterators to iterate over grid cells
+            let row_iter = SubplotIterator::<RowDimensionConfig>::new(
+                row_domain_vals.clone(),
+                params.clone(),
+                scale_sharing_by_channel.clone(),
+            );
+
+            for row_iteration in row_iter {
+                let col_iter = SubplotIterator::<ColDimensionConfig>::new(
+                    col_domain_vals.clone(),
+                    params.clone(),
+                    scale_sharing_by_channel.clone(),
+                );
+
+                for col_iteration in col_iter {
+                    // Merge row and col contexts into unified GridFacet context
+                    let merged_params = crate::facet::marks::facet::merge_grid_facet_contexts(
+                        &row_iteration,
+                        &col_iteration,
+                        num_rows,
+                        num_cols,
+                    );
+
+                    let filter_df = df.clone()
+                        .filter(row_expr.clone().eq(datafusion::logical_expr::lit(row_iteration.facet_value.clone())))?
+                        .filter(col_expr.clone().eq(datafusion::logical_expr::lit(col_iteration.facet_value.clone())))?;
+
+                    // Check if this cell has any data
+                    let cell_count = filter_df.clone().count().await?;
+                    let cell_is_empty = cell_count == 0;
+
+                    // Build scales for this subplot
+                    let mut inner_scales = base_scales.clone();
+
+                    // For independent (free) channels, rebuild from cell data if cell is non-empty
+                    if !cell_is_empty {
+                        for (ch, shared_flag) in &scale_sharing_by_channel {
+                            if !*shared_flag {
+                                // This channel is independent - rebuild from filtered data
+                                let facet_scales = source.subplot.build_scales_for_dataframe(&filter_df, band_w, band_h, ctx, &merged_params).await?;
+
+                                if let Some(s) = facet_scales.get(ch) {
+                                    inner_scales.insert(ch.clone(), s.clone());
+                                }
+                            }
+                        }
+                    }
+
+                    let overflow = source.subplot.measure_guide_overflow_with_scales(
+                        &inner_scales,
+                        band_w,
+                        band_h,
+                        ctx,
+                        &merged_params,
+                    ).await?;
+
+                    subplot_max_top = subplot_max_top.max(overflow.top);
+                    subplot_max_bottom = subplot_max_bottom.max(overflow.bottom);
+                    subplot_max_left = subplot_max_left.max(overflow.left);
+                    subplot_max_right = subplot_max_right.max(overflow.right);
+                }
+            }
+        }
+
+        // Determine row label placement (opposite side of y-axis, like FacetRow)
+        // If right overflow > left overflow, y-axis is on right, so row labels go left
+        let place_row_on_left = subplot_max_right > subplot_max_left;
+
+        // Determine col label placement
+        let place_col_below = if let Some(source) = self.facet_sources.first() {
+            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
+                match guide.axis_position("x") {
+                    Some(crate::cartesian::axis::AxisPosition::Top) => true,
+                    Some(crate::cartesian::axis::AxisPosition::Bottom) => false,
+                    None => subplot_max_top > subplot_max_bottom,
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // Theme contexts
+        let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+            .child("facet")
+            .child("label");
+        let label_font_px = theme.font_size(&guide_ctx).unwrap_or(12.0_f32);
+        let root_ctx = crate::theme::ThemeContext::new(":root", params.clone());
+        let label_font_family = theme
+            .font_family(&guide_ctx)
+            .or_else(|| theme.font_family(&root_ctx))
+            .unwrap_or_else(|| "sans-serif".to_string());
+
+        let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+            .child("facet")
+            .child("title");
+        let title_font_px = theme.font_size(&title_ctx).unwrap_or(12.0_f32);
+        let title_font_family = theme
+            .font_family(&title_ctx)
+            .unwrap_or_else(|| "sans-serif".to_string());
+
+        // Render row labels (on opposite side of y-axis)
+        if !skip_row_labels {
+            use crate::facet::guide_utils::{FacetLabelRenderConfig, render_facet_label_slab};
+
+            // Adjust plot bounds to account for subplot overflow when positioning facet labels
+            // When labels are on right, extend width by right overflow so labels appear after it
+            // When labels are on left, shift x by left overflow so labels appear before it
+            let render_plot_bounds = if place_row_on_left {
+                LayoutBounds {
+                    x: plot_bounds.x - subplot_max_left,
+                    y: plot_bounds.y,
+                    width: plot_width + subplot_max_left,
+                    height: plot_height,
+                }
+            } else {
+                LayoutBounds {
+                    x: plot_bounds.x,
+                    y: plot_bounds.y,
+                    width: plot_width + subplot_max_right,
+                    height: plot_height,
+                }
+            };
+
+            let row_config = FacetLabelRenderConfig {
+                labels: row_labels.clone(),
+                band_positions: row_band_positions.clone(),
+                plot_bounds: render_plot_bounds,
+                is_rotated: true,  // Row labels are vertical
+                place_at_end: !place_row_on_left,  // Opposite side of y-axis
+                font_family: label_font_family.clone(),
+                font_size_px: label_font_px,
+                title: self.row_title.clone(),
+                title_font_family: title_font_family.clone(),
+                title_font_size_px: title_font_px,
+            };
+            marks.extend(render_facet_label_slab(&row_config, theme, params));
+        }
+
+        // Render col labels (top or bottom, unless degenerate)
+        if !skip_col_labels {
+            use crate::facet::guide_utils::{FacetLabelRenderConfig, render_facet_label_slab};
+
+            // Adjust plot bounds to account for subplot overflow when positioning facet labels
+            // When labels are below, extend height by bottom overflow so labels appear after it
+            // When labels are above, shift y by top overflow so labels appear before it
+            let render_plot_bounds = if place_col_below {
+                LayoutBounds {
+                    x: plot_bounds.x,
+                    y: plot_bounds.y,
+                    width: plot_width,
+                    height: plot_height + subplot_max_bottom,
+                }
+            } else {
+                LayoutBounds {
+                    x: plot_bounds.x,
+                    y: plot_bounds.y - subplot_max_top,
+                    width: plot_width,
+                    height: plot_height + subplot_max_top,
+                }
+            };
+
+            let col_config = FacetLabelRenderConfig {
+                labels: col_labels.clone(),
+                band_positions: col_band_positions.clone(),
+                plot_bounds: render_plot_bounds,
+                is_rotated: false,  // Col labels are horizontal
+                place_at_end: place_col_below,
+                font_family: label_font_family.clone(),
+                font_size_px: label_font_px,
+                title: self.col_title.clone(),
+                title_font_family: title_font_family.clone(),
+                title_font_size_px: title_font_px,
+            };
+            marks.extend(render_facet_label_slab(&col_config, theme, params));
+        }
+
+        // Render unified y-axis title (rotated, on same side as y-axis, opposite of row labels)
+        if let Some(y_title) = &self.unified_y_title {
+            let y_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("title");
+            let y_font_px = theme.font_size(&y_ctx).unwrap_or(12.0_f32);
+            let y_color = theme.text_color(&y_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+            let y_family_owned = theme
+                .font_family(&y_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string());
+
+            // Y-axis is on the opposite side of row labels
+            let axis_on_right = place_row_on_left;
+            let gap = 6.0_f32;
+
+            let x_bottom = if axis_on_right {
+                plot_bounds.x + plot_width + subplot_max_right + gap
+            } else {
+                plot_bounds.x - subplot_max_left - gap
+            };
+            let y_center = plot_bounds.y + 0.5 * plot_height;
+
+            let y_mark = SceneTextMark {
+                text: y_title.clone().into(),
+                x: x_bottom.into(),
+                y: y_center.into(),
+                align: TextAlign::Center.into(),
+                baseline: TextBaseline::Bottom.into(),
+                font: y_family_owned.clone().into(),
+                font_size: y_font_px.into(),
+                angle: if axis_on_right {
+                    90.0_f32.into()
+                } else {
+                    (-90.0_f32).into()
+                },
+                color: avenger_common::types::ColorOrGradient::Color(y_color).into(),
+                zindex: Some(6),
+                ..Default::default()
+            };
+            marks.push(SceneMark::Text(StdArc::new(y_mark)));
+        }
+
+        // Render unified x-axis title (horizontal, position based on x-axis)
+        if let Some(x_title) = &self.unified_x_title {
+            let x_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("title");
+            let x_font_px = theme.font_size(&x_ctx).unwrap_or(12.0_f32);
+            let x_color = theme.text_color(&x_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+            let x_family_owned = theme
+                .font_family(&x_ctx)
+                .or_else(|| theme.font_family(&root_ctx))
+                .unwrap_or_else(|| "sans-serif".to_string());
+
+            let gap_axis = 6.0_f32;
+            let x_axis_at_top = place_col_below;
+
+            let y_unified = if x_axis_at_top {
+                plot_bounds.y - subplot_max_top - gap_axis
+            } else {
+                plot_bounds.y + plot_height + subplot_max_bottom + gap_axis
+            };
+
+            let unified_mark = SceneTextMark {
+                text: x_title.clone().into(),
+                x: (plot_bounds.x + plot_width / 2.0).into(),
+                y: y_unified.into(),
+                align: TextAlign::Center.into(),
+                baseline: if x_axis_at_top { TextBaseline::Bottom } else { TextBaseline::Top }.into(),
+                angle: 0.0_f32.into(),
+                font: x_family_owned.to_string().into(),
+                font_size: x_font_px.into(),
+                color: avenger_common::types::ColorOrGradient::Color(x_color).into(),
                 zindex: Some(6),
                 ..Default::default()
             };
