@@ -1,9 +1,8 @@
 //! Iterator abstraction for band scale position iteration
 //!
-//! Provides consistent iteration over band positions with support for:
-//! - Standard band positions (start of each band)
-//! - Centered band positions (for label placement)
-//! - Custom band offset positions
+//! Provides consistent iteration over band positions. The iterator returns
+//! `BandPosition` structs with `start()`, `center()`, and `end()` methods
+//! for explicitly choosing position within each band.
 //!
 //! Eliminates duplication of band position calculation logic across faceting system.
 
@@ -18,13 +17,27 @@ use avenger_scales::scales::ConfiguredScale;
 pub struct BandPosition {
     /// The domain value (e.g., "setosa", "versicolor", "virginica")
     pub value: ScalarValue,
-    /// Numeric position of the band start
-    pub position: f32,
+    /// Numeric position of the band start (private - use start(), center(), or end())
+    position: f32,
     /// Width/height of the band
     pub bandwidth: f32,
 }
 
 impl BandPosition {
+    /// Create a new BandPosition
+    pub fn new(value: ScalarValue, position: f32, bandwidth: f32) -> Self {
+        Self {
+            value,
+            position,
+            bandwidth,
+        }
+    }
+
+    /// Get the start position of this band
+    pub fn start(&self) -> f32 {
+        self.position
+    }
+
     /// Get the center position of this band
     pub fn center(&self) -> f32 {
         self.position + self.bandwidth / 2.0
@@ -46,7 +59,7 @@ impl BandPosition {
 /// ```ignore
 /// let iter = BandPositionIterator::from_scale(&row_scale)?;
 /// for band_pos in iter {
-///     let subplot_y = band_pos.position;
+///     let subplot_y = band_pos.start();  // or .center() or .end()
 ///     let subplot_height = band_pos.bandwidth;
 ///     // render subplot at (x, subplot_y) with height subplot_height
 /// }
@@ -90,57 +103,6 @@ impl BandPositionIterator {
         })
     }
 
-    /// Create an iterator with custom band parameter (0.0 = start, 0.5 = center, 1.0 = end)
-    ///
-    /// Useful for positioning labels at band centers:
-    /// ```ignore
-    /// let iter = BandPositionIterator::from_scale_with_band(&row_scale, 0.5)?;
-    /// for band_pos in iter {
-    ///     let label_y = band_pos.position;  // Already at center
-    /// }
-    /// ```
-    pub fn from_scale_with_band(
-        scale: &ConfiguredScaleWithSpec,
-        band_offset: f32,
-    ) -> Result<Self, AvengerChartError> {
-        use avenger_scales::scales::band;
-
-        let configured = scale.configured();
-        let domain_vals = configured.domain_values()?;
-
-        // Create modified config with custom band offset
-        let mut modified_config = configured.config.clone();
-        modified_config.options.insert(
-            "band".to_string(),
-            avenger_scales::scalar::Scalar::from_f32(band_offset),
-        );
-
-        let modified_scale = avenger_scales::scales::ConfiguredScale {
-            scale_impl: configured.scale_impl.clone(),
-            config: modified_config,
-        };
-
-        let positions = match &domain_vals {
-            DomainValues::Discrete(vals) => {
-                modified_scale.scale_scalars_to_numeric(vals)?
-            }
-            _ => Vec::new(),
-        };
-
-        let bandwidth = band::bandwidth(&configured.config)?;
-
-        let domain_vals = match domain_vals {
-            DomainValues::Discrete(vals) => vals,
-            _ => Vec::new(),
-        };
-
-        Ok(Self {
-            domain_vals,
-            positions,
-            bandwidth,
-            current_index: 0,
-        })
-    }
 
     /// Get the number of bands
     pub fn len(&self) -> usize {
@@ -188,48 +150,6 @@ impl BandPositionIterator {
         })
     }
 
-    /// Create an iterator from a ConfiguredScale with custom band parameter
-    pub fn from_configured_scale_with_band(
-        scale: &ConfiguredScale,
-        band_offset: f32,
-    ) -> Result<Self, AvengerChartError> {
-        use avenger_scales::scales::band;
-
-        let domain_vals = scale.domain_values()?;
-
-        // Create modified config with custom band offset
-        let mut modified_config = scale.config.clone();
-        modified_config.options.insert(
-            "band".to_string(),
-            avenger_scales::scalar::Scalar::from_f32(band_offset),
-        );
-
-        let modified_scale = ConfiguredScale {
-            scale_impl: scale.scale_impl.clone(),
-            config: modified_config,
-        };
-
-        let positions = match &domain_vals {
-            DomainValues::Discrete(vals) => {
-                modified_scale.scale_scalars_to_numeric(vals)?
-            }
-            _ => Vec::new(),
-        };
-
-        let bandwidth = band::bandwidth(&scale.config)?;
-
-        let domain_vals = match domain_vals {
-            DomainValues::Discrete(vals) => vals,
-            _ => Vec::new(),
-        };
-
-        Ok(Self {
-            domain_vals,
-            positions,
-            bandwidth,
-            current_index: 0,
-        })
-    }
 }
 
 impl Iterator for BandPositionIterator {
@@ -260,3 +180,49 @@ impl Iterator for BandPositionIterator {
 }
 
 impl ExactSizeIterator for BandPositionIterator {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion::common::ScalarValue;
+
+    #[test]
+    fn test_band_position_methods() {
+        let bp = BandPosition::new(
+            ScalarValue::Utf8(Some("test".into())),
+            100.0,
+            50.0,
+        );
+
+        assert_eq!(bp.start(), 100.0);
+        assert_eq!(bp.center(), 125.0);
+        assert_eq!(bp.end(), 150.0);
+        assert_eq!(bp.bandwidth, 50.0);
+    }
+
+    #[test]
+    fn test_band_position_zero_bandwidth() {
+        let bp = BandPosition::new(
+            ScalarValue::Utf8(Some("zero".into())),
+            100.0,
+            0.0,
+        );
+
+        assert_eq!(bp.start(), 100.0);
+        assert_eq!(bp.center(), 100.0);
+        assert_eq!(bp.end(), 100.0);
+    }
+
+    #[test]
+    fn test_band_position_negative_position() {
+        let bp = BandPosition::new(
+            ScalarValue::Utf8(Some("negative".into())),
+            -50.0,
+            20.0,
+        );
+
+        assert_eq!(bp.start(), -50.0);
+        assert_eq!(bp.center(), -40.0);
+        assert_eq!(bp.end(), -30.0);
+    }
+}

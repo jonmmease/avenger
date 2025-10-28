@@ -8,7 +8,7 @@
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Axis position for determining edge-based visibility
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,10 +34,13 @@ pub struct FacetContext {
     /// For row-only faceting, num_cols is always 1
     pub grid_dimensions: (usize, usize),
 
-    /// Which channel is unified by the facet guide (e.g., "y" for row faceting)
+    /// Which channels are unified by the facet guide (e.g., {"y"} for row faceting, {"x", "y"} for grid faceting)
     /// When a channel is unified, the facet guide shows the axis title at the
     /// outer level, so subplots should suppress their titles for that channel.
-    pub unified_channel: Option<String>,
+    ///
+    /// BREAKING CHANGE: Changed from `Option<String>` to `HashSet<String>` to support GridFacet
+    /// where both x and y channels can be unified simultaneously.
+    pub unified_channels: HashSet<String>,
 
     /// Per-channel scale sharing status (true = shared, false = independent)
     /// When scales are shared, only edge subplots need to show labels.
@@ -77,10 +80,7 @@ impl FacetContext {
     /// shows the axis title at the outer level, so subplots should suppress
     /// their titles for that channel.
     pub fn is_channel_unified(&self, channel: &str) -> bool {
-        self.unified_channel
-            .as_ref()
-            .map(|ch| ch == channel)
-            .unwrap_or(false)
+        self.unified_channels.contains(channel)
     }
 
     /// Check if subplot is on relevant edge for given axis position
@@ -151,10 +151,13 @@ mod tests {
         scale_sharing.insert("x".to_string(), true);
         scale_sharing.insert("y".to_string(), false);
 
+        let mut unified_channels = HashSet::new();
+        unified_channels.insert("y".to_string());
+
         let ctx = FacetContext {
             position: (1, 0),
             grid_dimensions: (3, 1),
-            unified_channel: Some("y".to_string()),
+            unified_channels: unified_channels.clone(),
             scale_sharing,
         };
 
@@ -166,17 +169,20 @@ mod tests {
         let restored = FacetContext::from_params(&params).unwrap();
         assert_eq!(restored.position, (1, 0));
         assert_eq!(restored.grid_dimensions, (3, 1));
-        assert_eq!(restored.unified_channel, Some("y".to_string()));
+        assert_eq!(restored.unified_channels, unified_channels);
         assert_eq!(restored.scale_sharing.get("x"), Some(&true));
         assert_eq!(restored.scale_sharing.get("y"), Some(&false));
     }
 
     #[test]
     fn test_is_channel_unified() {
+        let mut unified_channels = HashSet::new();
+        unified_channels.insert("y".to_string());
+
         let ctx = FacetContext {
             position: (0, 0),
             grid_dimensions: (3, 1),
-            unified_channel: Some("y".to_string()),
+            unified_channels,
             scale_sharing: HashMap::new(),
         };
 
@@ -191,7 +197,7 @@ mod tests {
         let ctx = FacetContext {
             position: (1, 0),
             grid_dimensions: (3, 1),
-            unified_channel: None,
+            unified_channels: HashSet::new(),
             scale_sharing: HashMap::new(),
         };
 
@@ -207,7 +213,7 @@ mod tests {
         let ctx_bottom = FacetContext {
             position: (2, 0),
             grid_dimensions: (3, 1),
-            unified_channel: None,
+            unified_channels: HashSet::new(),
             scale_sharing: HashMap::new(),
         };
         assert!(ctx_bottom.is_on_relevant_edge("x", AxisPosition::Bottom));
@@ -217,7 +223,7 @@ mod tests {
         let ctx_top = FacetContext {
             position: (0, 0),
             grid_dimensions: (3, 1),
-            unified_channel: None,
+            unified_channels: HashSet::new(),
             scale_sharing: HashMap::new(),
         };
         assert!(!ctx_top.is_on_relevant_edge("x", AxisPosition::Bottom));
@@ -226,10 +232,13 @@ mod tests {
 
     #[test]
     fn test_should_show_title() {
+        let mut unified_channels = HashSet::new();
+        unified_channels.insert("y".to_string());
+
         let ctx = FacetContext {
             position: (1, 0), // Middle row
             grid_dimensions: (3, 1),
-            unified_channel: Some("y".to_string()),
+            unified_channels,
             scale_sharing: HashMap::new(),
         };
 
@@ -242,10 +251,13 @@ mod tests {
         assert!(!ctx.should_show_title("x", AxisPosition::Top));
 
         // Bottom row context
+        let mut unified_channels_bottom = HashSet::new();
+        unified_channels_bottom.insert("y".to_string());
+
         let ctx_bottom = FacetContext {
             position: (2, 0),
             grid_dimensions: (3, 1),
-            unified_channel: Some("y".to_string()),
+            unified_channels: unified_channels_bottom,
             scale_sharing: HashMap::new(),
         };
 
@@ -264,7 +276,7 @@ mod tests {
         let ctx = FacetContext {
             position: (1, 0),
             grid_dimensions: (3, 1),
-            unified_channel: None,
+            unified_channels: HashSet::new(),
             scale_sharing: scale_sharing.clone(),
         };
 
@@ -280,7 +292,7 @@ mod tests {
         let ctx_bottom = FacetContext {
             position: (2, 0),
             grid_dimensions: (3, 1),
-            unified_channel: None,
+            unified_channels: HashSet::new(),
             scale_sharing,
         };
 

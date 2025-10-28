@@ -341,8 +341,7 @@ impl CompiledGuide for CartesianGuide {
                 // is unified in a facet (title will be shown by the facet guide instead)
                 let is_unified_channel = facet_ctx
                     .as_ref()
-                    .and_then(|ctx| ctx.unified_channel.as_ref())
-                    .is_some_and(|uc| uc == channel_name);
+                    .is_some_and(|ctx| ctx.is_channel_unified(channel_name));
 
                 if !is_unified_channel {
                     if let Some(title) = self.channel_titles.get(channel_name) {
@@ -364,8 +363,7 @@ impl CompiledGuide for CartesianGuide {
             // Clear title if this is a unified channel in a facet
             let is_unified_channel = facet_ctx
                 .as_ref()
-                .and_then(|ctx| ctx.unified_channel.as_ref())
-                .is_some_and(|uc| uc == channel);
+                .is_some_and(|ctx| ctx.is_channel_unified(channel));
 
             if is_unified_channel {
                 axis_to_apply.title = crate::maybe::Maybe::Set(None);

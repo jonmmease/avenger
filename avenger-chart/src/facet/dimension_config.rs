@@ -11,6 +11,7 @@
 //! - FacetDirection enum value
 
 use crate::guide::{FacetDirection, OverflowSpaceRequirement};
+use std::collections::HashSet;
 
 /// Configuration trait that abstracts row vs column faceting behavior
 pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
@@ -19,6 +20,13 @@ pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
 
     /// The facet direction for guide rendering
     fn facet_direction() -> FacetDirection;
+
+    /// Get the set of channels unified by this facet dimension
+    ///
+    /// For row faceting: returns {"y"} (y-axis titles shown by facet guide)
+    /// For column faceting: returns {"x"} (x-axis titles shown by facet guide)
+    /// For grid faceting: returns {"x", "y"} (both axes unified)
+    fn unified_channels() -> HashSet<String>;
 
     /// Convert a linear index to a FacetContext position tuple
     ///
@@ -55,6 +63,12 @@ impl FacetDimensionConfig for RowDimensionConfig {
         FacetDirection::Row
     }
 
+    fn unified_channels() -> HashSet<String> {
+        let mut channels = HashSet::new();
+        channels.insert("y".to_string());
+        channels
+    }
+
     fn index_to_position(index: usize) -> (usize, usize) {
         (index, 0)
     }
@@ -71,7 +85,7 @@ impl FacetDimensionConfig for RowDimensionConfig {
     }
 }
 
-/// Column faceting dimension configuration (placeholder for future FacetCol implementation)
+/// Column faceting dimension configuration
 #[derive(Clone, Debug)]
 pub struct ColDimensionConfig;
 
@@ -82,6 +96,12 @@ impl FacetDimensionConfig for ColDimensionConfig {
 
     fn facet_direction() -> FacetDirection {
         FacetDirection::Column
+    }
+
+    fn unified_channels() -> HashSet<String> {
+        let mut channels = HashSet::new();
+        channels.insert("x".to_string());
+        channels
     }
 
     fn index_to_position(index: usize) -> (usize, usize) {
@@ -97,5 +117,39 @@ impl FacetDimensionConfig for ColDimensionConfig {
         overflow_b: &OverflowSpaceRequirement,
     ) -> f32 {
         overflow_a.right + overflow_b.left
+    }
+}
+
+/// Grid faceting dimension configuration
+///
+/// Manages 2D grid faceting with both row and column dimensions.
+/// Not a traditional FacetDimensionConfig since it handles two dimensions simultaneously.
+#[derive(Clone, Debug)]
+pub struct GridDimensionConfig {
+    pub row: RowDimensionConfig,
+    pub col: ColDimensionConfig,
+}
+
+impl GridDimensionConfig {
+    /// Create a new grid dimension config
+    pub fn new() -> Self {
+        Self {
+            row: RowDimensionConfig,
+            col: ColDimensionConfig,
+        }
+    }
+
+    /// Get the set of channels unified by grid faceting (both x and y)
+    pub fn unified_channels() -> HashSet<String> {
+        let mut channels = HashSet::new();
+        channels.insert("x".to_string());
+        channels.insert("y".to_string());
+        channels
+    }
+}
+
+impl Default for GridDimensionConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }

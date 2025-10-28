@@ -5,6 +5,7 @@
 
 use crate::error::AvengerChartError;
 use crate::facet::dimension_config::FacetDimensionConfig;
+use crate::facet::scale_helpers::build_scales_helper;
 use crate::layout::LayoutInfo;
 use crate::marks::CompiledMarkState;
 use crate::plot::CompiledPlot;
@@ -14,7 +15,6 @@ use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::lit;
-use datafusion::prelude::SessionContext;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -77,7 +77,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Build initial (facet_value -> (position, bandwidth)) map with current scale
     use crate::facet::band_positions::BandPositionIterator;
     let initial_band_positions: Vec<_> = BandPositionIterator::from_scale(dimension_scale)?
-        .map(|bp| (bp.value, (bp.position, bp.bandwidth)))
+        .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
         .collect();
 
     // Get the inner plot-level DataFrame
@@ -133,15 +133,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     };
 
     // ========== PASS 1: MEASUREMENT PHASE ==========
-    // Determine which channel is unified (needed for accurate measurement)
-    let unified_channel = if let Some(guide) = compiled_subplot.compiled_guide.as_ref() {
-        guide
-            .facet_unifiable_channel(DimConfig::facet_direction(), compiled_subplot.marks(), ctx)
-            .map(|info| info.channel)
-    } else {
-        None
-    };
-
     // Extract domain values from band positions for SubplotIterator
     let domain_vals: Vec<datafusion::common::ScalarValue> = initial_band_positions
         .iter()
@@ -152,7 +143,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     use crate::facet::subplot_iterator::SubplotIterator;
     let subplot_iter = SubplotIterator::<DimConfig>::new(
         domain_vals,
-        unified_channel.clone(),
         context.params.clone(),
         scale_sharing_by_channel.clone(),
     );
@@ -268,7 +258,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             )
         })?;
     let band_positions: Vec<_> = BandPositionIterator::from_scale(final_dimension_scale)?
-        .map(|bp| (bp.value, (bp.position, bp.bandwidth)))
+        .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
         .collect();
 
     // CRITICAL: Rebuild shared scales with the NEW band size after padding adjustment
@@ -294,7 +284,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Create SubplotIterator for Pass 2 (FacetContext management)
     let subplot_iter_pass2 = SubplotIterator::<DimConfig>::new(
         domain_vals_final,
-        unified_channel.clone(),
         context.params.clone(),
         scale_sharing_by_channel.clone(),
     );
@@ -362,7 +351,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
         // Wrap data marks in a clipped group translated to band position
         let data_group = SceneGroup {
-            origin: group_origin(band_pos.position),
+            origin: group_origin(band_pos.start()),
             marks: sub.data_marks,
             clip: sub.clip,
             zindex: Some(0),
@@ -373,7 +362,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         // Wrap guide marks (axes) in a non-clipped translated group
         if !sub.guide_marks.is_empty() {
             let guide_group = SceneGroup {
-                origin: group_origin(band_pos.position),
+                origin: group_origin(band_pos.start()),
                 marks: sub.guide_marks,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 zindex: Some(1),
@@ -389,27 +378,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     ))
 }
 
-/// Helper method to build scales for a dataframe, reusing shared scales if available
-///
-/// If `shared_scales_opt` contains scales, clones and returns them.
-/// Otherwise, builds new scales from the dataframe using ScaleBuilder.
-async fn build_scales_helper(
-    compiled_subplot: &CompiledPlot,
-    shared_scales_opt: &Option<HashMap<String, ConfiguredScaleWithSpec>>,
-    filter_df: &DataFrame,
-    plot_width: f32,
-    plot_height: f32,
-    ctx: &SessionContext,
-    params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
-    if let Some(shared) = shared_scales_opt {
-        Ok(shared.clone())
-    } else {
-        compiled_subplot
-            .build_scales_for_dataframe(filter_df, plot_width, plot_height, ctx, params)
-            .await
-    }
-}
 
 /// Helper to extract band size from band positions vector
 ///
