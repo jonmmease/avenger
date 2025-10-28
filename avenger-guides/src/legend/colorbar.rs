@@ -137,6 +137,7 @@ pub fn make_colorbar_marks(
                 y: 0.0.into(),
                 y2: Some(colorbar_height.into()),
                 fill: ColorOrGradient::GradientIndex(0).into(),
+                clip: false,
                 ..Default::default()
             };
 
@@ -297,6 +298,7 @@ pub fn make_colorbar_marks(
                 y: 0.0.into(),
                 y2: Some(colorbar_height.into()),
                 fill: ColorOrGradient::GradientIndex(0).into(),
+                clip: false,
                 ..Default::default()
             };
 
@@ -511,6 +513,7 @@ pub fn make_colorbar_marks(
                 y: 0.0.into(),
                 y2: Some(gradient_height.into()),
                 fill: ColorOrGradient::GradientIndex(0).into(),
+                clip: false,
                 ..Default::default()
             };
 
@@ -648,6 +651,7 @@ pub fn make_colorbar_marks(
                 y: 0.0.into(),
                 y2: Some((gradient_height).into()),
                 fill: ColorOrGradient::GradientIndex(0).into(),
+                clip: false,
                 ..Default::default()
             };
 
