@@ -888,8 +888,8 @@ impl CompiledGuide for FacetColGuide {
             max_bottom = facet_label_space;
         } else {
             // X-axis at bottom (default), facet labels above
-            // Facet labels and title go at top
-            max_top = facet_label_space;
+            // Facet labels and title go at top ABOVE the subplot overflow
+            max_top += facet_label_space;
             // Unified x-axis title goes at bottom with x-axis
             max_bottom += x_axis_title_space;
         }
@@ -1057,11 +1057,12 @@ impl CompiledGuide for FacetColGuide {
         use crate::facet::guide_utils::{FacetLabelRenderConfig, render_facet_label_slab};
 
         // Create plot bounds with correct width/height from parameters
+        // Offset y by subplot_max_top so facet labels sit above subplot overflow
         let render_plot_bounds = LayoutBounds {
             x: plot_bounds.x,
-            y: plot_bounds.y,
+            y: plot_bounds.y - subplot_max_top,
             width: plot_width,
-            height: plot_height,
+            height: plot_height + subplot_max_top,
         };
 
         let render_config = FacetLabelRenderConfig {
