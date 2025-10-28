@@ -33,3 +33,21 @@ impl FacetRowChannelConfig {
         self
     }
 }
+
+#[derive(Clone, Default)]
+pub struct FacetColChannelConfig {
+    pub(crate) title: Option<String>,
+    pub(crate) spacing: Option<f32>,
+}
+
+impl FacetColChannelConfig {
+    pub fn facet<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(FacetOptions) -> FacetOptions,
+    {
+        let opts = f(FacetOptions::default());
+        self.title = opts.title;
+        self.spacing = opts.spacing;
+        self
+    }
+}
