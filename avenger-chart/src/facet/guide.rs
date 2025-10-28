@@ -288,9 +288,9 @@ impl CompiledGuide for FacetRowGuide {
         };
         // Axis side overflow should include child extent + gap + unified y title height
         let left_final = if axis_on_right {
-            // Axis on right: left side uses facet-by (if placed left) otherwise just child left
+            // Axis on right: left side has facet labels (if placed left) OUTSIDE subplot overflow
             if place_on_left {
-                max_left.max(estimated_right)
+                max_left + estimated_right
             } else {
                 max_left
             }
@@ -312,11 +312,11 @@ impl CompiledGuide for FacetRowGuide {
                     0.0
                 }
         } else {
-            // Axis on left: right side uses facet-by (if placed right) otherwise just child right
+            // Axis on left: right side has facet labels (if placed right) OUTSIDE subplot overflow
             if place_on_left {
                 max_right
             } else {
-                max_right.max(estimated_right)
+                max_right + estimated_right
             }
         };
         Ok(OverflowSpaceRequirement {
@@ -481,11 +481,23 @@ impl CompiledGuide for FacetRowGuide {
         use crate::facet::guide_utils::{FacetLabelRenderConfig, render_facet_label_slab};
 
         // Create plot bounds with correct width/height from parameters
-        let render_plot_bounds = LayoutBounds {
-            x: plot_bounds.x,
-            y: plot_bounds.y,
-            width: plot_width,
-            height: plot_height,
+        // Offset by subplot overflow so facet labels sit outside subplot guides
+        let render_plot_bounds = if place_on_left {
+            // Labels on left: extend leftward by max_left_child
+            LayoutBounds {
+                x: plot_bounds.x - max_left_child,
+                y: plot_bounds.y,
+                width: plot_width + max_left_child,
+                height: plot_height,
+            }
+        } else {
+            // Labels on right: extend rightward by max_right_child
+            LayoutBounds {
+                x: plot_bounds.x,
+                y: plot_bounds.y,
+                width: plot_width + max_right_child,
+                height: plot_height,
+            }
         };
 
         let render_config = FacetLabelRenderConfig {
