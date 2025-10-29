@@ -20,12 +20,12 @@ async fn facet_row_iris_shared_scatter() {
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .share_scale(ScaleSharing::Shared)
+                                .with_scale_sharing(ScaleSharing::Shared)
                                 .axis(|a| a.title("Sepal Length"))
                         })
                         .y_with(col("sepal_width"), |c| {
                             c.scale_with::<Linear>(|s| s)
-                                .share_scale(ScaleSharing::Shared)
+                                .with_scale_sharing(ScaleSharing::Shared)
                                 .axis(|a| a.title("Sepal Width"))
                         })
                         .size(36.0)

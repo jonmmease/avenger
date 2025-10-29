@@ -24,6 +24,7 @@ pub mod test_default_axes_visual;
 pub mod test_eight_types_symbol;
 pub mod test_facet_col;
 pub mod test_facet_grid;
+pub mod test_facet_legends;
 pub mod test_facet_partial_sharing;
 pub mod test_facet_row;
 pub mod test_facet_row_free;
