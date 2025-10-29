@@ -2,7 +2,6 @@
 ///
 /// This module provides a parameterized two-pass rendering algorithm that works for
 /// both row and column faceting by accepting orientation-specific closures.
-
 use crate::error::AvengerChartError;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use crate::facet::scale_helpers::build_scales_helper;
@@ -59,11 +58,14 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     group_origin: impl Fn(f32) -> [f32; 2],
 ) -> Result<(Vec<SceneMark>, Box<dyn LayoutInfo>), AvengerChartError> {
     // Get dimension scale (row or col)
-    let dimension_scale = context.scales.get(DimConfig::channel_name()).ok_or_else(|| {
-        AvengerChartError::InternalError(
-            format!("Missing '{}' scale for faceting", DimConfig::channel_name()).into(),
-        )
-    })?;
+    let dimension_scale = context
+        .scales
+        .get(DimConfig::channel_name())
+        .ok_or_else(|| {
+            AvengerChartError::InternalError(
+                format!("Missing '{}' scale for faceting", DimConfig::channel_name()).into(),
+            )
+        })?;
 
     // Validate that scale is a band scale
     if dimension_scale.configured().scale_impl.scale_type() != "band" {
@@ -101,7 +103,10 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     let mut all_marks: Vec<SceneMark> = Vec::new();
 
     // Compute per-channel sharing preferences by scanning inner marks
-    let required_channels: Vec<&str> = compiled_subplot.coord_transform.required_channels().to_vec();
+    let required_channels: Vec<&str> = compiled_subplot
+        .coord_transform
+        .required_channels()
+        .to_vec();
     let mut scale_sharing_by_channel: HashMap<String, bool> = HashMap::new();
     for &ch in &required_channels {
         let mut shared = false;
@@ -118,14 +123,30 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         scale_sharing_by_channel.insert(ch.to_string(), shared);
     }
 
-    // If any channel is shared, compute scales once across full data using approximate band size
+    // If any channel is shared, build a ScaleBuilder once for reuse across passes
+    // This enables radius-aware domain inference for faceted plots
+    // Use the full dataset (df, not filtered) since shared scales span all facets
     let any_shared = scale_sharing_by_channel.values().any(|v| *v);
-    let initial_band_size = extract_band_size(&initial_band_positions, context.plot_width.max(context.plot_height));
-    let initial_shared_scales = if any_shared {
+    let initial_band_size = extract_band_size(
+        &initial_band_positions,
+        context.plot_width.max(context.plot_height),
+    );
+    let shared_scale_builder = if any_shared {
+        Some(
+            compiled_subplot
+                .build_scale_builder_from_dataframe(ctx, &context.params, &df)
+                .await?,
+        )
+    } else {
+        None
+    };
+
+    // Build initial shared scales for Pass 1 using approximate band size
+    let initial_shared_scales = if let Some(ref builder) = shared_scale_builder {
         let (width, height) = subplot_dims(initial_band_size, context);
         Some(
             compiled_subplot
-                .build_scales_for_dataframe(&df, width, height, ctx, &context.params)
+                .build_scales_from_builder(builder, width, height, ctx, &context.params)
                 .await?,
         )
     } else {
@@ -167,9 +188,22 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
         // Build scales for this partition (use shared scales if available)
         let (width, height) = subplot_dims(band_pos.bandwidth, context);
+
+        // For free-scale facets, build a per-facet ScaleBuilder
+        let free_scale_builder_pass1 = if any_shared {
+            None
+        } else {
+            Some(
+                compiled_subplot
+                    .build_scale_builder_from_dataframe(ctx, &iteration.params, &filter_df)
+                    .await?,
+            )
+        };
+
         let scales = build_scales_helper(
             compiled_subplot,
             &initial_shared_scales,
+            &free_scale_builder_pass1,
             &filter_df,
             width,
             height,
@@ -264,13 +298,14 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // CRITICAL: Rebuild shared scales with the NEW band size after padding adjustment
     // The initial_shared_scales were built with the approximate size BEFORE padding,
     // which causes incorrect data scaling (axis doesn't align properly)
-    let final_shared_scales = if any_shared {
-        let final_band_size = extract_band_size(&band_positions, context.plot_width.max(context.plot_height));
+    let final_shared_scales = if let Some(ref builder) = shared_scale_builder {
+        let final_band_size =
+            extract_band_size(&band_positions, context.plot_width.max(context.plot_height));
         let (width, height) = subplot_dims(final_band_size, context);
 
         Some(
             compiled_subplot
-                .build_scales_for_dataframe(&df, width, height, ctx, &context.params)
+                .build_scales_from_builder(builder, width, height, ctx, &context.params)
                 .await?,
         )
     } else {
@@ -306,27 +341,40 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
         // Build scales and evaluate inner components for this partition
         let (width, height) = subplot_dims(band_pos.bandwidth, context);
+
+        // Build a ScaleBuilder from filtered data for radius-aware free scales
+        let free_scale_builder = compiled_subplot
+            .build_scale_builder_from_dataframe(ctx, &iteration.params, &filter_df)
+            .await?;
+
+        // Build initial scales
         let mut scales = build_scales_helper(
             compiled_subplot,
             &final_shared_scales,
+            &if any_shared {
+                None
+            } else {
+                Some(free_scale_builder.clone())
+            },
             &filter_df,
             width,
             height,
             ctx,
-            &iteration.params, // Use SubplotIterator's params (has FacetContext)
+            &iteration.params,
         )
         .await?;
 
-        // If some channels are free, rebuild facet-specific scales and override those channels
+        // If some channels are free (mixed shared/free), build free scales and override free channels
         if any_shared {
             let facet_scales = build_scales_helper(
                 compiled_subplot,
-                &None, // Always build fresh for free channels
+                &None,
+                &Some(free_scale_builder),
                 &filter_df,
                 width,
                 height,
                 ctx,
-                &iteration.params, // Use SubplotIterator's params (has FacetContext)
+                &iteration.params,
             )
             .await?;
             for (ch, shared_flag) in &scale_sharing_by_channel {
@@ -377,7 +425,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         Box::new(crate::layout::ScaleUpdates::new(updated_scales)),
     ))
 }
-
 
 /// Helper to extract band size from band positions vector
 ///

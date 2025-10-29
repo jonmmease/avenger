@@ -12,13 +12,15 @@ async fn iris_with_binned_petal_width() -> datafusion::dataframe::DataFrame {
         .expect("load iris dataset");
 
     // Create binned petal_width column
-    let binned_df = df.with_column(
-        "petal_width_bin",
-        when(col("petal_width").lt_eq(lit(0.8)), lit("narrow"))
-            .when(col("petal_width").lt_eq(lit(1.7)), lit("medium"))
-            .otherwise(lit("wide"))
-            .unwrap()
-    ).unwrap();
+    let binned_df = df
+        .with_column(
+            "petal_width_bin",
+            when(col("petal_width").lt_eq(lit(0.8)), lit("narrow"))
+                .when(col("petal_width").lt_eq(lit(1.7)), lit("medium"))
+                .otherwise(lit("wide"))
+                .unwrap(),
+        )
+        .unwrap();
 
     binned_df
 }
@@ -33,13 +35,15 @@ async fn test_grid_facet_basic() {
         .expect("load iris dataset");
 
     // Add binned column using when/otherwise
-    let df = iris.with_column(
-        "length_bin",
-        when(col("sepal_length").lt(lit(5.5)), lit("short"))
-            .when(col("sepal_length").lt(lit(6.5)), lit("medium"))
-            .otherwise(lit("long"))
-            .unwrap()
-    ).unwrap();
+    let df = iris
+        .with_column(
+            "length_bin",
+            when(col("sepal_length").lt(lit(5.5)), lit("short"))
+                .when(col("sepal_length").lt(lit(6.5)), lit("medium"))
+                .otherwise(lit("long"))
+                .unwrap(),
+        )
+        .unwrap();
 
     let outer = Plot::<GridFacet>::new()
         .data(df)
@@ -54,9 +58,9 @@ async fn test_grid_facet_basic() {
                             .x(col("sepal_length"))
                             .y(col("sepal_width"))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
     let compiled = outer.compile(&ctx).await.expect("compile grid facet");
@@ -74,19 +78,24 @@ async fn test_grid_facet_with_titles() {
         .mark(
             Facet::new()
                 .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+                .col_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                })
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("sepal_length"))
                             .y(col("sepal_width"))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet with titles");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet with titles");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_with_titles").await;
 }
 
@@ -108,12 +117,15 @@ async fn test_grid_facet_shared_both() {
                             .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Shared))
                             .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Shared))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet shared both");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet shared both");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_shared_both").await;
 }
 
@@ -135,12 +147,15 @@ async fn test_grid_facet_free_scales() {
                             .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Free))
                             .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Free))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet free scales");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet free scales");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_free_scales").await;
 }
 
@@ -162,12 +177,15 @@ async fn test_grid_facet_shared_x() {
                             .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Shared))
                             .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Free))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet shared x");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet shared x");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_shared_x").await;
 }
 
@@ -189,12 +207,15 @@ async fn test_grid_facet_shared_y() {
                             .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Free))
                             .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Shared))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet shared y");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet shared y");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_shared_y").await;
 }
 
@@ -209,26 +230,38 @@ async fn test_grid_facet_with_unified_titles() {
         .mark(
             Facet::new()
                 .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+                .col_with(col("petal_width_bin"), |c| {
+                    c.facet(|f| f.title("Petal Width"))
+                })
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("sepal_length"), |c| c
-                                .share_scale(ScaleSharing::Shared)
-                                .axis(|a| a.title("Sepal Length (cm)"))
-                            )
-                            .y_with(col("sepal_width"), |c| c
-                                .share_scale(ScaleSharing::Shared)
-                                .axis(|a| a.title("Sepal Width (cm)"))
-                            )
+                            .x_with(col("sepal_length"), |c| {
+                                c.share_scale(ScaleSharing::Shared)
+                                    .axis(|a| a.title("Sepal Length (cm)"))
+                            })
+                            .y_with(col("sepal_width"), |c| {
+                                c.share_scale(ScaleSharing::Shared)
+                                    .axis(|a| a.title("Sepal Width (cm)"))
+                            })
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet with unified titles");
-    assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_with_unified_titles").await;
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet with unified titles");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet",
+        "grid_facet_with_unified_titles",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -249,19 +282,22 @@ async fn test_grid_facet_x_axis_top() {
                             .x_with(col("sepal_length"), |c| c.axis(|a| a.position("top")))
                             .y(col("sepal_width"))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet x axis top");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet x axis top");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_x_axis_top").await;
 }
 
 #[tokio::test]
 #[ignore] // TODO: Support degenerate GridFacet with single value in row dimension
-          // Issue: When filtering to one species, no 'row' band scale is created (needs >=2 values)
-          // This causes "Scale 'row' not found for channel 'row'" error during evaluation
+// Issue: When filtering to one species, no 'row' band scale is created (needs >=2 values)
+// This causes "Scale 'row' not found for channel 'row'" error during evaluation
 async fn test_grid_facet_single_row() {
     let ctx = SessionContext::new();
     // Degenerate case: filter to just one species
@@ -283,12 +319,15 @@ async fn test_grid_facet_single_row() {
                             .x(col("sepal_length"))
                             .y(col("sepal_width"))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet single row");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet single row");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_single_row").await;
 }
 
@@ -310,12 +349,15 @@ async fn test_grid_facet_with_line_mark() {
                             .x(col("sepal_length"))
                             .y(col("sepal_width"))
                             .stroke("#4682b4")
-                            .stroke_width(2.0)
-                    )
-                )
+                            .stroke_width(2.0),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet with line mark");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet with line mark");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_with_line_mark").await;
 }
 
@@ -337,12 +379,15 @@ async fn test_grid_facet_custom_spacing() {
                             .x(col("sepal_length"))
                             .y(col("sepal_width"))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet custom spacing");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet custom spacing");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_custom_spacing").await;
 }
 
@@ -365,12 +410,15 @@ async fn test_grid_facet_hybrid_sharing() {
                             .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Shared))
                             .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Free))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet hybrid sharing");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet hybrid sharing");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_hybrid_sharing").await;
 }
 
@@ -392,11 +440,14 @@ async fn test_grid_facet_y_axis_right() {
                             .x(col("sepal_length"))
                             .y_with(col("sepal_width"), |c| c.axis(|a| a.position("right")))
                             .size(25.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet y axis right");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet y axis right");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_y_axis_right").await;
 }

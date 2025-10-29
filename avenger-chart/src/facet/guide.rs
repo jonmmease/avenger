@@ -1,4 +1,6 @@
-use crate::facet::dimension_config::{ColDimensionConfig, FacetDimensionConfig, RowDimensionConfig};
+use crate::facet::dimension_config::{
+    ColDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
+};
 use crate::guide::{CompiledGuide, CoordinateGuide, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;
@@ -29,8 +31,7 @@ struct FacetSource {
     user_title: Option<String>,
 }
 
-impl FacetRowGuide {
-}
+impl FacetRowGuide {}
 
 impl CoordinateGuide for FacetRowGuide {
     type Axis = crate::cartesian::axis::CartesianAxis;
@@ -111,11 +112,17 @@ impl CompiledGuide for FacetRowGuide {
         use datafusion::logical_expr::lit;
 
         // Need row scale
-        let row_scale = scales.get(RowDimensionConfig::channel_name()).ok_or_else(|| {
-            crate::error::AvengerChartError::InternalError(
-                format!("Missing '{}' scale for FacetRowGuide", RowDimensionConfig::channel_name()).into(),
-            )
-        })?;
+        let row_scale = scales
+            .get(RowDimensionConfig::channel_name())
+            .ok_or_else(|| {
+                crate::error::AvengerChartError::InternalError(
+                    format!(
+                        "Missing '{}' scale for FacetRowGuide",
+                        RowDimensionConfig::channel_name()
+                    )
+                    .into(),
+                )
+            })?;
 
         // Extract discrete domain order
         let domain_vals = match row_scale.domain_values()? {
@@ -138,7 +145,11 @@ impl CompiledGuide for FacetRowGuide {
                 .and_then(|cv| cv.expr(ctx))
                 .ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
-                        format!("Facet '{}' channel not found in guide", RowDimensionConfig::channel_name()).into(),
+                        format!(
+                            "Facet '{}' channel not found in guide",
+                            RowDimensionConfig::channel_name()
+                        )
+                        .into(),
                     )
                 })?;
 
@@ -244,7 +255,7 @@ impl CompiledGuide for FacetRowGuide {
 
         let measurement_config = FacetLabelMeasurementConfig {
             labels: labels.clone(),
-            is_rotated: true,  // Row labels are vertical
+            is_rotated: true, // Row labels are vertical
             font_family: label_font_family.clone(),
             font_size_px: label_font_px,
             title: self.facet_title.clone(),
@@ -357,8 +368,8 @@ impl CompiledGuide for FacetRowGuide {
         // The scale now has the correct padding_inner_px from the facet mark (via scale updates).
         // We'll use .center() on each BandPosition for label/tick positioning.
         use crate::facet::band_positions::BandPositionIterator;
-        let band_positions: Vec<_> = BandPositionIterator::from_configured_scale(row_scale)?
-            .collect();
+        let band_positions: Vec<_> =
+            BandPositionIterator::from_configured_scale(row_scale)?.collect();
 
         // Theme-based font for rendering (match measurement)
         let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
@@ -393,7 +404,11 @@ impl CompiledGuide for FacetRowGuide {
                 .and_then(|cv| cv.expr(_ctx))
                 .ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
-                        format!("Facet '{}' channel not found in guide", RowDimensionConfig::channel_name()).into(),
+                        format!(
+                            "Facet '{}' channel not found in guide",
+                            RowDimensionConfig::channel_name()
+                        )
+                        .into(),
                     )
                 })?;
             let df_src = source.data.dataframe_with_context(_ctx).ok_or_else(|| {
@@ -504,8 +519,8 @@ impl CompiledGuide for FacetRowGuide {
             labels: labels.clone(),
             band_positions: band_positions.clone(),
             plot_bounds: render_plot_bounds,
-            is_rotated: true,  // Row labels are vertical
-            place_at_end: !place_on_left,  // place_at_end=true means right side
+            is_rotated: true,             // Row labels are vertical
+            place_at_end: !place_on_left, // place_at_end=true means right side
             font_family: font_family.to_string(),
             font_size_px: font_px,
             title: self.facet_title.clone(),
@@ -589,8 +604,7 @@ pub struct FacetColGuide {
     unifiable_channel: Option<String>,
 }
 
-impl FacetColGuide {
-}
+impl FacetColGuide {}
 
 impl CoordinateGuide for FacetColGuide {
     type Axis = crate::cartesian::axis::CartesianAxis;
@@ -668,11 +682,17 @@ impl CompiledGuide for FacetColGuide {
         use datafusion::logical_expr::lit;
 
         // Get col scale
-        let col_scale = scales.get(ColDimensionConfig::channel_name()).ok_or_else(|| {
-            crate::error::AvengerChartError::InternalError(
-                format!("Missing '{}' scale for FacetColGuide", ColDimensionConfig::channel_name()).into(),
-            )
-        })?;
+        let col_scale = scales
+            .get(ColDimensionConfig::channel_name())
+            .ok_or_else(|| {
+                crate::error::AvengerChartError::InternalError(
+                    format!(
+                        "Missing '{}' scale for FacetColGuide",
+                        ColDimensionConfig::channel_name()
+                    )
+                    .into(),
+                )
+            })?;
 
         // Extract discrete domain values
         let domain_vals = match col_scale.domain_values()? {
@@ -693,7 +713,11 @@ impl CompiledGuide for FacetColGuide {
                 .and_then(|cv| cv.expr(ctx))
                 .ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
-                        format!("Facet '{}' channel not found in guide", ColDimensionConfig::channel_name()).into(),
+                        format!(
+                            "Facet '{}' channel not found in guide",
+                            ColDimensionConfig::channel_name()
+                        )
+                        .into(),
                     )
                 })?;
 
@@ -781,20 +805,20 @@ impl CompiledGuide for FacetColGuide {
         let place_below = if let Some(source) = self.facet_sources.first() {
             if let Some(guide) = source.subplot.compiled_guide.as_ref() {
                 match guide.axis_position("x") {
-                    Some(crate::cartesian::axis::AxisPosition::Top) => true,  // x at top → labels below
-                    Some(crate::cartesian::axis::AxisPosition::Bottom) => false,  // x at bottom → labels above
+                    Some(crate::cartesian::axis::AxisPosition::Top) => true, // x at top → labels below
+                    Some(crate::cartesian::axis::AxisPosition::Bottom) => false, // x at bottom → labels above
                     None => {
                         // axis_position returns None when position is explicit expression
                         // Infer from overflow: if top > bottom, x-axis is likely at top
                         max_top > max_bottom
                     }
-                    _ => false,  // fallback: labels above
+                    _ => false, // fallback: labels above
                 }
             } else {
-                false  // no guide → assume bottom x-axis, labels above
+                false // no guide → assume bottom x-axis, labels above
             }
         } else {
-            false  // no subplots → labels above
+            false // no subplots → labels above
         };
 
         // Measure text bounds for facet labels (use facet label theme context matching RowFacet)
@@ -875,7 +899,11 @@ impl CompiledGuide for FacetColGuide {
         };
 
         // Configurable gaps (matching RowFacet pattern)
-        let gap = if self.facet_title.is_some() { 10.0 } else { 0.0 };
+        let gap = if self.facet_title.is_some() {
+            10.0
+        } else {
+            0.0
+        };
 
         // Facet labels + gap + facet title (when title present)
         let facet_label_space = if self.facet_title.is_some() {
@@ -885,7 +913,11 @@ impl CompiledGuide for FacetColGuide {
         };
 
         // Unified x-axis title space (with gap if present, matching FacetRowGuide)
-        let gap_axis = if self.unified_x_title.is_some() { 6.0 } else { 0.0 };
+        let gap_axis = if self.unified_x_title.is_some() {
+            6.0
+        } else {
+            0.0
+        };
         let x_axis_title_space = if self.unified_x_title.is_some() {
             gap_axis + unified_title_height + 1.0
         } else {
@@ -924,9 +956,9 @@ impl CompiledGuide for FacetColGuide {
         params: &IndexMap<String, datafusion::scalar::ScalarValue>,
         ctx: &SessionContext,
     ) -> Result<Vec<SceneMark>, crate::error::AvengerChartError> {
+        use crate::scales::ConfiguredScaleLegendExt;
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{TextAlign, TextBaseline};
-        use crate::scales::ConfiguredScaleLegendExt;
         use std::sync::Arc as StdArc;
 
         let mut marks: Vec<SceneMark> = Vec::new();
@@ -957,15 +989,22 @@ impl CompiledGuide for FacetColGuide {
                 .and_then(|cv| cv.expr(ctx))
                 .ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
-                        format!("Facet '{}' channel not found", ColDimensionConfig::channel_name()).into(),
+                        format!(
+                            "Facet '{}' channel not found",
+                            ColDimensionConfig::channel_name()
+                        )
+                        .into(),
                     )
                 })?;
 
             let df = source.data.dataframe_with_context(ctx).ok_or_else(|| {
-                crate::error::AvengerChartError::InternalError("Facet guide could not access data".into())
+                crate::error::AvengerChartError::InternalError(
+                    "Facet guide could not access data".into(),
+                )
             })?;
 
-            let coord_channels: Vec<&str> = source.subplot.coord_transform.required_channels().to_vec();
+            let coord_channels: Vec<&str> =
+                source.subplot.coord_transform.required_channels().to_vec();
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
             for &ch in &coord_channels {
                 let mut shared = false;
@@ -994,22 +1033,33 @@ impl CompiledGuide for FacetColGuide {
 
             for iteration in subplot_iter {
                 let filter_df = df.clone().filter(
-                    col_expr.clone().eq(datafusion::logical_expr::lit(iteration.facet_value.clone()))
+                    col_expr
+                        .clone()
+                        .eq(datafusion::logical_expr::lit(iteration.facet_value.clone())),
                 )?;
 
                 let inner_scales = if any_shared {
-                    source.subplot.build_scales_for_dataframe(&df_src, band_w, plot_height, ctx, params).await?
+                    source
+                        .subplot
+                        .build_scales_for_dataframe(&df_src, band_w, plot_height, ctx, params)
+                        .await?
                 } else {
-                    source.subplot.build_scales_for_dataframe(&filter_df, band_w, plot_height, ctx, params).await?
+                    source
+                        .subplot
+                        .build_scales_for_dataframe(&filter_df, band_w, plot_height, ctx, params)
+                        .await?
                 };
 
-                let overflow = source.subplot.measure_guide_overflow_with_scales(
-                    &inner_scales,
-                    band_w,
-                    plot_height,
-                    ctx,
-                    &iteration.params,
-                ).await?;
+                let overflow = source
+                    .subplot
+                    .measure_guide_overflow_with_scales(
+                        &inner_scales,
+                        band_w,
+                        plot_height,
+                        ctx,
+                        &iteration.params,
+                    )
+                    .await?;
 
                 subplot_max_bottom = subplot_max_bottom.max(overflow.bottom);
                 subplot_max_top = subplot_max_top.max(overflow.top);
@@ -1017,8 +1067,8 @@ impl CompiledGuide for FacetColGuide {
         }
 
         use crate::facet::band_positions::BandPositionIterator;
-        let band_positions: Vec<_> = BandPositionIterator::from_configured_scale(col_scale)?
-            .collect();
+        let band_positions: Vec<_> =
+            BandPositionIterator::from_configured_scale(col_scale)?.collect();
 
         // Theme-based font for labels (use facet label theme context matching RowFacet)
         let label_ctx = crate::theme::ThemeContext::new("guide", params.clone())
@@ -1040,20 +1090,20 @@ impl CompiledGuide for FacetColGuide {
             if let Some(guide) = source.subplot.compiled_guide.as_ref() {
                 // Check x-axis position
                 match guide.axis_position("x") {
-                    Some(crate::cartesian::axis::AxisPosition::Top) => true,  // x at top → labels below
-                    Some(crate::cartesian::axis::AxisPosition::Bottom) => false,  // x at bottom → labels above
+                    Some(crate::cartesian::axis::AxisPosition::Top) => true, // x at top → labels below
+                    Some(crate::cartesian::axis::AxisPosition::Bottom) => false, // x at bottom → labels above
                     None => {
                         // axis_position returns None when position is explicit expression
                         // Infer from overflow: if top > bottom, x-axis is likely at top
                         subplot_max_top > subplot_max_bottom
                     }
-                    _ => false,  // fallback: labels above
+                    _ => false, // fallback: labels above
                 }
             } else {
-                false  // no guide → assume bottom x-axis, labels above
+                false // no guide → assume bottom x-axis, labels above
             }
         } else {
-            false  // no subplots → labels above
+            false // no subplots → labels above
         };
 
         // Resolve title font properties for rendering
@@ -1092,8 +1142,8 @@ impl CompiledGuide for FacetColGuide {
             labels: labels.clone(),
             band_positions: band_positions.clone(),
             plot_bounds: render_plot_bounds,
-            is_rotated: false,  // Col labels are horizontal
-            place_at_end: place_below,  // place_at_end=true means bottom
+            is_rotated: false,         // Col labels are horizontal
+            place_at_end: place_below, // place_at_end=true means bottom
             font_family: label_font_family.to_string(),
             font_size_px: label_font_px,
             title: self.facet_title.clone(),
@@ -1156,12 +1206,19 @@ impl CompiledGuide for FacetColGuide {
                 x: (plot_bounds.x + plot_width / 2.0).into(),
                 y: y_unified.into(),
                 align: TextAlign::Center.into(),
-                baseline: if x_axis_at_top { TextBaseline::Bottom } else { TextBaseline::Top }.into(),
+                baseline: if x_axis_at_top {
+                    TextBaseline::Bottom
+                } else {
+                    TextBaseline::Top
+                }
+                .into(),
                 angle: 0.0_f32.into(),
                 font: unified_font_family.to_string().into(),
                 font_size: unified_font_px.into(),
                 color: avenger_common::types::ColorOrGradient::Color(
-                    theme.text_color(&unified_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                    theme
+                        .text_color(&unified_ctx)
+                        .unwrap_or([0.0, 0.0, 0.0, 1.0]),
                 )
                 .into(),
                 zindex: Some(6),
@@ -1212,8 +1269,7 @@ pub struct GridFacetGuide {
     unifiable_col_channel: Option<String>,
 }
 
-impl GridFacetGuide {
-}
+impl GridFacetGuide {}
 
 impl CoordinateGuide for GridFacetGuide {
     type Axis = crate::cartesian::axis::CartesianAxis;
@@ -1403,7 +1459,7 @@ impl CompiledGuide for GridFacetGuide {
                 scale_sharing_by_channel.insert(ch.to_string(), shared);
             }
 
-            use crate::facet::dimension_config::{RowDimensionConfig, ColDimensionConfig};
+            use crate::facet::dimension_config::{ColDimensionConfig, RowDimensionConfig};
             use crate::facet::subplot_iterator::SubplotIterator;
 
             let num_rows = row_domain_vals.len();
@@ -1460,7 +1516,13 @@ impl CompiledGuide for GridFacetGuide {
                                 // This channel is independent - rebuild from filtered data
                                 let facet_scales = source
                                     .subplot
-                                    .build_scales_for_dataframe(&filter_df, band_w, band_h, ctx, &merged_params)
+                                    .build_scales_for_dataframe(
+                                        &filter_df,
+                                        band_w,
+                                        band_h,
+                                        ctx,
+                                        &merged_params,
+                                    )
                                     .await?;
 
                                 if let Some(s) = facet_scales.get(ch) {
@@ -1521,10 +1583,12 @@ impl CompiledGuide for GridFacetGuide {
                 .font_family(&title_ctx)
                 .unwrap_or_else(|| "sans-serif".to_string());
 
-            use crate::facet::guide_utils::{FacetLabelMeasurementConfig, measure_facet_label_slab};
+            use crate::facet::guide_utils::{
+                FacetLabelMeasurementConfig, measure_facet_label_slab,
+            };
             let measurement_config = FacetLabelMeasurementConfig {
                 labels: row_labels,
-                is_rotated: true,  // Row labels are vertical
+                is_rotated: true, // Row labels are vertical
                 font_family: label_font_family,
                 font_size_px: label_font_px,
                 title: self.row_title.clone(),
@@ -1557,10 +1621,12 @@ impl CompiledGuide for GridFacetGuide {
                 .font_family(&title_ctx)
                 .unwrap_or_else(|| "sans-serif".to_string());
 
-            use crate::facet::guide_utils::{FacetLabelMeasurementConfig, measure_facet_label_slab};
+            use crate::facet::guide_utils::{
+                FacetLabelMeasurementConfig, measure_facet_label_slab,
+            };
             let measurement_config = FacetLabelMeasurementConfig {
                 labels: col_labels,
-                is_rotated: false,  // Col labels are horizontal
+                is_rotated: false, // Col labels are horizontal
                 font_family: label_font_family,
                 font_size_px: label_font_px,
                 title: self.col_title.clone(),
@@ -1650,20 +1716,22 @@ impl CompiledGuide for GridFacetGuide {
             // Row labels on left, y-axis on right
             (
                 row_label_space + max_left,
-                max_right + if unified_y_height > 0.0 {
-                    gap_axis + unified_y_height
-                } else {
-                    0.0
-                },
+                max_right
+                    + if unified_y_height > 0.0 {
+                        gap_axis + unified_y_height
+                    } else {
+                        0.0
+                    },
             )
         } else {
             // Row labels on right, y-axis on left
             (
-                max_left + if unified_y_height > 0.0 {
-                    gap_axis + unified_y_height
-                } else {
-                    0.0
-                },
+                max_left
+                    + if unified_y_height > 0.0 {
+                        gap_axis + unified_y_height
+                    } else {
+                        0.0
+                    },
                 row_label_space + max_right,
             )
         };
@@ -1672,11 +1740,12 @@ impl CompiledGuide for GridFacetGuide {
         let (top_final, bottom_final) = if place_col_below {
             (
                 // Top: subplot top overflow + optional unified x-title
-                max_top + if unified_x_height > 0.0 {
-                    gap_axis + unified_x_height
-                } else {
-                    0.0
-                },
+                max_top
+                    + if unified_x_height > 0.0 {
+                        gap_axis + unified_x_height
+                    } else {
+                        0.0
+                    },
                 // Bottom: col labels + subplot bottom overflow
                 col_label_space + max_bottom,
             )
@@ -1685,11 +1754,12 @@ impl CompiledGuide for GridFacetGuide {
                 // Top: col labels + subplot top overflow
                 col_label_space + max_top,
                 // Bottom: subplot bottom overflow + optional unified x-title
-                max_bottom + if unified_x_height > 0.0 {
-                    gap_axis + unified_x_height
-                } else {
-                    0.0
-                },
+                max_bottom
+                    + if unified_x_height > 0.0 {
+                        gap_axis + unified_x_height
+                    } else {
+                        0.0
+                    },
             )
         };
 
@@ -1721,11 +1791,11 @@ impl CompiledGuide for GridFacetGuide {
         // Get row and col scales (may not exist for degenerate single-value cases)
         let row_scale = match scales.get("row") {
             Some(s) => s,
-            None => return Ok(marks),  // Degenerate case: no row scale
+            None => return Ok(marks), // Degenerate case: no row scale
         };
         let col_scale = match scales.get("col") {
             Some(s) => s,
-            None => return Ok(marks),  // Degenerate case: no col scale
+            None => return Ok(marks), // Degenerate case: no col scale
         };
 
         // Extract domain values and labels
@@ -1819,10 +1889,13 @@ impl CompiledGuide for GridFacetGuide {
                 })?;
 
             let df = source.data.dataframe_with_context(ctx).ok_or_else(|| {
-                crate::error::AvengerChartError::InternalError("Facet guide could not access data".into())
+                crate::error::AvengerChartError::InternalError(
+                    "Facet guide could not access data".into(),
+                )
             })?;
 
-            let coord_channels: Vec<&str> = source.subplot.coord_transform.required_channels().to_vec();
+            let coord_channels: Vec<&str> =
+                source.subplot.coord_transform.required_channels().to_vec();
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
             for &ch in &coord_channels {
                 let mut shared = false;
@@ -1837,7 +1910,7 @@ impl CompiledGuide for GridFacetGuide {
                 scale_sharing_by_channel.insert(ch.to_string(), shared);
             }
 
-            use crate::facet::dimension_config::{RowDimensionConfig, ColDimensionConfig};
+            use crate::facet::dimension_config::{ColDimensionConfig, RowDimensionConfig};
             use crate::facet::subplot_iterator::SubplotIterator;
 
             let num_rows = row_domain_vals.len();
@@ -1846,7 +1919,10 @@ impl CompiledGuide for GridFacetGuide {
             let band_h = plot_height / num_rows.max(1) as f32;
 
             // Build base scales from full DataFrame (used as fallback for empty cells)
-            let base_scales = source.subplot.build_scales_for_dataframe(&df, band_w, band_h, ctx, params).await?;
+            let base_scales = source
+                .subplot
+                .build_scales_for_dataframe(&df, band_w, band_h, ctx, params)
+                .await?;
 
             // Use nested SubplotIterators to iterate over grid cells
             let row_iter = SubplotIterator::<RowDimensionConfig>::new(
@@ -1871,9 +1947,14 @@ impl CompiledGuide for GridFacetGuide {
                         num_cols,
                     );
 
-                    let filter_df = df.clone()
-                        .filter(row_expr.clone().eq(datafusion::logical_expr::lit(row_iteration.facet_value.clone())))?
-                        .filter(col_expr.clone().eq(datafusion::logical_expr::lit(col_iteration.facet_value.clone())))?;
+                    let filter_df = df
+                        .clone()
+                        .filter(row_expr.clone().eq(datafusion::logical_expr::lit(
+                            row_iteration.facet_value.clone(),
+                        )))?
+                        .filter(col_expr.clone().eq(datafusion::logical_expr::lit(
+                            col_iteration.facet_value.clone(),
+                        )))?;
 
                     // Check if this cell has any data
                     let cell_count = filter_df.clone().count().await?;
@@ -1887,7 +1968,16 @@ impl CompiledGuide for GridFacetGuide {
                         for (ch, shared_flag) in &scale_sharing_by_channel {
                             if !*shared_flag {
                                 // This channel is independent - rebuild from filtered data
-                                let facet_scales = source.subplot.build_scales_for_dataframe(&filter_df, band_w, band_h, ctx, &merged_params).await?;
+                                let facet_scales = source
+                                    .subplot
+                                    .build_scales_for_dataframe(
+                                        &filter_df,
+                                        band_w,
+                                        band_h,
+                                        ctx,
+                                        &merged_params,
+                                    )
+                                    .await?;
 
                                 if let Some(s) = facet_scales.get(ch) {
                                     inner_scales.insert(ch.clone(), s.clone());
@@ -1896,13 +1986,16 @@ impl CompiledGuide for GridFacetGuide {
                         }
                     }
 
-                    let overflow = source.subplot.measure_guide_overflow_with_scales(
-                        &inner_scales,
-                        band_w,
-                        band_h,
-                        ctx,
-                        &merged_params,
-                    ).await?;
+                    let overflow = source
+                        .subplot
+                        .measure_guide_overflow_with_scales(
+                            &inner_scales,
+                            band_w,
+                            band_h,
+                            ctx,
+                            &merged_params,
+                        )
+                        .await?;
 
                     subplot_max_top = subplot_max_top.max(overflow.top);
                     subplot_max_bottom = subplot_max_bottom.max(overflow.bottom);
@@ -1978,8 +2071,8 @@ impl CompiledGuide for GridFacetGuide {
                 labels: row_labels.clone(),
                 band_positions: row_band_positions.clone(),
                 plot_bounds: render_plot_bounds,
-                is_rotated: true,  // Row labels are vertical
-                place_at_end: !place_row_on_left,  // Opposite side of y-axis
+                is_rotated: true,                 // Row labels are vertical
+                place_at_end: !place_row_on_left, // Opposite side of y-axis
                 font_family: label_font_family.clone(),
                 font_size_px: label_font_px,
                 title: self.row_title.clone(),
@@ -2016,7 +2109,7 @@ impl CompiledGuide for GridFacetGuide {
                 labels: col_labels.clone(),
                 band_positions: col_band_positions.clone(),
                 plot_bounds: render_plot_bounds,
-                is_rotated: false,  // Col labels are horizontal
+                is_rotated: false, // Col labels are horizontal
                 place_at_end: place_col_below,
                 font_family: label_font_family.clone(),
                 font_size_px: label_font_px,
@@ -2095,7 +2188,12 @@ impl CompiledGuide for GridFacetGuide {
                 x: (plot_bounds.x + plot_width / 2.0).into(),
                 y: y_unified.into(),
                 align: TextAlign::Center.into(),
-                baseline: if x_axis_at_top { TextBaseline::Bottom } else { TextBaseline::Top }.into(),
+                baseline: if x_axis_at_top {
+                    TextBaseline::Bottom
+                } else {
+                    TextBaseline::Top
+                }
+                .into(),
                 angle: 0.0_f32.into(),
                 font: x_family_owned.to_string().into(),
                 font_size: x_font_px.into(),

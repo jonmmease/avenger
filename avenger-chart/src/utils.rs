@@ -789,8 +789,8 @@ pub fn array_value_to_f64(
     use arrow::array::AsArray;
     use datafusion::arrow::compute::cast;
     use datafusion::arrow::datatypes::{
-        Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
-        UInt32Type, UInt64Type, UInt8Type,
+        Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
+        UInt32Type, UInt64Type,
     };
 
     // Prefer the array's actual data type when it is numeric; fall back to provided data_type.
