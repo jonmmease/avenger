@@ -109,7 +109,7 @@ async fn test_grid_facet_shared_in_row() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x"))
-                            .y_with(col("y"), |c| c.share_in_rows())  // Share within rows
+                            .y_with(col("y"), |c| c.share_scale_in_rows())  // Share within rows
                             .size(80.0)
                             .fill("#4682b4")
                     )
@@ -140,7 +140,7 @@ async fn test_grid_facet_shared_in_column() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("x"), |c| c.share_in_columns())  // Share within columns
+                            .x_with(col("x"), |c| c.share_scale_in_columns())  // Share within columns
                             .y(col("y"))
                             .size(80.0)
                             .fill("#4682b4")
@@ -172,8 +172,8 @@ async fn test_grid_facet_mixed_sharing() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("x"), |c| c.share_in_columns())
-                            .y_with(col("y"), |c| c.share_in_rows())
+                            .x_with(col("x"), |c| c.share_scale_in_columns())
+                            .y_with(col("y"), |c| c.share_scale_in_rows())
                             .size(80.0)
                             .fill("#4682b4")
                     )
@@ -223,8 +223,8 @@ async fn test_grid_facet_compare_sharing_modes() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("x"), |c| c.share())
-                            .y_with(col("y"), |c| c.share())
+                            .x_with(col("x"), |c| c.share_scale())
+                            .y_with(col("y"), |c| c.share_scale())
                             .size(80.0)
                             .fill("#4682b4")
                     )
@@ -254,7 +254,7 @@ async fn test_grid_facet_axis_label_visibility() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x"))
-                            .y_with(col("y"), |c| c.share_in_rows())
+                            .y_with(col("y"), |c| c.share_scale_in_rows())
                             .size(80.0)
                             .fill("#4682b4")
                     )
@@ -282,7 +282,7 @@ async fn test_grid_facet_shared_in_row_with_varying_sizes() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x"))
-                            .y_with(col("y"), |c| c.share_in_rows())
+                            .y_with(col("y"), |c| c.share_scale_in_rows())
                             .size(80.0)  // Varying sizes
                             .fill("#4682b4")
                     )
@@ -309,8 +309,8 @@ async fn test_grid_facet_using_enum_directly() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("x"), |c| c.share_scale(ScaleSharing::SharedInColumn))
-                            .y_with(col("y"), |c| c.share_scale(ScaleSharing::SharedInRow))
+                            .x_with(col("x"), |c| c.with_scale_sharing(ScaleSharing::SharedInColumn))
+                            .y_with(col("y"), |c| c.with_scale_sharing(ScaleSharing::SharedInRow))
                             .size(80.0)
                             .fill("#4682b4")
                     )
