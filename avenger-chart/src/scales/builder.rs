@@ -86,6 +86,8 @@ pub enum ChannelScaleBuilder {
         scale_spec: Box<dyn crate::scales::ScaleSpec>,
         /// Scale options (e.g., nice, zero, padding)
         options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
+        /// The explicit domain that was set by the user
+        domain: crate::scales::ScaleDomain,
     },
 }
 
@@ -110,7 +112,11 @@ impl ScaleBuilder {
     }
 
     /// Set the data type for a channel
-    pub fn set_channel_data_type(&mut self, channel_name: String, data_type: datafusion::arrow::datatypes::DataType) {
+    pub fn set_channel_data_type(
+        &mut self,
+        channel_name: String,
+        data_type: datafusion::arrow::datatypes::DataType,
+    ) {
         self.channel_data_types.insert(channel_name, data_type);
     }
 
@@ -160,12 +166,14 @@ impl ScaleBuilder {
         channel_name: String,
         scale_spec: Box<dyn crate::scales::ScaleSpec>,
         options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
+        domain: crate::scales::ScaleDomain,
     ) {
         self.channel_builders.insert(
             channel_name,
             ChannelScaleBuilder::ExplicitDomain {
                 scale_spec,
                 options,
+                domain,
             },
         );
     }
@@ -204,8 +212,8 @@ impl ScaleBuilder {
         ctx: &datafusion::prelude::SessionContext,
         params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Result<HashMap<String, crate::scales::ConfiguredScaleWithSpec>, AvengerChartError> {
-        use crate::scales::{ConfiguredScaleWithSpec, Scale};
         use crate::scales::spec::Auto;
+        use crate::scales::{ConfiguredScaleWithSpec, Scale};
         use datafusion::logical_expr::lit;
 
         let mut result = HashMap::new();
@@ -243,25 +251,25 @@ impl ScaleBuilder {
                         }
 
                         // Check if domain is still DomainExprs (needs data) or explicit
-                        use crate::scales::domain::ScaleDefaultDomain;
                         use crate::maybe::Maybe;
+                        use crate::scales::domain::ScaleDefaultDomain;
                         match &scale.domain {
                             Maybe::Set(domain) => {
                                 match &domain.default_domain {
                                     ScaleDefaultDomain::DomainExprs(_) => {
-                                        true  // Use cached data
+                                        true // Use cached data
                                     }
                                     _ => {
-                                        false  // Skip cached data, use explicit domain
+                                        false // Skip cached data, use explicit domain
                                     }
                                 }
                             }
                             Maybe::Unset => {
-                                true  // Use cached data if domain not set
+                                true // Use cached data if domain not set
                             }
                         }
                     } else {
-                        true  // No override, use cached data
+                        true // No override, use cached data
                     };
 
                     // Set domain from cached extents only if needed
@@ -282,7 +290,9 @@ impl ScaleBuilder {
                     if scale.get_range().is_none() {
                         // Try to get default range from mark
                         if let Some(data_type) = self.channel_data_types.get(channel_name) {
-                            if let (Some(scale_impl), Some(domain)) = (scale.get_scale_impl(), scale.get_domain()) {
+                            if let (Some(scale_impl), Some(domain)) =
+                                (scale.get_scale_impl(), scale.get_domain())
+                            {
                                 if let Ok(resolved_domain) = domain.to_resolved() {
                                     // Find first mark that uses this channel
                                     for mark in compiled_marks {
@@ -310,8 +320,19 @@ impl ScaleBuilder {
                                 .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
 
                             let range = theme
-                                .get_range_for_channel("mark", channel_name, range_kind, None, params)
-                                .unwrap_or_else(|| crate::scales::default_range_for_channel(channel_name, range_kind));
+                                .get_range_for_channel(
+                                    "mark",
+                                    channel_name,
+                                    range_kind,
+                                    None,
+                                    params,
+                                )
+                                .unwrap_or_else(|| {
+                                    crate::scales::default_range_for_channel(
+                                        channel_name,
+                                        range_kind,
+                                    )
+                                });
 
                             scale = scale.range(range);
                         }
@@ -346,9 +367,8 @@ impl ScaleBuilder {
                     }
 
                     // Get range for this channel
-                    let (range_min, range_max) = coord_system_ranges
-                        .get(channel_name)
-                        .ok_or_else(|| {
+                    let (range_min, range_max) =
+                        coord_system_ranges.get(channel_name).ok_or_else(|| {
                             AvengerChartError::InternalError(format!(
                                 "No range found for radius-aware channel '{}'",
                                 channel_name
@@ -376,7 +396,9 @@ impl ScaleBuilder {
                     // Apply default range if not already set (same logic as Standard path)
                     if scale.get_range().is_none() {
                         if let Some(data_type) = self.channel_data_types.get(channel_name) {
-                            if let (Some(scale_impl), Some(domain)) = (scale.get_scale_impl(), scale.get_domain()) {
+                            if let (Some(scale_impl), Some(domain)) =
+                                (scale.get_scale_impl(), scale.get_domain())
+                            {
                                 if let Ok(resolved_domain) = domain.to_resolved() {
                                     for mark in compiled_marks {
                                         if let Some(mark_range) = mark.default_channel_range(
@@ -402,8 +424,19 @@ impl ScaleBuilder {
                                 .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
 
                             let range = theme
-                                .get_range_for_channel("mark", channel_name, range_kind, None, params)
-                                .unwrap_or_else(|| crate::scales::default_range_for_channel(channel_name, range_kind));
+                                .get_range_for_channel(
+                                    "mark",
+                                    channel_name,
+                                    range_kind,
+                                    None,
+                                    params,
+                                )
+                                .unwrap_or_else(|| {
+                                    crate::scales::default_range_for_channel(
+                                        channel_name,
+                                        range_kind,
+                                    )
+                                });
 
                             scale = scale.range(range);
                         }
@@ -423,9 +456,13 @@ impl ScaleBuilder {
                 ChannelScaleBuilder::ExplicitDomain {
                     scale_spec,
                     options,
+                    domain,
                 } => {
                     // For explicit domain scales: build scale from spec without cached data
                     let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
+
+                    // Apply the stored explicit domain FIRST
+                    scale = scale.domain(domain.clone());
 
                     // Apply cached options
                     for (key, value_node) in options {
@@ -434,7 +471,7 @@ impl ScaleBuilder {
                         scale = scale.option(key, expr);
                     }
 
-                    // Apply scale spec overrides (which should contain the explicit domain)
+                    // Apply scale spec overrides (which might override the explicit domain)
                     if let Some(spec) = scale_specs.get(channel_name) {
                         match spec {
                             crate::plot::ScaleSpec::Local(scale_changes) => {
@@ -454,7 +491,9 @@ impl ScaleBuilder {
                     // Apply default range if not already set
                     if scale.get_range().is_none() {
                         if let Some(data_type) = self.channel_data_types.get(channel_name) {
-                            if let (Some(scale_impl), Some(domain)) = (scale.get_scale_impl(), scale.get_domain()) {
+                            if let (Some(scale_impl), Some(domain)) =
+                                (scale.get_scale_impl(), scale.get_domain())
+                            {
                                 if let Ok(resolved_domain) = domain.to_resolved() {
                                     for mark in compiled_marks {
                                         if let Some(mark_range) = mark.default_channel_range(
@@ -480,8 +519,19 @@ impl ScaleBuilder {
                                 .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
 
                             let range = theme
-                                .get_range_for_channel("mark", channel_name, range_kind, None, params)
-                                .unwrap_or_else(|| crate::scales::default_range_for_channel(channel_name, range_kind));
+                                .get_range_for_channel(
+                                    "mark",
+                                    channel_name,
+                                    range_kind,
+                                    None,
+                                    params,
+                                )
+                                .unwrap_or_else(|| {
+                                    crate::scales::default_range_for_channel(
+                                        channel_name,
+                                        range_kind,
+                                    )
+                                });
 
                             scale = scale.range(range);
                         }
@@ -513,23 +563,17 @@ impl Default for ScaleBuilder {
 
 impl DataExtents {
     /// Convert data extents to a scale domain
-    pub fn to_scale_domain(
-        &self,
-    ) -> Result<crate::scales::domain::ScaleDomain, AvengerChartError> {
+    pub fn to_scale_domain(&self) -> Result<crate::scales::domain::ScaleDomain, AvengerChartError> {
         use crate::scales::domain::ScaleDomain;
         use datafusion::logical_expr::lit;
 
         match self {
-            DataExtents::Interval(min, max) => {
-                Ok(ScaleDomain::new_interval(lit(*min), lit(*max)))
-            }
+            DataExtents::Interval(min, max) => Ok(ScaleDomain::new_interval(lit(*min), lit(*max))),
             DataExtents::Discrete(values) => {
                 let exprs: Vec<_> = values.iter().map(|v| lit(v.clone())).collect();
                 Ok(ScaleDomain::new_discrete(exprs))
             }
-            DataExtents::Temporal(min, max) => {
-                Ok(ScaleDomain::new_interval(lit(*min), lit(*max)))
-            }
+            DataExtents::Temporal(min, max) => Ok(ScaleDomain::new_interval(lit(*min), lit(*max))),
         }
     }
 }
@@ -655,7 +699,7 @@ mod tests {
                 300.0,
                 &coord_ranges,
                 &HashMap::new(),
-                &[],  // No marks in this test
+                &[], // No marks in this test
                 &crate::theme::Theme::light(),
                 &ctx,
                 &params,
@@ -707,7 +751,7 @@ mod tests {
                 300.0,
                 &coord_ranges,
                 &HashMap::new(),
-                &[],  // No marks in this test
+                &[], // No marks in this test
                 &crate::theme::Theme::light(),
                 &ctx,
                 &params,
@@ -724,7 +768,11 @@ mod tests {
 
         // Domain should be expanded beyond data range to accommodate radius
         assert!(d_min < 0.0, "d_min ({}) should be less than 0.0", d_min);
-        assert!(d_max > 100.0, "d_max ({}) should be greater than 100.0", d_max);
+        assert!(
+            d_max > 100.0,
+            "d_max ({}) should be greater than 100.0",
+            d_max
+        );
     }
 
     #[tokio::test]
@@ -762,7 +810,7 @@ mod tests {
                 300.0,
                 &coord_ranges1,
                 &HashMap::new(),
-                &[],  // No marks in this test
+                &[], // No marks in this test
                 &crate::theme::Theme::light(),
                 &ctx,
                 &params,
@@ -787,7 +835,7 @@ mod tests {
                 300.0,
                 &coord_ranges2,
                 &HashMap::new(),
-                &[],  // No marks in this test
+                &[], // No marks in this test
                 &crate::theme::Theme::light(),
                 &ctx,
                 &params,

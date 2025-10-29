@@ -1085,6 +1085,7 @@ impl CompiledPlot {
             &self.scale_specs,
             &self.coord_transform,
             &self.data,
+            None,
             ctx,
             &merged_params,
             self.get_theme().as_ref(),

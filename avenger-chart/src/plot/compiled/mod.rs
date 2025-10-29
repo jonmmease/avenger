@@ -3,7 +3,7 @@
 pub(crate) mod expr_eval;
 mod legends;
 pub(crate) mod rendering;
-pub(crate) mod scales;  // Made public so plot.rs can call build_scale_builder_from_marks
+pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks
 mod titles;
 mod validation;
 
@@ -65,7 +65,6 @@ pub struct CompiledPlot {
     // Note: We intentionally do not persist a ScaleBuilder here. Scales are
     // rebuilt per evaluation using current params to ensure correctness for
     // paramized data queries and to keep direct vs serialized paths identical.
-
     /// Plot-level data (temporarily kept for mark inheritance)
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
     pub(crate) data: Option<LogicalPlanNode>,
@@ -108,6 +107,29 @@ impl CompiledPlot {
         &self.marks
     }
 
+    /// Build a ScaleBuilder using a provided DataFrame override.
+    ///
+    /// This is primarily used by faceting when building free scales per facet, so that
+    /// domain inference (including radius-aware padding) runs against the facet-filtered data.
+    pub(crate) async fn build_scale_builder_from_dataframe(
+        &self,
+        ctx: &datafusion::prelude::SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        df: &datafusion::dataframe::DataFrame,
+    ) -> Result<crate::scales::builder::ScaleBuilder, crate::error::AvengerChartError> {
+        build_scale_builder_from_marks(
+            &self.marks,
+            &self.scale_specs,
+            &self.coord_transform,
+            &self.data,
+            Some(df.clone()),
+            ctx,
+            params,
+            self.get_theme().as_ref(),
+        )
+        .await
+    }
+
     /// Build scales with specific dimensions for the current evaluation.
     ///
     /// We rebuild a temporary ScaleBuilder on each call using the current params
@@ -119,13 +141,17 @@ impl CompiledPlot {
         plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>, crate::error::AvengerChartError> {
+    ) -> Result<
+        std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        crate::error::AvengerChartError,
+    > {
         // Always rebuild a temporary ScaleBuilder using current params.
         let builder = build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
             &self.coord_transform,
             &self.data,
+            None,
             ctx,
             params,
             self.get_theme().as_ref(),
@@ -137,10 +163,11 @@ impl CompiledPlot {
         for channel in builder.channel_builders().keys() {
             use crate::channel::value::strip_trailing_numbers;
             let base = strip_trailing_numbers(channel);
-            if let Some((min, max)) = self
-                .coord_transform
-                .default_range(base, plot_area_width as f64, plot_area_height as f64)
-            {
+            if let Some((min, max)) = self.coord_transform.default_range(
+                base,
+                plot_area_width as f64,
+                plot_area_height as f64,
+            ) {
                 coord_system_ranges.insert(channel.clone(), (min, max));
             }
         }
@@ -184,16 +211,20 @@ impl CompiledPlot {
         plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>, crate::error::AvengerChartError> {
+    ) -> Result<
+        std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        crate::error::AvengerChartError,
+    > {
         // Build coordinate system ranges map
         let mut coord_system_ranges = std::collections::HashMap::new();
         for channel in builder.channel_builders().keys() {
             use crate::channel::value::strip_trailing_numbers;
             let base = strip_trailing_numbers(channel);
-            if let Some((min, max)) = self
-                .coord_transform
-                .default_range(base, plot_area_width as f64, plot_area_height as f64)
-            {
+            if let Some((min, max)) = self.coord_transform.default_range(
+                base,
+                plot_area_width as f64,
+                plot_area_height as f64,
+            ) {
                 coord_system_ranges.insert(channel.clone(), (min, max));
             }
         }

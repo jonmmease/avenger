@@ -843,11 +843,7 @@ impl CompiledPlot {
                 if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
                     eprintln!(
                         "LEGEND MEASURE: channel='{}' size=({:.1},{:.1}) flexible={} position={:?}",
-                        primary_channel.name,
-                        size.width,
-                        size.height,
-                        flexible,
-                        position
+                        primary_channel.name, size.width, size.height, flexible, position
                     );
                 }
                 legend_measurements.insert(

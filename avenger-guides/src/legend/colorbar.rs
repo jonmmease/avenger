@@ -36,9 +36,7 @@ pub fn make_colorbar_marks(
                 .label_font_weight
                 .as_ref()
                 .unwrap_or(&FontWeight::Number(400.0));
-            let label_font_family = config
-                .label_font_family.as_deref()
-                .unwrap_or("sans-serif");
+            let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
             // Get the domain min and max values to measure their formatted width
             let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
@@ -231,9 +229,7 @@ pub fn make_colorbar_marks(
                 .label_font_weight
                 .as_ref()
                 .unwrap_or(&FontWeight::Number(400.0));
-            let label_font_family = config
-                .label_font_family.as_deref()
-                .unwrap_or("sans-serif");
+            let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
             // Get the domain min and max values to measure their formatted width
             let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
@@ -422,9 +418,7 @@ pub fn make_colorbar_marks(
                 .label_font_weight
                 .as_ref()
                 .unwrap_or(&FontWeight::Number(400.0));
-            let label_font_family = config
-                .label_font_family.as_deref()
-                .unwrap_or("sans-serif");
+            let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
             let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: "0",
@@ -609,9 +603,7 @@ pub fn make_colorbar_marks(
                 .label_font_weight
                 .as_ref()
                 .unwrap_or(&FontWeight::Number(400.0));
-            let label_font_family = config
-                .label_font_family.as_deref()
-                .unwrap_or("sans-serif");
+            let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
             let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: "0",

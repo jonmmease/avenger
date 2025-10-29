@@ -7,9 +7,9 @@ use crate::plot::compiled::expr_eval::{
     evaluate_f32_expr, evaluate_f64_expr, evaluate_legend_position_expr, evaluate_string_expr,
 };
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
-use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_geometry::rtree::EnvelopeUtils;
+use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation};
 use avenger_scenegraph::marks::group::SceneGroup;
 use serde::{Deserialize, Serialize};
 
@@ -430,7 +430,12 @@ impl LegendRenderer for CompiledColorbar {
             let upper = bbox.upper();
             eprintln!(
                 "COLORBAR GROUP BBOX: lower=({:.1},{:.1}) upper=({:.1},{:.1}) w={:.1} h={:.1}",
-                lower[0], lower[1], upper[0], upper[1], bbox.width(), bbox.height()
+                lower[0],
+                lower[1],
+                upper[0],
+                upper[1],
+                bbox.width(),
+                bbox.height()
             );
         }
 

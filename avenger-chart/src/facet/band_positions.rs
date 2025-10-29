@@ -6,11 +6,11 @@
 //!
 //! Eliminates duplication of band position calculation logic across faceting system.
 
-use datafusion::common::ScalarValue;
+use crate::error::AvengerChartError;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::scales::extensions::{ConfiguredScaleLegendExt, DomainValues};
-use crate::error::AvengerChartError;
 use avenger_scales::scales::ConfiguredScale;
+use datafusion::common::ScalarValue;
 
 /// Position information for a single band in a band scale
 #[derive(Debug, Clone)]
@@ -82,9 +82,7 @@ impl BandPositionIterator {
         let domain_vals = configured.domain_values()?;
 
         let positions = match &domain_vals {
-            DomainValues::Discrete(vals) => {
-                configured.scale_scalars_to_numeric(vals)?
-            }
+            DomainValues::Discrete(vals) => configured.scale_scalars_to_numeric(vals)?,
             _ => Vec::new(),
         };
 
@@ -102,7 +100,6 @@ impl BandPositionIterator {
             current_index: 0,
         })
     }
-
 
     /// Get the number of bands
     pub fn len(&self) -> usize {
@@ -129,9 +126,7 @@ impl BandPositionIterator {
         let domain_vals = scale.domain_values()?;
 
         let positions = match &domain_vals {
-            DomainValues::Discrete(vals) => {
-                scale.scale_scalars_to_numeric(vals)?
-            }
+            DomainValues::Discrete(vals) => scale.scale_scalars_to_numeric(vals)?,
             _ => Vec::new(),
         };
 
@@ -149,7 +144,6 @@ impl BandPositionIterator {
             current_index: 0,
         })
     }
-
 }
 
 impl Iterator for BandPositionIterator {
@@ -188,11 +182,7 @@ mod tests {
 
     #[test]
     fn test_band_position_methods() {
-        let bp = BandPosition::new(
-            ScalarValue::Utf8(Some("test".into())),
-            100.0,
-            50.0,
-        );
+        let bp = BandPosition::new(ScalarValue::Utf8(Some("test".into())), 100.0, 50.0);
 
         assert_eq!(bp.start(), 100.0);
         assert_eq!(bp.center(), 125.0);
@@ -202,11 +192,7 @@ mod tests {
 
     #[test]
     fn test_band_position_zero_bandwidth() {
-        let bp = BandPosition::new(
-            ScalarValue::Utf8(Some("zero".into())),
-            100.0,
-            0.0,
-        );
+        let bp = BandPosition::new(ScalarValue::Utf8(Some("zero".into())), 100.0, 0.0);
 
         assert_eq!(bp.start(), 100.0);
         assert_eq!(bp.center(), 100.0);
@@ -215,11 +201,7 @@ mod tests {
 
     #[test]
     fn test_band_position_negative_position() {
-        let bp = BandPosition::new(
-            ScalarValue::Utf8(Some("negative".into())),
-            -50.0,
-            20.0,
-        );
+        let bp = BandPosition::new(ScalarValue::Utf8(Some("negative".into())), -50.0, 20.0);
 
         assert_eq!(bp.start(), -50.0);
         assert_eq!(bp.center(), -40.0);

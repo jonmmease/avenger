@@ -149,7 +149,8 @@ mod tests {
         let params = IndexMap::new();
         let scale_sharing = std::collections::HashMap::new();
 
-        let iter = SubplotIterator::<RowDimensionConfig>::new(domain_vals.clone(), params, scale_sharing);
+        let iter =
+            SubplotIterator::<RowDimensionConfig>::new(domain_vals.clone(), params, scale_sharing);
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 3);
@@ -215,7 +216,8 @@ mod tests {
         let params = IndexMap::new();
         let scale_sharing = std::collections::HashMap::new();
 
-        let mut iter = SubplotIterator::<RowDimensionConfig>::new(domain_vals, params, scale_sharing);
+        let mut iter =
+            SubplotIterator::<RowDimensionConfig>::new(domain_vals, params, scale_sharing);
         assert_eq!(iter.size_hint(), (3, Some(3)));
 
         iter.next();
@@ -235,7 +237,11 @@ mod tests {
         base_params.insert("custom_param".to_string(), ScalarValue::Int32(Some(42)));
         let scale_sharing = std::collections::HashMap::new();
 
-        let iter = SubplotIterator::<RowDimensionConfig>::new(domain_vals, base_params.clone(), scale_sharing);
+        let iter = SubplotIterator::<RowDimensionConfig>::new(
+            domain_vals,
+            base_params.clone(),
+            scale_sharing,
+        );
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 1);

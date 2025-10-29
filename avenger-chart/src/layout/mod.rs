@@ -9,7 +9,7 @@ mod types;
 
 // Re-export main types
 pub use chart_layout::ChartLayout;
-pub use info::{merge_scale_updates, LayoutInfo, ScaleUpdates};
+pub use info::{LayoutInfo, ScaleUpdates, merge_scale_updates};
 pub use sizing::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
 pub(crate) use sizing::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, SizeMode};
 pub use types::{LayoutBounds, LayoutResult};

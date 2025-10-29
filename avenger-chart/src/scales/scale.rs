@@ -115,9 +115,7 @@ impl<S: ScaleSpec> Scale<S> {
     /// Return a clone of the underlying scale spec if explicitly set
     /// This allows callers to honor user-chosen scale types (e.g., Ordinal)
     pub fn get_scale_spec(&self) -> Option<Box<dyn ScaleSpec>> {
-        self.scale_spec
-            .as_option()
-            .map(|spec| spec.clone_box())
+        self.scale_spec.as_option().map(|spec| spec.clone_box())
     }
 
     /// Update this scale with properties from another scale
