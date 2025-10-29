@@ -5,5 +5,6 @@ pub mod dimension_config;
 pub mod guide;
 pub mod guide_utils;
 pub mod marks;
+pub mod scale_grouping;
 pub mod scale_helpers;
 pub mod subplot_iterator;

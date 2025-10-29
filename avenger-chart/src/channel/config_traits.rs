@@ -115,6 +115,7 @@ pub trait ChannelConfig: Sized {
                 band,
                 scale_config,
                 legend_config,
+                share_mode: None,
                 share_across_facets: Some(shared),
             },
             ChannelValue::Conditional {
@@ -128,6 +129,7 @@ pub trait ChannelConfig: Sized {
                 otherwise,
                 scale_config,
                 legend_config,
+                share_mode: None,
                 share_across_facets: Some(shared),
             },
             other => other,
@@ -138,10 +140,19 @@ pub trait ChannelConfig: Sized {
 }
 
 /// Facet scale sharing modes for a channel
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScaleSharing {
+    /// Share scales across all facets (one domain for all subplots)
     Shared,
+    /// Independent scales per facet (each subplot has its own domain)
     Free,
+    /// Share scales within each row (across columns), independent across rows
+    #[serde(alias = "shared_in_row")]
+    SharedInRow,
+    /// Share scales within each column (across rows), independent across columns
+    #[serde(alias = "shared_in_column")]
+    SharedInColumn,
 }
 
 impl From<bool> for ScaleSharing {
@@ -203,6 +214,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
                 otherwise,
                 scale_config,
                 legend_config,
+                share_mode: None,
                 share_across_facets: None,
             }
         }
@@ -218,6 +230,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
+            share_mode: None,
             share_across_facets: None,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
@@ -225,6 +238,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             otherwise: ConditionalValue::Value { expr },
             scale_config: None,
             legend_config: None,
+            share_mode: None,
             share_across_facets: None,
         },
     }
@@ -252,6 +266,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
                 otherwise,
                 scale_config,
                 legend_config,
+                share_mode: None,
                 share_across_facets: None,
             }
         }
@@ -267,6 +282,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
+            share_mode: None,
             share_across_facets: None,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
@@ -274,6 +290,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             otherwise: ConditionalValue::Value { expr },
             scale_config: None,
             legend_config: None,
+            share_mode: None,
             share_across_facets: None,
         },
     }
@@ -294,6 +311,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             band,
             scale_config: Some(scale_config),
             legend_config,
+            share_mode: None,
             share_across_facets: None,
         },
         ChannelValue::Conditional {
@@ -306,6 +324,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             otherwise,
             scale_config: Some(scale_config),
             legend_config,
+            share_mode: None,
             share_across_facets: None,
         },
         ChannelValue::Value { .. } => {
@@ -330,6 +349,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             band,
             scale_config,
             legend_config: Some(legend_config),
+            share_mode: None,
             share_across_facets: None,
         },
         ChannelValue::Conditional {
@@ -342,6 +362,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             otherwise,
             scale_config,
             legend_config: Some(legend_config),
+            share_mode: None,
             share_across_facets: None,
         },
         ChannelValue::Value { .. } => {

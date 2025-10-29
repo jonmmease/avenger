@@ -6,6 +6,7 @@
 //! - unified_channels are computed consistently from DimConfig
 //! - FacetContext is always present in params
 
+use crate::channel::config_traits::ScaleSharing;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
@@ -53,7 +54,7 @@ pub struct SubplotIteration {
 pub struct SubplotIterator<DimConfig: FacetDimensionConfig> {
     domain_vals: Vec<ScalarValue>,
     base_params: IndexMap<String, ScalarValue>,
-    scale_sharing: std::collections::HashMap<String, bool>,
+    scale_sharing: std::collections::HashMap<String, ScaleSharing>,
     current_index: usize,
     _phantom: std::marker::PhantomData<DimConfig>,
 }
@@ -64,13 +65,13 @@ impl<DimConfig: FacetDimensionConfig> SubplotIterator<DimConfig> {
     /// # Arguments
     /// * `domain_vals` - The domain values to iterate over (one per subplot)
     /// * `base_params` - Base parameters to merge FacetContext into
-    /// * `scale_sharing` - Per-channel scale sharing status (true = shared, false = independent)
+    /// * `scale_sharing` - Per-channel scale sharing configuration (ScaleSharing enum)
     ///
     /// Note: unified_channels are automatically determined from DimConfig::unified_channels()
     pub fn new(
         domain_vals: Vec<ScalarValue>,
         base_params: IndexMap<String, ScalarValue>,
-        scale_sharing: std::collections::HashMap<String, bool>,
+        scale_sharing: std::collections::HashMap<String, ScaleSharing>,
     ) -> Self {
         Self {
             domain_vals,

@@ -1,3 +1,4 @@
+use crate::channel::config_traits::ScaleSharing;
 use crate::legend::Legend;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use crate::serialization::{LogicalExprNodeExt, SerializableExpr};
@@ -140,7 +141,10 @@ pub enum ChannelValue {
         scale_config: Option<Scale<Auto>>,
         /// Optional legend configuration
         legend_config: Option<Legend>,
-        /// Share this channel's scale across facets (if faceting)
+        /// Share this channel's scale across facets using ScaleSharing enum
+        #[serde(default)]
+        share_mode: Option<ScaleSharing>,
+        /// Legacy bool-based sharing (deprecated, use share_mode instead)
         #[serde(default)]
         share_across_facets: Option<bool>,
     },
@@ -160,7 +164,10 @@ pub enum ChannelValue {
         scale_config: Option<Scale<Auto>>,
         /// Optional legend configuration (applies to all Field branches)
         legend_config: Option<Legend>,
-        /// Share this channel's scale across facets (if faceting)
+        /// Share this channel's scale across facets using ScaleSharing enum
+        #[serde(default)]
+        share_mode: Option<ScaleSharing>,
+        /// Legacy bool-based sharing (deprecated, use share_mode instead)
         #[serde(default)]
         share_across_facets: Option<bool>,
     },
@@ -235,7 +242,9 @@ impl ChannelValue {
         }
     }
 
-    /// Get per-channel facet sharing preference
+    /// Get per-channel facet sharing preference (legacy bool API)
+    ///
+    /// Deprecated: Use get_share_mode() instead for full ScaleSharing enum support
     pub fn get_share_across_facets(&self) -> Option<bool> {
         match self {
             ChannelValue::Scaled {
@@ -246,6 +255,26 @@ impl ChannelValue {
                 share_across_facets,
                 ..
             } => *share_across_facets,
+            _ => None,
+        }
+    }
+
+    /// Get per-channel facet sharing mode
+    ///
+    /// Returns the ScaleSharing mode, checking share_mode first and falling back to
+    /// share_across_facets (converted from bool) for backward compatibility.
+    pub fn get_share_mode(&self) -> Option<ScaleSharing> {
+        match self {
+            ChannelValue::Scaled {
+                share_mode,
+                share_across_facets,
+                ..
+            }
+            | ChannelValue::Conditional {
+                share_mode,
+                share_across_facets,
+                ..
+            } => share_mode.or_else(|| share_across_facets.map(ScaleSharing::from)),
             _ => None,
         }
     }
@@ -315,6 +344,7 @@ impl ChannelValue {
                 scale_name,
                 scale_config,
                 legend_config,
+                share_mode,
                 share_across_facets,
                 ..
             } => ChannelValue::Scaled {
@@ -323,6 +353,7 @@ impl ChannelValue {
                 band: Some(band),
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
+                share_mode,
                 share_across_facets,
             },
             other => other, // No-op for identity and conditional values
@@ -338,6 +369,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config,
+                share_mode,
                 share_across_facets,
                 ..
             } => ChannelValue::Scaled {
@@ -346,6 +378,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config,
+                share_mode,
                 share_across_facets,
             },
             ChannelValue::Value { .. } => ChannelValue::Value { expr: new_expr },
@@ -357,6 +390,7 @@ impl ChannelValue {
                     band: None,
                     scale_config: None,
                     legend_config: None,
+                    share_mode: None,
                     share_across_facets: None,
                 }
             }
@@ -378,6 +412,7 @@ impl ChannelValue {
                 band,
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
+                share_mode: None,
                 share_across_facets: None,
             },
             ChannelValue::Value { expr } => {
@@ -388,6 +423,7 @@ impl ChannelValue {
                     band: None,
                     scale_config: None,
                     legend_config: None,
+                    share_mode: None,
                     share_across_facets: None,
                 }
             }
@@ -419,6 +455,7 @@ impl ChannelValue {
                 band,
                 scale_config: Some(scale_changes),
                 legend_config,
+                share_mode: None,
                 share_across_facets: None,
             },
             ChannelValue::Value { expr } => {
@@ -429,6 +466,7 @@ impl ChannelValue {
                     band: None,
                     scale_config: Some(scale_changes),
                     legend_config: None,
+                    share_mode: None,
                     share_across_facets: None,
                 }
             }
@@ -442,6 +480,7 @@ impl ChannelValue {
                 otherwise,
                 scale_config: Some(scale_changes),
                 legend_config,
+                share_mode: None,
                 share_across_facets: None,
             },
         }
@@ -473,6 +512,7 @@ impl ChannelValue {
                 band,
                 scale_config,
                 legend_config: Some(legend),
+                share_mode: None,
                 share_across_facets: None,
             },
             ChannelValue::Conditional {
@@ -485,6 +525,7 @@ impl ChannelValue {
                 otherwise,
                 scale_config,
                 legend_config: Some(legend),
+                share_mode: None,
                 share_across_facets: None,
             },
             ChannelValue::Value { .. } => {
@@ -574,6 +615,7 @@ impl From<Expr> for ChannelValue {
             band: None,
             scale_config: None,
             legend_config: None,
+            share_mode: None,
             share_across_facets: None,
         }
     }
@@ -800,6 +842,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_mode: None,
             share_across_facets: None,
         };
         // Conditional values don't have a single column name

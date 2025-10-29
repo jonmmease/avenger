@@ -1,3 +1,4 @@
+use crate::channel::config_traits::ScaleSharing;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::facet::context::FacetContext;
@@ -688,17 +689,23 @@ impl CompiledMark for CompiledFacetGrid {
             .to_vec();
         let mut scale_sharing_by_channel = std::collections::HashMap::new();
         for &ch in &coord_channels {
-            let mut shared = false;
+            let mut mode = ScaleSharing::Free;
             for m in &self.compiled_subplot.marks {
                 if let Some(cv) = m.data_context().channels().get(ch) {
-                    if let Some(true) = cv.get_share_across_facets() {
-                        shared = true;
-                        break;
+                    if let Some(share_mode) = cv.get_share_mode() {
+                        // Upgrade to more restrictive sharing
+                        mode = match (mode, share_mode) {
+                            (ScaleSharing::Free, new_mode) => new_mode,
+                            (ScaleSharing::Shared, _) => ScaleSharing::Shared,
+                            (_, ScaleSharing::Shared) => ScaleSharing::Shared,
+                            (existing, _) => existing,
+                        };
                     }
                 }
             }
-            scale_sharing_by_channel.insert(ch.to_string(), shared);
+            scale_sharing_by_channel.insert(ch.to_string(), mode);
         }
+        // Note: No normalization needed for GridFacet (has both rows and columns)
 
         // ====================================================================================
         // PASS 1: Measure overflow for all grid cells to calculate required subplot spacing
@@ -710,17 +717,20 @@ impl CompiledMark for CompiledFacetGrid {
         let mut band_w = context.plot_width / num_cols.max(1) as f32;
         let mut band_h = context.plot_height / num_rows.max(1) as f32;
 
-        // Build initial base scales from full DataFrame
-        let mut base_scales = self
-            .compiled_subplot
-            .build_scales_for_dataframe(
-                &df,
-                band_w,
-                band_h,
-                &context.session_context,
-                &context.params,
-            )
-            .await?;
+        // Build ScaleGrouping once for reuse across both passes
+        use crate::facet::scale_grouping::ScaleGrouping;
+        let scale_grouping = ScaleGrouping::build(
+            &self.compiled_subplot,
+            &scale_sharing_by_channel,
+            &row_domain_vals,
+            &col_domain_vals,
+            &df,
+            &row_expr,
+            &col_expr,
+            &context.session_context,
+            &context.params,
+        )
+        .await?;
 
         // Create a 2D array to store overflow measurements for each grid cell
         // overflow_grid[row_idx][col_idx] = OverflowSpaceRequirement
@@ -748,52 +758,18 @@ impl CompiledMark for CompiledFacetGrid {
                 let merged_params =
                     merge_grid_facet_contexts(&row_iteration, &col_iteration, num_rows, num_cols);
 
-                // Filter data for this cell
-                let filter_df = df
-                    .clone()
-                    .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
-                    .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
-
-                let cell_count = filter_df.clone().count().await?;
-                let cell_is_empty = cell_count == 0;
-
-                // Build scales for measurement using ScaleBuilder for radius-aware domain inference
-                let inner_scales = if cell_is_empty {
-                    base_scales.clone()
-                } else {
-                    // Start with base scales for shared channels
-                    let mut scales = base_scales.clone();
-
-                    // Build free scales for unshared channels with radius-aware domain inference
-                    // Build ScaleBuilder from filtered data for this cell
-                    let free_scale_builder = self
-                        .compiled_subplot
-                        .build_scale_builder_from_dataframe(
-                            &context.session_context,
-                            &merged_params,
-                            &filter_df,
-                        )
-                        .await?;
-
-                    for (ch, shared_flag) in &scale_sharing_by_channel {
-                        if !*shared_flag {
-                            let facet_scales = self
-                                .compiled_subplot
-                                .build_scales_from_builder(
-                                    &free_scale_builder,
-                                    band_w,
-                                    band_h,
-                                    &context.session_context,
-                                    &merged_params,
-                                )
-                                .await?;
-                            if let Some(s) = facet_scales.get(ch) {
-                                scales.insert(ch.clone(), s.clone());
-                            }
-                        }
-                    }
-                    scales
-                };
+                // Build scales for this subplot position using ScaleGrouping
+                let inner_scales = scale_grouping
+                    .build_scales_for_position(
+                        &self.compiled_subplot,
+                        row_iteration.index,
+                        col_iteration.index,
+                        band_w,
+                        band_h,
+                        &context.session_context,
+                        &merged_params,
+                    )
+                    .await?;
 
                 // Measure overflow for this cell with merged params
                 let overflow = self
@@ -941,16 +917,8 @@ impl CompiledMark for CompiledFacetGrid {
         }
 
         // Rebuild base scales with new band dimensions
-        base_scales = self
-            .compiled_subplot
-            .build_scales_for_dataframe(
-                &df,
-                band_w,
-                band_h,
-                &context.session_context,
-                &context.params,
-            )
-            .await?;
+        // Note: ScaleGrouping will rebuild scales with new band dimensions in Pass 2
+        // No need to rebuild base_scales here since we use build_scales_for_position()
 
         // ====================================================================================
         // PASS 2: Render all grid cells using measured spacing
@@ -1035,47 +1003,18 @@ impl CompiledMark for CompiledFacetGrid {
                     .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
                     .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
 
-                // Check if this cell has any data
-                let cell_count = filter_df.clone().count().await?;
-                let cell_is_empty = cell_count == 0;
-
-                // Build scales using ScaleBuilder for radius-aware domain inference
-                let inner_scales = if cell_is_empty {
-                    base_scales.clone()
-                } else {
-                    // Start with base scales for shared channels
-                    let mut scales = base_scales.clone();
-
-                    // Build free scales for unshared channels with radius-aware domain inference
-                    // Build ScaleBuilder from filtered data for this cell
-                    let free_scale_builder = self
-                        .compiled_subplot
-                        .build_scale_builder_from_dataframe(
-                            &context.session_context,
-                            &merged_params,
-                            &filter_df,
-                        )
-                        .await?;
-
-                    for (ch, shared_flag) in &scale_sharing_by_channel {
-                        if !*shared_flag {
-                            let facet_scales = self
-                                .compiled_subplot
-                                .build_scales_from_builder(
-                                    &free_scale_builder,
-                                    band_w,
-                                    band_h,
-                                    &context.session_context,
-                                    &merged_params,
-                                )
-                                .await?;
-                            if let Some(s) = facet_scales.get(ch) {
-                                scales.insert(ch.clone(), s.clone());
-                            }
-                        }
-                    }
-                    scales
-                };
+                // Build scales for this subplot position using ScaleGrouping (Pass 2 with final band dimensions)
+                let inner_scales = scale_grouping
+                    .build_scales_for_position(
+                        &self.compiled_subplot,
+                        row_iteration.index,
+                        col_iteration.index,
+                        band_w,
+                        band_h,
+                        &context.session_context,
+                        &merged_params,
+                    )
+                    .await?;
 
                 // Calculate subplot position from band positions
                 let x_offset = col_band_pos.start();

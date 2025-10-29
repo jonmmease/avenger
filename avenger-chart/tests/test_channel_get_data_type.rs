@@ -16,6 +16,7 @@ fn test_channel_value_get_data_type() {
         band: None,
         scale_config: None,
         legend_config: None,
+        share_mode: None,
         share_across_facets: None,
     };
 
