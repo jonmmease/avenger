@@ -352,6 +352,13 @@ async fn build_scale_for_channel(
     if let Some(user_scale) = &chosen_scale_config {
         if let Some(user_spec) = user_scale.get_scale_spec() {
             chosen_spec = Some(user_spec);
+        } else if let Some(range) = user_scale.get_range() {
+            // If no explicit scale type but discrete range is set, infer ordinal scale
+            use crate::scales::ScaleRange;
+            if matches!(range, ScaleRange::Discrete(_)) {
+                use crate::scales::spec::Ordinal;
+                chosen_spec = Some(Box::new(Ordinal));
+            }
         }
     }
 
@@ -876,9 +883,44 @@ async fn build_temp_configured_scale(
             // Wrap in ConfiguredScaleWithSpec
             Ok(Some(ConfiguredScaleWithSpec::new(scale, configured)))
         }
-        ChannelScaleBuilder::ExplicitDomain { .. } => {
-            // Can't build temporary scale from explicit domain
-            Ok(None)
+        ChannelScaleBuilder::ExplicitDomain {
+            scale_spec,
+            options,
+            domain,
+        } => {
+            // Build a temporary configured scale using the explicit domain and options
+            let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
+
+            // Apply the stored explicit domain FIRST
+            scale = scale.domain(domain.clone());
+
+            // Apply cached options
+            for (key, value_node) in options {
+                let expr = value_node.to_expr(ctx)?;
+                scale = scale.option(key, expr);
+            }
+
+            // Set range from theme (mirrors Standard arm)
+            let range_kind = match scale.get_scale_impl() {
+                Some(impl_) => impl_.range_kind(),
+                None => return Ok(None),
+            };
+            let range = if let Some(theme_range) =
+                theme.get_range_for_channel("mark", channel_name, range_kind, None, params)
+            {
+                theme_range
+            } else {
+                crate::scales::default_range_for_channel(channel_name, range_kind)
+            };
+            scale = scale.range(range);
+
+            // Normalize and create configured scale
+            scale = scale.normalize_domain(width, height, ctx, params).await?;
+            let configured = scale
+                .create_configured_scale(width, height, ctx, params)
+                .await?;
+
+            Ok(Some(ConfiguredScaleWithSpec::new(scale, configured)))
         }
         ChannelScaleBuilder::RadiusAware { .. } => {
             // Radius‑aware scales are not expected here
