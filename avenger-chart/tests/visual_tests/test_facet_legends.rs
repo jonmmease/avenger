@@ -1,0 +1,294 @@
+// Visual tests for faceted legend support
+// Tests various combinations of scale sharing modes with legends
+
+use crate::visual_tests::helpers::assert_visual_match_default;
+use avenger_chart::prelude::*;
+use avenger_chart::scales::{ScaleRange, Linear};
+use datafusion::prelude::*;
+use palette::rgb::Srgba;
+
+/// Test 1: Row facet with Free x/y scales + Free color legend
+/// Each subplot should have its own color legend on the right side
+#[tokio::test]
+async fn test_facet_row_free_scales_with_free_color_legend() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<FacetRow>::new()
+        .data(df)
+        .mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Free)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Free)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .fill_with(col("petal_length"), |c| {
+                            c.scale_with::<Linear>(|s| {
+                                s.range(ScaleRange::new_color(vec![
+                                    Srgba::new(0.267, 0.004, 0.329, 1.0), // viridis start
+                                    Srgba::new(0.127, 0.566, 0.550, 1.0), // viridis mid
+                                    Srgba::new(0.993, 0.906, 0.144, 1.0), // viridis end
+                                ]))
+                            })
+                            .legend(|l| l.title("Petal Length"))
+                        })
+                        .size(48.0),
+                ),
+            ),
+        )
+        .canvas_size(700.0, 550.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_row_free_scales_with_free_color_legend",
+    )
+    .await;
+}
+
+/// Test 2: Row facet with Shared x/y scales
+/// Since position scales are Shared, legends are NOT rendered in subplots
+/// (outer-level legend rendering is not yet implemented)
+#[tokio::test]
+async fn test_facet_row_shared_scales_with_shared_color_legend() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<FacetRow>::new()
+        .data(df)
+        .mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Shared)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Shared)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .fill_with(col("petal_length"), |c| {
+                            c.scale_with::<Linear>(|s| {
+                                s.range(ScaleRange::new_color(vec![
+                                    Srgba::new(0.050, 0.030, 0.529, 1.0), // plasma start
+                                    Srgba::new(0.790, 0.223, 0.477, 1.0), // plasma mid
+                                    Srgba::new(0.940, 0.975, 0.131, 1.0), // plasma end
+                                ]))
+                            })
+                            .legend(|l| l.title("Petal Length"))
+                        })
+                        .size(48.0),
+                ),
+            ),
+        )
+        .canvas_size(700.0, 550.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_row_shared_scales_with_shared_color_legend",
+    )
+    .await;
+}
+
+/// Test 3: Row facet with mixed sharing modes
+/// Free color legend per subplot, Shared x/y axes
+#[tokio::test]
+async fn test_facet_row_mixed_sharing_free_color_shared_axes() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<FacetRow>::new()
+        .data(df)
+        .mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Shared)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Shared)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .fill_with(col("petal_length"), |c| {
+                            c.scale_with::<Linear>(|s| {
+                                s.range(ScaleRange::new_color(vec![
+                                    Srgba::new(0.190, 0.071, 0.231, 1.0), // turbo start
+                                    Srgba::new(0.251, 0.720, 0.945, 1.0), // turbo mid-low
+                                    Srgba::new(0.984, 0.906, 0.137, 1.0), // turbo mid-high
+                                    Srgba::new(0.478, 0.016, 0.000, 1.0), // turbo end
+                                ]))
+                            })
+                            .legend(|l| l.title("Petal Length (Free)"))
+                        })
+                        .size(48.0),
+                ),
+            ),
+        )
+        .canvas_size(700.0, 550.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_row_mixed_sharing_free_color_shared_axes",
+    )
+    .await;
+}
+
+/// Test 4: Column facet with Shared color legend
+/// One legend outside the facet grid
+#[tokio::test]
+async fn test_facet_col_shared_color_legend() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<FacetCol>::new()
+        .data(df)
+        .mark(
+            Facet::new().col(col("species")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Shared)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Shared)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .fill_with(col("petal_length"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Shared)
+                                .scale_with::<Linear>(|s| {
+                                    s.range(ScaleRange::new_color(vec![
+                                        Srgba::new(0.000, 0.000, 0.014, 1.0), // inferno start
+                                        Srgba::new(0.737, 0.212, 0.330, 1.0), // inferno mid
+                                        Srgba::new(0.988, 0.998, 0.645, 1.0), // inferno end
+                                    ]))
+                                })
+                                .legend(|l| l.title("Petal Length"))
+                        })
+                        .size(48.0),
+                ),
+            ),
+        )
+        .canvas_size(800.0, 400.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_col_shared_color_legend",
+    )
+    .await;
+}
+
+/// Test 5: Small 2-row facet with Free legends
+/// Tests with fewer facets
+#[tokio::test]
+async fn test_facet_row_two_rows_free_legend() {
+    let ctx = SessionContext::new();
+
+    // Create simple test data with just 2 categories
+    ctx.sql("CREATE TABLE test_data AS VALUES
+        (1.0, 2.0, 3.0, 'A'),
+        (1.5, 2.5, 3.5, 'A'),
+        (2.0, 3.0, 4.0, 'A'),
+        (2.5, 3.5, 4.5, 'A'),
+        (4.0, 5.0, 6.0, 'B'),
+        (4.5, 5.5, 6.5, 'B'),
+        (5.0, 6.0, 7.0, 'B'),
+        (5.5, 6.5, 7.5, 'B')")
+        .await
+        .expect("create test data");
+
+    let df = ctx
+        .table("test_data")
+        .await
+        .expect("load test data");
+
+    let plot = Plot::<FacetRow>::new()
+        .data(df)
+        .mark(
+            Facet::new().row(col("column4")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("column1"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Free)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("X"))
+                        })
+                        .y_with(col("column2"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Free)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Y"))
+                        })
+                        .fill_with(col("column3"), |c| {
+                            c.scale_with::<Linear>(|s| {
+                                s.range(ScaleRange::new_color(vec![
+                                    Srgba::new(0.968, 0.984, 1.000, 1.0), // blues light
+                                    Srgba::new(0.419, 0.682, 0.839, 1.0), // blues mid
+                                    Srgba::new(0.031, 0.188, 0.420, 1.0), // blues dark
+                                ]))
+                            })
+                            .legend(|l| l.title("Value"))
+                        })
+                        .size(60.0),
+                ),
+            ),
+        )
+        .canvas_size(600.0, 400.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_row_two_rows_free_legend",
+    )
+    .await;
+}

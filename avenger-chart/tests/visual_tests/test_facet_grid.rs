@@ -114,8 +114,8 @@ async fn test_grid_facet_shared_both() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Shared))
-                            .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Shared))
+                            .x_with(col("sepal_length"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+                            .y_with(col("sepal_width"), |c| c.with_scale_sharing(ScaleSharing::Shared))
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
@@ -144,8 +144,8 @@ async fn test_grid_facet_free_scales() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Free))
-                            .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Free))
+                            .x_with(col("sepal_length"), |c| c.with_scale_sharing(ScaleSharing::Free))
+                            .y_with(col("sepal_width"), |c| c.with_scale_sharing(ScaleSharing::Free))
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
@@ -174,8 +174,8 @@ async fn test_grid_facet_shared_x() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Shared))
-                            .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Free))
+                            .x_with(col("sepal_length"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+                            .y_with(col("sepal_width"), |c| c.with_scale_sharing(ScaleSharing::Free))
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
@@ -204,8 +204,8 @@ async fn test_grid_facet_shared_y() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Free))
-                            .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Shared))
+                            .x_with(col("sepal_length"), |c| c.with_scale_sharing(ScaleSharing::Free))
+                            .y_with(col("sepal_width"), |c| c.with_scale_sharing(ScaleSharing::Shared))
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
@@ -237,11 +237,11 @@ async fn test_grid_facet_with_unified_titles() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("sepal_length"), |c| {
-                                c.share_scale(ScaleSharing::Shared)
+                                c.with_scale_sharing(ScaleSharing::Shared)
                                     .axis(|a| a.title("Sepal Length (cm)"))
                             })
                             .y_with(col("sepal_width"), |c| {
-                                c.share_scale(ScaleSharing::Shared)
+                                c.with_scale_sharing(ScaleSharing::Shared)
                                     .axis(|a| a.title("Sepal Width (cm)"))
                             })
                             .size(25.0)
@@ -407,8 +407,8 @@ async fn test_grid_facet_hybrid_sharing() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("sepal_length"), |c| c.share_scale(ScaleSharing::Shared))
-                            .y_with(col("sepal_width"), |c| c.share_scale(ScaleSharing::Free))
+                            .x_with(col("sepal_length"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+                            .y_with(col("sepal_width"), |c| c.with_scale_sharing(ScaleSharing::Free))
                             .size(25.0)
                             .fill("#4682b4"),
                     ),
