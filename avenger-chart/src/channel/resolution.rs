@@ -547,6 +547,7 @@ pub fn resolve_all_channel_refs(
                         band: *band,
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
+                        share_mode: None,
                         share_across_facets: None,
                     }
                 }
@@ -605,6 +606,7 @@ pub fn resolve_all_channel_refs(
                         otherwise: resolved_otherwise,
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
+                        share_mode: None,
                         share_across_facets: None,
                     }
                 }
@@ -637,6 +639,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -649,6 +652,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -680,6 +684,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -692,6 +697,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -704,6 +710,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -742,6 +749,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -769,6 +777,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -780,6 +789,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -814,6 +824,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -825,6 +836,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -860,6 +872,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -871,6 +884,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -883,6 +897,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -951,6 +966,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -963,6 +979,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -975,6 +992,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -987,6 +1005,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -1012,6 +1031,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );
@@ -1023,6 +1043,7 @@ mod tests {
                 band: None,
                 scale_config: None,
                 legend_config: None,
+                share_mode: None,
                 share_across_facets: None,
             },
         );

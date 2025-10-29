@@ -48,6 +48,16 @@ pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
         overflow_a: &OverflowSpaceRequirement,
         overflow_b: &OverflowSpaceRequirement,
     ) -> f32;
+
+    /// Check if this is row-only faceting (for scale sharing normalization)
+    fn is_row_facet() -> bool {
+        false
+    }
+
+    /// Check if this is column-only faceting (for scale sharing normalization)
+    fn is_col_facet() -> bool {
+        false
+    }
 }
 
 /// Row faceting dimension configuration
@@ -83,6 +93,10 @@ impl FacetDimensionConfig for RowDimensionConfig {
     ) -> f32 {
         overflow_a.bottom + overflow_b.top
     }
+
+    fn is_row_facet() -> bool {
+        true
+    }
 }
 
 /// Column faceting dimension configuration
@@ -117,6 +131,10 @@ impl FacetDimensionConfig for ColDimensionConfig {
         overflow_b: &OverflowSpaceRequirement,
     ) -> f32 {
         overflow_a.right + overflow_b.left
+    }
+
+    fn is_col_facet() -> bool {
+        true
     }
 }
 

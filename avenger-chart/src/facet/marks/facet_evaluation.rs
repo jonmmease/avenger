@@ -2,6 +2,8 @@
 ///
 /// This module provides a parameterized two-pass rendering algorithm that works for
 /// both row and column faceting by accepting orientation-specific closures.
+
+use crate::channel::config_traits::ScaleSharing;
 use crate::error::AvengerChartError;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use crate::facet::scale_helpers::build_scales_helper;
@@ -107,26 +109,46 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         .coord_transform
         .required_channels()
         .to_vec();
-    let mut scale_sharing_by_channel: HashMap<String, bool> = HashMap::new();
+    let mut scale_sharing_by_channel: HashMap<String, ScaleSharing> = HashMap::new();
     for &ch in &required_channels {
-        let mut shared = false;
+        let mut mode = ScaleSharing::Free;
         for m in &compiled_subplot.marks {
             if let Some(cv) = m.data_context().channels().get(ch) {
-                if let Some(s) = cv.get_share_across_facets() {
-                    if s {
-                        shared = true;
-                        break;
-                    }
+                if let Some(share_mode) = cv.get_share_mode() {
+                    // Upgrade to more restrictive sharing
+                    mode = match (mode, share_mode) {
+                        (ScaleSharing::Free, new_mode) => new_mode,
+                        (ScaleSharing::Shared, _) => ScaleSharing::Shared,
+                        (_, ScaleSharing::Shared) => ScaleSharing::Shared,
+                        (existing, _) => existing,
+                    };
                 }
             }
         }
-        scale_sharing_by_channel.insert(ch.to_string(), shared);
+        scale_sharing_by_channel.insert(ch.to_string(), mode);
     }
+
+    // Normalize partial sharing modes for row/col faceting
+    // For row-only faceting: SharedInColumn -> Shared (only one column)
+    // For col-only faceting: SharedInRow -> Shared (only one row)
+    let scale_sharing_by_channel: HashMap<String, ScaleSharing> = scale_sharing_by_channel
+        .into_iter()
+        .map(|(ch, mode)| {
+            let normalized = match mode {
+                ScaleSharing::SharedInColumn if DimConfig::is_row_facet() => ScaleSharing::Shared,
+                ScaleSharing::SharedInRow if DimConfig::is_col_facet() => ScaleSharing::Shared,
+                other => other,
+            };
+            (ch, normalized)
+        })
+        .collect();
 
     // If any channel is shared, build a ScaleBuilder once for reuse across passes
     // This enables radius-aware domain inference for faceted plots
     // Use the full dataset (df, not filtered) since shared scales span all facets
-    let any_shared = scale_sharing_by_channel.values().any(|v| *v);
+    let any_shared = scale_sharing_by_channel
+        .values()
+        .any(|v| *v == ScaleSharing::Shared);
     let initial_band_size = extract_band_size(
         &initial_band_positions,
         context.plot_width.max(context.plot_height),
@@ -377,8 +399,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 &iteration.params,
             )
             .await?;
-            for (ch, shared_flag) in &scale_sharing_by_channel {
-                if !*shared_flag {
+            for (ch, sharing_mode) in &scale_sharing_by_channel {
+                if *sharing_mode != ScaleSharing::Shared {
                     if let Some(s) = facet_scales.get(ch) {
                         scales.insert(ch.clone(), s.clone());
                     }

@@ -5,9 +5,10 @@
 //! and passed via params to subplots, allowing guides (axes, legends, etc.) to make
 //! intelligent decisions about what to show/hide.
 
+use crate::channel::config_traits::ScaleSharing;
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
 
 /// Axis position for determining edge-based visibility
@@ -17,6 +18,36 @@ pub enum AxisPosition {
     Bottom,
     Left,
     Right,
+}
+
+/// Backward-compatible deserialization helper for scale_sharing field
+///
+/// Accepts both old format (bool) and new format (ScaleSharing enum)
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ScaleSharingCompat {
+    Bool(bool),
+    Mode(ScaleSharing),
+}
+
+/// Custom deserializer for scale_sharing field
+fn deserialize_scale_sharing<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, ScaleSharing>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let compat_map: HashMap<String, ScaleSharingCompat> = HashMap::deserialize(deserializer)?;
+    Ok(compat_map
+        .into_iter()
+        .map(|(k, v)| {
+            let mode = match v {
+                ScaleSharingCompat::Bool(b) => ScaleSharing::from(b),
+                ScaleSharingCompat::Mode(m) => m,
+            };
+            (k, mode)
+        })
+        .collect())
 }
 
 /// Context information passed from facet to subplots
@@ -42,11 +73,17 @@ pub struct FacetContext {
     /// where both x and y channels can be unified simultaneously.
     pub unified_channels: HashSet<String>,
 
-    /// Per-channel scale sharing status (true = shared, false = independent)
-    /// When scales are shared, only edge subplots need to show labels.
-    /// When scales are independent, all subplots should show labels since
-    /// the values differ between subplots.
-    pub scale_sharing: HashMap<String, bool>,
+    /// Per-channel scale sharing configuration
+    ///
+    /// Determines how scales are shared across facets and affects label visibility:
+    /// - Shared: One domain for all facets, labels only on edges
+    /// - Free: Independent domains per facet, labels on all facets
+    /// - SharedInRow: Shared within each row, labels on left/right edges for y, top/bottom for x
+    /// - SharedInColumn: Shared within each column, labels on top/bottom edges for x, left/right for y
+    ///
+    /// Backward compatible via custom deserializer that accepts bool (true=Shared, false=Free)
+    #[serde(deserialize_with = "deserialize_scale_sharing")]
+    pub scale_sharing: HashMap<String, ScaleSharing>,
 }
 
 impl FacetContext {
@@ -129,15 +166,53 @@ impl FacetContext {
     /// Determine if axis labels should be shown
     ///
     /// Label visibility rules:
-    /// 1. If scales are independent, always show (values differ per subplot)
-    /// 2. If scales are shared, only show on relevant edge (values are the same)
+    /// - Free: always show (values differ per subplot)
+    /// - Shared: only show on relevant edge (values are the same)
+    /// - SharedInRow: for y-axis, show on left/right edges; for x-axis, use edge logic
+    /// - SharedInColumn: for x-axis, show on top/bottom edges; for y-axis, use edge logic
     pub fn should_show_labels(&self, channel: &str, position: AxisPosition) -> bool {
-        let scales_shared = self.scale_sharing.get(channel).copied().unwrap_or(false);
-        let is_edge = self.is_on_relevant_edge(channel, position);
+        let sharing_mode = self
+            .scale_sharing
+            .get(channel)
+            .copied()
+            .unwrap_or(ScaleSharing::Free);
+        let (row, col) = self.position;
+        let (num_rows, num_cols) = self.grid_dimensions;
 
-        // Independent scales: always show (values differ per subplot)
-        // Shared scales: only show on relevant edge
-        !scales_shared || is_edge
+        match sharing_mode {
+            ScaleSharing::Free => {
+                // Independent scales: always show labels
+                true
+            }
+            ScaleSharing::Shared => {
+                // Shared scales: only show on relevant edge
+                self.is_on_relevant_edge(channel, position)
+            }
+            ScaleSharing::SharedInRow => {
+                // Scales shared within each row (across columns)
+                match (channel, position) {
+                    ("y", AxisPosition::Left) => col == 0, // Show y-labels only on left edge
+                    ("y", AxisPosition::Right) => col == num_cols - 1, // Show y-labels only on right edge
+                    ("x", _) => {
+                        // X-axis uses normal edge logic (show on top/bottom edges)
+                        self.is_on_relevant_edge(channel, position)
+                    }
+                    _ => true, // Unknown combinations show labels
+                }
+            }
+            ScaleSharing::SharedInColumn => {
+                // Scales shared within each column (across rows)
+                match (channel, position) {
+                    ("x", AxisPosition::Bottom) => row == num_rows - 1, // Show x-labels only on bottom edge
+                    ("x", AxisPosition::Top) => row == 0, // Show x-labels only on top edge
+                    ("y", _) => {
+                        // Y-axis uses normal edge logic (show on left/right edges)
+                        self.is_on_relevant_edge(channel, position)
+                    }
+                    _ => true, // Unknown combinations show labels
+                }
+            }
+        }
     }
 }
 
@@ -148,8 +223,8 @@ mod tests {
     #[test]
     fn test_facet_context_serialization() {
         let mut scale_sharing = HashMap::new();
-        scale_sharing.insert("x".to_string(), true);
-        scale_sharing.insert("y".to_string(), false);
+        scale_sharing.insert("x".to_string(), ScaleSharing::Shared);
+        scale_sharing.insert("y".to_string(), ScaleSharing::Free);
 
         let mut unified_channels = HashSet::new();
         unified_channels.insert("y".to_string());
@@ -170,8 +245,11 @@ mod tests {
         assert_eq!(restored.position, (1, 0));
         assert_eq!(restored.grid_dimensions, (3, 1));
         assert_eq!(restored.unified_channels, unified_channels);
-        assert_eq!(restored.scale_sharing.get("x"), Some(&true));
-        assert_eq!(restored.scale_sharing.get("y"), Some(&false));
+        assert_eq!(
+            restored.scale_sharing.get("x"),
+            Some(&ScaleSharing::Shared)
+        );
+        assert_eq!(restored.scale_sharing.get("y"), Some(&ScaleSharing::Free));
     }
 
     #[test]
@@ -269,8 +347,8 @@ mod tests {
     #[test]
     fn test_should_show_labels() {
         let mut scale_sharing = HashMap::new();
-        scale_sharing.insert("x".to_string(), true); // x-scale shared
-        scale_sharing.insert("y".to_string(), false); // y-scale independent
+        scale_sharing.insert("x".to_string(), ScaleSharing::Shared); // x-scale shared
+        scale_sharing.insert("y".to_string(), ScaleSharing::Free); // y-scale independent
 
         // Middle row
         let ctx = FacetContext {

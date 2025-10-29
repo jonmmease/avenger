@@ -1,3 +1,4 @@
+use crate::channel::config_traits::ScaleSharing;
 use crate::facet::dimension_config::{
     ColDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
@@ -165,18 +166,22 @@ impl CompiledGuide for FacetRowGuide {
                 source.subplot.coord_transform.required_channels().to_vec();
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
             for &ch in &coord_channels {
-                let mut shared = false;
+                let mut mode = ScaleSharing::Free;
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
-                        if let Some(true) = cv.get_share_across_facets() {
-                            shared = true;
-                            break;
+                        if let Some(share_mode) = cv.get_share_mode() {
+                            mode = match (mode, share_mode) {
+                                (ScaleSharing::Free, new_mode) => new_mode,
+                                (ScaleSharing::Shared, _) => ScaleSharing::Shared,
+                                (_, ScaleSharing::Shared) => ScaleSharing::Shared,
+                                (existing, _) => existing,
+                            };
                         }
                     }
                 }
-                scale_sharing_by_channel.insert(ch.to_string(), shared);
+                scale_sharing_by_channel.insert(ch.to_string(), mode);
             }
-            let any_shared = scale_sharing_by_channel.values().any(|v| *v);
+            let any_shared = scale_sharing_by_channel.values().any(|v| *v == ScaleSharing::Shared);
 
             // Use SubplotIterator to ensure consistent FacetContext across all subplots
             use crate::facet::subplot_iterator::SubplotIterator;
@@ -421,18 +426,22 @@ impl CompiledGuide for FacetRowGuide {
                 source.subplot.coord_transform.required_channels().to_vec();
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
             for &ch in &coord_channels {
-                let mut shared = false;
+                let mut mode = ScaleSharing::Free;
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
-                        if let Some(true) = cv.get_share_across_facets() {
-                            shared = true;
-                            break;
+                        if let Some(share_mode) = cv.get_share_mode() {
+                            mode = match (mode, share_mode) {
+                                (ScaleSharing::Free, new_mode) => new_mode,
+                                (ScaleSharing::Shared, _) => ScaleSharing::Shared,
+                                (_, ScaleSharing::Shared) => ScaleSharing::Shared,
+                                (existing, _) => existing,
+                            };
                         }
                     }
                 }
-                scale_sharing_by_channel.insert(ch.to_string(), shared);
+                scale_sharing_by_channel.insert(ch.to_string(), mode);
             }
-            let any_shared = scale_sharing_by_channel.values().any(|v| *v);
+            let any_shared = scale_sharing_by_channel.values().any(|v| *v == ScaleSharing::Shared);
 
             // Use SubplotIterator to ensure consistent FacetContext across all subplots
             use crate::facet::subplot_iterator::SubplotIterator;
@@ -732,18 +741,22 @@ impl CompiledGuide for FacetColGuide {
                 source.subplot.coord_transform.required_channels().to_vec();
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
             for &ch in &coord_channels {
-                let mut shared = false;
+                let mut mode = ScaleSharing::Free;
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
-                        if let Some(true) = cv.get_share_across_facets() {
-                            shared = true;
-                            break;
+                        if let Some(share_mode) = cv.get_share_mode() {
+                            mode = match (mode, share_mode) {
+                                (ScaleSharing::Free, new_mode) => new_mode,
+                                (ScaleSharing::Shared, _) => ScaleSharing::Shared,
+                                (_, ScaleSharing::Shared) => ScaleSharing::Shared,
+                                (existing, _) => existing,
+                            };
                         }
                     }
                 }
-                scale_sharing_by_channel.insert(ch.to_string(), shared);
+                scale_sharing_by_channel.insert(ch.to_string(), mode);
             }
-            let any_shared = scale_sharing_by_channel.values().any(|v| *v);
+            let any_shared = scale_sharing_by_channel.values().any(|v| *v == ScaleSharing::Shared);
 
             use crate::facet::subplot_iterator::SubplotIterator;
             let subplot_iter = SubplotIterator::<ColDimensionConfig>::new(
@@ -1007,18 +1020,22 @@ impl CompiledGuide for FacetColGuide {
                 source.subplot.coord_transform.required_channels().to_vec();
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
             for &ch in &coord_channels {
-                let mut shared = false;
+                let mut mode = ScaleSharing::Free;
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
-                        if let Some(true) = cv.get_share_across_facets() {
-                            shared = true;
-                            break;
+                        if let Some(share_mode) = cv.get_share_mode() {
+                            mode = match (mode, share_mode) {
+                                (ScaleSharing::Free, new_mode) => new_mode,
+                                (ScaleSharing::Shared, _) => ScaleSharing::Shared,
+                                (_, ScaleSharing::Shared) => ScaleSharing::Shared,
+                                (existing, _) => existing,
+                            };
                         }
                     }
                 }
-                scale_sharing_by_channel.insert(ch.to_string(), shared);
+                scale_sharing_by_channel.insert(ch.to_string(), mode);
             }
-            let any_shared = scale_sharing_by_channel.values().any(|v| *v);
+            let any_shared = scale_sharing_by_channel.values().any(|v| *v == ScaleSharing::Shared);
 
             use crate::facet::subplot_iterator::SubplotIterator;
             let subplot_iter = SubplotIterator::<ColDimensionConfig>::new(
@@ -1447,16 +1464,20 @@ impl CompiledGuide for GridFacetGuide {
                 source.subplot.coord_transform.required_channels().to_vec();
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
             for &ch in &coord_channels {
-                let mut shared = false;
+                let mut mode = ScaleSharing::Free;
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
-                        if let Some(true) = cv.get_share_across_facets() {
-                            shared = true;
-                            break;
+                        if let Some(share_mode) = cv.get_share_mode() {
+                            mode = match (mode, share_mode) {
+                                (ScaleSharing::Free, new_mode) => new_mode,
+                                (ScaleSharing::Shared, _) => ScaleSharing::Shared,
+                                (_, ScaleSharing::Shared) => ScaleSharing::Shared,
+                                (existing, _) => existing,
+                            };
                         }
                     }
                 }
-                scale_sharing_by_channel.insert(ch.to_string(), shared);
+                scale_sharing_by_channel.insert(ch.to_string(), mode);
             }
 
             use crate::facet::dimension_config::{ColDimensionConfig, RowDimensionConfig};
@@ -1511,8 +1532,8 @@ impl CompiledGuide for GridFacetGuide {
 
                     // For independent (free) channels, rebuild from cell data if cell is non-empty
                     if !cell_is_empty {
-                        for (ch, shared_flag) in &scale_sharing_by_channel {
-                            if !*shared_flag {
+                        for (ch, sharing_mode) in &scale_sharing_by_channel {
+                            if *sharing_mode != ScaleSharing::Shared {
                                 // This channel is independent - rebuild from filtered data
                                 let facet_scales = source
                                     .subplot
@@ -1898,16 +1919,20 @@ impl CompiledGuide for GridFacetGuide {
                 source.subplot.coord_transform.required_channels().to_vec();
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
             for &ch in &coord_channels {
-                let mut shared = false;
+                let mut mode = ScaleSharing::Free;
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
-                        if let Some(true) = cv.get_share_across_facets() {
-                            shared = true;
-                            break;
+                        if let Some(share_mode) = cv.get_share_mode() {
+                            mode = match (mode, share_mode) {
+                                (ScaleSharing::Free, new_mode) => new_mode,
+                                (ScaleSharing::Shared, _) => ScaleSharing::Shared,
+                                (_, ScaleSharing::Shared) => ScaleSharing::Shared,
+                                (existing, _) => existing,
+                            };
                         }
                     }
                 }
-                scale_sharing_by_channel.insert(ch.to_string(), shared);
+                scale_sharing_by_channel.insert(ch.to_string(), mode);
             }
 
             use crate::facet::dimension_config::{ColDimensionConfig, RowDimensionConfig};
@@ -1965,8 +1990,8 @@ impl CompiledGuide for GridFacetGuide {
 
                     // For independent (free) channels, rebuild from cell data if cell is non-empty
                     if !cell_is_empty {
-                        for (ch, shared_flag) in &scale_sharing_by_channel {
-                            if !*shared_flag {
+                        for (ch, sharing_mode) in &scale_sharing_by_channel {
+                            if *sharing_mode != ScaleSharing::Shared {
                                 // This channel is independent - rebuild from filtered data
                                 let facet_scales = source
                                     .subplot

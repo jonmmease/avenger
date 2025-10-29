@@ -281,6 +281,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_mode: None,
             share_across_facets: None,
         };
 
@@ -307,6 +308,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_mode: None,
             share_across_facets: None,
         };
 
@@ -350,6 +352,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_mode: None,
             share_across_facets: None,
         };
 
@@ -477,6 +480,7 @@ mod tests {
             },
             scale_config: None,
             legend_config: None,
+            share_mode: None,
             share_across_facets: None,
         };
 

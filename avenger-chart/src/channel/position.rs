@@ -37,8 +37,9 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
     }
 
     /// Configure whether this channel's scale is shared across facets or free per facet
+    ///
+    /// Supports full ScaleSharing enum: Shared, Free, SharedInRow, SharedInColumn
     pub fn share_scale(self, mode: crate::channel::config_traits::ScaleSharing) -> Self {
-        let shared = matches!(mode, crate::channel::config_traits::ScaleSharing::Shared);
         let updated = match self.inner {
             ChannelValue::Scaled {
                 expr,
@@ -53,7 +54,8 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
                 band,
                 scale_config,
                 legend_config,
-                share_across_facets: Some(shared),
+                share_mode: Some(mode),
+                share_across_facets: None,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -66,7 +68,8 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
                 otherwise,
                 scale_config,
                 legend_config,
-                share_across_facets: Some(shared),
+                share_mode: Some(mode),
+                share_across_facets: None,
             },
             other => other,
         };
@@ -74,6 +77,21 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
             inner: updated,
             axis_config: self.axis_config,
         }
+    }
+
+    /// Share this channel's scale across all facets (convenience method)
+    pub fn share(self) -> Self {
+        self.share_scale(crate::channel::config_traits::ScaleSharing::Shared)
+    }
+
+    /// Share this channel's scale within each row (across columns)
+    pub fn share_in_rows(self) -> Self {
+        self.share_scale(crate::channel::config_traits::ScaleSharing::SharedInRow)
+    }
+
+    /// Share this channel's scale within each column (across rows)
+    pub fn share_in_columns(self) -> Self {
+        self.share_scale(crate::channel::config_traits::ScaleSharing::SharedInColumn)
     }
 
     /// Disable scaling for this channel

@@ -42,6 +42,7 @@ mod serialization_tests {
             band: None,
             scale_config: None,
             legend_config: None,
+            share_mode: None,
             share_across_facets: None,
         };
 
