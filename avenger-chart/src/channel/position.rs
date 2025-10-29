@@ -39,7 +39,7 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
     /// Configure whether this channel's scale is shared across facets or free per facet
     ///
     /// Supports full ScaleSharing enum: Shared, Free, SharedInRow, SharedInColumn
-    pub fn share_scale(self, mode: crate::channel::config_traits::ScaleSharing) -> Self {
+    pub fn with_scale_sharing(self, mode: crate::channel::config_traits::ScaleSharing) -> Self {
         let updated = match self.inner {
             ChannelValue::Scaled {
                 expr,
@@ -80,18 +80,23 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
     }
 
     /// Share this channel's scale across all facets (convenience method)
-    pub fn share(self) -> Self {
-        self.share_scale(crate::channel::config_traits::ScaleSharing::Shared)
+    pub fn share_scale(self) -> Self {
+        self.with_scale_sharing(crate::channel::config_traits::ScaleSharing::Shared)
+    }
+
+    /// Make this channel's scale independent for each facet (convenience method)
+    pub fn free_scale(self) -> Self {
+        self.with_scale_sharing(crate::channel::config_traits::ScaleSharing::Free)
     }
 
     /// Share this channel's scale within each row (across columns)
-    pub fn share_in_rows(self) -> Self {
-        self.share_scale(crate::channel::config_traits::ScaleSharing::SharedInRow)
+    pub fn share_scale_in_rows(self) -> Self {
+        self.with_scale_sharing(crate::channel::config_traits::ScaleSharing::SharedInRow)
     }
 
     /// Share this channel's scale within each column (across rows)
-    pub fn share_in_columns(self) -> Self {
-        self.share_scale(crate::channel::config_traits::ScaleSharing::SharedInColumn)
+    pub fn share_scale_in_columns(self) -> Self {
+        self.with_scale_sharing(crate::channel::config_traits::ScaleSharing::SharedInColumn)
     }
 
     /// Disable scaling for this channel
