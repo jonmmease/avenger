@@ -11,14 +11,22 @@ use std::sync::Arc;
 /// # Arguments
 /// * `layout` - The layout result to visualize
 /// * `color` - Optional RGBA color for debug marks. Defaults to magenta [1.0, 0.0, 1.0, 0.7]
+/// * `stroke_width` - Optional stroke width. Defaults to 1.0
+/// * `zindex` - Optional z-index. Defaults to 20
+/// * `flip_label_align` - If true, align labels on opposite side (for subplots to avoid overlap)
 pub fn create_debug_layout_rects(
     layout: &crate::layout::LayoutResult,
     color: Option<[f32; 4]>,
+    stroke_width: Option<f32>,
+    zindex: Option<i32>,
+    flip_label_align: bool,
 ) -> Vec<SceneMark> {
     let mut debug_marks = Vec::new();
 
     // Default to magenta, or use provided color
     let debug_color = color.unwrap_or([1.0, 0.0, 1.0, 0.7]);
+    let stroke = stroke_width.unwrap_or(1.0);
+    let z = zindex.unwrap_or(20);
 
     // Plot area outline
     let plot_rect = SceneRectMark {
@@ -28,20 +36,27 @@ pub fn create_debug_layout_rects(
         height: Some(layout.plot_area.height.into()),
         fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(), // Transparent
         stroke: ColorOrGradient::Color(debug_color).into(),
-        stroke_width: 1.0.into(),
-        zindex: Some(20),
+        stroke_width: stroke.into(),
+        zindex: Some(z),
         ..Default::default()
     };
     debug_marks.push(SceneMark::Rect(plot_rect));
 
-    // Plot area label
+    // Plot area label - align right if flip_label_align is true
+    let (label_x, label_align) = if flip_label_align {
+        (layout.plot_area.x + layout.plot_area.width - 2.0, avenger_text::types::TextAlign::Right)
+    } else {
+        (layout.plot_area.x + 2.0, avenger_text::types::TextAlign::Left)
+    };
+
     let plot_label = SceneTextMark {
         text: "plot-area".into(),
-        x: (layout.plot_area.x + 2.0).into(),
+        x: label_x.into(),
         y: (layout.plot_area.y + 10.0).into(),
         font_size: 8.0.into(),
         color: ColorOrGradient::Color(debug_color).into(),
-        zindex: Some(20),
+        align: label_align.into(),
+        zindex: Some(z),
         ..Default::default()
     };
     debug_marks.push(SceneMark::Text(Arc::new(plot_label)));
@@ -55,46 +70,83 @@ pub fn create_debug_layout_rects(
             height: Some(bounds.height.into()),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
             stroke: ColorOrGradient::Color(debug_color).into(),
-            stroke_width: 1.0.into(),
-            zindex: Some(20),
+            stroke_width: stroke.into(),
+            zindex: Some(z),
             ..Default::default()
         };
         debug_marks.push(SceneMark::Rect(overflow_rect));
 
-        // Add overflow region label
-        let (overflow_label, label_x, label_y, angle, align, baseline) = match position {
-            crate::cartesian::axis::AxisPosition::Left => (
-                "of-left",
-                bounds.x + 2.0,
-                bounds.y + 2.0,
-                -90.0,
-                avenger_text::types::TextAlign::Right,
-                avenger_text::types::TextBaseline::Top,
-            ),
-            crate::cartesian::axis::AxisPosition::Right => (
-                "of-right",
-                bounds.x + bounds.width - 2.0,
-                bounds.y + 2.0,
-                -90.0,
-                avenger_text::types::TextAlign::Right,
-                avenger_text::types::TextBaseline::Bottom,
-            ),
-            crate::cartesian::axis::AxisPosition::Top => (
-                "of-top",
-                bounds.x + 2.0,
-                bounds.y,
-                0.0,
-                avenger_text::types::TextAlign::Left,
-                avenger_text::types::TextBaseline::Top,
-            ),
-            crate::cartesian::axis::AxisPosition::Bottom => (
-                "of-bottom",
-                bounds.x + 2.0,
-                bounds.y + bounds.height - 2.0,
-                0.0,
-                avenger_text::types::TextAlign::Left,
-                avenger_text::types::TextBaseline::Bottom,
-            ),
+        // Add overflow region label - flip alignment if needed
+        let (overflow_label, label_x, label_y, angle, align, baseline) = if flip_label_align {
+            match position {
+                crate::cartesian::axis::AxisPosition::Left => (
+                    "of-left",
+                    bounds.x + 2.0,
+                    bounds.y + 2.0,
+                    -90.0,
+                    avenger_text::types::TextAlign::Right,
+                    avenger_text::types::TextBaseline::Bottom,  // Flipped from Top
+                ),
+                crate::cartesian::axis::AxisPosition::Right => (
+                    "of-right",
+                    bounds.x + bounds.width - 2.0,
+                    bounds.y + 2.0,
+                    -90.0,
+                    avenger_text::types::TextAlign::Right,
+                    avenger_text::types::TextBaseline::Top,  // Flipped from Bottom
+                ),
+                crate::cartesian::axis::AxisPosition::Top => (
+                    "of-top",
+                    bounds.x + bounds.width - 2.0,  // Right side instead of left
+                    bounds.y,
+                    0.0,
+                    avenger_text::types::TextAlign::Right,  // Flipped from Left
+                    avenger_text::types::TextBaseline::Top,
+                ),
+                crate::cartesian::axis::AxisPosition::Bottom => (
+                    "of-bottom",
+                    bounds.x + 2.0,
+                    bounds.y + bounds.height - 2.0,
+                    0.0,
+                    avenger_text::types::TextAlign::Left,
+                    avenger_text::types::TextBaseline::Bottom,
+                ),
+            }
+        } else {
+            match position {
+                crate::cartesian::axis::AxisPosition::Left => (
+                    "of-left",
+                    bounds.x + 2.0,
+                    bounds.y + 2.0,
+                    -90.0,
+                    avenger_text::types::TextAlign::Right,
+                    avenger_text::types::TextBaseline::Top,
+                ),
+                crate::cartesian::axis::AxisPosition::Right => (
+                    "of-right",
+                    bounds.x + bounds.width - 2.0,
+                    bounds.y + 2.0,
+                    -90.0,
+                    avenger_text::types::TextAlign::Right,
+                    avenger_text::types::TextBaseline::Bottom,
+                ),
+                crate::cartesian::axis::AxisPosition::Top => (
+                    "of-top",
+                    bounds.x + 2.0,
+                    bounds.y,
+                    0.0,
+                    avenger_text::types::TextAlign::Left,
+                    avenger_text::types::TextBaseline::Top,
+                ),
+                crate::cartesian::axis::AxisPosition::Bottom => (
+                    "of-bottom",
+                    bounds.x + 2.0,
+                    bounds.y + bounds.height - 2.0,
+                    0.0,
+                    avenger_text::types::TextAlign::Left,
+                    avenger_text::types::TextBaseline::Bottom,
+                ),
+            }
         };
 
         let overflow_label_mark = SceneTextMark {
@@ -106,7 +158,7 @@ pub fn create_debug_layout_rects(
             angle: angle.into(),
             align: align.into(),
             baseline: baseline.into(),
-            zindex: Some(20),
+            zindex: Some(z),
             ..Default::default()
         };
         debug_marks.push(SceneMark::Text(Arc::new(overflow_label_mark)));
@@ -121,8 +173,8 @@ pub fn create_debug_layout_rects(
             height: Some(bounds.height.into()),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
             stroke: ColorOrGradient::Color(debug_color).into(),
-            stroke_width: 1.0.into(),
-            zindex: Some(20),
+            stroke_width: stroke.into(),
+            zindex: Some(z),
             ..Default::default()
         };
         debug_marks.push(SceneMark::Rect(legend_rect));
@@ -149,8 +201,8 @@ pub fn create_debug_layout_rects(
             height: Some(bounds.height.into()),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
             stroke: ColorOrGradient::Color(debug_color).into(),
-            stroke_width: 1.0.into(),
-            zindex: Some(20),
+            stroke_width: stroke.into(),
+            zindex: Some(z),
             ..Default::default()
         };
         debug_marks.push(SceneMark::Rect(title_rect));
@@ -178,8 +230,8 @@ pub fn create_debug_layout_rects(
             height: Some(bounds.height.into()),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
             stroke: ColorOrGradient::Color(debug_color).into(),
-            stroke_width: 1.0.into(),
-            zindex: Some(20),
+            stroke_width: stroke.into(),
+            zindex: Some(z),
             ..Default::default()
         };
         debug_marks.push(SceneMark::Rect(subtitle_rect));
