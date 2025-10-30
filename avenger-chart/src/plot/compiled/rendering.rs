@@ -1199,6 +1199,9 @@ impl CompiledPlot {
                             debug_marks.extend(crate::render::debug::create_debug_layout_rects(
                                 &layout.taffy_layout,
                                 None, // Use default magenta color
+                                None, // Use default stroke width (1.0)
+                                None, // Use default z-index (20)
+                                false, // Don't flip label alignment
                             ));
                         }
 
@@ -1242,6 +1245,9 @@ impl CompiledPlot {
                             debug_marks.extend(crate::render::debug::create_debug_layout_rects(
                                 &minimal_layout,
                                 Some([0.0, 1.0, 1.0, 0.7]), // Cyan color for subplot debug marks
+                                Some(0.5), // Thinner lines (0.5 instead of 1.0)
+                                Some(100), // Higher z-index to render on top
+                                true, // Flip label alignment to avoid overlap with outer plot labels
                             ));
                         }
 
