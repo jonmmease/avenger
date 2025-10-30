@@ -758,6 +758,12 @@ impl CompiledMark for CompiledFacetGrid {
                 let merged_params =
                     merge_grid_facet_contexts(&row_iteration, &col_iteration, num_rows, num_cols);
 
+                // Filter to rows matching both row AND col values
+                let filter_df = df
+                    .clone()
+                    .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
+                    .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
+
                 // Build scales for this subplot position using ScaleGrouping
                 let inner_scales = scale_grouping
                     .build_scales_for_position(
@@ -771,18 +777,27 @@ impl CompiledMark for CompiledFacetGrid {
                     )
                     .await?;
 
-                // Measure overflow for this cell with merged params
-                let overflow = self
+                // Measure guide AND legend overflow for this cell using evaluate_in_canvas with Measure mode
+                let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
+                    scales: inner_scales.clone(),
+                };
+
+                let components = self
                     .compiled_subplot
-                    .measure_guide_overflow_with_scales(
-                        &inner_scales,
+                    .build_plot_components(
                         band_w,
                         band_h,
                         &context.session_context,
                         &merged_params,
+                        &scale_provider,
+                        crate::plot::compiled::EvaluationMode::Measure,
+                        Some(&filter_df),
+                        true, // Plot area mode: both dimensions are already plot area size
                     )
                     .await?;
 
+                // Extract overflow from the returned components
+                let overflow = components.overflow.unwrap_or_default();
                 overflow_grid[row_iteration.index][col_iteration.index] = overflow;
             }
         }
@@ -1020,40 +1035,85 @@ impl CompiledMark for CompiledFacetGrid {
                 let x_offset = col_band_pos.start();
                 let y_offset = row_band_pos.start();
 
-                // Render subplot using evaluate_components_with_scales
-                let sub = self
+                // Render subplot using evaluate_in_canvas with Render mode
+                // This creates all marks including legends, titles, and subtitles
+                let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
+                    scales: inner_scales.clone(),
+                };
+
+                let components = self
                     .compiled_subplot
-                    .evaluate_components_with_scales(
-                        &filter_df,
-                        &inner_scales,
+                    .build_plot_components(
                         band_w,
                         band_h,
                         &context.session_context,
                         &merged_params,
+                        &scale_provider,
+                        crate::plot::compiled::EvaluationMode::Render,
+                        Some(&filter_df),
+                        true, // Plot area mode: both dimensions are already plot area size
                     )
                     .await?;
 
                 // Wrap data marks in a clipped group translated to grid cell position
                 use avenger_scenegraph::marks::group::SceneGroup;
-                let data_group = SceneGroup {
-                    origin: [x_offset, y_offset].into(),
-                    marks: sub.data_marks,
-                    clip: sub.clip,
-                    zindex: Some(0),
-                    ..Default::default()
-                };
-                marks.push(SceneMark::Group(data_group));
+                if !components.data_marks.is_empty() {
+                    let data_group = SceneGroup {
+                        origin: [x_offset, y_offset].into(),
+                        marks: components.data_marks,
+                        clip: components.clip,
+                        zindex: Some(0),
+                        ..Default::default()
+                    };
+                    marks.push(SceneMark::Group(data_group));
+                }
 
                 // Wrap guide marks (axes) in a non-clipped translated group
-                if !sub.guide_marks.is_empty() {
+                if !components.guide_marks.is_empty() {
                     let guide_group = SceneGroup {
                         origin: [x_offset, y_offset].into(),
-                        marks: sub.guide_marks,
+                        marks: components.guide_marks,
                         clip: avenger_scenegraph::marks::group::Clip::None,
                         zindex: Some(1),
                         ..Default::default()
                     };
                     marks.push(SceneMark::Group(guide_group));
+                }
+
+                // Wrap legend marks in a non-clipped translated group
+                if !components.legend_marks.is_empty() {
+                    let legend_group = SceneGroup {
+                        origin: [x_offset, y_offset].into(),
+                        marks: components.legend_marks,
+                        clip: avenger_scenegraph::marks::group::Clip::None,
+                        zindex: Some(2),
+                        ..Default::default()
+                    };
+                    marks.push(SceneMark::Group(legend_group));
+                }
+
+                // Wrap title marks in a non-clipped translated group
+                if !components.title_marks.is_empty() {
+                    let title_group = SceneGroup {
+                        origin: [x_offset, y_offset].into(),
+                        marks: components.title_marks,
+                        clip: avenger_scenegraph::marks::group::Clip::None,
+                        zindex: Some(3),
+                        ..Default::default()
+                    };
+                    marks.push(SceneMark::Group(title_group));
+                }
+
+                // Wrap subtitle marks in a non-clipped translated group
+                if !components.subtitle_marks.is_empty() {
+                    let subtitle_group = SceneGroup {
+                        origin: [x_offset, y_offset].into(),
+                        marks: components.subtitle_marks,
+                        clip: avenger_scenegraph::marks::group::Clip::None,
+                        zindex: Some(4),
+                        ..Default::default()
+                    };
+                    marks.push(SceneMark::Group(subtitle_group));
                 }
             }
         }

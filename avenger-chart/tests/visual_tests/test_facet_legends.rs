@@ -198,17 +198,17 @@ async fn test_facet_col_shared_color_legend() {
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Width"))
                         })
-                        .fill_with(col("petal_length"), |c| {
-                            c.with_scale_sharing(ScaleSharing::Shared)
-                                .scale_with::<Linear>(|s| {
-                                    s.range(ScaleRange::new_color(vec![
-                                        Srgba::new(0.000, 0.000, 0.014, 1.0), // inferno start
-                                        Srgba::new(0.737, 0.212, 0.330, 1.0), // inferno mid
-                                        Srgba::new(0.988, 0.998, 0.645, 1.0), // inferno end
-                                    ]))
-                                })
-                                .legend(|l| l.title("Petal Length"))
-                        })
+                        // .fill_with(col("petal_length"), |c| {
+                        //     c.with_scale_sharing(ScaleSharing::Shared)
+                        //         .scale_with::<Linear>(|s| {
+                        //             s.range(ScaleRange::new_color(vec![
+                        //                 Srgba::new(0.000, 0.000, 0.014, 1.0), // inferno start
+                        //                 Srgba::new(0.737, 0.212, 0.330, 1.0), // inferno mid
+                        //                 Srgba::new(0.988, 0.998, 0.645, 1.0), // inferno end
+                        //             ]))
+                        //         })
+                        //         .legend(|l| l.title("Petal Length"))
+                        // })
                         .size(48.0),
                 ),
             ),

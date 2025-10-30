@@ -234,17 +234,27 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         )
         .await?;
 
-        // Measure guide overflow for this partition with FacetContext applied
-        let overflow = compiled_subplot
-            .measure_guide_overflow_with_scales(
-                &scales,
+        // Measure guide AND legend overflow for this partition with FacetContext applied
+        // Use evaluate_in_canvas with Measure mode to get full layout including legends
+        let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
+            scales: scales.clone(),
+        };
+
+        let components = compiled_subplot
+            .build_plot_components(
                 width,
                 height,
                 ctx,
-                &iteration.params, // Use SubplotIterator's params (has FacetContext)
+                &iteration.params,
+                &scale_provider,
+                crate::plot::compiled::EvaluationMode::Measure,
+                Some(&filter_df),
+                true, // Plot area mode: dimensions are already plot area size
             )
             .await?;
 
+        // Extract overflow from the returned components
+        let overflow = components.overflow.unwrap_or_default();
         overflow_measurements.push(overflow);
     }
 
@@ -408,37 +418,81 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             }
         }
 
-        let sub = compiled_subplot
-            .evaluate_components_with_scales(
-                &filter_df,
-                &scales,
+        // Render subplot using evaluate_in_canvas with Render mode
+        // This creates all marks including legends, titles, and subtitles
+        let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
+            scales: scales.clone(),
+        };
+
+        let components = compiled_subplot
+            .build_plot_components(
                 width,
                 height,
                 ctx,
-                &iteration.params, // Use SubplotIterator's params (has FacetContext)
+                &iteration.params,
+                &scale_provider,
+                crate::plot::compiled::EvaluationMode::Render,
+                Some(&filter_df),
+                true, // Plot area mode: dimensions are already plot area size
             )
             .await?;
 
         // Wrap data marks in a clipped group translated to band position
         let data_group = SceneGroup {
             origin: group_origin(band_pos.start()),
-            marks: sub.data_marks,
-            clip: sub.clip,
+            marks: components.data_marks,
+            clip: components.clip,
             zindex: Some(0),
             ..Default::default()
         };
         all_marks.push(SceneMark::Group(data_group));
 
         // Wrap guide marks (axes) in a non-clipped translated group
-        if !sub.guide_marks.is_empty() {
+        if !components.guide_marks.is_empty() {
             let guide_group = SceneGroup {
                 origin: group_origin(band_pos.start()),
-                marks: sub.guide_marks,
+                marks: components.guide_marks,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 zindex: Some(1),
                 ..Default::default()
             };
             all_marks.push(SceneMark::Group(guide_group));
+        }
+
+        // Wrap legend marks in a non-clipped translated group
+        if !components.legend_marks.is_empty() {
+            let legend_group = SceneGroup {
+                origin: group_origin(band_pos.start()),
+                marks: components.legend_marks,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                zindex: Some(2),
+                ..Default::default()
+            };
+            all_marks.push(SceneMark::Group(legend_group));
+        }
+
+        // Wrap title marks in a non-clipped translated group
+        if !components.title_marks.is_empty() {
+            let title_group = SceneGroup {
+                origin: group_origin(band_pos.start()),
+                marks: components.title_marks,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                zindex: Some(3),
+                ..Default::default()
+            };
+            all_marks.push(SceneMark::Group(title_group));
+        }
+
+        // Wrap subtitle marks in a non-clipped translated group
+        if !components.subtitle_marks.is_empty() {
+            let subtitle_group = SceneGroup {
+                origin: group_origin(band_pos.start()),
+                marks: components.subtitle_marks,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                zindex: Some(4),
+                ..Default::default()
+            };
+            all_marks.push(SceneMark::Group(subtitle_group));
         }
     }
 

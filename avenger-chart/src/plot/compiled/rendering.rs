@@ -292,6 +292,7 @@ impl CompiledPlot {
     }
 
     /// Evaluate a single mark with its data and transformations
+    #[allow(dead_code)] // Will be removed in Phase 8 after facet migration
     async fn evaluate_mark(
         &self,
         mark: &dyn CompiledMark,
@@ -737,7 +738,7 @@ impl CompiledPlot {
     }
 
     /// Compute layout with overflow measurement
-    async fn compute_layout(
+    pub(super) async fn compute_layout(
         &self,
         width: f32,
         height: f32,
@@ -818,7 +819,7 @@ impl CompiledPlot {
     }
 
     /// Create legends positioned according to layout
-    async fn create_legends_with_layout(
+    pub(super) async fn create_legends_with_layout(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         layout: &crate::layout::LayoutResult,
@@ -914,6 +915,7 @@ impl CompiledPlot {
     }
 
     /// Evaluate all components (marks, axes, legends, titles)
+    #[allow(dead_code)] // Will be removed in Phase 8 after facet migration
     async fn evaluate_all_components(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -996,20 +998,264 @@ impl CompiledPlot {
         ))
     }
 
+    /// Build plot components with explicit dimensions and scale provider (recursive entry point)
+    ///
+    /// This method supports both top-level plots and subplots by accepting:
+    /// - Explicit dimensions (canvas size or plot area size, controlled by `dimensions_are_plot_area`)
+    /// - A scale provider (build new scales or use shared scales from parent)
+    /// - Evaluation mode (measure overflow or full render)
+    /// - Optional data override (for faceted subplots)
+    ///
+    /// When `dimensions_are_plot_area` is false (canvas mode), the dimensions represent the full
+    /// canvas and layout is computed to determine the plot area. When true (plot area mode), the
+    /// dimensions represent the already-determined plot area size.
+    ///
+    /// This enables true recursive rendering where the same logic works at all nesting levels.
+    pub async fn build_plot_components(
+        &self,
+        width: f32,
+        height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
+        mode: crate::plot::compiled::EvaluationMode,
+        data_override: Option<&DataFrame>,
+        dimensions_are_plot_area: bool,
+    ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
+        use crate::plot::compiled::EvaluationMode;
+        use avenger_scales::scales::ConfiguredScale;
+        use std::collections::HashMap;
+
+        // 1. Merge default params with provided
+        let mut merged_params = self.default_params.clone();
+        merged_params.extend(params.clone());
+
+        // 2. Inject canvas dimensions into params for media queries
+        merged_params.insert(
+            "width".to_string(),
+            datafusion::common::ScalarValue::Float32(Some(width)),
+        );
+        merged_params.insert(
+            "height".to_string(),
+            datafusion::common::ScalarValue::Float32(Some(height)),
+        );
+
+        // 3. Determine plot area dimensions and build scales
+        let (plot_area_width, plot_area_height, canvas_size, layout_opt) = if dimensions_are_plot_area {
+            // Plot area mode: dimensions are already the plot area size
+            // No need to build scales here - they'll be built below
+
+            // For plot area mode, canvas size equals plot area size (no additional space for guides/legends)
+            (width, height, (width, height), None)
+        } else {
+            // Canvas mode: dimensions are canvas size, compute layout to determine plot area
+            // Build initial scales with estimated 80% of canvas for plot area
+            let initial_plot_width = width * Self::INITIAL_PLOT_AREA_RATIO;
+            let initial_plot_height = height * Self::INITIAL_PLOT_AREA_RATIO;
+            let initial_scales = scale_provider
+                .build_scales(initial_plot_width, initial_plot_height, ctx, &merged_params)
+                .await?;
+
+            // Compute layout with initial scales
+            let layout = self
+                .compute_layout(
+                    width,
+                    height,
+                    &initial_scales,
+                    ctx,
+                    &merged_params,
+                )
+                .await?;
+
+            let plot_bounds = layout.plot_area_bounds();
+            (plot_bounds.width, plot_bounds.height, layout.canvas_size, Some(layout))
+        };
+
+        // 4. Build final scales with actual plot area dimensions
+        let final_scales = scale_provider
+            .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
+            .await?;
+
+        // Get clip region
+        let clip = if let Some(ref guide) = self.compiled_guide {
+            let configured_scales: HashMap<String, ConfiguredScale> = final_scales
+                .iter()
+                .map(|(k, v)| (k.clone(), v.configured().clone()))
+                .collect();
+            guide.get_clip(plot_area_width, plot_area_height, &configured_scales)
+        } else {
+            avenger_scenegraph::marks::group::Clip::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: plot_area_width,
+                height: plot_area_height,
+            }
+        };
+
+        match mode {
+            EvaluationMode::Measure => {
+                // 6a. Measure mode: compute overflow, return minimal output
+                let overflow = self
+                    .measure_guide_overflow_with_scales(
+                        &final_scales,
+                        plot_area_width,
+                        plot_area_height,
+                        ctx,
+                        &merged_params,
+                    )
+                    .await?;
+
+                Ok(crate::plot::compiled::PlotComponents {
+                    data_marks: vec![],
+                    guide_marks: vec![],
+                    legend_marks: vec![],
+                    title_marks: vec![],
+                    subtitle_marks: vec![],
+                    plot_bounds: crate::layout::LayoutBounds {
+                        x: 0.0,
+                        y: 0.0,
+                        width: plot_area_width,
+                        height: plot_area_height,
+                    },
+                    clip,
+                    size: canvas_size,
+                    size_is_canvas: !dimensions_are_plot_area,
+                    overflow: Some(overflow),
+                })
+            }
+
+            EvaluationMode::Render => {
+                // 6b. Render mode: full component evaluation
+                // If no data_override, marks will use their own internal data
+                // (facets pass filtered data here, top-level plots pass None)
+                let df_opt = data_override;
+
+                // Evaluate marks (with optional data override for facets)
+                let mut data_marks = Vec::new();
+                let mut layout_infos = Vec::new();
+                for mark in &self.marks {
+                    let (marks, layout_info) = self
+                        .evaluate_mark_with_plot_df(
+                            mark.as_ref(),
+                            &final_scales,
+                            plot_area_width,
+                            plot_area_height,
+                            ctx,
+                            &merged_params,
+                            df_opt,
+                        )
+                        .await?;
+                    data_marks.extend(marks);
+                    layout_infos.push(layout_info);
+                }
+
+                // Merge scale updates from layout info
+                let merged_scales = crate::layout::merge_scale_updates(&final_scales, &layout_infos);
+
+                // Create guide marks and other components based on mode
+                let (plot_bounds_struct, guide_marks, legend_marks, title_marks, subtitle_marks, debug_marks) =
+                    if let Some(layout) = layout_opt {
+                        // Canvas mode: Full layout with guides, legends, titles
+                        let plot_bounds = layout.plot_area_bounds();
+                        let plot_bounds_struct = crate::layout::LayoutBounds {
+                            x: plot_bounds.x,
+                            y: plot_bounds.y,
+                            width: plot_area_width,
+                            height: plot_area_height,
+                        };
+
+                        let guide_marks = self
+                            .create_guide_marks(
+                                &merged_scales,
+                                plot_area_width,
+                                plot_area_height,
+                                &plot_bounds_struct,
+                                &merged_params,
+                                ctx,
+                            )
+                            .await?;
+
+                        let legend_marks = self
+                            .create_legends_with_layout(&final_scales, &layout.taffy_layout, ctx, &merged_params)
+                            .await?;
+
+                        let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
+                            self.create_title(Some(*title_bounds), ctx, &merged_params)
+                                .await?
+                        } else {
+                            Vec::new()
+                        };
+
+                        let subtitle_marks = if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
+                            self.create_subtitle(Some(*subtitle_bounds), ctx, &merged_params)
+                                .await?
+                        } else {
+                            Vec::new()
+                        };
+
+                        let mut debug_marks = vec![];
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            debug_marks.extend(crate::render::debug::create_debug_layout_rects(
+                                &layout.taffy_layout,
+                            ));
+                        }
+
+                        (plot_bounds_struct, guide_marks, legend_marks, title_marks, subtitle_marks, debug_marks)
+                    } else {
+                        // Plot area mode: No legends, titles, or debug marks (subplots don't need these)
+                        let plot_bounds_struct = crate::layout::LayoutBounds {
+                            x: 0.0,
+                            y: 0.0,
+                            width: plot_area_width,
+                            height: plot_area_height,
+                        };
+
+                        let guide_marks = self
+                            .create_guide_marks(
+                                &merged_scales,
+                                plot_area_width,
+                                plot_area_height,
+                                &plot_bounds_struct,
+                                &merged_params,
+                                ctx,
+                            )
+                            .await?;
+
+                        (plot_bounds_struct, guide_marks, Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                    };
+
+                // Combine debug marks with data marks
+                let mut all_data_marks = data_marks;
+                all_data_marks.extend(debug_marks);
+
+                Ok(crate::plot::compiled::PlotComponents {
+                    data_marks: all_data_marks,
+                    guide_marks,
+                    legend_marks,
+                    title_marks,
+                    subtitle_marks,
+                    plot_bounds: plot_bounds_struct,
+                    clip,
+                    size: canvas_size,
+                    size_is_canvas: !dimensions_are_plot_area,
+                    overflow: None,
+                })
+            }
+        }
+    }
+
     /// Evaluate the plot to a scene graph
     pub async fn evaluate(
         &self,
         ctx: &SessionContext,
         params: Option<IndexMap<String, datafusion::common::ScalarValue>>,
     ) -> Result<crate::render::EvaluatedPlot, AvengerChartError> {
-        use crate::render::RenderContext;
         use avenger_scenegraph::marks::group::SceneGroup;
         use avenger_scenegraph::scene_graph::SceneGraph;
+        use crate::serialization::LogicalExprNodeExt;
+        use datafusion_proto::protobuf::LogicalExprNode;
 
-        // Get layout spec and estimate initial dimensions
-        let layout_spec = &self.layout_spec;
-
-        // Merge provided params with default params first (needed for dimension evaluation)
+        // 1. Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
             merged.extend(provided);
@@ -1018,12 +1264,8 @@ impl CompiledPlot {
             self.default_params.clone()
         };
 
-        // Evaluate dimension expressions to get concrete values
-        // This will be refined after we compute the actual layout
-        use crate::serialization::LogicalExprNodeExt;
-        use datafusion_proto::protobuf::LogicalExprNode;
-
-        let (estimated_width, estimated_height) = match &layout_spec.canvas {
+        // 2. Evaluate canvas dimensions from layout spec
+        let (estimated_width, estimated_height) = match &self.layout_spec.canvas {
             crate::layout::SizeMode::Fixed { width, height } => {
                 let width_node: LogicalExprNode = width.clone().into();
                 let height_node: LogicalExprNode = height.clone().into();
@@ -1048,37 +1290,10 @@ impl CompiledPlot {
             _ => (None, None), // No dimensions specified
         };
 
-        // Add evaluated dimensions to merged params for media query evaluation
-        // Always add width/height params (using defaults if not explicitly specified)
-        let mut merged_params = merged_params;
         let canvas_width = estimated_width.unwrap_or(400.0);
         let canvas_height = estimated_height.unwrap_or(300.0);
 
-        merged_params.insert(
-            "width".to_string(),
-            datafusion::common::ScalarValue::Float32(Some(canvas_width)),
-        );
-        merged_params.insert(
-            "height".to_string(),
-            datafusion::common::ScalarValue::Float32(Some(canvas_height)),
-        );
-
-        // Use estimated dimensions for initial scale construction
-        let estimated_plot_width = canvas_width * Self::INITIAL_PLOT_AREA_RATIO;
-        let estimated_plot_height = canvas_height * Self::INITIAL_PLOT_AREA_RATIO;
-
-        // Create initial RenderContext with estimated dimensions and SessionContext
-        let theme = self.get_theme();
-        let initial_context = RenderContext::new(
-            theme.clone(),
-            estimated_plot_width,
-            estimated_plot_height,
-            Arc::new(ctx.clone()),
-            merged_params.clone(),
-            std::collections::HashMap::new(),
-        );
-
-        // PHASE 3: Build ScaleBuilder once - queries data and caches extents
+        // 3. Build scale provider
         use crate::plot::compiled::scales::build_scale_builder_from_marks;
         let scale_builder = build_scale_builder_from_marks(
             &self.marks,
@@ -1092,96 +1307,42 @@ impl CompiledPlot {
         )
         .await?;
 
-        // Build initial scales from cached builder (no query!)
-        let initial_configured_scales = self
-            .build_scales_from_builder(
-                &scale_builder,
-                initial_context.plot_width,
-                initial_context.plot_height,
-                &initial_context.session_context,
-                &initial_context.params,
-            )
-            .await?;
-
-        // STAGE 2: COMPUTE LAYOUT USING INITIAL SCALES
-        let layout = self
-            .compute_layout(
-                canvas_width,
-                canvas_height,
-                &initial_configured_scales,
-                ctx,
-                &merged_params,
-            )
-            .await?;
-        let plot_bounds = layout.plot_area_bounds();
-        let (final_width, final_height) = layout.canvas_size;
-        let plot_area_x = plot_bounds.x;
-        let plot_area_y = plot_bounds.y;
-        let plot_area_width = plot_bounds.width;
-        let plot_area_height = plot_bounds.height;
-
-        // STAGE 3: REBUILD POSITIONAL SCALES WITH FINAL DIMENSIONS
-        // Create final RenderContext with actual plot dimensions
-        let final_context = RenderContext::new(
-            theme.clone(),
-            plot_area_width,
-            plot_area_height,
-            Arc::new(ctx.clone()),
-            merged_params.clone(),
-            std::collections::HashMap::new(),
-        );
-
-        // Rebuild scales with final dimensions using cached builder (no query!)
-        let final_configured_scales = self
-            .build_scales_from_builder(
-                &scale_builder,
-                final_context.plot_width,
-                final_context.plot_height,
-                &final_context.session_context,
-                &final_context.params,
-            )
-            .await?;
-
-        // STAGE 4: EVALUATE ALL COMPONENTS WITH FINAL SCALES
-        let all_component_marks = self
-            .evaluate_all_components(&final_configured_scales, &layout, ctx, &merged_params)
-            .await?;
-
-        let (mark_groups, guide_marks, legend_marks, title_marks, subtitle_marks) =
-            all_component_marks;
-
-        // Compose all elements into a scene graph
-        // A single Plot should produce a single top-level group
-        let mut all_marks = Vec::new();
-
-        // Get the appropriate clipping region from the coordinate system
-        // Get the appropriate clipping region from the guide renderer if available
-        let clip = if let Some(ref guide) = self.compiled_guide {
-            // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
-            let configured_scales: HashMap<String, ConfiguredScale> = final_configured_scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.configured().clone()))
-                .collect();
-            guide.get_clip(plot_area_width, plot_area_height, &configured_scales)
-        } else {
-            // Default to rectangular clip for plot area
-            avenger_scenegraph::marks::group::Clip::Rect {
-                x: 0.0,
-                y: 0.0,
-                width: plot_area_width,
-                height: plot_area_height,
-            }
+        let provider = crate::plot::compiled::scale_provider::DefaultScaleProvider {
+            builder: &scale_builder,
+            plot: self,
         };
 
+        // 4. Call recursive evaluation method
+        let components = self
+            .build_plot_components(
+                canvas_width,
+                canvas_height,
+                ctx,
+                &merged_params,
+                &provider,
+                crate::plot::compiled::EvaluationMode::Render,
+                None, // No data override for top-level plots
+                false, // Canvas mode: dimensions are canvas size
+            )
+            .await?;
+
+        // 5. Compose scene graph from components
+        let plot_bounds = components.plot_bounds;
+        let (final_width, final_height) = components.size;
+
+        // Create clipped data marks group
         let data_marks_group = SceneGroup {
-            origin: [plot_area_x, plot_area_y],
-            marks: mark_groups,
-            clip,
-            zindex: Some(0), // Data marks have lowest z-index
+            origin: [plot_bounds.x, plot_bounds.y],
+            marks: components.data_marks,
+            clip: components.clip,
+            zindex: Some(0),
             ..Default::default()
         };
 
+        let mut all_marks = Vec::new();
+
         // Add background rect if theme specifies one
+        let theme = self.get_theme();
         let canvas_ctx = crate::theme::ThemeContext::new("canvas", merged_params.clone());
         if let Some(color) = theme
             .query(&canvas_ctx, "background-color")
@@ -1190,60 +1351,42 @@ impl CompiledPlot {
             use avenger_common::types::ColorOrGradient;
             use avenger_scenegraph::marks::rect::SceneRectMark;
 
-            // Color is already in normalized [f32; 4] format
-
             let background_rect = SceneRectMark {
                 x: 0.0.into(),
                 y: 0.0.into(),
                 width: Some(final_width.into()),
                 height: Some(final_height.into()),
                 fill: ColorOrGradient::Color(color).into(),
-                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(), // No stroke
+                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
                 stroke_width: 0.0.into(),
-                zindex: Some(-100), // Ensure it's behind everything
+                zindex: Some(-100),
                 ..Default::default()
             };
-            all_marks.push(SceneMark::Rect(background_rect));
+            all_marks.push(avenger_scenegraph::marks::mark::SceneMark::Rect(background_rect));
         }
 
-        // Add marks in proper z-order:
-        // 1. Clipped data marks (background)
-        all_marks.push(SceneMark::Group(data_marks_group));
+        // Add marks in proper z-order
+        all_marks.push(avenger_scenegraph::marks::mark::SceneMark::Group(data_marks_group));
+        all_marks.extend(components.guide_marks);
+        all_marks.extend(components.legend_marks);
+        all_marks.extend(components.title_marks);
+        all_marks.extend(components.subtitle_marks);
 
-        // 2. Guide marks (axes, grids, backgrounds - can overflow the plot area)
-        all_marks.extend(guide_marks);
-
-        // 3. Legends (positioned outside plot area)
-        all_marks.extend(legend_marks);
-
-        // 4. Title (can overflow, rendered on top)
-        all_marks.extend(title_marks);
-
-        // 5. Subtitle (can overflow, rendered on top)
-        all_marks.extend(subtitle_marks);
-
-        // 6. Debug: Add layout bounds visualization if AVENGER_CHART_DEBUG_LAYOUT is set
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            all_marks.extend(crate::render::debug::create_debug_layout_rects(
-                &layout.taffy_layout,
-            ));
-        }
-
-        // Wrap everything in a single root group
+        // Wrap in root group
         let root_group = SceneGroup {
             marks: all_marks,
             ..Default::default()
         };
 
-        // Use the computed canvas size from layout
+        // Create scene graph
         let scene_graph = SceneGraph {
-            marks: vec![SceneMark::Group(root_group)],
+            marks: vec![avenger_scenegraph::marks::mark::SceneMark::Group(root_group)],
             width: final_width,
             height: final_height,
             origin: [0.0, 0.0],
         };
 
-        // Build spatial index for hit testing
+        // Build spatial index
         let rtree = avenger_geometry::rtree::SceneGraphRTree::from_scene_graph(&scene_graph);
 
         Ok(crate::render::EvaluatedPlot {
