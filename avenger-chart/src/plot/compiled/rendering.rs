@@ -1198,12 +1198,14 @@ impl CompiledPlot {
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             debug_marks.extend(crate::render::debug::create_debug_layout_rects(
                                 &layout.taffy_layout,
+                                None, // Use default magenta color
                             ));
                         }
 
                         (plot_bounds_struct, guide_marks, legend_marks, title_marks, subtitle_marks, debug_marks)
                     } else {
-                        // Plot area mode: No legends, titles, or debug marks (subplots don't need these)
+                        // Plot area mode: No legends or titles (subplots don't need these)
+                        // But we DO want debug marks for subplots (with cyan color to distinguish from outer plot)
                         let plot_bounds_struct = crate::layout::LayoutBounds {
                             x: 0.0,
                             y: 0.0,
@@ -1222,7 +1224,28 @@ impl CompiledPlot {
                             )
                             .await?;
 
-                        (plot_bounds_struct, guide_marks, Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                        let mut debug_marks = vec![];
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            // Create a minimal layout result for the plot area
+                            let minimal_layout = crate::layout::LayoutResult {
+                                plot_area: crate::layout::LayoutBounds {
+                                    x: 0.0,
+                                    y: 0.0,
+                                    width: plot_area_width,
+                                    height: plot_area_height,
+                                },
+                                guide_overflows: std::collections::HashMap::new(),
+                                legends: indexmap::IndexMap::new(),
+                                title: None,
+                                subtitle: None,
+                            };
+                            debug_marks.extend(crate::render::debug::create_debug_layout_rects(
+                                &minimal_layout,
+                                Some([0.0, 1.0, 1.0, 0.7]), // Cyan color for subplot debug marks
+                            ));
+                        }
+
+                        (plot_bounds_struct, guide_marks, Vec::new(), Vec::new(), Vec::new(), debug_marks)
                     };
 
                 // Debug marks are kept separate - they're in absolute canvas coordinates
