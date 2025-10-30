@@ -7,17 +7,27 @@ use avenger_scenegraph::marks::text::SceneTextMark;
 use std::sync::Arc;
 
 /// Create debug rectangles to visualize Taffy layout bounds
-pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<SceneMark> {
+///
+/// # Arguments
+/// * `layout` - The layout result to visualize
+/// * `color` - Optional RGBA color for debug marks. Defaults to magenta [1.0, 0.0, 1.0, 0.7]
+pub fn create_debug_layout_rects(
+    layout: &crate::layout::LayoutResult,
+    color: Option<[f32; 4]>,
+) -> Vec<SceneMark> {
     let mut debug_marks = Vec::new();
 
-    // Plot area - magenta outline
+    // Default to magenta, or use provided color
+    let debug_color = color.unwrap_or([1.0, 0.0, 1.0, 0.7]);
+
+    // Plot area outline
     let plot_rect = SceneRectMark {
         x: layout.plot_area.x.into(),
         y: layout.plot_area.y.into(),
         width: Some(layout.plot_area.width.into()),
         height: Some(layout.plot_area.height.into()),
         fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(), // Transparent
-        stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
+        stroke: ColorOrGradient::Color(debug_color).into(),
         stroke_width: 1.0.into(),
         zindex: Some(20),
         ..Default::default()
@@ -30,13 +40,13 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
         x: (layout.plot_area.x + 2.0).into(),
         y: (layout.plot_area.y + 10.0).into(),
         font_size: 8.0.into(),
-        color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(),
+        color: ColorOrGradient::Color(debug_color).into(),
         zindex: Some(20),
         ..Default::default()
     };
     debug_marks.push(SceneMark::Text(Arc::new(plot_label)));
 
-    // Guide overflows - magenta outlines with labels
+    // Guide overflows - outlines with labels
     for (position, bounds) in &layout.guide_overflows {
         let overflow_rect = SceneRectMark {
             x: bounds.x.into(),
@@ -44,7 +54,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             width: Some(bounds.width.into()),
             height: Some(bounds.height.into()),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-            stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(),
+            stroke: ColorOrGradient::Color(debug_color).into(),
             stroke_width: 1.0.into(),
             zindex: Some(20),
             ..Default::default()
@@ -92,7 +102,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             x: label_x.into(),
             y: label_y.into(),
             font_size: 8.0.into(),
-            color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(),
+            color: ColorOrGradient::Color(debug_color).into(),
             angle: angle.into(),
             align: align.into(),
             baseline: baseline.into(),
@@ -102,7 +112,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
         debug_marks.push(SceneMark::Text(Arc::new(overflow_label_mark)));
     }
 
-    // Legends - magenta outlines
+    // Legends - outlines
     for (channel, bounds) in &layout.legends {
         let legend_rect = SceneRectMark {
             x: bounds.x.into(),
@@ -110,7 +120,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             width: Some(bounds.width.into()),
             height: Some(bounds.height.into()),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-            stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(),
+            stroke: ColorOrGradient::Color(debug_color).into(),
             stroke_width: 1.0.into(),
             zindex: Some(20),
             ..Default::default()
@@ -123,14 +133,14 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             x: (bounds.x + 2.0).into(),
             y: (bounds.y + 10.0).into(),
             font_size: 8.0.into(),
-            color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(),
+            color: ColorOrGradient::Color(debug_color).into(),
             zindex: Some(20),
             ..Default::default()
         };
         debug_marks.push(SceneMark::Text(Arc::new(label)));
     }
 
-    // Title - magenta outline
+    // Title - outline
     if let Some(bounds) = &layout.title {
         let title_rect = SceneRectMark {
             x: bounds.x.into(),
@@ -138,7 +148,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             width: Some(bounds.width.into()),
             height: Some(bounds.height.into()),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-            stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(),
+            stroke: ColorOrGradient::Color(debug_color).into(),
             stroke_width: 1.0.into(),
             zindex: Some(20),
             ..Default::default()
@@ -151,7 +161,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             x: (bounds.x + bounds.width - 5.0).into(),
             y: (bounds.y + 10.0).into(),
             font_size: 8.0.into(),
-            color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(),
+            color: ColorOrGradient::Color(debug_color).into(),
             align: avenger_text::types::TextAlign::Right.into(),
             zindex: Some(20),
             ..Default::default()
@@ -159,7 +169,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
         debug_marks.push(SceneMark::Text(Arc::new(title_label)));
     }
 
-    // Subtitle - magenta outline
+    // Subtitle - outline
     if let Some(bounds) = &layout.subtitle {
         let subtitle_rect = SceneRectMark {
             x: bounds.x.into(),
@@ -167,7 +177,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             width: Some(bounds.width.into()),
             height: Some(bounds.height.into()),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-            stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(),
+            stroke: ColorOrGradient::Color(debug_color).into(),
             stroke_width: 1.0.into(),
             zindex: Some(20),
             ..Default::default()
@@ -180,7 +190,7 @@ pub fn create_debug_layout_rects(layout: &crate::layout::LayoutResult) -> Vec<Sc
             x: (bounds.x + bounds.width - 5.0).into(),
             y: (bounds.y + 10.0).into(),
             font_size: 8.0.into(),
-            color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(),
+            color: ColorOrGradient::Color(debug_color).into(),
             align: avenger_text::types::TextAlign::Right.into(),
             zindex: Some(20),
             ..Default::default()
