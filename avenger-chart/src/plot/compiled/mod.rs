@@ -4,6 +4,7 @@ pub(crate) mod expr_eval;
 mod legends;
 pub(crate) mod rendering;
 pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks
+pub mod scale_provider;
 mod titles;
 mod validation;
 
@@ -437,116 +438,49 @@ impl CompiledPlot {
         }
     }
 
-    /// Evaluate inner plot components (data + guide) using provided DF, scales, and dimensions.
-    pub async fn evaluate_components_with_scales(
-        &self,
-        df: &datafusion::dataframe::DataFrame,
-        scales: &std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-        plot_area_width: f32,
-        plot_area_height: f32,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<SubplotComponents, crate::error::AvengerChartError> {
-        use avenger_scenegraph::marks::group::Clip;
-
-        // Project required columns from provided DataFrame to ensure schema contains all referenced fields
-        let mut required_cols: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for mark in &self.marks {
-            let channels = mark.data_context().channels();
-            for (_name, cv) in channels {
-                if let Some(expr) = cv.expr(ctx) {
-                    for col in expr.column_refs() {
-                        required_cols.insert(col.name.clone());
-                    }
-                }
-            }
-        }
-
-        let projected_df = if !required_cols.is_empty() {
-            let select_exprs: Vec<datafusion::logical_expr::Expr> = required_cols
-                .iter()
-                .map(|c| datafusion::prelude::col(c))
-                .collect();
-            df.clone().select(select_exprs)?
-        } else {
-            df.clone()
-        };
-
-        // Evaluate marks using projected DataFrame as the plot-level fallback
-        let mut data_marks = Vec::new();
-        let mut layout_infos = Vec::new();
-        for mark in &self.marks {
-            let (marks, layout_info) = self
-                .evaluate_mark_with_plot_df(
-                    mark.as_ref(),
-                    scales,
-                    plot_area_width,
-                    plot_area_height,
-                    ctx,
-                    params,
-                    Some(&projected_df),
-                )
-                .await?;
-            data_marks.extend(marks);
-            layout_infos.push(layout_info);
-        }
-
-        // Merge scale updates from layout info
-        let merged_scales = crate::layout::merge_scale_updates(scales, &layout_infos);
-
-        // Plot bounds are the full plot area for subplots
-        let plot_bounds = crate::layout::LayoutBounds {
-            x: 0.0,
-            y: 0.0,
-            width: plot_area_width,
-            height: plot_area_height,
-        };
-
-        // Evaluate guide marks using merged scales
-        // Note: facet context (e.g., facet_unified_y) is set by the facet mark and passed via params
-        let guide_marks = self
-            .create_guide_marks(
-                &merged_scales,
-                plot_area_width,
-                plot_area_height,
-                &plot_bounds,
-                params,
-                ctx,
-            )
-            .await?;
-
-        // Clip region for data marks (rectangular plot area)
-        let clip = if let Some(ref guide) = self.compiled_guide {
-            let configured: std::collections::HashMap<
-                String,
-                avenger_scales::scales::ConfiguredScale,
-            > = scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.configured().clone()))
-                .collect();
-            guide.get_clip(plot_area_width, plot_area_height, &configured)
-        } else {
-            Clip::Rect {
-                x: 0.0,
-                y: 0.0,
-                width: plot_area_width,
-                height: plot_area_height,
-            }
-        };
-
-        Ok(SubplotComponents {
-            data_marks,
-            guide_marks,
-            plot_bounds,
-            clip,
-        })
-    }
 }
 
-/// Components for a single subplot evaluation
-pub struct SubplotComponents {
+/// Evaluation mode for two-pass rendering
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum EvaluationMode {
+    /// Measure overflow only (Pass 1 of two-pass rendering)
+    Measure,
+    /// Full rendering with all components (Pass 2 of two-pass rendering)
+    Render,
+}
+
+/// Extended components returned from plot evaluation
+///
+/// This structure supports both measurement and rendering modes,
+/// and includes all plot components (data, guides, legends, titles).
+pub struct PlotComponents {
+    /// Data mark scene graph elements
     pub data_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
+
+    /// Guide mark scene graph elements (axes, grids)
     pub guide_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
+
+    /// Legend scene graph elements
+    pub legend_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
+
+    /// Title scene graph elements
+    pub title_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
+
+    /// Subtitle scene graph elements
+    pub subtitle_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
+
+    /// Plot area bounds (data rectangle)
     pub plot_bounds: crate::layout::LayoutBounds,
+
+    /// Clip region for data marks
     pub clip: avenger_scenegraph::marks::group::Clip,
+
+    /// Size dimensions used for this evaluation
+    pub size: (f32, f32),
+
+    /// Whether `size` represents canvas dimensions (true) or plot area dimensions (false)
+    pub size_is_canvas: bool,
+
+    /// Guide overflow measurement (populated in Measure mode)
+    pub overflow: Option<crate::guide::OverflowSpaceRequirement>,
 }

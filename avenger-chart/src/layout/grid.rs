@@ -294,6 +294,62 @@ impl GridBuilder {
         let expand_horizontal = layout_spec.should_expand_margins_horizontal();
         let expand_vertical = layout_spec.should_expand_margins_vertical();
 
+        // Measure title height BEFORE building grid to avoid holding grid across await
+        let title_height = if self.has_title {
+            if let Some(t) = title {
+                // Create theme context with params for querying font size
+                let title_ctx = theme.title_context_with_params(params.clone());
+
+                // Measure title height
+                let text_node: LogicalExprNode = t.text.clone().into();
+                let bounds = measure_text_bounds(
+                    &text_node,
+                    &t.font_size,
+                    &t.font_family,
+                    &title_ctx,
+                    theme,
+                    DEFAULT_TITLE_FONT_SIZE,
+                    ctx,
+                    params,
+                )
+                .await?;
+
+                Some(bounds.line_height * TITLE_ROW_HEIGHT_MULTIPLIER)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Measure subtitle height BEFORE building grid to avoid holding grid across await
+        let subtitle_height = if self.has_subtitle {
+            if let Some(s) = subtitle {
+                // Create theme context with params for querying font size
+                let subtitle_ctx = theme.subtitle_context_with_params(params.clone());
+
+                // Measure subtitle height
+                let text_node: LogicalExprNode = s.text.clone().into();
+                let bounds = measure_text_bounds(
+                    &text_node,
+                    &s.font_size,
+                    &s.font_family,
+                    &subtitle_ctx,
+                    theme,
+                    DEFAULT_SUBTITLE_FONT_SIZE,
+                    ctx,
+                    params,
+                )
+                .await?;
+
+                Some(bounds.line_height * SUBTITLE_ROW_HEIGHT_MULTIPLIER)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let mut grid = GridLayout::new();
 
         // === Build Column Template ===
@@ -380,62 +436,22 @@ impl GridBuilder {
         }
         let mut row_index = 1;
 
-        // 2. Add title row if present
-        if self.has_title {
-            if let Some(t) = title {
-                // Create theme context with params for querying font size
-                let title_ctx = theme.title_context_with_params(params.clone());
-
-                // Measure title height
-                let text_node: LogicalExprNode = t.text.clone().into();
-                let bounds = measure_text_bounds(
-                    &text_node,
-                    &t.font_size,
-                    &t.font_family,
-                    &title_ctx,
-                    theme,
-                    DEFAULT_TITLE_FONT_SIZE,
-                    ctx,
-                    params,
-                )
-                .await?;
-
-                grid.rows
-                    .push(length(bounds.line_height * TITLE_ROW_HEIGHT_MULTIPLIER));
-                // Title spans from left overflow (if present) or plot area to the end
-                let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
-                grid.add_component(ComponentType::Title, row_index, start_col);
-                row_index += 1;
-            }
+        // 2. Add title row if present (using pre-measured height)
+        if let Some(height) = title_height {
+            grid.rows.push(length(height));
+            // Title spans from left overflow (if present) or plot area to the end
+            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+            grid.add_component(ComponentType::Title, row_index, start_col);
+            row_index += 1;
         }
 
-        // 3. Add subtitle row if present
-        if self.has_subtitle {
-            if let Some(s) = subtitle {
-                // Create theme context with params for querying font size
-                let subtitle_ctx = theme.subtitle_context_with_params(params.clone());
-
-                // Measure subtitle height
-                let text_node: LogicalExprNode = s.text.clone().into();
-                let bounds = measure_text_bounds(
-                    &text_node,
-                    &s.font_size,
-                    &s.font_family,
-                    &subtitle_ctx,
-                    theme,
-                    DEFAULT_SUBTITLE_FONT_SIZE,
-                    ctx,
-                    params,
-                )
-                .await?;
-
-                grid.rows
-                    .push(length(bounds.line_height * SUBTITLE_ROW_HEIGHT_MULTIPLIER));
-                // Subtitle spans from left overflow (if present) or plot area to the end
-                let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
-                grid.add_component(ComponentType::Subtitle, row_index, start_col);
-                row_index += 1;
-            }
+        // 3. Add subtitle row if present (using pre-measured height)
+        if let Some(height) = subtitle_height {
+            grid.rows.push(length(height));
+            // Subtitle spans from left overflow (if present) or plot area to the end
+            let start_col = Self::get_content_start_col(left_overflow_col, plot_col_index);
+            grid.add_component(ComponentType::Subtitle, row_index, start_col);
+            row_index += 1;
         }
 
         // 4. Add rows for top-positioned legends

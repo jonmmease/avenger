@@ -165,21 +165,8 @@ impl ChartLayout {
             .map(|(k, m)| (k.clone(), m.size))
             .collect();
 
-        // Generate grid template with overflow measurements
-        let grid_layout = builder
-            .build_with_overflow(
-                overflow,
-                title,
-                subtitle,
-                theme,
-                layout_spec,
-                &legend_sizes,
-                ctx,
-                params,
-            )
-            .await?;
-
         // Extract flexible flags and positions for taffy tree building
+        // (do this before awaits to avoid holding references)
         let legend_flexible: HashMap<String, bool> = legend_measurements
             .iter()
             .map(|(k, m)| (k.clone(), m.flexible))
@@ -191,6 +178,7 @@ impl ChartLayout {
             .collect();
 
         // Evaluate title span expression (or get from theme)
+        // Do this BEFORE building grid_layout to avoid holding grid_layout across await
         let title_span = if let Some(t) = title {
             let title_ctx = theme.title_context_with_params(params.clone());
             Self::evaluate_span(&t.span, &title_ctx, theme, ctx, params).await?
@@ -205,6 +193,21 @@ impl ChartLayout {
         } else {
             TitleSpan::default()
         };
+
+        // Generate grid template with overflow measurements
+        // This is done AFTER all awaits to avoid Send issues
+        let grid_layout = builder
+            .build_with_overflow(
+                overflow,
+                title,
+                subtitle,
+                theme,
+                layout_spec,
+                &legend_sizes,
+                ctx,
+                params,
+            )
+            .await?;
 
         // Build the TaffyTree and get all the nodes using the pure function
         let (taffy, nodes) = build_taffy_tree(
