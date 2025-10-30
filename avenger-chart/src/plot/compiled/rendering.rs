@@ -1121,6 +1121,7 @@ impl CompiledPlot {
                     size: canvas_size,
                     size_is_canvas: !dimensions_are_plot_area,
                     overflow: Some(overflow),
+                    debug_marks: Vec::new(), // No debug marks in Measure mode
                 })
             }
 
@@ -1224,12 +1225,11 @@ impl CompiledPlot {
                         (plot_bounds_struct, guide_marks, Vec::new(), Vec::new(), Vec::new(), Vec::new())
                     };
 
-                // Combine debug marks with data marks
-                let mut all_data_marks = data_marks;
-                all_data_marks.extend(debug_marks);
+                // Debug marks are kept separate - they're in absolute canvas coordinates
+                // and should not be translated with the data marks group
 
                 Ok(crate::plot::compiled::PlotComponents {
-                    data_marks: all_data_marks,
+                    data_marks,
                     guide_marks,
                     legend_marks,
                     title_marks,
@@ -1239,6 +1239,7 @@ impl CompiledPlot {
                     size: canvas_size,
                     size_is_canvas: !dimensions_are_plot_area,
                     overflow: None,
+                    debug_marks, // Separate field for absolute-positioned debug marks
                 })
             }
         }
@@ -1371,6 +1372,10 @@ impl CompiledPlot {
         all_marks.extend(components.legend_marks);
         all_marks.extend(components.title_marks);
         all_marks.extend(components.subtitle_marks);
+
+        // Debug marks are added at root level (not inside data_marks_group)
+        // because they use absolute canvas coordinates and should not be translated
+        all_marks.extend(components.debug_marks);
 
         // Wrap in root group
         let root_group = SceneGroup {

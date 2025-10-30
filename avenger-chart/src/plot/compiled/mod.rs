@@ -483,4 +483,7 @@ pub struct PlotComponents {
 
     /// Guide overflow measurement (populated in Measure mode)
     pub overflow: Option<crate::guide::OverflowSpaceRequirement>,
+
+    /// Debug marks (layout visualization) - these are in absolute canvas coordinates
+    pub debug_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
 }
