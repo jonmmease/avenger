@@ -494,6 +494,20 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             };
             all_marks.push(SceneMark::Group(subtitle_group));
         }
+
+        // Wrap debug marks in a non-clipped translated group
+        // Debug marks are in absolute canvas coordinates relative to the subplot,
+        // so we need to translate them to the correct band position
+        if !components.debug_marks.is_empty() {
+            let debug_group = SceneGroup {
+                origin: group_origin(band_pos.start()),
+                marks: components.debug_marks,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                zindex: Some(100), // High z-index to ensure debug marks render on top
+                ..Default::default()
+            };
+            all_marks.push(SceneMark::Group(debug_group));
+        }
     }
 
     Ok((
