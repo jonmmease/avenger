@@ -3,7 +3,7 @@
 
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
-use avenger_chart::scales::{ScaleRange, Linear};
+use avenger_chart::scales::{Linear, ScaleRange};
 use datafusion::prelude::*;
 use palette::rgb::Srgba;
 
@@ -233,7 +233,8 @@ async fn test_facet_row_two_rows_free_legend() {
     let ctx = SessionContext::new();
 
     // Create simple test data with just 2 categories
-    ctx.sql("CREATE TABLE test_data AS VALUES
+    ctx.sql(
+        "CREATE TABLE test_data AS VALUES
         (1.0, 2.0, 3.0, 'A'),
         (1.5, 2.5, 3.5, 'A'),
         (2.0, 3.0, 4.0, 'A'),
@@ -241,14 +242,12 @@ async fn test_facet_row_two_rows_free_legend() {
         (4.0, 5.0, 6.0, 'B'),
         (4.5, 5.5, 6.5, 'B'),
         (5.0, 6.0, 7.0, 'B'),
-        (5.5, 6.5, 7.5, 'B')")
-        .await
-        .expect("create test data");
+        (5.5, 6.5, 7.5, 'B')",
+    )
+    .await
+    .expect("create test data");
 
-    let df = ctx
-        .table("test_data")
-        .await
-        .expect("load test data");
+    let df = ctx.table("test_data").await.expect("load test data");
 
     let plot = Plot::<FacetRow>::new()
         .data(df)

@@ -17,9 +17,48 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+// Helper functions for serializing/deserializing Arc<Mutex<Option<...>>>
+fn serialize_cached_overflow<S>(
+    value: &Arc<
+        std::sync::Mutex<
+            Option<(
+                crate::guide::OverflowSpaceRequirement,
+                crate::guide::OverflowSpaceRequirement,
+            )>,
+        >,
+    >,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let guard = value.lock().unwrap();
+    guard.serialize(serializer)
+}
+
+fn deserialize_cached_overflow<'de, D>(
+    deserializer: D,
+) -> Result<
+    Arc<
+        std::sync::Mutex<
+            Option<(
+                crate::guide::OverflowSpaceRequirement,
+                crate::guide::OverflowSpaceRequirement,
+            )>,
+        >,
+    >,
+    D::Error,
+>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::deserialize(deserializer)?;
+    Ok(Arc::new(std::sync::Mutex::new(value)))
+}
 
 /// Facet mark for FacetRow or FacetCol outer coordinate system.
 /// Renders a provided inner plot for each band value in the facet channel.
@@ -121,6 +160,20 @@ pub struct CompiledFacetRow {
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
+    /// Cached Pass 1 edge overflow measurements (top, bottom)
+    /// Set during evaluation for use by guide
+    #[serde(
+        serialize_with = "serialize_cached_overflow",
+        deserialize_with = "deserialize_cached_overflow"
+    )]
+    pub(crate) cached_edge_overflow: std::sync::Arc<
+        std::sync::Mutex<
+            Option<(
+                crate::guide::OverflowSpaceRequirement,
+                crate::guide::OverflowSpaceRequirement,
+            )>,
+        >,
+    >,
 }
 
 #[async_trait::async_trait]
@@ -157,6 +210,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             compiled_subplot,
             facet_title: self.facet_row_title.clone(),
             facet_spacing: self.facet_spacing,
+            cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }))
     }
 }
@@ -214,9 +268,30 @@ impl CompiledMark for CompiledFacetRow {
             self.facet_spacing,
             context,
             // Row: height varies with band size, width is fixed
-            |band_height, ctx| (ctx.plot_width, band_height),
+            // Round bandwidth to integer for pixel-aligned subplot dimensions
+            |band_height, ctx| {
+                let rounded = band_height.round();
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetRow subplot_dims: band_height={:.3} -> rounded={:.3}",
+                        band_height, rounded
+                    );
+                }
+                (ctx.plot_width, rounded)
+            },
             // Row: translate vertically
-            |y_pos| [0.0, y_pos],
+            // Round positions to integers for pixel alignment
+            |y_pos| {
+                let rounded = y_pos.round();
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetRow group_origin: y_pos={:.3} -> rounded={:.3}",
+                        y_pos, rounded
+                    );
+                }
+                [0.0, rounded]
+            },
+            &self.cached_edge_overflow,
         )
         .await
     }
@@ -250,6 +325,12 @@ impl CompiledMark for CompiledFacetRow {
             // Initial padding_inner_px of 0 - will be dynamically measured and rebuilt
             // during evaluate_from_data based on actual subplot overflow
             options.insert("padding_inner_px".to_string(), lit(0.0f32));
+            // Align bands flush to the top so the first row's
+            // band_start is 0.0. Mirrors FacetCol behavior to avoid
+            // 1px vertical offsets in debug overlays.
+            options.insert("align".to_string(), lit(0.0f32));
+            // Disable band rounding - we handle rounding manually in closures for better control
+            options.insert("round".to_string(), lit(false));
         }
 
         options
@@ -267,6 +348,20 @@ pub struct CompiledFacetCol {
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
+    /// Cached Pass 1 edge overflow measurements (left, right)
+    /// Set during evaluation for use by guide
+    #[serde(
+        serialize_with = "serialize_cached_overflow",
+        deserialize_with = "deserialize_cached_overflow"
+    )]
+    pub(crate) cached_edge_overflow: std::sync::Arc<
+        std::sync::Mutex<
+            Option<(
+                crate::guide::OverflowSpaceRequirement,
+                crate::guide::OverflowSpaceRequirement,
+            )>,
+        >,
+    >,
 }
 
 #[async_trait::async_trait]
@@ -302,6 +397,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetCol> for Facet<InnerC> {
             compiled_subplot,
             facet_title: self.facet_col_title.clone(),
             facet_spacing: self.facet_spacing,
+            cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }))
     }
 }
@@ -357,9 +453,30 @@ impl CompiledMark for CompiledFacetCol {
             self.facet_spacing,
             context,
             // Column: width varies with band size, height is fixed
-            |band_width, ctx| (band_width, ctx.plot_height),
+            // Round bandwidth to integer for pixel-aligned subplot dimensions
+            |band_width, ctx| {
+                let rounded = band_width.round();
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetCol subplot_dims: band_width={:.3} -> rounded={:.3}",
+                        band_width, rounded
+                    );
+                }
+                (rounded, ctx.plot_height)
+            },
             // Column: translate horizontally
-            |x_pos| [x_pos, 0.0],
+            // Round positions to integers for pixel alignment
+            |x_pos| {
+                let rounded = x_pos.round();
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetCol group_origin: x_pos={:.3} -> rounded={:.3}",
+                        x_pos, rounded
+                    );
+                }
+                [rounded, 0.0]
+            },
+            &self.cached_edge_overflow,
         )
         .await
     }
@@ -393,6 +510,12 @@ impl CompiledMark for CompiledFacetCol {
             // Initial padding_inner_px of 0 - will be dynamically measured and rebuilt
             // during evaluate_from_data based on actual subplot overflow
             options.insert("padding_inner_px".to_string(), lit(0.0f32));
+            // Align bands flush to the left so band_start of the first
+            // subplot is exactly 0. This prevents a residual 1px offset
+            // from split rounding when distributing leftover space.
+            options.insert("align".to_string(), lit(0.0f32));
+            // Disable band rounding - we handle rounding manually in closures for better control
+            options.insert("round".to_string(), lit(false));
         }
 
         options

@@ -2,7 +2,6 @@
 ///
 /// This module provides a parameterized two-pass rendering algorithm that works for
 /// both row and column faceting by accepting orientation-specific closures.
-
 use crate::channel::config_traits::ScaleSharing;
 use crate::error::AvengerChartError;
 use crate::facet::dimension_config::FacetDimensionConfig;
@@ -58,6 +57,15 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     subplot_dims: impl Fn(f32, &RenderContext) -> (f32, f32),
     // Returns [x, y] translation given band position
     group_origin: impl Fn(f32) -> [f32; 2],
+    // Cache for storing Pass 1 edge overflow measurements
+    cached_edge_overflow: &std::sync::Arc<
+        std::sync::Mutex<
+            Option<(
+                crate::guide::OverflowSpaceRequirement,
+                crate::guide::OverflowSpaceRequirement,
+            )>,
+        >,
+    >,
 ) -> Result<(Vec<SceneMark>, Box<dyn LayoutInfo>), AvengerChartError> {
     // Get dimension scale (row or col)
     let dimension_scale = context
@@ -285,16 +293,27 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     };
     max_required_gap += spacing;
 
+    // Round gap to nearest integer for pixel alignment
+    // Use standard ceil() rounding - band scale and manual rounding handle filling the range
+    let rounded_gap = max_required_gap.ceil();
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "PASS1: max_required_gap={:.3} -> rounded_gap={:.3} (will set as padding_inner_px)",
+            max_required_gap, rounded_gap
+        );
+    }
+
     // Rebuild the facet dimension scale with measured padding_inner_px
     let mut updated_scales = HashMap::new();
-    if max_required_gap > 0.0 {
+    if rounded_gap > 0.0 {
         use avenger_scales::scalar::Scalar;
 
         // Clone the existing scale config and modify padding_inner_px option
         let mut new_config = dimension_scale.configured().config.clone();
         new_config.options.insert(
             "padding_inner_px".to_string(),
-            Scalar::from_f32(max_required_gap),
+            Scalar::from_f32(rounded_gap),
         );
 
         // Create a new ConfiguredScale with the modified config
@@ -326,6 +345,44 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     let band_positions: Vec<_> = BandPositionIterator::from_scale(final_dimension_scale)?
         .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
         .collect();
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if let Some(last_pos) = band_positions.last() {
+            let (_, (start, bandwidth)) = last_pos;
+            eprintln!(
+                "PASS2 Band scale: last subplot start={} bandwidth={} end={}",
+                start,
+                bandwidth,
+                start + bandwidth
+            );
+        }
+        eprintln!(
+            "PASS2 Band scale range: context.plot_width={} context.plot_height={}",
+            context.plot_width, context.plot_height
+        );
+    }
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "PASS2: Band positions from rebuilt scale (count={}):",
+            band_positions.len()
+        );
+        for (i, (val, (start, bw))) in band_positions.iter().enumerate() {
+            eprintln!(
+                "  Band {}: value={:?} start={:.3} bandwidth={:.3} end={:.3}",
+                i,
+                val,
+                start,
+                bw,
+                start + bw
+            );
+        }
+        // Also check the scale config
+        let cfg = final_dimension_scale.configured();
+        if let Some(padding_val) = cfg.config.options.get("padding_inner_px") {
+            eprintln!("  Scale padding_inner_px={:?}", padding_val);
+        }
+    }
 
     // CRITICAL: Rebuild shared scales with the NEW band size after padding adjustment
     // The initial_shared_scales were built with the approximate size BEFORE padding,
@@ -365,7 +422,9 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         "SubplotIterator and BandPositionIterator length mismatch in Pass 2"
     );
 
-    for (iteration, band_pos) in subplot_iter_pass2.zip(band_iter_pass2) {
+    for (subplot_index, (iteration, band_pos)) in
+        subplot_iter_pass2.zip(band_iter_pass2).enumerate()
+    {
         // Filter df by facet_value
         let filter_df: DataFrame = df
             .clone()
@@ -437,9 +496,12 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             )
             .await?;
 
+        // Use raw group origin for smooth subpixel positioning
+        let origin = group_origin(band_pos.start());
+
         // Wrap data marks in a clipped group translated to band position
         let data_group = SceneGroup {
-            origin: group_origin(band_pos.start()),
+            origin,
             marks: components.data_marks,
             clip: components.clip,
             zindex: Some(0),
@@ -450,7 +512,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         // Wrap guide marks (axes) in a non-clipped translated group
         if !components.guide_marks.is_empty() {
             let guide_group = SceneGroup {
-                origin: group_origin(band_pos.start()),
+                origin,
                 marks: components.guide_marks,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 zindex: Some(1),
@@ -462,7 +524,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         // Wrap legend marks in a non-clipped translated group
         if !components.legend_marks.is_empty() {
             let legend_group = SceneGroup {
-                origin: group_origin(band_pos.start()),
+                origin,
                 marks: components.legend_marks,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 zindex: Some(2),
@@ -474,7 +536,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         // Wrap title marks in a non-clipped translated group
         if !components.title_marks.is_empty() {
             let title_group = SceneGroup {
-                origin: group_origin(band_pos.start()),
+                origin,
                 marks: components.title_marks,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 zindex: Some(3),
@@ -486,7 +548,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         // Wrap subtitle marks in a non-clipped translated group
         if !components.subtitle_marks.is_empty() {
             let subtitle_group = SceneGroup {
-                origin: group_origin(band_pos.start()),
+                origin,
                 marks: components.subtitle_marks,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 zindex: Some(4),
@@ -499,14 +561,66 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         // Debug marks are in absolute canvas coordinates relative to the subplot,
         // so we need to translate them to the correct band position
         if !components.debug_marks.is_empty() {
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                // Use Pass 1 overflow measurement for debug visualization
+                // This matches the overflow used to compute the final band scale padding
+                let overflow_dbg = overflow_measurements
+                    .get(subplot_index)
+                    .cloned()
+                    .unwrap_or_default();
+
+                // Position within plot-area coordinates (before outer plot translation)
+                let band_start = band_pos.start();
+                let band_end = band_pos.end(); // Use band scale's actual end position (not band_start + rounded_width)
+                let left_rect_x_rel_plot = band_start - overflow_dbg.left;
+                let right_rect_x_rel_plot = band_end; // right overflow placed at band end
+
+                // Identify subplot (row,col) if available
+                if let Some(facet_ctx) =
+                    crate::facet::context::FacetContext::from_params(&iteration.params)
+                {
+                    let (row, col) = facet_ctx.position;
+                    eprintln!(
+                        "SUBPLOT r={} c={}: band_start={:.3} w={:.3} overflowL={:.3} overflowR={:.3} -> of-left x_rel_plot={:.3} of-right x_rel_plot={:.3}",
+                        row,
+                        col,
+                        band_start,
+                        width,
+                        overflow_dbg.left,
+                        overflow_dbg.right,
+                        left_rect_x_rel_plot,
+                        right_rect_x_rel_plot
+                    );
+                } else {
+                    eprintln!(
+                        "SUBPLOT: band_start={:.3} w={:.3} overflowL={:.3} overflowR={:.3} -> of-left x_rel_plot={:.3} of-right x_rel_plot={:.3}",
+                        band_start,
+                        width,
+                        overflow_dbg.left,
+                        overflow_dbg.right,
+                        left_rect_x_rel_plot,
+                        right_rect_x_rel_plot
+                    );
+                }
+            }
+            // Use same origin as other groups for consistency
             let debug_group = SceneGroup {
-                origin: group_origin(band_pos.start()),
+                origin,
                 marks: components.debug_marks,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 zindex: Some(100), // High z-index to ensure debug marks render on top
                 ..Default::default()
             };
             all_marks.push(SceneMark::Group(debug_group));
+        }
+    }
+
+    // Store edge overflow measurements in cache for guide to use
+    if !overflow_measurements.is_empty() {
+        let first = overflow_measurements.first().cloned().unwrap_or_default();
+        let last = overflow_measurements.last().cloned().unwrap_or_default();
+        if let Ok(mut cache) = cached_edge_overflow.lock() {
+            *cache = Some((first, last));
         }
     }
 

@@ -1,6 +1,7 @@
 //! Debug utilities for visualizing layout bounds
 
 use avenger_common::types::ColorOrGradient;
+use avenger_scales::color::parse_color_string;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
@@ -10,21 +11,25 @@ use std::sync::Arc;
 ///
 /// # Arguments
 /// * `layout` - The layout result to visualize
-/// * `color` - Optional RGBA color for debug marks. Defaults to magenta [1.0, 0.0, 1.0, 0.7]
+/// * `color` - Optional color string (HSL format like "hsl(15 65% 60%)") for debug marks. Defaults to magenta
 /// * `stroke_width` - Optional stroke width. Defaults to 1.0
 /// * `zindex` - Optional z-index. Defaults to 20
 /// * `flip_label_align` - If true, align labels on opposite side (for subplots to avoid overlap)
 pub fn create_debug_layout_rects(
     layout: &crate::layout::LayoutResult,
-    color: Option<[f32; 4]>,
+    color: Option<String>,
     stroke_width: Option<f32>,
     zindex: Option<i32>,
     flip_label_align: bool,
 ) -> Vec<SceneMark> {
     let mut debug_marks = Vec::new();
 
-    // Default to magenta, or use provided color
-    let debug_color = color.unwrap_or([1.0, 0.0, 1.0, 0.7]);
+    // Parse color string to RGBA, defaulting to magenta
+    let debug_color = if let Some(color_str) = color {
+        parse_color_string(&color_str).unwrap_or([1.0, 0.0, 1.0, 0.5])
+    } else {
+        [1.0, 0.0, 1.0, 0.7] // Default magenta
+    };
     let stroke = stroke_width.unwrap_or(1.0);
     let z = zindex.unwrap_or(20);
 
@@ -38,15 +43,22 @@ pub fn create_debug_layout_rects(
         stroke: ColorOrGradient::Color(debug_color).into(),
         stroke_width: stroke.into(),
         zindex: Some(z),
+        clip: false, // Don't clip debug marks
         ..Default::default()
     };
     debug_marks.push(SceneMark::Rect(plot_rect));
 
     // Plot area label - align right if flip_label_align is true
     let (label_x, label_align) = if flip_label_align {
-        (layout.plot_area.x + layout.plot_area.width - 2.0, avenger_text::types::TextAlign::Right)
+        (
+            layout.plot_area.x + layout.plot_area.width - 2.0,
+            avenger_text::types::TextAlign::Right,
+        )
     } else {
-        (layout.plot_area.x + 2.0, avenger_text::types::TextAlign::Left)
+        (
+            layout.plot_area.x + 2.0,
+            avenger_text::types::TextAlign::Left,
+        )
     };
 
     let plot_label = SceneTextMark {
@@ -57,6 +69,7 @@ pub fn create_debug_layout_rects(
         color: ColorOrGradient::Color(debug_color).into(),
         align: label_align.into(),
         zindex: Some(z),
+        clip: false, // Don't clip debug marks
         ..Default::default()
     };
     debug_marks.push(SceneMark::Text(Arc::new(plot_label)));
@@ -72,35 +85,43 @@ pub fn create_debug_layout_rects(
             stroke: ColorOrGradient::Color(debug_color).into(),
             stroke_width: stroke.into(),
             zindex: Some(z),
+            clip: false, // Don't clip debug marks
             ..Default::default()
         };
         debug_marks.push(SceneMark::Rect(overflow_rect));
 
         // Add overflow region label - flip alignment if needed
-        let (overflow_label, label_x, label_y, angle, align, baseline) = if flip_label_align {
+        let (overflow_label, label_x, label_y, angle, align, baseline): (
+            &str,
+            f32,
+            f32,
+            f32,
+            _,
+            _,
+        ) = if flip_label_align {
             match position {
                 crate::cartesian::axis::AxisPosition::Left => (
                     "of-left",
                     bounds.x + 2.0,
-                    bounds.y + 2.0,
+                    bounds.y + bounds.height - 2.0,
                     -90.0,
-                    avenger_text::types::TextAlign::Right,
-                    avenger_text::types::TextBaseline::Bottom,  // Flipped from Top
+                    avenger_text::types::TextAlign::Left,
+                    avenger_text::types::TextBaseline::Top,
                 ),
                 crate::cartesian::axis::AxisPosition::Right => (
                     "of-right",
                     bounds.x + bounds.width - 2.0,
-                    bounds.y + 2.0,
-                    -90.0,
+                    bounds.y + bounds.height - 2.0,
+                    90.0,
                     avenger_text::types::TextAlign::Right,
-                    avenger_text::types::TextBaseline::Top,  // Flipped from Bottom
+                    avenger_text::types::TextBaseline::Top,
                 ),
                 crate::cartesian::axis::AxisPosition::Top => (
                     "of-top",
-                    bounds.x + bounds.width - 2.0,  // Right side instead of left
+                    bounds.x + bounds.width - 2.0, // Right side instead of left
                     bounds.y,
                     0.0,
-                    avenger_text::types::TextAlign::Right,  // Flipped from Left
+                    avenger_text::types::TextAlign::Right, // Flipped from Left
                     avenger_text::types::TextBaseline::Top,
                 ),
                 crate::cartesian::axis::AxisPosition::Bottom => (
@@ -126,9 +147,9 @@ pub fn create_debug_layout_rects(
                     "of-right",
                     bounds.x + bounds.width - 2.0,
                     bounds.y + 2.0,
-                    -90.0,
-                    avenger_text::types::TextAlign::Right,
-                    avenger_text::types::TextBaseline::Bottom,
+                    90.0,
+                    avenger_text::types::TextAlign::Left,
+                    avenger_text::types::TextBaseline::Top,
                 ),
                 crate::cartesian::axis::AxisPosition::Top => (
                     "of-top",
@@ -159,6 +180,7 @@ pub fn create_debug_layout_rects(
             align: align.into(),
             baseline: baseline.into(),
             zindex: Some(z),
+            clip: false, // Don't clip debug marks
             ..Default::default()
         };
         debug_marks.push(SceneMark::Text(Arc::new(overflow_label_mark)));
@@ -175,6 +197,7 @@ pub fn create_debug_layout_rects(
             stroke: ColorOrGradient::Color(debug_color).into(),
             stroke_width: stroke.into(),
             zindex: Some(z),
+            clip: false, // Don't clip debug marks
             ..Default::default()
         };
         debug_marks.push(SceneMark::Rect(legend_rect));
@@ -187,6 +210,7 @@ pub fn create_debug_layout_rects(
             font_size: 8.0.into(),
             color: ColorOrGradient::Color(debug_color).into(),
             zindex: Some(20),
+            clip: false, // Don't clip debug marks
             ..Default::default()
         };
         debug_marks.push(SceneMark::Text(Arc::new(label)));
@@ -203,6 +227,7 @@ pub fn create_debug_layout_rects(
             stroke: ColorOrGradient::Color(debug_color).into(),
             stroke_width: stroke.into(),
             zindex: Some(z),
+            clip: false, // Don't clip debug marks
             ..Default::default()
         };
         debug_marks.push(SceneMark::Rect(title_rect));
@@ -216,6 +241,7 @@ pub fn create_debug_layout_rects(
             color: ColorOrGradient::Color(debug_color).into(),
             align: avenger_text::types::TextAlign::Right.into(),
             zindex: Some(20),
+            clip: false, // Don't clip debug marks
             ..Default::default()
         };
         debug_marks.push(SceneMark::Text(Arc::new(title_label)));
@@ -232,6 +258,7 @@ pub fn create_debug_layout_rects(
             stroke: ColorOrGradient::Color(debug_color).into(),
             stroke_width: stroke.into(),
             zindex: Some(z),
+            clip: false, // Don't clip debug marks
             ..Default::default()
         };
         debug_marks.push(SceneMark::Rect(subtitle_rect));
@@ -245,6 +272,7 @@ pub fn create_debug_layout_rects(
             color: ColorOrGradient::Color(debug_color).into(),
             align: avenger_text::types::TextAlign::Right.into(),
             zindex: Some(20),
+            clip: false, // Don't clip debug marks
             ..Default::default()
         };
         debug_marks.push(SceneMark::Text(Arc::new(subtitle_label)));
