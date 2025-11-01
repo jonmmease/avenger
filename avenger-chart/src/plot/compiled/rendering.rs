@@ -817,6 +817,94 @@ impl CompiledPlot {
         Ok(result)
     }
 
+    /// Compute layout with fixed plot area dimensions
+    ///
+    /// This variant is used when dimensions_are_plot_area=true. It creates a temporary
+    /// LayoutSpec with fixed plot area and auto canvas, allowing the layout system to
+    /// compute the total canvas size needed to fit the plot area plus legends.
+    pub(super) async fn compute_layout_with_fixed_plot_area(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
+        use crate::layout::{ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode};
+
+        // Check for required positional scales before measuring overflow
+        self.validate_positional_scales_exist(scales)?;
+
+        // Measure how much space the guide needs
+        let overflow = if let Some(compiled_guide) = &self.compiled_guide {
+            let theme = self.get_theme();
+            let configured_scales: HashMap<String, ConfiguredScale> = scales
+                .iter()
+                .map(|(k, v)| (k.clone(), v.configured().clone()))
+                .collect();
+            compiled_guide
+                .measure_overflow(
+                    &configured_scales,
+                    plot_width,
+                    plot_height,
+                    theme.as_ref(),
+                    params,
+                    ctx,
+                )
+                .await?
+        } else {
+            crate::guide::OverflowSpaceRequirement::default()
+        };
+
+        // Get legends with theme applied
+        let all_legends = self.get_legends_with_theme(scales, ctx, params);
+
+        // Use the helper to merge legend channels
+        let (_channel_groups, legends_map) = self
+            .merge_legend_channels(&all_legends, scales, ctx, params)
+            .await?;
+
+        // Prepare legend measurements
+        let available_size = taffy::Size {
+            width: plot_width,
+            height: plot_height,
+        };
+        let legend_measurements = self
+            .prepare_legend_measurements(&legends_map, scales, available_size, ctx, params)
+            .await?;
+
+        // Create a temporary EvaluatedLayoutSpec with fixed plot area and auto canvas
+        // Margins default to 0 (subplot manages its own spacing)
+        let evaluated_spec = EvaluatedLayoutSpec {
+            canvas: EvaluatedSizeMode::Auto,
+            plot_area: EvaluatedSizeMode::Fixed {
+                width: plot_width,
+                height: plot_height,
+            },
+            margins: EvaluatedMargins {
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            },
+        };
+
+        let mut layout = ChartLayout::new(
+            &overflow,
+            &evaluated_spec,
+            self.get_title(),
+            self.get_subtitle(),
+            self.get_theme().as_ref(),
+            &legend_measurements,
+            ctx,
+            params,
+        )
+        .await?;
+
+        let result = layout.compute(&evaluated_spec)?;
+        Ok(result)
+    }
+
     /// Create legends positioned according to layout
     pub(super) async fn create_legends_with_layout(
         &self,
@@ -1042,11 +1130,36 @@ impl CompiledPlot {
         // 3. Determine plot area dimensions and build scales
         let (plot_area_width, plot_area_height, canvas_size, layout_opt) =
             if dimensions_are_plot_area {
-                // Plot area mode: dimensions are already the plot area size
-                // No need to build scales here - they'll be built below
+                // Plot area mode: dimensions specify the plot area size
+                // We still need to compute layout to include legends, but with plot area fixed
 
-                // For plot area mode, canvas size equals plot area size (no additional space for guides/legends)
-                (width, height, (width, height), None)
+                let plot_area_width = width;
+                let plot_area_height = height;
+
+                // Build initial scales with plot area dimensions
+                let initial_scales = scale_provider
+                    .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
+                    .await?;
+
+                // Compute layout with a temporary spec that has fixed plot area
+                // This will compute the canvas size needed to fit plot area + legends
+                let layout = self
+                    .compute_layout_with_fixed_plot_area(
+                        plot_area_width,
+                        plot_area_height,
+                        &initial_scales,
+                        ctx,
+                        &merged_params,
+                    )
+                    .await?;
+
+                let canvas_size = layout.canvas_size;
+                (
+                    plot_area_width,
+                    plot_area_height,
+                    canvas_size,
+                    Some(layout),
+                )
             } else {
                 // Canvas mode: dimensions are canvas size, compute layout to determine plot area
                 // Build initial scales with estimated 80% of canvas for plot area
@@ -1118,7 +1231,7 @@ impl CompiledPlot {
                     crate::layout::merge_scale_updates(&final_scales, &layout_infos);
 
                 // Measure overflow with merged scales (matching Render mode path)
-                let overflow = self
+                let mut overflow = self
                     .measure_guide_overflow_with_scales(
                         &merged_scales,
                         plot_area_width,
@@ -1127,6 +1240,47 @@ impl CompiledPlot {
                         &merged_params,
                     )
                     .await?;
+
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "Guide overflow before legend: top={} bottom={} left={} right={} (plot_area: {}x{})",
+                        overflow.top, overflow.bottom, overflow.left, overflow.right, plot_area_width, plot_area_height
+                    );
+                }
+
+                // When dimensions_are_plot_area=true, canvas may be larger than plot area to fit legends
+                // Add legend space to overflow so facets can account for it in band scale padding
+                // Calculate overflow as guide_overflow + legend_dimension to exclude Taffy layout padding
+                // For now, assume legends are positioned on right (default); can be made more robust later
+                if dimensions_are_plot_area {
+                    if let Some(ref layout) = layout_opt {
+                        // Calculate the maximum legend width (assuming right position)
+                        let mut max_legend_width = 0.0_f32;
+
+                        for (key, legend_bounds) in &layout.taffy_layout.legends {
+                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                eprintln!(
+                                    "Legend '{}': width={} height={}",
+                                    key, legend_bounds.width, legend_bounds.height
+                                );
+                            }
+                            // For right-positioned legends, track max width
+                            max_legend_width = max_legend_width.max(legend_bounds.width);
+                        }
+
+                        // Add legend width to existing guide overflow on the right
+                        if max_legend_width > 0.0 {
+                            let total_right = overflow.right + max_legend_width;
+                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                eprintln!(
+                                    "Right legend overflow: guide_overflow.right={} max_legend_width={} total_right={}",
+                                    overflow.right, max_legend_width, total_right
+                                );
+                            }
+                            overflow.right = total_right;
+                        }
+                    }
+                }
 
                 Ok(crate::plot::compiled::PlotComponents {
                     data_marks: vec![],
@@ -1192,6 +1346,8 @@ impl CompiledPlot {
                     subtitle_marks,
                     debug_marks,
                 ) = if let Some(layout_initial) = layout_opt {
+                    // Check if this is a top-level plot (canvas mode) or subplot (plot area mode)
+                    if !dimensions_are_plot_area {
                     // Canvas mode: Full layout with guides, legends, titles
                     // Always re-measure overflow with the final plot-area size and final scales,
                     // then rebuild the outer layout so it matches subplots.
@@ -1348,9 +1504,10 @@ impl CompiledPlot {
                         subtitle_marks,
                         debug_marks,
                     )
-                } else {
-                    // Plot area mode: No legends or titles (subplots don't need these)
-                    // But we DO want debug marks for subplots (with cyan color to distinguish from outer plot)
+                    } else {
+                    // Plot area mode (subplots): Has layout computed with legends
+                    // For subplots, the plot area is always at (0, 0) in subplot coordinates
+                    // The facet will translate the entire subplot to the correct position
                     let plot_bounds_struct = crate::layout::LayoutBounds {
                         x: 0.0,
                         y: 0.0,
@@ -1358,6 +1515,7 @@ impl CompiledPlot {
                         height: plot_area_height,
                     };
 
+                    // Create guide marks
                     let guide_marks = self
                         .create_guide_marks(
                             &merged_scales,
@@ -1369,110 +1527,64 @@ impl CompiledPlot {
                         )
                         .await?;
 
+                    // Create legend marks from the computed layout
+                    // Legend positions from layout include the plot area offset, but we need them at (0,0)
+                    let plot_bounds = layout_initial.plot_area_bounds();
+                    let legend_marks_raw = self
+                        .create_legends_with_layout(
+                            &merged_scales,
+                            &layout_initial.taffy_layout,
+                            ctx,
+                            &merged_params,
+                        )
+                        .await?;
+
+                    // Translate legend marks to be relative to (0, 0) instead of plot area offset
+                    let legend_marks: Vec<_> = legend_marks_raw.into_iter().map(|mark| {
+                        use avenger_scenegraph::marks::mark::SceneMark;
+                        match mark {
+                            SceneMark::Group(mut group) => {
+                                // Adjust group origin by subtracting plot area offset
+                                group.origin = [
+                                    group.origin[0] - plot_bounds.x,
+                                    group.origin[1] - plot_bounds.y
+                                ].into();
+                                SceneMark::Group(group)
+                            }
+                            _ => mark, // Other mark types shouldn't be at this level
+                        }
+                    }).collect();
+
+                    // Create title/subtitle marks if they exist in layout
+                    let title_marks = vec![];
+                    let subtitle_marks = vec![];
+                    // (Subplots typically don't have titles, but the layout might include them)
+
                     let mut debug_marks = vec![];
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        // Measure overflow for debug visualization
-                        let overflow = self
-                            .measure_guide_overflow_with_scales(
-                                &merged_scales,
-                                plot_area_width,
-                                plot_area_height,
-                                ctx,
-                                &merged_params,
-                            )
-                            .await?;
+                        // Use the actual computed layout which includes legends
+                        // The layout has plot area at an offset due to overflow/legends
+                        // We need to translate it to (0,0) for subplot coordinates
+                        let plot_bounds = layout_initial.plot_area_bounds();
 
-                        // Debug: print overflow values and resulting rectangle coordinates
-                        eprintln!(
-                            "DEBUG subplot overflow: left={}, right={}, top={}, bottom={}",
-                            overflow.left, overflow.right, overflow.top, overflow.bottom
-                        );
-                        eprintln!(
-                            "DEBUG subplot of-left rect (drawn): x={}, y={}, width={}, height={}",
-                            -overflow.left.ceil(),
-                            0.0,
-                            overflow.left.ceil(),
-                            plot_area_height.ceil()
-                        );
-                        eprintln!(
-                            "DEBUG subplot of-right rect (drawn): x={}, y={}, width={}, height={}",
-                            plot_area_width.ceil(),
-                            0.0,
-                            overflow.right.ceil(),
-                            plot_area_height.ceil()
-                        );
-                        eprintln!(
-                            "DEBUG subplot of-top rect (drawn): x={}, y={}, width={}, height={}",
-                            0.0,
-                            -overflow.top.ceil(),
-                            plot_area_width.ceil(),
-                            overflow.top.ceil()
-                        );
-                        eprintln!(
-                            "DEBUG subplot of-bottom rect (drawn): x={}, y={}, width={}, height={}",
-                            0.0,
-                            plot_area_height.ceil(),
-                            plot_area_width.ceil(),
-                            overflow.bottom.ceil()
-                        );
+                        // Create a translated copy of the layout with plot area at (0,0)
+                        let mut subplot_layout = layout_initial.taffy_layout.clone();
 
-                        // Convert overflow measurements to guide_overflows HashMap
-                        // Always create all overflow regions (even if 0) for complete visualization
-                        // IMPORTANT: For perfect alignment with outer layout, we must ensure that
-                        // x + width lands exactly at plot boundary. Since width is ceiled, x must
-                        // be -ceil(overflow) to avoid 1px gaps.
-                        let mut guide_overflows = std::collections::HashMap::new();
-                        guide_overflows.insert(
-                            crate::cartesian::axis::AxisPosition::Left,
-                            crate::layout::LayoutBounds {
-                                x: -overflow.left.ceil(),
-                                y: 0.0,
-                                width: overflow.left.ceil(),
-                                height: plot_area_height.ceil(),
-                            },
-                        );
-                        guide_overflows.insert(
-                            crate::cartesian::axis::AxisPosition::Right,
-                            crate::layout::LayoutBounds {
-                                x: plot_area_width,
-                                y: 0.0,
-                                width: overflow.right.ceil(),
-                                height: plot_area_height.ceil(),
-                            },
-                        );
-                        guide_overflows.insert(
-                            crate::cartesian::axis::AxisPosition::Top,
-                            crate::layout::LayoutBounds {
-                                x: 0.0,
-                                y: -overflow.top.ceil(),
-                                width: plot_area_width.ceil(),
-                                height: overflow.top.ceil(),
-                            },
-                        );
-                        guide_overflows.insert(
-                            crate::cartesian::axis::AxisPosition::Bottom,
-                            crate::layout::LayoutBounds {
-                                x: 0.0,
-                                y: plot_area_height,
-                                width: plot_area_width.ceil(),
-                                height: overflow.bottom.ceil(),
-                            },
-                        );
+                        // Translate plot_area
+                        subplot_layout.plot_area.x -= plot_bounds.x;
+                        subplot_layout.plot_area.y -= plot_bounds.y;
 
-                        // Create layout result with overflow information
-                        // Ceil plot area dimensions to match overflow positioning (pixel snapping)
-                        let minimal_layout = crate::layout::LayoutResult {
-                            plot_area: crate::layout::LayoutBounds {
-                                x: 0.0,
-                                y: 0.0,
-                                width: plot_area_width.ceil(),
-                                height: plot_area_height.ceil(),
-                            },
-                            guide_overflows,
-                            legends: indexmap::IndexMap::new(),
-                            title: None,
-                            subtitle: None,
-                        };
+                        // Translate guide_overflows
+                        for (_, bounds) in subplot_layout.guide_overflows.iter_mut() {
+                            bounds.x -= plot_bounds.x;
+                            bounds.y -= plot_bounds.y;
+                        }
+
+                        // Translate legends
+                        for (_, bounds) in subplot_layout.legends.iter_mut() {
+                            bounds.x -= plot_bounds.x;
+                            bounds.y -= plot_bounds.y;
+                        }
 
                         // Compute unique color for each subplot based on position
                         let subplot_color_string = if let Some(facet_ctx) =
@@ -1498,7 +1610,7 @@ impl CompiledPlot {
                         };
 
                         debug_marks.extend(crate::render::debug::create_debug_layout_rects(
-                            &minimal_layout,
+                            &subplot_layout,
                             Some(subplot_color_string),
                             Some(1.0), // Same width as outer lines
                             Some(100), // Higher z-index to render on top
@@ -1509,11 +1621,15 @@ impl CompiledPlot {
                     (
                         plot_bounds_struct,
                         guide_marks,
-                        Vec::new(),
-                        Vec::new(),
-                        Vec::new(),
+                        legend_marks,
+                        title_marks,
+                        subtitle_marks,
                         debug_marks,
                     )
+                    }
+                } else {
+                    // This branch should now be unreachable since layout_opt is always Some
+                    unreachable!("layout_opt should always be Some after our changes")
                 };
 
                 // Debug marks are kept separate - they're in absolute canvas coordinates
