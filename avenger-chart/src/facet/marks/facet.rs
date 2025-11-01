@@ -23,14 +23,7 @@ use std::sync::Arc;
 
 // Helper functions for serializing/deserializing Arc<Mutex<Option<...>>>
 fn serialize_cached_overflow<S>(
-    value: &Arc<
-        std::sync::Mutex<
-            Option<(
-                crate::guide::OverflowSpaceRequirement,
-                crate::guide::OverflowSpaceRequirement,
-            )>,
-        >,
-    >,
+    value: &Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -42,17 +35,7 @@ where
 
 fn deserialize_cached_overflow<'de, D>(
     deserializer: D,
-) -> Result<
-    Arc<
-        std::sync::Mutex<
-            Option<(
-                crate::guide::OverflowSpaceRequirement,
-                crate::guide::OverflowSpaceRequirement,
-            )>,
-        >,
-    >,
-    D::Error,
->
+) -> Result<Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -160,19 +143,14 @@ pub struct CompiledFacetRow {
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
-    /// Cached Pass 1 edge overflow measurements (top, bottom)
+    /// Cached Pass 1 maximum overflow across all subplots
     /// Set during evaluation for use by guide
     #[serde(
         serialize_with = "serialize_cached_overflow",
         deserialize_with = "deserialize_cached_overflow"
     )]
     pub(crate) cached_edge_overflow: std::sync::Arc<
-        std::sync::Mutex<
-            Option<(
-                crate::guide::OverflowSpaceRequirement,
-                crate::guide::OverflowSpaceRequirement,
-            )>,
-        >,
+        std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>,
     >,
 }
 
@@ -348,19 +326,14 @@ pub struct CompiledFacetCol {
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
-    /// Cached Pass 1 edge overflow measurements (left, right)
+    /// Cached Pass 1 maximum overflow across all subplots
     /// Set during evaluation for use by guide
     #[serde(
         serialize_with = "serialize_cached_overflow",
         deserialize_with = "deserialize_cached_overflow"
     )]
     pub(crate) cached_edge_overflow: std::sync::Arc<
-        std::sync::Mutex<
-            Option<(
-                crate::guide::OverflowSpaceRequirement,
-                crate::guide::OverflowSpaceRequirement,
-            )>,
-        >,
+        std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>,
     >,
 }
 

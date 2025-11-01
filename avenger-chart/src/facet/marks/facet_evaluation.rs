@@ -57,14 +57,9 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     subplot_dims: impl Fn(f32, &RenderContext) -> (f32, f32),
     // Returns [x, y] translation given band position
     group_origin: impl Fn(f32) -> [f32; 2],
-    // Cache for storing Pass 1 edge overflow measurements
+    // Cache for storing Pass 1 maximum overflow across all subplots
     cached_edge_overflow: &std::sync::Arc<
-        std::sync::Mutex<
-            Option<(
-                crate::guide::OverflowSpaceRequirement,
-                crate::guide::OverflowSpaceRequirement,
-            )>,
-        >,
+        std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>,
     >,
 ) -> Result<(Vec<SceneMark>, Box<dyn LayoutInfo>), AvengerChartError> {
     // Get dimension scale (row or col)
@@ -615,12 +610,24 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         }
     }
 
-    // Store edge overflow measurements in cache for guide to use
+    // Store maximum overflow across all subplots in cache for guide to use
     if !overflow_measurements.is_empty() {
-        let first = overflow_measurements.first().cloned().unwrap_or_default();
-        let last = overflow_measurements.last().cloned().unwrap_or_default();
+        // Compute maximum overflow across all subplots
+        let mut max_overflow = crate::guide::OverflowSpaceRequirement::default();
+        for overflow in &overflow_measurements {
+            max_overflow.top = max_overflow.top.max(overflow.top);
+            max_overflow.bottom = max_overflow.bottom.max(overflow.bottom);
+            max_overflow.left = max_overflow.left.max(overflow.left);
+            max_overflow.right = max_overflow.right.max(overflow.right);
+        }
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "Caching max overflow: top={} bottom={} left={} right={}",
+                max_overflow.top, max_overflow.bottom, max_overflow.left, max_overflow.right
+            );
+        }
         if let Ok(mut cache) = cached_edge_overflow.lock() {
-            *cache = Some((first, last));
+            *cache = Some(max_overflow);
         }
     }
 
