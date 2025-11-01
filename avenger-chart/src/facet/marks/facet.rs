@@ -1238,6 +1238,45 @@ impl CompiledMark for CompiledFacetGrid {
                     };
                     marks.push(SceneMark::Group(subtitle_group));
                 }
+
+                // Wrap debug marks in a non-clipped translated group
+                // Debug marks are in absolute canvas coordinates relative to the subplot,
+                // so we need to translate them to the correct grid cell position
+                if !components.debug_marks.is_empty() {
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        // Use Pass 1 overflow measurement for debug visualization
+                        // This matches the overflow used to compute the final band scale padding
+                        let overflow_dbg = &overflow_grid[row_iteration.index][col_iteration.index];
+
+                        // Position within plot-area coordinates (before outer plot translation)
+                        let row_band_start = row_band_pos.start();
+                        let _row_band_end = row_band_pos.end();
+                        let col_band_start = col_band_pos.start();
+                        let _col_band_end = col_band_pos.end();
+
+                        eprintln!(
+                            "GRID SUBPLOT r={} c={}: row_start={:.3} h={:.3} col_start={:.3} w={:.3} overflowT={:.3} overflowB={:.3} overflowL={:.3} overflowR={:.3}",
+                            row_iteration.index,
+                            col_iteration.index,
+                            row_band_start,
+                            band_h,
+                            col_band_start,
+                            band_w,
+                            overflow_dbg.top,
+                            overflow_dbg.bottom,
+                            overflow_dbg.left,
+                            overflow_dbg.right
+                        );
+                    }
+                    let debug_group = SceneGroup {
+                        origin: [x_offset, y_offset].into(),
+                        marks: components.debug_marks,
+                        clip: avenger_scenegraph::marks::group::Clip::None,
+                        zindex: Some(100), // High z-index to ensure debug marks render on top
+                        ..Default::default()
+                    };
+                    marks.push(SceneMark::Group(debug_group));
+                }
             }
         }
 
