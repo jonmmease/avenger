@@ -194,11 +194,9 @@ pub fn make_colorbar_marks(
 
             // Shift content to account for any negative y overhang, then add bg_padding
             // Add horizontal_text_padding to ensure equal spacing for tick labels on left/right
-            let gradients = rect.gradients.clone();
             let colorbar_axis_group = SceneGroup {
                 origin: [horizontal_text_padding + bg_padding, y_shift + bg_padding],
                 marks: vec![axis.into(), rect.into()],
-                gradients,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
             };
@@ -386,11 +384,9 @@ pub fn make_colorbar_marks(
 
             // Shift content down if there's negative y overhang, then add bg_padding
             // Add horizontal_text_padding to ensure equal spacing for tick labels on left/right
-            let gradients = rect.gradients.clone();
             let colorbar_axis_group = SceneGroup {
                 origin: [horizontal_text_padding + bg_padding, y_shift + bg_padding],
                 marks: vec![rect.into(), axis.into()],
-                gradients,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
             };
@@ -571,11 +567,9 @@ pub fn make_colorbar_marks(
 
             // Shift content to account for any negative x overhang, then add bg_padding
             // Add vertical_text_padding to ensure equal spacing for tick labels
-            let gradients = rect.gradients.clone();
             let colorbar_axis_group = SceneGroup {
                 origin: [x_shift + bg_padding, vertical_text_padding + bg_padding],
                 marks: vec![axis.into(), rect.into()],
-                gradients,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
             };
@@ -745,11 +739,9 @@ pub fn make_colorbar_marks(
             // Create a group for colorbar and axis with proper padding
             // Shift content right if there's negative x overhang, then add bg_padding
             // Add vertical_text_padding to ensure equal spacing for tick labels
-            let gradients = rect.gradients.clone();
             let colorbar_axis_group = SceneGroup {
                 origin: [x_shift + bg_padding, vertical_text_padding + bg_padding],
                 marks: vec![rect.into(), axis.into()],
-                gradients,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
             };
