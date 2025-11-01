@@ -3,8 +3,8 @@
 pub(crate) mod expr_eval;
 mod legends;
 pub(crate) mod rendering;
-pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks
 pub mod scale_provider;
+pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks
 mod titles;
 mod validation;
 
@@ -437,7 +437,6 @@ impl CompiledPlot {
             Ok(crate::guide::OverflowSpaceRequirement::default())
         }
     }
-
 }
 
 /// Evaluation mode for two-pass rendering

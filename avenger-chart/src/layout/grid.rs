@@ -351,6 +351,12 @@ impl GridBuilder {
         };
 
         let mut grid = GridLayout::new();
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "GRID build_with_overflow: left={:.3} right={:.3} top={:.3} bottom={:.3}",
+                overflow.left, overflow.right, overflow.top, overflow.bottom
+            );
+        }
 
         // === Build Column Template ===
         // Columns are built left-to-right:
@@ -376,7 +382,7 @@ impl GridBuilder {
 
         // 3. Add left overflow column if needed for guide overflow (e.g., axis labels extending left)
         let left_overflow_col = if overflow.left > MIN_GUIDE_OVERFLOW_SIZE {
-            grid.cols.push(length(overflow.left)); // Exact overflow size
+            grid.cols.push(length(overflow.left.ceil())); // Pixel-align by ceilling
             let idx = col_index;
             col_index += 1;
             Some(idx)
@@ -397,7 +403,7 @@ impl GridBuilder {
 
         // 5. Add right overflow column if needed for guide overflow (e.g., axis labels extending right)
         let right_overflow_col = if overflow.right > MIN_GUIDE_OVERFLOW_SIZE {
-            grid.cols.push(length(overflow.right)); // Exact overflow size
+            grid.cols.push(length(overflow.right.ceil())); // Pixel-align by ceilling
             let idx = col_index;
             col_index += 1;
             Some(idx)
@@ -475,7 +481,7 @@ impl GridBuilder {
 
         // 5. Add top overflow row if needed for guide overflow (e.g., axis labels extending upward)
         if overflow.top > MIN_GUIDE_OVERFLOW_SIZE {
-            grid.rows.push(length(overflow.top)); // Exact overflow size
+            grid.rows.push(length(overflow.top.ceil())); // Pixel-align by ceilling
             grid.add_component(
                 ComponentType::GuideOverflow(OverflowSide::Top),
                 row_index,
@@ -540,7 +546,7 @@ impl GridBuilder {
 
         // 10. Add bottom overflow row if needed for guide overflow (e.g., axis labels extending downward)
         if overflow.bottom > MIN_GUIDE_OVERFLOW_SIZE {
-            grid.rows.push(length(overflow.bottom));
+            grid.rows.push(length(overflow.bottom.ceil()));
             grid.add_component(
                 ComponentType::GuideOverflow(OverflowSide::Bottom),
                 row_index,

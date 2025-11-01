@@ -245,10 +245,7 @@ mod tests {
         assert_eq!(restored.position, (1, 0));
         assert_eq!(restored.grid_dimensions, (3, 1));
         assert_eq!(restored.unified_channels, unified_channels);
-        assert_eq!(
-            restored.scale_sharing.get("x"),
-            Some(&ScaleSharing::Shared)
-        );
+        assert_eq!(restored.scale_sharing.get("x"), Some(&ScaleSharing::Shared));
         assert_eq!(restored.scale_sharing.get("y"), Some(&ScaleSharing::Free));
     }
 

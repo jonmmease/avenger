@@ -31,45 +31,33 @@ async fn create_varying_data() -> datafusion::dataframe::DataFrame {
     ]);
 
     let group = StringArray::from(vec![
-        "A", "A", "A", "A", "A", "A",
-        "B", "B", "B", "B", "B", "B",
-        "C", "C", "C", "C", "C", "C",
+        "A", "A", "A", "A", "A", "A", "B", "B", "B", "B", "B", "B", "C", "C", "C", "C", "C", "C",
         "D", "D", "D", "D", "D", "D",
     ]);
 
     let row_facet = StringArray::from(vec![
-        "R1", "R1", "R1", "R1", "R1", "R1",
-        "R1", "R1", "R1", "R1", "R1", "R1",
-        "R2", "R2", "R2", "R2", "R2", "R2",
-        "R2", "R2", "R2", "R2", "R2", "R2",
+        "R1", "R1", "R1", "R1", "R1", "R1", "R1", "R1", "R1", "R1", "R1", "R1", "R2", "R2", "R2",
+        "R2", "R2", "R2", "R2", "R2", "R2", "R2", "R2", "R2",
     ]);
 
     let col_facet = StringArray::from(vec![
-        "C1", "C1", "C1", "C1", "C1", "C1",
-        "C2", "C2", "C2", "C2", "C2", "C2",
-        "C1", "C1", "C1", "C1", "C1", "C1",
-        "C2", "C2", "C2", "C2", "C2", "C2",
+        "C1", "C1", "C1", "C1", "C1", "C1", "C2", "C2", "C2", "C2", "C2", "C2", "C1", "C1", "C1",
+        "C1", "C1", "C1", "C2", "C2", "C2", "C2", "C2", "C2",
     ]);
 
     let x = Float64Array::from(vec![
-        0.0, 2.0, 4.0, 6.0, 8.0, 10.0,
-        20.0, 22.0, 24.0, 26.0, 28.0, 30.0,
-        40.0, 42.0, 44.0, 46.0, 48.0, 50.0,
-        0.0, 2.0, 4.0, 6.0, 8.0, 10.0,
+        0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 40.0, 42.0, 44.0, 46.0,
+        48.0, 50.0, 0.0, 2.0, 4.0, 6.0, 8.0, 10.0,
     ]);
 
     let y = Float64Array::from(vec![
-        10.0, 25.0, 40.0, 55.0, 70.0, 90.0,
-        210.0, 225.0, 240.0, 255.0, 270.0, 290.0,
-        410.0, 425.0, 440.0, 455.0, 470.0, 490.0,
-        210.0, 225.0, 240.0, 255.0, 270.0, 290.0,
+        10.0, 25.0, 40.0, 55.0, 70.0, 90.0, 210.0, 225.0, 240.0, 255.0, 270.0, 290.0, 410.0, 425.0,
+        440.0, 455.0, 470.0, 490.0, 210.0, 225.0, 240.0, 255.0, 270.0, 290.0,
     ]);
 
     let size = UInt32Array::from(vec![
-        50, 60, 70, 80, 90, 100,
-        50, 60, 70, 80, 90, 100,
-        50, 60, 70, 80, 90, 100,
-        50, 60, 70, 80, 90, 100,
+        50, 60, 70, 80, 90, 100, 50, 60, 70, 80, 90, 100, 50, 60, 70, 80, 90, 100, 50, 60, 70, 80,
+        90, 100,
     ]);
 
     let batch = RecordBatch::try_new(
@@ -109,14 +97,17 @@ async fn test_grid_facet_shared_in_row() {
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x"))
-                            .y_with(col("y"), |c| c.share_scale_in_rows())  // Share within rows
+                            .y_with(col("y"), |c| c.share_scale_in_rows()) // Share within rows
                             .size(80.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet shared in row");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet shared in row");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_shared_in_row").await;
 }
 
@@ -140,16 +131,26 @@ async fn test_grid_facet_shared_in_column() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("x"), |c| c.share_scale_in_columns())  // Share within columns
+                            .x_with(col("x"), |c| c.share_scale_in_columns()) // Share within columns
                             .y(col("y"))
                             .size(80.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet shared in column");
-    assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_shared_in_column").await;
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet shared in column");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet",
+        "grid_facet_shared_in_column",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -175,12 +176,15 @@ async fn test_grid_facet_mixed_sharing() {
                             .x_with(col("x"), |c| c.share_scale_in_columns())
                             .y_with(col("y"), |c| c.share_scale_in_rows())
                             .size(80.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile grid facet mixed sharing");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile grid facet mixed sharing");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_mixed_sharing").await;
 }
 
@@ -204,13 +208,20 @@ async fn test_grid_facet_compare_sharing_modes() {
                             .x(col("x"))
                             .y(col("y"))
                             .size(80.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
     let compiled_free = free_plot.compile(&ctx).await.expect("compile free scales");
-    assert_visual_match_default(&compiled_free, &ctx, None, "facet", "grid_facet_comparison_free").await;
+    assert_visual_match_default(
+        &compiled_free,
+        &ctx,
+        None,
+        "facet",
+        "grid_facet_comparison_free",
+    )
+    .await;
 
     // Shared scales (both x and y shared)
     let shared_plot = Plot::<GridFacet>::new()
@@ -226,13 +237,23 @@ async fn test_grid_facet_compare_sharing_modes() {
                             .x_with(col("x"), |c| c.share_scale())
                             .y_with(col("y"), |c| c.share_scale())
                             .size(80.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled_shared = shared_plot.compile(&ctx).await.expect("compile shared scales");
-    assert_visual_match_default(&compiled_shared, &ctx, None, "facet", "grid_facet_comparison_shared").await;
+    let compiled_shared = shared_plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared scales");
+    assert_visual_match_default(
+        &compiled_shared,
+        &ctx,
+        None,
+        "facet",
+        "grid_facet_comparison_shared",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -256,13 +277,23 @@ async fn test_grid_facet_axis_label_visibility() {
                             .x(col("x"))
                             .y_with(col("y"), |c| c.share_scale_in_rows())
                             .size(80.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile for label visibility test");
-    assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_label_visibility").await;
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile for label visibility test");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet",
+        "grid_facet_label_visibility",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -283,14 +314,24 @@ async fn test_grid_facet_shared_in_row_with_varying_sizes() {
                         Symbol::new()
                             .x(col("x"))
                             .y_with(col("y"), |c| c.share_scale_in_rows())
-                            .size(80.0)  // Varying sizes
-                            .fill("#4682b4")
-                    )
-                )
+                            .size(80.0) // Varying sizes
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile with varying sizes");
-    assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_shared_in_row_varying_sizes").await;
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile with varying sizes");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet",
+        "grid_facet_shared_in_row_varying_sizes",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -309,14 +350,21 @@ async fn test_grid_facet_using_enum_directly() {
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
-                            .x_with(col("x"), |c| c.with_scale_sharing(ScaleSharing::SharedInColumn))
-                            .y_with(col("y"), |c| c.with_scale_sharing(ScaleSharing::SharedInRow))
+                            .x_with(col("x"), |c| {
+                                c.with_scale_sharing(ScaleSharing::SharedInColumn)
+                            })
+                            .y_with(col("y"), |c| {
+                                c.with_scale_sharing(ScaleSharing::SharedInRow)
+                            })
                             .size(80.0)
-                            .fill("#4682b4")
-                    )
-                )
+                            .fill("#4682b4"),
+                    ),
+                ),
         );
 
-    let compiled = outer.compile(&ctx).await.expect("compile using enum directly");
+    let compiled = outer
+        .compile(&ctx)
+        .await
+        .expect("compile using enum directly");
     assert_visual_match_default(&compiled, &ctx, None, "facet", "grid_facet_enum_direct").await;
 }

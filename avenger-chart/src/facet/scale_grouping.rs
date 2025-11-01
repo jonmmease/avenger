@@ -9,10 +9,10 @@
 use crate::channel::config_traits::ScaleSharing;
 use crate::error::AvengerChartError;
 use crate::plot::CompiledPlot;
-use crate::scales::{builder::ScaleBuilder, ConfiguredScaleWithSpec};
+use crate::scales::{ConfiguredScaleWithSpec, builder::ScaleBuilder};
 use datafusion::common::ScalarValue;
 use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{lit, Expr};
+use datafusion::logical_expr::{Expr, lit};
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -34,10 +34,22 @@ impl GroupKey {
     /// Compute group key for a cell position given sharing mode
     fn for_cell(row_idx: usize, col_idx: usize, mode: ScaleSharing) -> Self {
         match mode {
-            ScaleSharing::Shared => GroupKey { row: None, col: None },
-            ScaleSharing::Free => GroupKey { row: Some(row_idx), col: Some(col_idx) },
-            ScaleSharing::SharedInRow => GroupKey { row: Some(row_idx), col: None },
-            ScaleSharing::SharedInColumn => GroupKey { row: None, col: Some(col_idx) },
+            ScaleSharing::Shared => GroupKey {
+                row: None,
+                col: None,
+            },
+            ScaleSharing::Free => GroupKey {
+                row: Some(row_idx),
+                col: Some(col_idx),
+            },
+            ScaleSharing::SharedInRow => GroupKey {
+                row: Some(row_idx),
+                col: None,
+            },
+            ScaleSharing::SharedInColumn => GroupKey {
+                row: None,
+                col: Some(col_idx),
+            },
         }
     }
 }
@@ -122,12 +134,14 @@ impl ScaleGrouping {
                     (Some(row_idx), None) => {
                         // SharedInRow: filter by row value only (include all columns)
                         let row_val = &row_domain_vals[row_idx];
-                        df.clone().filter(row_expr.clone().eq(lit(row_val.clone())))?
+                        df.clone()
+                            .filter(row_expr.clone().eq(lit(row_val.clone())))?
                     }
                     (None, Some(col_idx)) => {
                         // SharedInColumn: filter by col value only (include all rows)
                         let col_val = &col_domain_vals[col_idx];
-                        df.clone().filter(col_expr.clone().eq(lit(col_val.clone())))?
+                        df.clone()
+                            .filter(col_expr.clone().eq(lit(col_val.clone())))?
                     }
                     (Some(row_idx), Some(col_idx)) => {
                         // Free: filter by both row and column
@@ -148,13 +162,13 @@ impl ScaleGrouping {
                 builders.insert(key, builder);
             }
 
-            channel_groupings.insert(
-                channel.clone(),
-                ChannelGrouping { mode, builders },
-            );
+            channel_groupings.insert(channel.clone(), ChannelGrouping { mode, builders });
         }
 
-        Ok(Self { channel_groupings, fallback_builder })
+        Ok(Self {
+            channel_groupings,
+            fallback_builder,
+        })
     }
 
     /// Build scales for a specific subplot position
@@ -237,49 +251,79 @@ mod tests {
         // Shared mode
         assert_eq!(
             GroupKey::for_cell(0, 0, ScaleSharing::Shared),
-            GroupKey { row: None, col: None }
+            GroupKey {
+                row: None,
+                col: None
+            }
         );
         assert_eq!(
             GroupKey::for_cell(1, 2, ScaleSharing::Shared),
-            GroupKey { row: None, col: None }
+            GroupKey {
+                row: None,
+                col: None
+            }
         );
 
         // Free mode
         assert_eq!(
             GroupKey::for_cell(0, 0, ScaleSharing::Free),
-            GroupKey { row: Some(0), col: Some(0) }
+            GroupKey {
+                row: Some(0),
+                col: Some(0)
+            }
         );
         assert_eq!(
             GroupKey::for_cell(1, 2, ScaleSharing::Free),
-            GroupKey { row: Some(1), col: Some(2) }
+            GroupKey {
+                row: Some(1),
+                col: Some(2)
+            }
         );
 
         // SharedInRow mode
         assert_eq!(
             GroupKey::for_cell(0, 0, ScaleSharing::SharedInRow),
-            GroupKey { row: Some(0), col: None }
+            GroupKey {
+                row: Some(0),
+                col: None
+            }
         );
         assert_eq!(
             GroupKey::for_cell(0, 2, ScaleSharing::SharedInRow),
-            GroupKey { row: Some(0), col: None }
+            GroupKey {
+                row: Some(0),
+                col: None
+            }
         );
         assert_eq!(
             GroupKey::for_cell(1, 0, ScaleSharing::SharedInRow),
-            GroupKey { row: Some(1), col: None }
+            GroupKey {
+                row: Some(1),
+                col: None
+            }
         );
 
         // SharedInColumn mode
         assert_eq!(
             GroupKey::for_cell(0, 0, ScaleSharing::SharedInColumn),
-            GroupKey { row: None, col: Some(0) }
+            GroupKey {
+                row: None,
+                col: Some(0)
+            }
         );
         assert_eq!(
             GroupKey::for_cell(2, 0, ScaleSharing::SharedInColumn),
-            GroupKey { row: None, col: Some(0) }
+            GroupKey {
+                row: None,
+                col: Some(0)
+            }
         );
         assert_eq!(
             GroupKey::for_cell(0, 1, ScaleSharing::SharedInColumn),
-            GroupKey { row: None, col: Some(1) }
+            GroupKey {
+                row: None,
+                col: Some(1)
+            }
         );
     }
 

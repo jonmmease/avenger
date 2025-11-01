@@ -376,12 +376,30 @@ impl ChartLayout {
                 height = layout.size.height,
                 "Plot area bounds"
             );
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "Taffy plot-area (raw): w={:.6} h={:.6}",
+                    layout.size.width, layout.size.height
+                );
+            }
+
             result.plot_area = LayoutBounds {
                 x: layout.location.x.round(),
                 y: layout.location.y.round(),
-                width: layout.size.width.round(),
-                height: layout.size.height.round(),
+                // Use floor() to avoid allocating more space than band scales can fill with integer rounding
+                width: layout.size.width.floor(),
+                height: layout.size.height.floor(),
             };
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "OUTER plot-area: x={:.3} y={:.3} w={:.3} h={:.3}",
+                    result.plot_area.x,
+                    result.plot_area.y,
+                    result.plot_area.width,
+                    result.plot_area.height
+                );
+            }
         }
 
         // Get guide overflow bounds
@@ -395,15 +413,30 @@ impl ChartLayout {
                 height = layout.size.height,
                 "Guide overflow bounds"
             );
-            result.guide_overflows.insert(
-                *position,
-                LayoutBounds {
-                    x: layout.location.x.round(),
-                    y: layout.location.y.round(),
-                    width: layout.size.width.round(),
-                    height: layout.size.height.round(),
-                },
-            );
+            let bounds = LayoutBounds {
+                x: layout.location.x.round(),
+                y: layout.location.y.round(),
+                // Ceil overflow sizes to avoid under-allocation due to rounding
+                width: layout.size.width.ceil(),
+                height: layout.size.height.ceil(),
+            };
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                use crate::cartesian::axis::AxisPosition;
+                let pos = match position {
+                    AxisPosition::Left => "Left",
+                    AxisPosition::Right => "Right",
+                    AxisPosition::Top => "Top",
+                    AxisPosition::Bottom => "Bottom",
+                };
+                // Also print offset relative to plot-area for easier comparison
+                let rel_x = bounds.x - result.plot_area.x;
+                let rel_y = bounds.y - result.plot_area.y;
+                eprintln!(
+                    "OUTER of-{}: x={:.3} y={:.3} w={:.3} h={:.3}  (rel_to_plot: x={:.3} y={:.3})",
+                    pos, bounds.x, bounds.y, bounds.width, bounds.height, rel_x, rel_y
+                );
+            }
+            result.guide_overflows.insert(*position, bounds);
         }
 
         // Get legend bounds
