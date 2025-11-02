@@ -611,16 +611,12 @@ impl CompiledGuide for FacetRowGuide {
 
     fn get_clip(
         &self,
-        plot_width: f32,
-        plot_height: f32,
+        _plot_width: f32,
+        _plot_height: f32,
         _scales: &HashMap<String, ConfiguredScale>,
     ) -> avenger_scenegraph::marks::group::Clip {
-        avenger_scenegraph::marks::group::Clip::Rect {
-            x: 0.0,
-            y: 0.0,
-            width: plot_width,
-            height: plot_height,
-        }
+        // Don't clip faceted plots - legends may extend beyond plot area
+        avenger_scenegraph::marks::group::Clip::None
     }
 }
 
@@ -1231,16 +1227,12 @@ impl CompiledGuide for FacetColGuide {
 
     fn get_clip(
         &self,
-        plot_width: f32,
-        plot_height: f32,
+        _plot_width: f32,
+        _plot_height: f32,
         _scales: &HashMap<String, ConfiguredScale>,
     ) -> avenger_scenegraph::marks::group::Clip {
-        avenger_scenegraph::marks::group::Clip::Rect {
-            x: 0.0,
-            y: 0.0,
-            width: plot_width,
-            height: plot_height,
-        }
+        // Don't clip faceted plots - legends may extend beyond plot area
+        avenger_scenegraph::marks::group::Clip::None
     }
 }
 
@@ -2229,15 +2221,11 @@ impl CompiledGuide for GridFacetGuide {
 
     fn get_clip(
         &self,
-        plot_width: f32,
-        plot_height: f32,
+        _plot_width: f32,
+        _plot_height: f32,
         _scales: &HashMap<String, ConfiguredScale>,
     ) -> avenger_scenegraph::marks::group::Clip {
-        avenger_scenegraph::marks::group::Clip::Rect {
-            x: 0.0,
-            y: 0.0,
-            width: plot_width,
-            height: plot_height,
-        }
+        // Don't clip faceted plots - legends may extend beyond plot area
+        avenger_scenegraph::marks::group::Clip::None
     }
 }

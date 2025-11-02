@@ -3,7 +3,7 @@
 
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
-use avenger_chart::scales::{Linear, ScaleRange};
+use avenger_chart::scales::{Linear, Ordinal, ScaleRange};
 use datafusion::prelude::*;
 use palette::rgb::Srgba;
 
@@ -172,7 +172,7 @@ async fn test_facet_row_mixed_sharing_free_color_shared_axes() {
 }
 
 /// Test 4: Column facet with Shared color legend
-/// One legend outside the facet grid
+/// One legend outside the facet grid with ordinal fill channel
 #[tokio::test]
 async fn test_facet_col_shared_color_legend() {
     let ctx = SessionContext::new();
@@ -181,6 +181,23 @@ async fn test_facet_col_shared_color_legend() {
         .read_parquet(iris_path, ParquetReadOptions::default())
         .await
         .expect("load iris dataset");
+
+    // Register the dataframe and add a categorical column based on petal_width ranges
+    ctx.register_table("iris", df.into_view())
+        .expect("register iris table");
+
+    let df = ctx
+        .sql(
+            "SELECT *,
+                CASE
+                    WHEN petal_width < 0.8 THEN 'Small'
+                    WHEN petal_width < 1.8 THEN 'Medium'
+                    ELSE 'Large'
+                END as petal_size
+            FROM iris",
+        )
+        .await
+        .expect("add categorical column");
 
     let plot = Plot::<FacetCol>::new()
         .data(df)
@@ -198,17 +215,10 @@ async fn test_facet_col_shared_color_legend() {
                                 .scale_with::<Linear>(|s| s)
                                 .axis(|a| a.title("Sepal Width"))
                         })
-                        // .fill_with(col("petal_length"), |c| {
-                        //     c.with_scale_sharing(ScaleSharing::Shared)
-                        //         .scale_with::<Linear>(|s| {
-                        //             s.range(ScaleRange::new_color(vec![
-                        //                 Srgba::new(0.000, 0.000, 0.014, 1.0), // inferno start
-                        //                 Srgba::new(0.737, 0.212, 0.330, 1.0), // inferno mid
-                        //                 Srgba::new(0.988, 0.998, 0.645, 1.0), // inferno end
-                        //             ]))
-                        //         })
-                        //         .legend(|l| l.title("Petal Length"))
-                        // })
+                        .fill_with(col("petal_size"), |c| {
+                            c.scale_with::<Ordinal>(|s| s)
+                                .legend(|l| l.title("Petal Size"))
+                        })
                         .size(48.0),
                 ),
             ),
