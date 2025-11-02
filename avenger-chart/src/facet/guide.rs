@@ -486,7 +486,7 @@ impl CompiledGuide for FacetRowGuide {
         let domain_labels_eval = row_scale.domain_labels().unwrap_or_default();
 
         // Convert domain labels to ScalarValues for SubplotIterator
-        let domain_vals_eval: Vec<datafusion::common::ScalarValue> = domain_labels_eval
+        let _domain_vals_eval: Vec<datafusion::common::ScalarValue> = domain_labels_eval
             .iter()
             .map(|s| datafusion::common::ScalarValue::Utf8(Some(s.clone())))
             .collect();
@@ -645,7 +645,7 @@ impl FacetColGuide {
     async fn compute_max_subplot_overflow(
         &self,
         col_scale: &ConfiguredScale,
-        plot_width: f32,
+        _plot_width: f32,
         plot_height: f32,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
@@ -884,7 +884,7 @@ impl CompiledGuide for FacetColGuide {
         ctx: &SessionContext,
     ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
         use crate::scales::ConfiguredScaleLegendExt;
-        use datafusion::logical_expr::lit;
+        
 
         // Get col scale
         let col_scale = scales

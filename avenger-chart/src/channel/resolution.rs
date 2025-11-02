@@ -29,6 +29,7 @@
 //!     band: None,
 //!     scale_config: None,
 //!     legend_config: None,
+//!     share_mode: None,
 //!     share_across_facets: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
@@ -37,6 +38,7 @@
 //!     band: None,
 //!     scale_config: None,
 //!     legend_config: None,
+//!     share_mode: None,
 //!     share_across_facets: None,
 //! });
 //!
