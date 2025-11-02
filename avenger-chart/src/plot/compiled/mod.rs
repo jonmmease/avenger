@@ -393,6 +393,17 @@ impl CompiledPlot {
                 .normalize_domain(plot_area_width, plot_area_height, ctx, params)
                 .await?;
 
+            // Apply default range for non-positional channels (color, size, etc.) if not already set
+            if scale.get_range().is_none() {
+                let range_kind = scale
+                    .get_scale_impl()
+                    .map(|impl_arc| impl_arc.range_kind())
+                    .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
+
+                let range = crate::scales::default_range_for_channel(channel, range_kind);
+                scale = scale.range(range);
+            }
+
             // Create configured
             let configured_scale = scale
                 .clone()
