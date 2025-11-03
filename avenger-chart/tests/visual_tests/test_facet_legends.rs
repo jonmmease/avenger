@@ -308,7 +308,7 @@ async fn test_facet_grid_with_legends() {
 }
 
 /// Test 6: Grid facet with legends and alternative axis positions
-/// Tests 2D grid faceting with y-axis on right and x-axis on top
+/// Tests 2D grid faceting with y-axis on right, x-axis on top, and legends at bottom
 #[tokio::test]
 async fn test_facet_grid_with_legends_alt_axes() {
     let ctx = SessionContext::new();
@@ -360,7 +360,7 @@ async fn test_facet_grid_with_legends_alt_axes() {
                             })
                             .fill_with(col("petal_size"), |c| {
                                 c.scale_with::<Ordinal>(|s| s)
-                                    .legend(|l| l.title("Petal Size"))
+                                    .legend(|l| l.title("Petal Size").position(LegendPosition::Bottom))
                             })
                             .size(36.0),
                     ),
