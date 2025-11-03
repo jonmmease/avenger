@@ -1120,6 +1120,10 @@ impl CompiledMark for CompiledFacetGrid {
                     .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
                     .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
 
+                // Check if this cell has any data
+                let cell_count = filter_df.clone().count().await?;
+                let cell_is_empty = cell_count == 0;
+
                 // Build scales for this subplot position using ScaleGrouping (Pass 2 with final band dimensions)
                 let inner_scales = scale_grouping
                     .build_scales_for_position(
@@ -1139,6 +1143,7 @@ impl CompiledMark for CompiledFacetGrid {
 
                 // Render subplot using evaluate_in_canvas with Render mode
                 // This creates all marks including legends, titles, and subtitles
+                // For empty cells, use the filtered dataframe which will result in no data marks
                 let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
                     scales: inner_scales.clone(),
                 };
@@ -1183,7 +1188,8 @@ impl CompiledMark for CompiledFacetGrid {
                 }
 
                 // Wrap legend marks in a non-clipped translated group
-                if !components.legend_marks.is_empty() {
+                // Skip legends for empty cells to avoid showing misleading legend entries
+                if !cell_is_empty && !components.legend_marks.is_empty() {
                     let legend_group = SceneGroup {
                         origin: [x_offset, y_offset].into(),
                         marks: components.legend_marks,
