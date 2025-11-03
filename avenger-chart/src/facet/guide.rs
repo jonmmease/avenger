@@ -1434,11 +1434,20 @@ impl CompiledGuide for GridFacetGuide {
                 )
             })?;
 
-            // Compute scale sharing
-            let coord_channels: Vec<&str> =
-                source.subplot.coord_transform.required_channels().to_vec();
+            // Compute scale sharing for ALL channels used by marks (not just coord channels)
+            // This ensures non-coordinate channels like fill, color, size also get per-subplot scales
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
-            for &ch in &coord_channels {
+
+            // Collect all unique channel names from all marks
+            let mut all_channels = std::collections::HashSet::new();
+            for m in &source.subplot.marks {
+                for ch in m.data_context().channels().keys() {
+                    all_channels.insert(ch.as_str());
+                }
+            }
+
+            // Determine sharing mode for each channel
+            for ch in all_channels {
                 let mut mode = ScaleSharing::Free;
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
@@ -1924,10 +1933,20 @@ impl CompiledGuide for GridFacetGuide {
                 )
             })?;
 
-            let coord_channels: Vec<&str> =
-                source.subplot.coord_transform.required_channels().to_vec();
+            // Compute scale sharing for ALL channels used by marks (not just coord channels)
+            // This ensures non-coordinate channels like fill, color, size also get per-subplot scales
             let mut scale_sharing_by_channel = std::collections::HashMap::new();
-            for &ch in &coord_channels {
+
+            // Collect all unique channel names from all marks
+            let mut all_channels = std::collections::HashSet::new();
+            for m in &source.subplot.marks {
+                for ch in m.data_context().channels().keys() {
+                    all_channels.insert(ch.as_str());
+                }
+            }
+
+            // Determine sharing mode for each channel
+            for ch in all_channels {
                 let mut mode = ScaleSharing::Free;
                 for m in &source.subplot.marks {
                     if let Some(cv) = m.data_context().channels().get(ch) {
