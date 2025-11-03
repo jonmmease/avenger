@@ -307,7 +307,78 @@ async fn test_facet_grid_with_legends() {
     .await;
 }
 
-/// Test 6: Small 2-row facet with Free legends
+/// Test 6: Grid facet with legends and alternative axis positions
+/// Tests 2D grid faceting with y-axis on right and x-axis on top
+#[tokio::test]
+async fn test_facet_grid_with_legends_alt_axes() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    // Register the dataframe and add categorical columns
+    ctx.register_table("iris", df.into_view())
+        .expect("register iris table");
+
+    let df = ctx
+        .sql(
+            "SELECT *,
+                CASE
+                    WHEN sepal_length < 5.5 THEN 'short'
+                    WHEN sepal_length < 6.5 THEN 'medium'
+                    ELSE 'long'
+                END as length_bin,
+                CASE
+                    WHEN petal_width < 0.8 THEN 'Small'
+                    WHEN petal_width < 1.8 THEN 'Medium'
+                    ELSE 'Large'
+                END as petal_size
+            FROM iris",
+        )
+        .await
+        .expect("add categorical columns");
+
+    let plot = Plot::<GridFacet>::new()
+        .data(df)
+        .canvas_size(800.0, 600.0)
+        .mark(
+            Facet::new()
+                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
+                .col_with(col("length_bin"), |c| c.facet(|f| f.title("Length")))
+                .subplot(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x_with(col("sepal_length"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Shared)
+                                    .axis(|a| a.title("Sepal Length").position(AxisPosition::Top))
+                            })
+                            .y_with(col("sepal_width"), |c| {
+                                c.with_scale_sharing(ScaleSharing::Shared)
+                                    .axis(|a| a.title("Sepal Width").position(AxisPosition::Right))
+                            })
+                            .fill_with(col("petal_size"), |c| {
+                                c.scale_with::<Ordinal>(|s| s)
+                                    .legend(|l| l.title("Petal Size"))
+                            })
+                            .size(36.0),
+                    ),
+                ),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_grid_with_legends_alt_axes",
+    )
+    .await;
+}
+
+/// Test 7: Small 2-row facet with Free legends
 /// Tests with fewer facets
 #[tokio::test]
 async fn test_facet_row_two_rows_free_legend() {
