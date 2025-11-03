@@ -1528,16 +1528,28 @@ impl CompiledGuide for GridFacetGuide {
                         }
                     }
 
-                    let overflow = source
+                    // Use build_plot_components to get accurate overflow including legends
+                    use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
+
+                    let provider = PrebuiltScaleProvider {
+                        scales: inner_scales.clone(),
+                    };
+
+                    let components = source
                         .subplot
-                        .measure_guide_overflow_with_scales(
-                            &inner_scales,
+                        .build_plot_components(
                             band_w,
                             band_h,
                             ctx,
                             &merged_params,
+                            &provider,
+                            crate::plot::compiled::EvaluationMode::Measure,
+                            Some(&filter_df),
+                            true, // dimensions_are_plot_area
                         )
                         .await?;
+
+                    let overflow = components.overflow.unwrap_or_default();
 
                     // Track top/bottom overflow (for first/last row)
                     if row_iteration.index == 0 {
@@ -1547,13 +1559,10 @@ impl CompiledGuide for GridFacetGuide {
                         max_bottom = max_bottom.max(overflow.bottom);
                     }
 
-                    // Track left/right overflow (for first/last col)
-                    if col_iteration.index == 0 {
-                        max_left = max_left.max(overflow.left);
-                    }
-                    if col_iteration.index == num_cols - 1 {
-                        max_right = max_right.max(overflow.right);
-                    }
+                    // Track left/right overflow across ALL columns
+                    // (legends can appear in any subplot and vary in size)
+                    max_left = max_left.max(overflow.left);
+                    max_right = max_right.max(overflow.right);
                 }
             }
         }
@@ -1998,19 +2007,32 @@ impl CompiledGuide for GridFacetGuide {
                         }
                     }
 
-                    let overflow = source
+                    // Use build_plot_components to get accurate overflow including legends
+                    use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
+
+                    let provider = PrebuiltScaleProvider {
+                        scales: inner_scales.clone(),
+                    };
+
+                    let components = source
                         .subplot
-                        .measure_guide_overflow_with_scales(
-                            &inner_scales,
+                        .build_plot_components(
                             band_w,
                             band_h,
                             ctx,
                             &merged_params,
+                            &provider,
+                            crate::plot::compiled::EvaluationMode::Measure,
+                            Some(&filter_df),
+                            true, // dimensions_are_plot_area
                         )
                         .await?;
 
+                    let overflow = components.overflow.unwrap_or_default();
+
                     subplot_max_top = subplot_max_top.max(overflow.top);
                     subplot_max_bottom = subplot_max_bottom.max(overflow.bottom);
+                    // Track left/right overflow across ALL columns (legends can vary)
                     subplot_max_left = subplot_max_left.max(overflow.left);
                     subplot_max_right = subplot_max_right.max(overflow.right);
                 }
