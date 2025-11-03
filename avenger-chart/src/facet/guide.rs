@@ -1710,8 +1710,21 @@ impl CompiledGuide for GridFacetGuide {
         };
 
         // Determine row label placement (opposite side of y-axis, like FacetRow)
-        // If right overflow > left overflow, y-axis is on right, so row labels go left
-        let place_row_on_left = max_right > max_left;
+        // Check actual y-axis position first, only fall back to overflow inference if None
+        let place_row_on_left = if let Some(source) = self.facet_sources.first() {
+            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
+                match guide.axis_position("y") {
+                    Some(crate::cartesian::axis::AxisPosition::Right) => true,  // y-axis right -> labels left
+                    Some(crate::cartesian::axis::AxisPosition::Left) => false,  // y-axis left -> labels right
+                    None => max_right > max_left, // Fallback: infer from overflow
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
 
         // Allocate overflow space
         let gap_axis = 6.0_f32;
@@ -2040,8 +2053,21 @@ impl CompiledGuide for GridFacetGuide {
         }
 
         // Determine row label placement (opposite side of y-axis, like FacetRow)
-        // If right overflow > left overflow, y-axis is on right, so row labels go left
-        let place_row_on_left = subplot_max_right > subplot_max_left;
+        // Check actual y-axis position first, only fall back to overflow inference if None
+        let place_row_on_left = if let Some(source) = self.facet_sources.first() {
+            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
+                match guide.axis_position("y") {
+                    Some(crate::cartesian::axis::AxisPosition::Right) => true,  // y-axis right -> labels left
+                    Some(crate::cartesian::axis::AxisPosition::Left) => false,  // y-axis left -> labels right
+                    None => subplot_max_right > subplot_max_left, // Fallback: infer from overflow
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
 
         // Determine col label placement
         let place_col_below = if let Some(source) = self.facet_sources.first() {
