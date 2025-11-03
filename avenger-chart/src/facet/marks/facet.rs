@@ -149,9 +149,8 @@ pub struct CompiledFacetRow {
         serialize_with = "serialize_cached_overflow",
         deserialize_with = "deserialize_cached_overflow"
     )]
-    pub(crate) cached_edge_overflow: std::sync::Arc<
-        std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>,
-    >,
+    pub(crate) cached_edge_overflow:
+        std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
 }
 
 #[async_trait::async_trait]
@@ -332,9 +331,8 @@ pub struct CompiledFacetCol {
         serialize_with = "serialize_cached_overflow",
         deserialize_with = "deserialize_cached_overflow"
     )]
-    pub(crate) cached_edge_overflow: std::sync::Arc<
-        std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>,
-    >,
+    pub(crate) cached_edge_overflow:
+        std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
 }
 
 #[async_trait::async_trait]
