@@ -441,14 +441,30 @@ impl CompiledGuide for CartesianGuide {
 
     fn axis_position(&self, channel: &str) -> Option<crate::cartesian::axis::AxisPosition> {
         use crate::cartesian::axis::AxisPosition;
+        use crate::serialization::LogicalExprNodeExt;
 
         // Check if we have an axis configured for this channel
         if let Some(axis) = self.axes.get(channel) {
-            // If axis has explicit position expression, we can't evaluate it without context in Phase 2
-            // This is a known limitation that will be resolved in Phase 3 with GuideContext
-            if axis.position.as_option().and_then(|o| o.as_ref()).is_some() {
-                // Has explicit position expression - can't determine without evaluation
-                // Return None so caller can use reasonable fallback
+            // If axis has explicit position expression, try to extract it if it's a simple literal
+            if let Some(position_node) = axis.position.as_option().and_then(|o| o.as_ref()) {
+                // Try to convert to datafusion Expr and check if it's a literal
+                if let Ok(expr) = position_node.to_expr(&datafusion::prelude::SessionContext::new())
+                {
+                    use datafusion::logical_expr::Expr;
+                    if let Expr::Literal(datafusion::scalar::ScalarValue::Utf8(Some(pos_str)), _) =
+                        expr
+                    {
+                        // Got a literal string, parse it as an axis position
+                        return match pos_str.to_lowercase().as_str() {
+                            "top" => Some(AxisPosition::Top),
+                            "bottom" => Some(AxisPosition::Bottom),
+                            "left" => Some(AxisPosition::Left),
+                            "right" => Some(AxisPosition::Right),
+                            _ => None,
+                        };
+                    }
+                }
+                // Has position expression but can't extract it - return None for fallback
                 None
             } else {
                 // No explicit position, use defaults based on channel name

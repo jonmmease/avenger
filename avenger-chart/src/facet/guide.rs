@@ -33,9 +33,8 @@ struct FacetSource {
     user_title: Option<String>,
     /// Cached Pass 1 maximum overflow across all subplots from facet evaluation
     #[serde(skip)]
-    cached_edge_overflow: std::sync::Arc<
-        std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>,
-    >,
+    cached_edge_overflow:
+        std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
 }
 
 impl FacetRowGuide {
@@ -65,27 +64,34 @@ impl FacetRowGuide {
 
         // For each facet source (there could be more than one Facet mark)
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!("FacetRowGuide: Checking {} facet sources", self.facet_sources.len());
+            eprintln!(
+                "FacetRowGuide: Checking {} facet sources",
+                self.facet_sources.len()
+            );
         }
         for (source_idx, source) in self.facet_sources.iter().enumerate() {
             // Try to use cached Pass 1 maximum overflow across all subplots
-            let cached_overflow = source
-                .cached_edge_overflow
-                .lock()
-                .ok()
-                .and_then(|cache| {
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!("FacetRowGuide [source {}]: Cache lock acquired, value={:?}", source_idx, cache.as_ref().map(|v| format!("right={}", v.right)));
-                    }
-                    cache.clone()
-                });
+            let cached_overflow = source.cached_edge_overflow.lock().ok().and_then(|cache| {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetRowGuide [source {}]: Cache lock acquired, value={:?}",
+                        source_idx,
+                        cache.as_ref().map(|v| format!("right={}", v.right))
+                    );
+                }
+                cache.clone()
+            });
 
             if let Some(max_overflow) = cached_overflow {
                 // Use cached Pass 1 maximum measurements across all subplots
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
                         "FacetRowGuide [source {}]: Using cached max overflow - top={} bottom={} left={} right={}",
-                        source_idx, max_overflow.top, max_overflow.bottom, max_overflow.left, max_overflow.right
+                        source_idx,
+                        max_overflow.top,
+                        max_overflow.bottom,
+                        max_overflow.left,
+                        max_overflow.right
                     );
                 }
                 top = top.max(max_overflow.top);
@@ -880,7 +886,6 @@ impl CompiledGuide for FacetColGuide {
         ctx: &SessionContext,
     ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
         use crate::scales::ConfiguredScaleLegendExt;
-        
 
         // Get col scale
         let col_scale = scales
@@ -903,133 +908,133 @@ impl CompiledGuide for FacetColGuide {
         // Add facet guide space (labels/titles) on top of child overflows
         // Measure facet label slab (same theme contexts used elsewhere)
         let labels = col_scale.domain_labels().unwrap_or_default();
-            let measurer = avenger_text::measurement::default_text_measurer();
-            let label_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+        let measurer = avenger_text::measurement::default_text_measurer();
+        let label_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+            .child("facet")
+            .child("label");
+        let label_font_px = _theme.font_size(&label_ctx).unwrap_or(12.0_f32);
+        let root_ctx = crate::theme::ThemeContext::new(":root", params.clone());
+        let label_font_family_owned = _theme
+            .font_family(&label_ctx)
+            .or_else(|| _theme.font_family(&root_ctx))
+            .unwrap_or_else(|| "sans-serif".to_string());
+        let label_font_family = label_font_family_owned.as_str();
+
+        let mut max_label_height = 0.0_f32;
+        for label in &labels {
+            let config = avenger_text::measurement::TextMeasurementConfig {
+                text: label,
+                font: label_font_family,
+                font_size: label_font_px,
+                font_weight: &avenger_text::types::FontWeight::Name(
+                    avenger_text::types::FontWeightNameSpec::Normal,
+                ),
+                font_style: &avenger_text::types::FontStyle::Normal,
+            };
+            let bounds = measurer.measure_text_bounds(&config);
+            max_label_height = max_label_height.max(bounds.height);
+        }
+
+        // Facet title (per column) space
+        let title_height = if let Some(title_text) = &self.facet_title {
+            let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
                 .child("facet")
-                .child("label");
-            let label_font_px = _theme.font_size(&label_ctx).unwrap_or(12.0_f32);
-            let root_ctx = crate::theme::ThemeContext::new(":root", params.clone());
-            let label_font_family_owned = _theme
-                .font_family(&label_ctx)
-                .or_else(|| _theme.font_family(&root_ctx))
+                .child("title");
+            let title_font_px = _theme.font_size(&title_ctx).unwrap_or(12.0_f32);
+            let title_family_owned = _theme
+                .font_family(&title_ctx)
                 .unwrap_or_else(|| "sans-serif".to_string());
-            let label_font_family = label_font_family_owned.as_str();
-
-            let mut max_label_height = 0.0_f32;
-            for label in &labels {
-                let config = avenger_text::measurement::TextMeasurementConfig {
-                    text: label,
-                    font: label_font_family,
-                    font_size: label_font_px,
-                    font_weight: &avenger_text::types::FontWeight::Name(
-                        avenger_text::types::FontWeightNameSpec::Normal,
-                    ),
-                    font_style: &avenger_text::types::FontStyle::Normal,
-                };
-                let bounds = measurer.measure_text_bounds(&config);
-                max_label_height = max_label_height.max(bounds.height);
-            }
-
-            // Facet title (per column) space
-            let title_height = if let Some(title_text) = &self.facet_title {
-                let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                    .child("facet")
-                    .child("title");
-                let title_font_px = _theme.font_size(&title_ctx).unwrap_or(12.0_f32);
-                let title_family_owned = _theme
-                    .font_family(&title_ctx)
-                    .unwrap_or_else(|| "sans-serif".to_string());
-                let cfg = avenger_text::measurement::TextMeasurementConfig {
-                    text: title_text,
-                    font: title_family_owned.as_str(),
-                    font_size: title_font_px,
-                    font_weight: &avenger_text::types::FontWeight::Name(
-                        avenger_text::types::FontWeightNameSpec::Normal,
-                    ),
-                    font_style: &avenger_text::types::FontStyle::Normal,
-                };
-                let b = measurer.measure_text_bounds(&cfg);
-                b.height
-            } else {
-                0.0
+            let cfg = avenger_text::measurement::TextMeasurementConfig {
+                text: title_text,
+                font: title_family_owned.as_str(),
+                font_size: title_font_px,
+                font_weight: &avenger_text::types::FontWeight::Name(
+                    avenger_text::types::FontWeightNameSpec::Normal,
+                ),
+                font_style: &avenger_text::types::FontStyle::Normal,
             };
+            let b = measurer.measure_text_bounds(&cfg);
+            b.height
+        } else {
+            0.0
+        };
 
-            // Unified x-axis title space (if present)
-            let unified_title_height = if let Some(unified_text) = &self.unified_x_title {
-                let unified_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                    .child("facet")
-                    .child("title");
-                let unified_font_px = _theme.font_size(&unified_ctx).unwrap_or(12.0_f32);
-                let unified_family_owned = _theme
-                    .font_family(&unified_ctx)
-                    .unwrap_or_else(|| "sans-serif".to_string());
-                let cfg = avenger_text::measurement::TextMeasurementConfig {
-                    text: unified_text,
-                    font: unified_family_owned.as_str(),
-                    font_size: unified_font_px,
-                    font_weight: &avenger_text::types::FontWeight::Name(
-                        avenger_text::types::FontWeightNameSpec::Normal,
-                    ),
-                    font_style: &avenger_text::types::FontStyle::Normal,
-                };
-                let b = measurer.measure_text_bounds(&cfg);
-                b.height
-            } else {
-                0.0
+        // Unified x-axis title space (if present)
+        let unified_title_height = if let Some(unified_text) = &self.unified_x_title {
+            let unified_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("title");
+            let unified_font_px = _theme.font_size(&unified_ctx).unwrap_or(12.0_f32);
+            let unified_family_owned = _theme
+                .font_family(&unified_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string());
+            let cfg = avenger_text::measurement::TextMeasurementConfig {
+                text: unified_text,
+                font: unified_family_owned.as_str(),
+                font_size: unified_font_px,
+                font_weight: &avenger_text::types::FontWeight::Name(
+                    avenger_text::types::FontWeightNameSpec::Normal,
+                ),
+                font_style: &avenger_text::types::FontStyle::Normal,
             };
+            let b = measurer.measure_text_bounds(&cfg);
+            b.height
+        } else {
+            0.0
+        };
 
-            let gap_title = if self.facet_title.is_some() {
-                10.0
-            } else {
-                0.0
-            };
-            let facet_label_space = if self.facet_title.is_some() {
-                max_label_height + gap_title + title_height + 1.0
-            } else {
-                max_label_height + 1.0
-            };
-            let gap_axis = if self.unified_x_title.is_some() {
-                6.0
-            } else {
-                0.0
-            };
-            let x_axis_title_space = if self.unified_x_title.is_some() {
-                gap_axis + unified_title_height + 1.0
-            } else {
-                0.0
-            };
+        let gap_title = if self.facet_title.is_some() {
+            10.0
+        } else {
+            0.0
+        };
+        let facet_label_space = if self.facet_title.is_some() {
+            max_label_height + gap_title + title_height + 1.0
+        } else {
+            max_label_height + 1.0
+        };
+        let gap_axis = if self.unified_x_title.is_some() {
+            6.0
+        } else {
+            0.0
+        };
+        let x_axis_title_space = if self.unified_x_title.is_some() {
+            gap_axis + unified_title_height + 1.0
+        } else {
+            0.0
+        };
 
-            // Decide placement: if x-axis is top, labels go below; else labels above
-            // Use overflow to infer axis position: larger overflow indicates where axis is located
-            let place_below = top_max > bottom_max;
+        // Decide placement: if x-axis is top, labels go below; else labels above
+        // Use overflow to infer axis position: larger overflow indicates where axis is located
+        let place_below = top_max > bottom_max;
 
-            let mut top_final = top_max;
-            let mut bottom_final = bottom_max;
-            if place_below {
-                top_final += x_axis_title_space;
-                bottom_final += facet_label_space;
-            } else {
-                top_final += facet_label_space;
-                bottom_final += x_axis_title_space;
-            }
+        let mut top_final = top_max;
+        let mut bottom_final = bottom_max;
+        if place_below {
+            top_final += x_axis_title_space;
+            bottom_final += facet_label_space;
+        } else {
+            top_final += facet_label_space;
+            bottom_final += x_axis_title_space;
+        }
 
-            let result = OverflowSpaceRequirement {
-                left: left_max,
-                right: right_max,
-                top: top_final,
-                bottom: bottom_final,
-            };
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "FACET_COL (edge-measured): place_below={} top_max={:.3} bottom_max={:.3} facet_label_space={:.3} x_axis_title_space={:.3}",
-                    place_below, top_max, bottom_max, facet_label_space, x_axis_title_space
-                );
-                eprintln!(
-                    "FACET_COL (edge-measured) result: left={:.3} right={:.3} top={:.3} bottom={:.3}",
-                    result.left, result.right, result.top, result.bottom
-                );
-            }
-            return Ok(result);
+        let result = OverflowSpaceRequirement {
+            left: left_max,
+            right: right_max,
+            top: top_final,
+            bottom: bottom_final,
+        };
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "FACET_COL (edge-measured): place_below={} top_max={:.3} bottom_max={:.3} facet_label_space={:.3} x_axis_title_space={:.3}",
+                place_below, top_max, bottom_max, facet_label_space, x_axis_title_space
+            );
+            eprintln!(
+                "FACET_COL (edge-measured) result: left={:.3} right={:.3} top={:.3} bottom={:.3}",
+                result.left, result.right, result.top, result.bottom
+            );
+        }
+        return Ok(result);
     }
 
     async fn evaluate(
@@ -1560,13 +1565,17 @@ impl CompiledGuide for GridFacetGuide {
 
                     let overflow = components.overflow.unwrap_or_default();
 
-                    // Track top/bottom overflow (for first/last row)
+                    // Track top/bottom overflow
+                    // For top: use first row (where x-axis typically is)
+                    // For bottom: use MAX across ALL rows when labels will be at bottom,
+                    //             or last row when labels will be at top
                     if row_iteration.index == 0 {
                         max_top = max_top.max(overflow.top);
                     }
-                    if row_iteration.index == num_rows - 1 {
-                        max_bottom = max_bottom.max(overflow.bottom);
-                    }
+                    // When column labels will be at bottom (x-axis at top), we need to check
+                    // bottom overflow across all rows since all subplots may have bottom legends
+                    // We don't know place_col_below yet, so conservatively take max across all rows
+                    max_bottom = max_bottom.max(overflow.bottom);
 
                     // Track left/right overflow across ALL columns
                     // (legends can appear in any subplot and vary in size)
@@ -1606,7 +1615,7 @@ impl CompiledGuide for GridFacetGuide {
                 font_family: label_font_family,
                 font_size_px: label_font_px,
                 title: self.row_title.clone(),
-                title_font_family: title_font_family,
+                title_font_family,
                 title_font_size_px: title_font_px,
             };
             measure_facet_label_slab(&measurement_config)
@@ -1644,7 +1653,7 @@ impl CompiledGuide for GridFacetGuide {
                 font_family: label_font_family,
                 font_size_px: label_font_px,
                 title: self.col_title.clone(),
-                title_font_family: title_font_family,
+                title_font_family,
                 title_font_size_px: title_font_px,
             };
             measure_facet_label_slab(&measurement_config)
@@ -1708,6 +1717,7 @@ impl CompiledGuide for GridFacetGuide {
                 match guide.axis_position("x") {
                     Some(crate::cartesian::axis::AxisPosition::Top) => true,
                     Some(crate::cartesian::axis::AxisPosition::Bottom) => false,
+                    // Fallback: infer from overflow (larger top overflow suggests x-axis at bottom)
                     None => max_top > max_bottom,
                     _ => false,
                 }
@@ -1723,8 +1733,8 @@ impl CompiledGuide for GridFacetGuide {
         let place_row_on_left = if let Some(source) = self.facet_sources.first() {
             if let Some(guide) = source.subplot.compiled_guide.as_ref() {
                 match guide.axis_position("y") {
-                    Some(crate::cartesian::axis::AxisPosition::Right) => true,  // y-axis right -> labels left
-                    Some(crate::cartesian::axis::AxisPosition::Left) => false,  // y-axis left -> labels right
+                    Some(crate::cartesian::axis::AxisPosition::Right) => true, // y-axis right -> labels left
+                    Some(crate::cartesian::axis::AxisPosition::Left) => false, // y-axis left -> labels right
                     None => max_right > max_left, // Fallback: infer from overflow
                     _ => false,
                 }
@@ -2076,8 +2086,8 @@ impl CompiledGuide for GridFacetGuide {
         let place_row_on_left = if let Some(source) = self.facet_sources.first() {
             if let Some(guide) = source.subplot.compiled_guide.as_ref() {
                 match guide.axis_position("y") {
-                    Some(crate::cartesian::axis::AxisPosition::Right) => true,  // y-axis right -> labels left
-                    Some(crate::cartesian::axis::AxisPosition::Left) => false,  // y-axis left -> labels right
+                    Some(crate::cartesian::axis::AxisPosition::Right) => true, // y-axis right -> labels left
+                    Some(crate::cartesian::axis::AxisPosition::Left) => false, // y-axis left -> labels right
                     None => subplot_max_right > subplot_max_left, // Fallback: infer from overflow
                     _ => false,
                 }
@@ -2165,10 +2175,11 @@ impl CompiledGuide for GridFacetGuide {
         if !skip_col_labels {
             use crate::facet::guide_utils::{FacetLabelRenderConfig, render_facet_label_slab};
 
-            // Adjust plot bounds to account for subplot overflow when positioning facet labels
-            // When labels are below, extend height by bottom overflow so labels appear after it
-            // When labels are above, shift y by top overflow so labels appear before it
+            // Adjust plot bounds for rendering facet labels based on their position
+            // Facet labels should appear AFTER subplot overflow (axes/legends)
             let render_plot_bounds = if place_col_below {
+                // Labels at bottom: extend height to include subplot bottom overflow (legends/axes)
+                // so facet labels render below them
                 LayoutBounds {
                     x: plot_bounds.x,
                     y: plot_bounds.y,
@@ -2176,6 +2187,7 @@ impl CompiledGuide for GridFacetGuide {
                     height: plot_height + subplot_max_bottom,
                 }
             } else {
+                // Labels at top: shift up by subplot top overflow
                 LayoutBounds {
                     x: plot_bounds.x,
                     y: plot_bounds.y - subplot_max_top,

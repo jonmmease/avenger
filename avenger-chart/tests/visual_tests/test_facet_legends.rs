@@ -359,8 +359,9 @@ async fn test_facet_grid_with_legends_alt_axes() {
                                     .axis(|a| a.title("Sepal Width").position(AxisPosition::Right))
                             })
                             .fill_with(col("petal_size"), |c| {
-                                c.scale_with::<Ordinal>(|s| s)
-                                    .legend(|l| l.title("Petal Size").position(LegendPosition::Bottom))
+                                c.scale_with::<Ordinal>(|s| s).legend(|l| {
+                                    l.title("Petal Size").position(LegendPosition::Bottom)
+                                })
                             })
                             .size(36.0),
                     ),

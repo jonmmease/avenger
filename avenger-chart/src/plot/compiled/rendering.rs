@@ -830,7 +830,9 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
-        use crate::layout::{ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode};
+        use crate::layout::{
+            ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
+        };
 
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
@@ -1154,12 +1156,7 @@ impl CompiledPlot {
                     .await?;
 
                 let canvas_size = layout.canvas_size;
-                (
-                    plot_area_width,
-                    plot_area_height,
-                    canvas_size,
-                    Some(layout),
-                )
+                (plot_area_width, plot_area_height, canvas_size, Some(layout))
             } else {
                 // Canvas mode: dimensions are canvas size, compute layout to determine plot area
                 // Build initial scales with estimated 80% of canvas for plot area
@@ -1244,40 +1241,68 @@ impl CompiledPlot {
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
                         "Guide overflow before legend: top={} bottom={} left={} right={} (plot_area: {}x{})",
-                        overflow.top, overflow.bottom, overflow.left, overflow.right, plot_area_width, plot_area_height
+                        overflow.top,
+                        overflow.bottom,
+                        overflow.left,
+                        overflow.right,
+                        plot_area_width,
+                        plot_area_height
                     );
                 }
 
                 // When dimensions_are_plot_area=true, canvas may be larger than plot area to fit legends
                 // Add legend space to overflow so facets can account for it in band scale padding
                 // Calculate overflow as guide_overflow + legend_dimension to exclude Taffy layout padding
-                // For now, assume legends are positioned on right (default); can be made more robust later
                 if dimensions_are_plot_area {
                     if let Some(ref layout) = layout_opt {
-                        // Calculate the maximum legend width (assuming right position)
-                        let mut max_legend_width = 0.0_f32;
+                        // Calculate maximum legend dimensions for each position
+                        // Use the pre-computed legends_by_position from the layout result
+                        let mut max_by_position: std::collections::HashMap<
+                            crate::legend::LegendPosition,
+                            f32,
+                        > = std::collections::HashMap::new();
 
-                        for (key, legend_bounds) in &layout.taffy_layout.legends {
-                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                eprintln!(
-                                    "Legend '{}': width={} height={}",
-                                    key, legend_bounds.width, legend_bounds.height
-                                );
+                        for (position, legend_keys) in &layout.taffy_layout.legends_by_position {
+                            // Calculate max dimension for all legends at this position
+                            let max_dimension = legend_keys
+                                .iter()
+                                .filter_map(|key| layout.taffy_layout.legends.get(key))
+                                .map(|bounds| match position {
+                                    crate::legend::LegendPosition::Left
+                                    | crate::legend::LegendPosition::Right => bounds.width,
+                                    crate::legend::LegendPosition::Top
+                                    | crate::legend::LegendPosition::Bottom => bounds.height,
+                                })
+                                .fold(0.0_f32, f32::max);
+
+                            if max_dimension > 0.0 {
+                                max_by_position.insert(*position, max_dimension);
                             }
-                            // For right-positioned legends, track max width
-                            max_legend_width = max_legend_width.max(legend_bounds.width);
                         }
 
-                        // Add legend width to existing guide overflow on the right
-                        if max_legend_width > 0.0 {
-                            let total_right = overflow.right + max_legend_width;
-                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                eprintln!(
-                                    "Right legend overflow: guide_overflow.right={} max_legend_width={} total_right={}",
-                                    overflow.right, max_legend_width, total_right
-                                );
-                            }
-                            overflow.right = total_right;
+                        // Add legend dimensions to corresponding overflow sides
+                        if let Some(&max_width) =
+                            max_by_position.get(&crate::legend::LegendPosition::Right)
+                        {
+                            overflow.right += max_width;
+                        }
+
+                        if let Some(&max_width) =
+                            max_by_position.get(&crate::legend::LegendPosition::Left)
+                        {
+                            overflow.left += max_width;
+                        }
+
+                        if let Some(&max_height) =
+                            max_by_position.get(&crate::legend::LegendPosition::Top)
+                        {
+                            overflow.top += max_height;
+                        }
+
+                        if let Some(&max_height) =
+                            max_by_position.get(&crate::legend::LegendPosition::Bottom)
+                        {
+                            overflow.bottom += max_height;
                         }
                     }
                 }
@@ -1348,284 +1373,293 @@ impl CompiledPlot {
                 ) = if let Some(layout_initial) = layout_opt {
                     // Check if this is a top-level plot (canvas mode) or subplot (plot area mode)
                     if !dimensions_are_plot_area {
-                    // Canvas mode: Full layout with guides, legends, titles
-                    // Always re-measure overflow with the final plot-area size and final scales,
-                    // then rebuild the outer layout so it matches subplots.
-                    let theme = self.get_theme();
-                    // Use merged_scales that include facet-driven padding updates
-                    let configured_scales: HashMap<String, ConfiguredScale> = merged_scales
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.configured().clone()))
-                        .collect();
-                    let pb = layout_initial.plot_area_bounds();
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "Calling guide measure_overflow with pb.width={} pb.height={}",
-                            pb.width, pb.height
-                        );
-                    }
-                    let overflow_final = if let Some(ref compiled_guide) = self.compiled_guide {
-                        compiled_guide
-                            .measure_overflow(
-                                &configured_scales,
-                                pb.width,
-                                pb.height,
+                        // Canvas mode: Full layout with guides, legends, titles
+                        // Always re-measure overflow with the final plot-area size and final scales,
+                        // then rebuild the outer layout so it matches subplots.
+                        let theme = self.get_theme();
+                        // Use merged_scales that include facet-driven padding updates
+                        let configured_scales: HashMap<String, ConfiguredScale> = merged_scales
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.configured().clone()))
+                            .collect();
+                        let pb = layout_initial.plot_area_bounds();
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "Calling guide measure_overflow with pb.width={} pb.height={}",
+                                pb.width, pb.height
+                            );
+                        }
+                        let overflow_final = if let Some(ref compiled_guide) = self.compiled_guide {
+                            compiled_guide
+                                .measure_overflow(
+                                    &configured_scales,
+                                    pb.width,
+                                    pb.height,
+                                    theme.as_ref(),
+                                    &merged_params,
+                                    ctx,
+                                )
+                                .await?
+                        } else {
+                            crate::guide::OverflowSpaceRequirement::default()
+                        };
+
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "SECOND-PASS overflow (outer): left={:.3} right={:.3} top={:.3} bottom={:.3}",
+                                overflow_final.left,
+                                overflow_final.right,
+                                overflow_final.top,
+                                overflow_final.bottom
+                            );
+                        }
+
+                        // Rebuild layout unconditionally with the second-pass overflow
+                        use crate::layout::ChartLayout;
+                        let evaluated_spec2 = evaluate_layout_spec(
+                            self.get_layout_spec(),
+                            ctx,
+                            &merged_params,
+                            theme.as_ref(),
+                        )
+                        .await?;
+                        let all_legends2 =
+                            self.get_legends_with_theme(&merged_scales, ctx, &merged_params);
+                        let (_channel_groups2, legends_map2) = self
+                            .merge_legend_channels(
+                                &all_legends2,
+                                &merged_scales,
+                                ctx,
+                                &merged_params,
+                            )
+                            .await?;
+                        let legend_measurements2 = self
+                            .prepare_legend_measurements(
+                                &legends_map2,
+                                &merged_scales,
+                                taffy::Size {
+                                    width: plot_area_width,
+                                    height: plot_area_height,
+                                },
+                                ctx,
+                                &merged_params,
+                            )
+                            .await?;
+                        let layout = {
+                            let mut l = ChartLayout::new(
+                                &overflow_final,
+                                &evaluated_spec2,
+                                self.get_title(),
+                                self.get_subtitle(),
                                 theme.as_ref(),
+                                &legend_measurements2,
+                                ctx,
+                                &merged_params,
+                            )
+                            .await?;
+                            l.compute(&evaluated_spec2)?
+                        };
+
+                        let plot_bounds = layout.plot_area_bounds();
+                        // Use original plot area dimensions to stay consistent with evaluated marks
+                        // Marks were evaluated with plot_area_width/height from first layout
+                        let plot_bounds_struct = crate::layout::LayoutBounds {
+                            x: plot_bounds.x,
+                            y: plot_bounds.y,
+                            width: plot_area_width,
+                            height: plot_area_height,
+                        };
+
+                        let guide_marks = self
+                            .create_guide_marks(
+                                &merged_scales,
+                                plot_area_width,
+                                plot_area_height,
+                                &plot_bounds_struct,
                                 &merged_params,
                                 ctx,
                             )
-                            .await?
-                    } else {
-                        crate::guide::OverflowSpaceRequirement::default()
-                    };
+                            .await?;
 
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "SECOND-PASS overflow (outer): left={:.3} right={:.3} top={:.3} bottom={:.3}",
-                            overflow_final.left,
-                            overflow_final.right,
-                            overflow_final.top,
-                            overflow_final.bottom
-                        );
-                    }
+                        let legend_marks = self
+                            .create_legends_with_layout(
+                                &final_scales,
+                                &layout.taffy_layout,
+                                ctx,
+                                &merged_params,
+                            )
+                            .await?;
 
-                    // Rebuild layout unconditionally with the second-pass overflow
-                    use crate::layout::ChartLayout;
-                    let evaluated_spec2 = evaluate_layout_spec(
-                        self.get_layout_spec(),
-                        ctx,
-                        &merged_params,
-                        theme.as_ref(),
-                    )
-                    .await?;
-                    let all_legends2 =
-                        self.get_legends_with_theme(&merged_scales, ctx, &merged_params);
-                    let (_channel_groups2, legends_map2) = self
-                        .merge_legend_channels(&all_legends2, &merged_scales, ctx, &merged_params)
-                        .await?;
-                    let legend_measurements2 = self
-                        .prepare_legend_measurements(
-                            &legends_map2,
-                            &merged_scales,
-                            taffy::Size {
-                                width: plot_area_width,
-                                height: plot_area_height,
-                            },
-                            ctx,
-                            &merged_params,
-                        )
-                        .await?;
-                    let layout = {
-                        let mut l = ChartLayout::new(
-                            &overflow_final,
-                            &evaluated_spec2,
-                            self.get_title(),
-                            self.get_subtitle(),
-                            theme.as_ref(),
-                            &legend_measurements2,
-                            ctx,
-                            &merged_params,
-                        )
-                        .await?;
-                        l.compute(&evaluated_spec2)?
-                    };
-
-                    let plot_bounds = layout.plot_area_bounds();
-                    // Use original plot area dimensions to stay consistent with evaluated marks
-                    // Marks were evaluated with plot_area_width/height from first layout
-                    let plot_bounds_struct = crate::layout::LayoutBounds {
-                        x: plot_bounds.x,
-                        y: plot_bounds.y,
-                        width: plot_area_width,
-                        height: plot_area_height,
-                    };
-
-                    let guide_marks = self
-                        .create_guide_marks(
-                            &merged_scales,
-                            plot_area_width,
-                            plot_area_height,
-                            &plot_bounds_struct,
-                            &merged_params,
-                            ctx,
-                        )
-                        .await?;
-
-                    let legend_marks = self
-                        .create_legends_with_layout(
-                            &final_scales,
-                            &layout.taffy_layout,
-                            ctx,
-                            &merged_params,
-                        )
-                        .await?;
-
-                    let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
-                        self.create_title(Some(*title_bounds), ctx, &merged_params)
-                            .await?
-                    } else {
-                        Vec::new()
-                    };
-
-                    let subtitle_marks =
-                        if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
-                            self.create_subtitle(Some(*subtitle_bounds), ctx, &merged_params)
+                        let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
+                            self.create_title(Some(*title_bounds), ctx, &merged_params)
                                 .await?
                         } else {
                             Vec::new()
                         };
 
-                    let mut debug_marks = vec![];
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        // Use INITIAL layout for debug visualization - this matches the dimensions used to position marks
-                        // Marks were evaluated with plot_area_width/height from layout_initial
-                        eprintln!(
-                            "INITIAL layout plot width: {}",
-                            layout_initial.taffy_layout.plot_area.width
-                        );
-                        eprintln!(
-                            "FINAL layout plot width: {}",
-                            layout.taffy_layout.plot_area.width
-                        );
-                        debug_marks.extend(crate::render::debug::create_debug_layout_rects(
-                            &layout_initial.taffy_layout, // Use initial layout that matches mark positioning
-                            None,                         // Use default magenta color
-                            None,                         // Use default stroke width (1.0)
-                            None,                         // Use default z-index (20)
-                            false,                        // Don't flip label alignment
-                        ));
-                    }
+                        let subtitle_marks =
+                            if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
+                                self.create_subtitle(Some(*subtitle_bounds), ctx, &merged_params)
+                                    .await?
+                            } else {
+                                Vec::new()
+                            };
 
-                    (
-                        plot_bounds_struct,
-                        guide_marks,
-                        legend_marks,
-                        title_marks,
-                        subtitle_marks,
-                        debug_marks,
-                    )
+                        let mut debug_marks = vec![];
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            // Use INITIAL layout for debug visualization - this matches the dimensions used to position marks
+                            // Marks were evaluated with plot_area_width/height from layout_initial
+                            eprintln!(
+                                "INITIAL layout plot width: {}",
+                                layout_initial.taffy_layout.plot_area.width
+                            );
+                            eprintln!(
+                                "FINAL layout plot width: {}",
+                                layout.taffy_layout.plot_area.width
+                            );
+                            debug_marks.extend(crate::render::debug::create_debug_layout_rects(
+                                &layout_initial.taffy_layout, // Use initial layout that matches mark positioning
+                                None,                         // Use default magenta color
+                                None,                         // Use default stroke width (1.0)
+                                None,                         // Use default z-index (20)
+                                false,                        // Don't flip label alignment
+                            ));
+                        }
+
+                        (
+                            plot_bounds_struct,
+                            guide_marks,
+                            legend_marks,
+                            title_marks,
+                            subtitle_marks,
+                            debug_marks,
+                        )
                     } else {
-                    // Plot area mode (subplots): Has layout computed with legends
-                    // For subplots, the plot area is always at (0, 0) in subplot coordinates
-                    // The facet will translate the entire subplot to the correct position
-                    let plot_bounds_struct = crate::layout::LayoutBounds {
-                        x: 0.0,
-                        y: 0.0,
-                        width: plot_area_width,
-                        height: plot_area_height,
-                    };
-
-                    // Create guide marks
-                    let guide_marks = self
-                        .create_guide_marks(
-                            &merged_scales,
-                            plot_area_width,
-                            plot_area_height,
-                            &plot_bounds_struct,
-                            &merged_params,
-                            ctx,
-                        )
-                        .await?;
-
-                    // Create legend marks from the computed layout
-                    // Legend positions from layout include the plot area offset, but we need them at (0,0)
-                    let plot_bounds = layout_initial.plot_area_bounds();
-                    let legend_marks_raw = self
-                        .create_legends_with_layout(
-                            &merged_scales,
-                            &layout_initial.taffy_layout,
-                            ctx,
-                            &merged_params,
-                        )
-                        .await?;
-
-                    // Translate legend marks to be relative to (0, 0) instead of plot area offset
-                    let legend_marks: Vec<_> = legend_marks_raw.into_iter().map(|mark| {
-                        use avenger_scenegraph::marks::mark::SceneMark;
-                        match mark {
-                            SceneMark::Group(mut group) => {
-                                // Adjust group origin by subtracting plot area offset
-                                group.origin = [
-                                    group.origin[0] - plot_bounds.x,
-                                    group.origin[1] - plot_bounds.y
-                                ].into();
-                                SceneMark::Group(group)
-                            }
-                            _ => mark, // Other mark types shouldn't be at this level
-                        }
-                    }).collect();
-
-                    // Create title/subtitle marks if they exist in layout
-                    let title_marks = vec![];
-                    let subtitle_marks = vec![];
-                    // (Subplots typically don't have titles, but the layout might include them)
-
-                    let mut debug_marks = vec![];
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        // Use the actual computed layout which includes legends
-                        // The layout has plot area at an offset due to overflow/legends
-                        // We need to translate it to (0,0) for subplot coordinates
-                        let plot_bounds = layout_initial.plot_area_bounds();
-
-                        // Create a translated copy of the layout with plot area at (0,0)
-                        let mut subplot_layout = layout_initial.taffy_layout.clone();
-
-                        // Translate plot_area
-                        subplot_layout.plot_area.x -= plot_bounds.x;
-                        subplot_layout.plot_area.y -= plot_bounds.y;
-
-                        // Translate guide_overflows
-                        for (_, bounds) in subplot_layout.guide_overflows.iter_mut() {
-                            bounds.x -= plot_bounds.x;
-                            bounds.y -= plot_bounds.y;
-                        }
-
-                        // Translate legends
-                        for (_, bounds) in subplot_layout.legends.iter_mut() {
-                            bounds.x -= plot_bounds.x;
-                            bounds.y -= plot_bounds.y;
-                        }
-
-                        // Compute unique color for each subplot based on position
-                        let subplot_color_string = if let Some(facet_ctx) =
-                            crate::facet::context::FacetContext::from_params(&merged_params)
-                        {
-                            let (row, col) = facet_ctx.position;
-                            let (_num_rows, num_cols) = facet_ctx.grid_dimensions;
-                            let subplot_index = row * num_cols + col;
-
-                            // Use discrete color palette with distinct hues
-                            let colors = [
-                                "hsla(15, 65%, 60%, 0.8)",  // Orange-red
-                                "hsla(75, 65%, 60%, 0.8)",  // Yellow-green
-                                "hsla(135, 65%, 60%, 0.8)", // Green
-                                "hsla(195, 65%, 60%, 0.8)", // Cyan
-                                "hsla(255, 65%, 60%, 0.8)", // Blue-purple
-                                "hsla(315, 65%, 60%, 0.8)", // Magenta
-                            ];
-
-                            colors[subplot_index % colors.len()].to_string()
-                        } else {
-                            "hsl(195 65% 60%)".to_string() // Fallback to cyan
+                        // Plot area mode (subplots): Has layout computed with legends
+                        // For subplots, the plot area is always at (0, 0) in subplot coordinates
+                        // The facet will translate the entire subplot to the correct position
+                        let plot_bounds_struct = crate::layout::LayoutBounds {
+                            x: 0.0,
+                            y: 0.0,
+                            width: plot_area_width,
+                            height: plot_area_height,
                         };
 
-                        debug_marks.extend(crate::render::debug::create_debug_layout_rects(
-                            &subplot_layout,
-                            Some(subplot_color_string),
-                            Some(1.0), // Same width as outer lines
-                            Some(100), // Higher z-index to render on top
-                            true, // Flip label alignment to avoid overlap with outer plot labels
-                        ));
-                    }
+                        // Create guide marks
+                        let guide_marks = self
+                            .create_guide_marks(
+                                &merged_scales,
+                                plot_area_width,
+                                plot_area_height,
+                                &plot_bounds_struct,
+                                &merged_params,
+                                ctx,
+                            )
+                            .await?;
 
-                    (
-                        plot_bounds_struct,
-                        guide_marks,
-                        legend_marks,
-                        title_marks,
-                        subtitle_marks,
-                        debug_marks,
-                    )
+                        // Create legend marks from the computed layout
+                        // Legend positions from layout include the plot area offset, but we need them at (0,0)
+                        let plot_bounds = layout_initial.plot_area_bounds();
+                        let legend_marks_raw = self
+                            .create_legends_with_layout(
+                                &merged_scales,
+                                &layout_initial.taffy_layout,
+                                ctx,
+                                &merged_params,
+                            )
+                            .await?;
+
+                        // Translate legend marks to be relative to (0, 0) instead of plot area offset
+                        let legend_marks: Vec<_> = legend_marks_raw
+                            .into_iter()
+                            .map(|mark| {
+                                use avenger_scenegraph::marks::mark::SceneMark;
+                                match mark {
+                                    SceneMark::Group(mut group) => {
+                                        // Adjust group origin by subtracting plot area offset
+                                        group.origin = [
+                                            group.origin[0] - plot_bounds.x,
+                                            group.origin[1] - plot_bounds.y,
+                                        ]
+                                        .into();
+                                        SceneMark::Group(group)
+                                    }
+                                    _ => mark, // Other mark types shouldn't be at this level
+                                }
+                            })
+                            .collect();
+
+                        // Create title/subtitle marks if they exist in layout
+                        let title_marks = vec![];
+                        let subtitle_marks = vec![];
+                        // (Subplots typically don't have titles, but the layout might include them)
+
+                        let mut debug_marks = vec![];
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            // Use the actual computed layout which includes legends
+                            // The layout has plot area at an offset due to overflow/legends
+                            // We need to translate it to (0,0) for subplot coordinates
+                            let plot_bounds = layout_initial.plot_area_bounds();
+
+                            // Create a translated copy of the layout with plot area at (0,0)
+                            let mut subplot_layout = layout_initial.taffy_layout.clone();
+
+                            // Translate plot_area
+                            subplot_layout.plot_area.x -= plot_bounds.x;
+                            subplot_layout.plot_area.y -= plot_bounds.y;
+
+                            // Translate guide_overflows
+                            for (_, bounds) in subplot_layout.guide_overflows.iter_mut() {
+                                bounds.x -= plot_bounds.x;
+                                bounds.y -= plot_bounds.y;
+                            }
+
+                            // Translate legends
+                            for (_, bounds) in subplot_layout.legends.iter_mut() {
+                                bounds.x -= plot_bounds.x;
+                                bounds.y -= plot_bounds.y;
+                            }
+
+                            // Compute unique color for each subplot based on position
+                            let subplot_color_string = if let Some(facet_ctx) =
+                                crate::facet::context::FacetContext::from_params(&merged_params)
+                            {
+                                let (row, col) = facet_ctx.position;
+                                let (_num_rows, num_cols) = facet_ctx.grid_dimensions;
+                                let subplot_index = row * num_cols + col;
+
+                                // Use discrete color palette with distinct hues
+                                let colors = [
+                                    "hsla(15, 65%, 60%, 0.8)",  // Orange-red
+                                    "hsla(75, 65%, 60%, 0.8)",  // Yellow-green
+                                    "hsla(135, 65%, 60%, 0.8)", // Green
+                                    "hsla(195, 65%, 60%, 0.8)", // Cyan
+                                    "hsla(255, 65%, 60%, 0.8)", // Blue-purple
+                                    "hsla(315, 65%, 60%, 0.8)", // Magenta
+                                ];
+
+                                colors[subplot_index % colors.len()].to_string()
+                            } else {
+                                "hsl(195 65% 60%)".to_string() // Fallback to cyan
+                            };
+
+                            debug_marks.extend(crate::render::debug::create_debug_layout_rects(
+                                &subplot_layout,
+                                Some(subplot_color_string),
+                                Some(1.0), // Same width as outer lines
+                                Some(100), // Higher z-index to render on top
+                                true, // Flip label alignment to avoid overlap with outer plot labels
+                            ));
+                        }
+
+                        (
+                            plot_bounds_struct,
+                            guide_marks,
+                            legend_marks,
+                            title_marks,
+                            subtitle_marks,
+                            debug_marks,
+                        )
                     }
                 } else {
                     // This branch should now be unreachable since layout_opt is always Some

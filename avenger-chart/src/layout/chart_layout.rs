@@ -84,6 +84,7 @@ pub struct ChartLayout {
     taffy: TaffyTree,
     nodes: TaffyNodes,
     grid_layout: GridLayout,
+    legends_by_position: IndexMap<LegendPosition, Vec<String>>,
 }
 
 impl ChartLayout {
@@ -227,6 +228,7 @@ impl ChartLayout {
             taffy,
             nodes,
             grid_layout,
+            legends_by_position: builder.legends_by_position.clone(),
         };
 
         Ok(layout)
@@ -362,6 +364,7 @@ impl ChartLayout {
             },
             guide_overflows: HashMap::new(),
             legends: IndexMap::new(),
+            legends_by_position: self.legends_by_position.clone(),
             title: None,
             subtitle: None,
         };
