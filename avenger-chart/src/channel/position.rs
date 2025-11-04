@@ -55,7 +55,6 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
                 scale_config,
                 legend_config,
                 share_mode: Some(mode),
-                share_across_facets: None,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -69,7 +68,6 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
                 scale_config,
                 legend_config,
                 share_mode: Some(mode),
-                share_across_facets: None,
             },
             other => other,
         };

@@ -43,7 +43,6 @@ mod serialization_tests {
             scale_config: None,
             legend_config: None,
             share_mode: None,
-            share_across_facets: None,
         };
 
         // Serialize to JSON

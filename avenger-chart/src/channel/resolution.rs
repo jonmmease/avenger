@@ -30,7 +30,6 @@
 //!     scale_config: None,
 //!     legend_config: None,
 //!     share_mode: None,
-//!     share_across_facets: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
 //!     expr: LogicalExprNode::from_expr(col(":y") + lit(10.0)).expect("Failed to serialize expr"),  // References y channel
@@ -39,7 +38,6 @@
 //!     scale_config: None,
 //!     legend_config: None,
 //!     share_mode: None,
-//!     share_across_facets: None,
 //! });
 //!
 //! // Resolve references (function would be imported from this module)
@@ -550,7 +548,6 @@ pub fn resolve_all_channel_refs(
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
                         share_mode: None,
-                        share_across_facets: None,
                     }
                 }
                 ChannelValue::Value { expr } => {
@@ -609,7 +606,6 @@ pub fn resolve_all_channel_refs(
                         scale_config: scale_config.clone(),
                         legend_config: legend_config.clone(),
                         share_mode: None,
-                        share_across_facets: None,
                     }
                 }
             };
@@ -642,7 +638,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -655,7 +650,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
 
@@ -687,7 +681,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -700,7 +693,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -713,7 +705,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
 
@@ -752,7 +743,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
 
@@ -780,7 +770,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -792,7 +781,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
 
@@ -827,7 +815,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -839,7 +826,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
 
@@ -875,7 +861,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -887,7 +872,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -900,7 +884,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
 
@@ -969,7 +952,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -982,7 +964,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -995,7 +976,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -1008,7 +988,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
 
@@ -1034,7 +1013,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
         channels.insert(
@@ -1046,7 +1024,6 @@ mod tests {
                 scale_config: None,
                 legend_config: None,
                 share_mode: None,
-                share_across_facets: None,
             },
         );
 

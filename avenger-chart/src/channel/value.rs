@@ -144,9 +144,6 @@ pub enum ChannelValue {
         /// Share this channel's scale across facets using ScaleSharing enum
         #[serde(default)]
         share_mode: Option<ScaleSharing>,
-        /// Legacy bool-based sharing (deprecated, use share_mode instead)
-        #[serde(default)]
-        share_across_facets: Option<bool>,
     },
     /// Expression that bypasses scaling (identity transformation)
     Value {
@@ -167,9 +164,6 @@ pub enum ChannelValue {
         /// Share this channel's scale across facets using ScaleSharing enum
         #[serde(default)]
         share_mode: Option<ScaleSharing>,
-        /// Legacy bool-based sharing (deprecated, use share_mode instead)
-        #[serde(default)]
-        share_across_facets: Option<bool>,
     },
 }
 
@@ -242,39 +236,11 @@ impl ChannelValue {
         }
     }
 
-    /// Get per-channel facet sharing preference (legacy bool API)
-    ///
-    /// Deprecated: Use get_share_mode() instead for full ScaleSharing enum support
-    pub fn get_share_across_facets(&self) -> Option<bool> {
-        match self {
-            ChannelValue::Scaled {
-                share_across_facets,
-                ..
-            }
-            | ChannelValue::Conditional {
-                share_across_facets,
-                ..
-            } => *share_across_facets,
-            _ => None,
-        }
-    }
-
     /// Get per-channel facet sharing mode
-    ///
-    /// Returns the ScaleSharing mode, checking share_mode first and falling back to
-    /// share_across_facets (converted from bool) for backward compatibility.
     pub fn get_share_mode(&self) -> Option<ScaleSharing> {
         match self {
-            ChannelValue::Scaled {
-                share_mode,
-                share_across_facets,
-                ..
-            }
-            | ChannelValue::Conditional {
-                share_mode,
-                share_across_facets,
-                ..
-            } => share_mode.or_else(|| share_across_facets.map(ScaleSharing::from)),
+            ChannelValue::Scaled { share_mode, .. }
+            | ChannelValue::Conditional { share_mode, .. } => *share_mode,
             _ => None,
         }
     }
@@ -345,7 +311,6 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 share_mode,
-                share_across_facets,
                 ..
             } => ChannelValue::Scaled {
                 expr: expr.clone(),
@@ -354,7 +319,6 @@ impl ChannelValue {
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
                 share_mode,
-                share_across_facets,
             },
             other => other, // No-op for identity and conditional values
         }
@@ -370,7 +334,6 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 share_mode,
-                share_across_facets,
                 ..
             } => ChannelValue::Scaled {
                 expr: new_expr,
@@ -379,7 +342,6 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
                 share_mode,
-                share_across_facets,
             },
             ChannelValue::Value { .. } => ChannelValue::Value { expr: new_expr },
             ChannelValue::Conditional { .. } => {
@@ -391,7 +353,6 @@ impl ChannelValue {
                     scale_config: None,
                     legend_config: None,
                     share_mode: None,
-                    share_across_facets: None,
                 }
             }
         }
@@ -413,7 +374,6 @@ impl ChannelValue {
                 scale_config: scale_config.clone(),
                 legend_config: legend_config.clone(),
                 share_mode: None,
-                share_across_facets: None,
             },
             ChannelValue::Value { expr } => {
                 // Convert to scaled with custom scale
@@ -424,7 +384,6 @@ impl ChannelValue {
                     scale_config: None,
                     legend_config: None,
                     share_mode: None,
-                    share_across_facets: None,
                 }
             }
             ChannelValue::Conditional { .. } => {
@@ -456,7 +415,6 @@ impl ChannelValue {
                 scale_config: Some(scale_changes),
                 legend_config,
                 share_mode: None,
-                share_across_facets: None,
             },
             ChannelValue::Value { expr } => {
                 // Convert to scaled with scale config
@@ -467,7 +425,6 @@ impl ChannelValue {
                     scale_config: Some(scale_changes),
                     legend_config: None,
                     share_mode: None,
-                    share_across_facets: None,
                 }
             }
             ChannelValue::Conditional {
@@ -481,7 +438,6 @@ impl ChannelValue {
                 scale_config: Some(scale_changes),
                 legend_config,
                 share_mode: None,
-                share_across_facets: None,
             },
         }
     }
@@ -513,7 +469,6 @@ impl ChannelValue {
                 scale_config,
                 legend_config: Some(legend),
                 share_mode: None,
-                share_across_facets: None,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -526,7 +481,6 @@ impl ChannelValue {
                 scale_config,
                 legend_config: Some(legend),
                 share_mode: None,
-                share_across_facets: None,
             },
             ChannelValue::Value { .. } => {
                 // No-op for identity values - they don't have legends
@@ -616,7 +570,6 @@ impl From<Expr> for ChannelValue {
             scale_config: None,
             legend_config: None,
             share_mode: None,
-            share_across_facets: None,
         }
     }
 }
@@ -843,7 +796,6 @@ mod tests {
             scale_config: None,
             legend_config: None,
             share_mode: None,
-            share_across_facets: None,
         };
         // Conditional values don't have a single column name
         assert_eq!(cv.as_column_name(&ctx), None);
