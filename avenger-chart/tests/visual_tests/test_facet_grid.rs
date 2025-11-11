@@ -51,7 +51,7 @@ async fn test_grid_facet_basic() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("length_bin"))
+                .column(col("length_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -110,7 +110,7 @@ async fn test_grid_facet_shared_both() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -144,7 +144,7 @@ async fn test_grid_facet_free_scales() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -178,7 +178,7 @@ async fn test_grid_facet_shared_x() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -212,7 +212,7 @@ async fn test_grid_facet_shared_y() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -291,7 +291,7 @@ async fn test_grid_facet_x_axis_top() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -328,7 +328,7 @@ async fn test_grid_facet_single_row() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -358,7 +358,7 @@ async fn test_grid_facet_with_line_mark() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Line::new()
@@ -388,7 +388,7 @@ async fn test_grid_facet_custom_spacing() {
         .mark(
             Facet::new()
                 .row_with(col("species"), |c| c.facet(|f| f.spacing(20.0)))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -419,7 +419,7 @@ async fn test_grid_facet_hybrid_sharing() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -453,7 +453,7 @@ async fn test_grid_facet_y_axis_right() {
         .mark(
             Facet::new()
                 .row(col("species"))
-                .col(col("petal_width_bin"))
+                .column(col("petal_width_bin"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()

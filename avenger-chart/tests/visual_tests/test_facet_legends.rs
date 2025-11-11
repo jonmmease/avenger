@@ -199,10 +199,10 @@ async fn test_facet_col_shared_color_legend() {
         .await
         .expect("add categorical column");
 
-    let plot = Plot::<FacetCol>::new()
+    let plot = Plot::<FacetColumn>::new()
         .data(df)
         .mark(
-            Facet::new().col(col("species")).subplot(
+            Facet::new().column(col("species")).subplot(
                 Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x_with(col("sepal_length"), |c| {

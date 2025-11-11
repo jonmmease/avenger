@@ -79,13 +79,13 @@ impl CoordinateSystemTransform for FacetRow {
 ///
 /// Renders subplots side-by-side in horizontal arrangement with band scale on x-axis.
 #[derive(Clone, Default, Serialize, Deserialize)]
-pub struct FacetCol;
+pub struct FacetColumn;
 
-impl CoordinateSystem for FacetCol {
+impl CoordinateSystem for FacetColumn {
     type Guide = FacetColGuide;
 
     fn required_channels(&self) -> &'static [&'static str] {
-        &["col"]
+        &["column"]
     }
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
@@ -94,9 +94,9 @@ impl CoordinateSystem for FacetCol {
 }
 
 #[typetag::serde]
-impl CoordinateSystemTransform for FacetCol {
+impl CoordinateSystemTransform for FacetColumn {
     fn required_channels(&self) -> &'static [&'static str] {
-        &["col"]
+        &["column"]
     }
 
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
@@ -123,7 +123,7 @@ impl CoordinateSystemTransform for FacetCol {
         _plot_area_height: f64,
     ) -> Option<(f64, f64)> {
         match channel {
-            "col" => Some((0.0, plot_area_width)),
+            "column" => Some((0.0, plot_area_width)),
             _ => None,
         }
     }
@@ -135,7 +135,7 @@ impl CoordinateSystemTransform for FacetCol {
     ) -> HashMap<String, datafusion::scalar::ScalarValue> {
         use datafusion::scalar::ScalarValue;
         let mut options = HashMap::new();
-        if channel == "col" && scale_impl.scale_type() == "band" {
+        if channel == "column" && scale_impl.scale_type() == "band" {
             // Set outer padding to 0 to avoid extra space at left/right
             // Set inner padding to 0.1 for default spacing between facets
             options.insert("padding_inner".to_string(), ScalarValue::Float64(Some(0.1)));
@@ -176,7 +176,7 @@ impl CoordinateSystem for FacetGrid {
     type Guide = GridFacetGuide;
 
     fn required_channels(&self) -> &'static [&'static str] {
-        &["row", "col"]
+        &["row", "column"]
     }
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
@@ -187,7 +187,7 @@ impl CoordinateSystem for FacetGrid {
 #[typetag::serde]
 impl CoordinateSystemTransform for FacetGrid {
     fn required_channels(&self) -> &'static [&'static str] {
-        &["row", "col"]
+        &["row", "column"]
     }
 
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
@@ -215,7 +215,7 @@ impl CoordinateSystemTransform for FacetGrid {
     ) -> Option<(f64, f64)> {
         match channel {
             "row" => Some((0.0, plot_area_height)),
-            "col" => Some((0.0, plot_area_width)),
+            "column" => Some((0.0, plot_area_width)),
             _ => None,
         }
     }
@@ -227,7 +227,7 @@ impl CoordinateSystemTransform for FacetGrid {
     ) -> HashMap<String, datafusion::scalar::ScalarValue> {
         use datafusion::scalar::ScalarValue;
         let mut options = HashMap::new();
-        if (channel == "row" || channel == "col") && scale_impl.scale_type() == "band" {
+        if (channel == "row" || channel == "column") && scale_impl.scale_type() == "band" {
             options.insert("padding_inner".to_string(), ScalarValue::Float64(Some(0.1)));
             options.insert("padding_outer".to_string(), ScalarValue::Float64(Some(0.0)));
             options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));

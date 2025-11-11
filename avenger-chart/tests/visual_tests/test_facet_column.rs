@@ -3,7 +3,7 @@ use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 #[tokio::test]
-async fn facet_col_iris_scatter() {
+async fn facet_column_iris_scatter() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -12,8 +12,8 @@ async fn facet_col_iris_scatter() {
         .expect("load iris dataset");
 
     // Build outer facet column plot
-    let outer = Plot::<FacetCol>::new().data(df).mark(
-        Facet::new().col(col("species")).subplot(
+    let outer = Plot::<FacetColumn>::new().data(df).mark(
+        Facet::new().column(col("species")).subplot(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x(col("sepal_length"))
@@ -29,7 +29,7 @@ async fn facet_col_iris_scatter() {
 }
 
 #[tokio::test]
-async fn facet_col_shared_y_scale() {
+async fn facet_column_shared_y_scale() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -38,8 +38,8 @@ async fn facet_col_shared_y_scale() {
         .expect("load iris dataset");
 
     // Test shared y-scale across columns (y should have unified axis)
-    let outer = Plot::<FacetCol>::new().data(df).mark(
-        Facet::new().col(col("species")).subplot(
+    let outer = Plot::<FacetColumn>::new().data(df).mark(
+        Facet::new().column(col("species")).subplot(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x(col("sepal_length"))
@@ -59,7 +59,7 @@ async fn facet_col_shared_y_scale() {
 }
 
 #[tokio::test]
-async fn facet_col_free_scales() {
+async fn facet_column_free_scales() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -68,8 +68,8 @@ async fn facet_col_free_scales() {
         .expect("load iris dataset");
 
     // Test free scales (each column gets independent x and y scales)
-    let outer = Plot::<FacetCol>::new().data(df).mark(
-        Facet::new().col(col("species")).subplot(
+    let outer = Plot::<FacetColumn>::new().data(df).mark(
+        Facet::new().column(col("species")).subplot(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
@@ -89,7 +89,7 @@ async fn facet_col_free_scales() {
 }
 
 #[tokio::test]
-async fn facet_col_with_title() {
+async fn facet_column_with_title() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -98,7 +98,7 @@ async fn facet_col_with_title() {
         .expect("load iris dataset");
 
     // Test facet title configuration
-    let outer = Plot::<FacetCol>::new().data(df).mark(
+    let outer = Plot::<FacetColumn>::new().data(df).mark(
         Facet::new()
             .col_with(col("species"), |c| c.facet(|f| f.title("Iris Species")))
             .subplot(
@@ -117,7 +117,7 @@ async fn facet_col_with_title() {
 }
 
 #[tokio::test]
-async fn facet_col_custom_spacing() {
+async fn facet_column_custom_spacing() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -126,7 +126,7 @@ async fn facet_col_custom_spacing() {
         .expect("load iris dataset");
 
     // Test custom spacing between facets
-    let outer = Plot::<FacetCol>::new().data(df).mark(
+    let outer = Plot::<FacetColumn>::new().data(df).mark(
         Facet::new()
             .col_with(col("species"), |c| c.facet(|f| f.spacing(20.0)))
             .subplot(
@@ -145,7 +145,7 @@ async fn facet_col_custom_spacing() {
 }
 
 #[tokio::test]
-async fn facet_col_with_line_mark() {
+async fn facet_column_with_line_mark() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -154,8 +154,8 @@ async fn facet_col_with_line_mark() {
         .expect("load iris dataset");
 
     // Test with line marks instead of symbols
-    let outer = Plot::<FacetCol>::new().data(df).mark(
-        Facet::new().col(col("species")).subplot(
+    let outer = Plot::<FacetColumn>::new().data(df).mark(
+        Facet::new().column(col("species")).subplot(
             Plot::<Cartesian>::new().mark(
                 Line::new()
                     .x(col("sepal_length"))
@@ -171,7 +171,7 @@ async fn facet_col_with_line_mark() {
 }
 
 #[tokio::test]
-async fn facet_col_hybrid_sharing() {
+async fn facet_column_hybrid_sharing() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -180,8 +180,8 @@ async fn facet_col_hybrid_sharing() {
         .expect("load iris dataset");
 
     // Test hybrid scale sharing: y shared, x free
-    let outer = Plot::<FacetCol>::new().data(df).mark(
-        Facet::new().col(col("species")).subplot(
+    let outer = Plot::<FacetColumn>::new().data(df).mark(
+        Facet::new().column(col("species")).subplot(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| {
@@ -201,7 +201,7 @@ async fn facet_col_hybrid_sharing() {
 }
 
 #[tokio::test]
-async fn facet_col_x_axis_top() {
+async fn facet_column_x_axis_top() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
     let df = ctx
@@ -210,8 +210,8 @@ async fn facet_col_x_axis_top() {
         .expect("load iris dataset");
 
     // Test with x-axis on top - facet labels should be below plot
-    let outer = Plot::<FacetCol>::new().data(df).mark(
-        Facet::new().col(col("species")).subplot(
+    let outer = Plot::<FacetColumn>::new().data(df).mark(
+        Facet::new().column(col("species")).subplot(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col("sepal_length"), |c| c.axis(|a| a.position("top")))

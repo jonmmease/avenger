@@ -4,7 +4,7 @@
 //! code sharing between FacetRow and FacetCol implementations.
 //!
 //! Key differences abstracted:
-//! - Channel name ("row" vs "col")
+//! - Channel name ("row" vs "column")
 //! - FacetContext position tuple ((row_idx, 0) vs (0, col_idx))
 //! - FacetContext grid dimensions ((num_rows, 1) vs (1, num_cols))
 //! - Adjacent overflow calculation (bottom+top vs right+left)
@@ -15,7 +15,7 @@ use std::collections::HashSet;
 
 /// Configuration trait that abstracts row vs column faceting behavior
 pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
-    /// The channel name for this faceting dimension ("row" or "col")
+    /// The channel name for this faceting dimension ("row" or "column")
     fn channel_name() -> &'static str;
 
     /// The facet direction for guide rendering
@@ -101,11 +101,11 @@ impl FacetDimensionConfig for RowDimensionConfig {
 
 /// Column faceting dimension configuration
 #[derive(Clone, Debug)]
-pub struct ColDimensionConfig;
+pub struct ColumnDimensionConfig;
 
-impl FacetDimensionConfig for ColDimensionConfig {
+impl FacetDimensionConfig for ColumnDimensionConfig {
     fn channel_name() -> &'static str {
-        "col"
+        "column"
     }
 
     fn facet_direction() -> FacetDirection {
@@ -145,7 +145,7 @@ impl FacetDimensionConfig for ColDimensionConfig {
 #[derive(Clone, Debug)]
 pub struct GridDimensionConfig {
     pub row: RowDimensionConfig,
-    pub col: ColDimensionConfig,
+    pub col: ColumnDimensionConfig,
 }
 
 impl GridDimensionConfig {
@@ -153,7 +153,7 @@ impl GridDimensionConfig {
     pub fn new() -> Self {
         Self {
             row: RowDimensionConfig,
-            col: ColDimensionConfig,
+            col: ColumnDimensionConfig,
         }
     }
 

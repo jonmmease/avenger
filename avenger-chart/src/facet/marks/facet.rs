@@ -2,9 +2,9 @@ use crate::channel::config_traits::ScaleSharing;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::facet::context::FacetContext;
-use crate::facet::coord::{FacetCol, FacetRow, FacetGrid};
+use crate::facet::coord::{FacetColumn, FacetRow, FacetGrid};
 use crate::facet::dimension_config::{
-    ColDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
+    ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
 use crate::facet::subplot_iterator::{SubplotIteration, SubplotIterator};
@@ -107,12 +107,12 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
     }
 
     /// Set the faceting channel for columns
-    pub fn col<V: Into<ChannelValue>>(self, value: V) -> Self {
+    pub fn column<V: Into<ChannelValue>>(self, value: V) -> Self {
         let mut s = self;
         s.state.data = s
             .state
             .data
-            .with_channel_value(ColDimensionConfig::channel_name(), value.into());
+            .with_channel_value(ColumnDimensionConfig::channel_name(), value.into());
         s
     }
 
@@ -122,7 +122,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         V: Into<ChannelValue>,
         F: FnOnce(FacetColChannelConfig) -> FacetColChannelConfig,
     {
-        let mut s = self.col(value);
+        let mut s = self.column(value);
         let cfg = f(FacetColChannelConfig::default());
         s.facet_col_title = cfg.title;
         s.facet_spacing = cfg.spacing;
@@ -336,7 +336,7 @@ pub struct CompiledFacetCol {
 }
 
 #[async_trait::async_trait]
-impl<InnerC: CoordinateSystem + Clone> Mark<FacetCol> for Facet<InnerC> {
+impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
     fn state(&self) -> &MarkState {
         &self.state
     }
@@ -398,7 +398,7 @@ impl CompiledMark for CompiledFacetCol {
 
     fn supported_channels(&self) -> Vec<ChannelDescriptor> {
         vec![ChannelDescriptor {
-            name: ColDimensionConfig::channel_name(),
+            name: ColumnDimensionConfig::channel_name(),
             required: true,
             default_value: None,
             allow_column_ref: true,
@@ -417,7 +417,7 @@ impl CompiledMark for CompiledFacetCol {
     ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
         use crate::facet::marks::facet_evaluation::evaluate_facet;
 
-        evaluate_facet::<ColDimensionConfig>(
+        evaluate_facet::<ColumnDimensionConfig>(
             &self.compiled_subplot,
             &self.state,
             self.facet_title.clone(),
@@ -457,7 +457,7 @@ impl CompiledMark for CompiledFacetCol {
         channel: &str,
         data_type: &datafusion::arrow::datatypes::DataType,
     ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
-        if channel == ColDimensionConfig::channel_name() {
+        if channel == ColumnDimensionConfig::channel_name() {
             // Use band scale for column faceting regardless of domain type (categorical input expected)
             Some(Box::new(crate::scales::spec::Band::default()))
         } else {
@@ -476,7 +476,7 @@ impl CompiledMark for CompiledFacetCol {
         let mut options = HashMap::new();
 
         // Configure band scale padding for facet col channel
-        if channel == ColDimensionConfig::channel_name() && scale_impl.scale_type() == "band" {
+        if channel == ColumnDimensionConfig::channel_name() && scale_impl.scale_type() == "band" {
             options.insert("padding_outer".to_string(), lit(0.0f32));
             // Initial padding_inner_px of 0 - will be dynamically measured and rebuilt
             // during evaluate_from_data based on actual subplot overflow
@@ -623,7 +623,7 @@ impl CompiledMark for CompiledFacetGrid {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
-                name: "col",
+                name: "column",
                 required: true,
                 default_value: None,
                 allow_column_ref: true,
@@ -651,7 +651,7 @@ impl CompiledMark for CompiledFacetGrid {
             )
         })?;
 
-        let _col_channel = self.state.data.channels().get("col").ok_or_else(|| {
+        let _col_channel = self.state.data.channels().get("column").ok_or_else(|| {
             AvengerChartError::InvalidArgument(
                 "GridFacet requires .col() channel expression.\n\
                  Example: Facet::new().row(col(\"Species\")).col(col(\"Year\")).subplot(...)"
@@ -661,7 +661,7 @@ impl CompiledMark for CompiledFacetGrid {
 
         // Get row and col scales (may not exist for degenerate single-value cases)
         let row_scale_opt = context.scales.get("row");
-        let col_scale_opt = context.scales.get("col");
+        let col_scale_opt = context.scales.get("column");
 
         // Handle degenerate cases where a scale doesn't exist (single unique value in that dimension)
         let row_domain_vals = if let Some(row_scale) = row_scale_opt {
@@ -720,7 +720,7 @@ impl CompiledMark for CompiledFacetGrid {
                 .state
                 .data
                 .channels()
-                .get("col")
+                .get("column")
                 .and_then(|cv| cv.expr(&context.session_context))
                 .ok_or_else(|| {
                     AvengerChartError::InternalError("GridFacet 'col' channel not found".into())
@@ -760,7 +760,7 @@ impl CompiledMark for CompiledFacetGrid {
             .state
             .data
             .channels()
-            .get("col")
+            .get("column")
             .and_then(|cv| cv.expr(&context.session_context))
             .ok_or_else(|| {
                 AvengerChartError::InternalError("GridFacet 'col' channel not found".into())
@@ -838,7 +838,7 @@ impl CompiledMark for CompiledFacetGrid {
             vec![vec![crate::guide::OverflowSpaceRequirement::default(); num_cols]; num_rows];
 
         // Measure overflow for each grid cell using nested SubplotIterators
-        use crate::facet::dimension_config::{ColDimensionConfig, RowDimensionConfig};
+        use crate::facet::dimension_config::{ColumnDimensionConfig, RowDimensionConfig};
 
         let row_iter_pass1 = SubplotIterator::<RowDimensionConfig>::new(
             row_domain_vals.clone(),
@@ -847,7 +847,7 @@ impl CompiledMark for CompiledFacetGrid {
         );
 
         for row_iteration in row_iter_pass1 {
-            let col_iter_pass1 = SubplotIterator::<ColDimensionConfig>::new(
+            let col_iter_pass1 = SubplotIterator::<ColumnDimensionConfig>::new(
                 col_domain_vals.clone(),
                 context.params.clone(),
                 scale_sharing_by_channel.clone(),
@@ -918,7 +918,7 @@ impl CompiledMark for CompiledFacetGrid {
         let mut max_horizontal_gap = 0.0_f32;
         for row_idx in 0..num_rows {
             for col_idx in 0..num_cols.saturating_sub(1) {
-                let gap = ColDimensionConfig::calculate_adjacent_overflow(
+                let gap = ColumnDimensionConfig::calculate_adjacent_overflow(
                     &overflow_grid[row_idx][col_idx],
                     &overflow_grid[row_idx][col_idx + 1],
                 );
@@ -994,7 +994,7 @@ impl CompiledMark for CompiledFacetGrid {
                 config: new_config,
             };
             updated_scales.insert(
-                "col".to_string(),
+                "column".to_string(),
                 crate::scales::ConfiguredScaleWithSpec::new(
                     col_scale.spec().clone(),
                     new_configured,
@@ -1020,7 +1020,7 @@ impl CompiledMark for CompiledFacetGrid {
             }
         }
 
-        if let Some(col_scale) = updated_scales.get("col") {
+        if let Some(col_scale) = updated_scales.get("column") {
             if let Ok(band_iter) =
                 crate::facet::band_positions::BandPositionIterator::from_scale(col_scale)
             {
@@ -1046,7 +1046,7 @@ impl CompiledMark for CompiledFacetGrid {
         } else {
             None
         };
-        let col_band_iter_pass2 = if let Some(col_scale) = updated_scales.get("col") {
+        let col_band_iter_pass2 = if let Some(col_scale) = updated_scales.get("column") {
             Some(BandPositionIterator::from_scale(col_scale)?)
         } else {
             None
@@ -1081,7 +1081,7 @@ impl CompiledMark for CompiledFacetGrid {
 
         // Render each grid cell using nested loops
         for (row_iteration, row_band_pos) in row_iter_with_bands {
-            let col_iter_pass2 = SubplotIterator::<ColDimensionConfig>::new(
+            let col_iter_pass2 = SubplotIterator::<ColumnDimensionConfig>::new(
                 col_domain_vals.clone(),
                 context.params.clone(),
                 scale_sharing_by_channel.clone(),
@@ -1090,7 +1090,7 @@ impl CompiledMark for CompiledFacetGrid {
             // Zip col iterator with col band positions (or use fallback positions)
             let col_iter_with_bands = if let Some(_band_iter) = col_band_iter_pass2.as_ref() {
                 // Need to recreate the band iterator for each row since iterators aren't Clone
-                let col_scale = updated_scales.get("col").unwrap();
+                let col_scale = updated_scales.get("column").unwrap();
                 let band_iter = BandPositionIterator::from_scale(col_scale)?;
                 col_iter_pass2.zip(band_iter).collect::<Vec<_>>()
             } else {
@@ -1275,7 +1275,7 @@ impl CompiledMark for CompiledFacetGrid {
         channel: &str,
         _data_type: &datafusion::arrow::datatypes::DataType,
     ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
-        if channel == "row" || channel == "col" {
+        if channel == "row" || channel == "column" {
             // Use band scale for grid faceting channels
             Some(Box::new(crate::scales::spec::Band::default()))
         } else {
@@ -1294,7 +1294,7 @@ impl CompiledMark for CompiledFacetGrid {
         let mut options = HashMap::new();
 
         // Configure band scale padding for grid facet channels
-        if (channel == "row" || channel == "col") && scale_impl.scale_type() == "band" {
+        if (channel == "row" || channel == "column") && scale_impl.scale_type() == "band" {
             options.insert("padding_outer".to_string(), lit(0.0f32));
             options.insert("padding_inner_px".to_string(), lit(0.0f32));
         }

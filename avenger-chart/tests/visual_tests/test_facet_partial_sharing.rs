@@ -92,7 +92,7 @@ async fn test_grid_facet_shared_in_row() {
         .mark(
             Facet::new()
                 .row(col("row_facet"))
-                .col(col("col_facet"))
+                .column(col("col_facet"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -127,7 +127,7 @@ async fn test_grid_facet_shared_in_column() {
         .mark(
             Facet::new()
                 .row(col("row_facet"))
-                .col(col("col_facet"))
+                .column(col("col_facet"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -169,7 +169,7 @@ async fn test_grid_facet_mixed_sharing() {
         .mark(
             Facet::new()
                 .row(col("row_facet"))
-                .col(col("col_facet"))
+                .column(col("col_facet"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -201,7 +201,7 @@ async fn test_grid_facet_compare_sharing_modes() {
         .mark(
             Facet::new()
                 .row(col("row_facet"))
-                .col(col("col_facet"))
+                .column(col("col_facet"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -230,7 +230,7 @@ async fn test_grid_facet_compare_sharing_modes() {
         .mark(
             Facet::new()
                 .row(col("row_facet"))
-                .col(col("col_facet"))
+                .column(col("col_facet"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -270,7 +270,7 @@ async fn test_grid_facet_axis_label_visibility() {
         .mark(
             Facet::new()
                 .row(col("row_facet"))
-                .col(col("col_facet"))
+                .column(col("col_facet"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -308,7 +308,7 @@ async fn test_grid_facet_shared_in_row_with_varying_sizes() {
         .mark(
             Facet::new()
                 .row(col("row_facet"))
-                .col(col("col_facet"))
+                .column(col("col_facet"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()
@@ -346,7 +346,7 @@ async fn test_grid_facet_using_enum_directly() {
         .mark(
             Facet::new()
                 .row(col("row_facet"))
-                .col(col("col_facet"))
+                .column(col("col_facet"))
                 .subplot(
                     Plot::<Cartesian>::new().mark(
                         Symbol::new()

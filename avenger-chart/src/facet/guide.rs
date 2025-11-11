@@ -1,6 +1,6 @@
 use crate::channel::config_traits::ScaleSharing;
 use crate::facet::dimension_config::{
-    ColDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
+    ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
 use crate::guide::{CompiledGuide, CoordinateGuide, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
@@ -705,13 +705,13 @@ impl FacetColGuide {
             let col_expr = source
                 .data
                 .channels()
-                .get(ColDimensionConfig::channel_name())
+                .get(ColumnDimensionConfig::channel_name())
                 .and_then(|cv| cv.expr(ctx))
                 .ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
                         format!(
                             "Facet '{}' channel not found in guide",
-                            ColDimensionConfig::channel_name()
+                            ColumnDimensionConfig::channel_name()
                         )
                         .into(),
                     )
@@ -750,7 +750,7 @@ impl FacetColGuide {
             use crate::plot::compiled::scale_provider::DefaultScaleProvider;
             use crate::plot::compiled::scales::build_scale_builder_from_marks;
 
-            let subplot_iter = SubplotIterator::<ColDimensionConfig>::new(
+            let subplot_iter = SubplotIterator::<ColumnDimensionConfig>::new(
                 domain_vals.clone(),
                 params.clone(),
                 scale_sharing_by_channel.clone(),
@@ -839,7 +839,7 @@ impl CoordinateGuide for FacetColGuide {
         // Derive default facet title if not explicitly set
         if self.facet_title.is_none() {
             if let Some(src) = self.facet_sources.first() {
-                if let Some(cv) = src.data.channels().get(ColDimensionConfig::channel_name()) {
+                if let Some(cv) = src.data.channels().get(ColumnDimensionConfig::channel_name()) {
                     if let Some(name) = cv.as_column_name(_session_context) {
                         self.facet_title = Some(name);
                     }
@@ -854,7 +854,7 @@ impl CoordinateGuide for FacetColGuide {
             if let Some(src) = self.facet_sources.first() {
                 if let Some(info) = src.subplot.compiled_guide.as_ref().and_then(|g| {
                     g.facet_unifiable_channel(
-                        ColDimensionConfig::facet_direction(),
+                        ColumnDimensionConfig::facet_direction(),
                         src.subplot.marks(),
                         _session_context,
                     )
@@ -889,12 +889,12 @@ impl CompiledGuide for FacetColGuide {
 
         // Get col scale
         let col_scale = scales
-            .get(ColDimensionConfig::channel_name())
+            .get(ColumnDimensionConfig::channel_name())
             .ok_or_else(|| {
                 crate::error::AvengerChartError::InternalError(
                     format!(
                         "Missing '{}' scale for FacetColGuide",
-                        ColDimensionConfig::channel_name()
+                        ColumnDimensionConfig::channel_name()
                     )
                     .into(),
                 )
@@ -1054,7 +1054,7 @@ impl CompiledGuide for FacetColGuide {
 
         let mut marks: Vec<SceneMark> = Vec::new();
 
-        let col_scale = match scales.get(ColDimensionConfig::channel_name()) {
+        let col_scale = match scales.get(ColumnDimensionConfig::channel_name()) {
             Some(s) => s,
             None => return Ok(marks),
         };
@@ -1314,7 +1314,7 @@ impl CoordinateGuide for GridFacetGuide {
         // Derive col title from col channel (fallback if not explicitly set)
         if self.col_title.is_none() {
             if let Some(src) = self.facet_sources.first() {
-                if let Some(cv) = src.data.channels().get("col") {
+                if let Some(cv) = src.data.channels().get("column") {
                     if let Some(name) = cv.as_column_name(_session_context) {
                         self.col_title = Some(name);
                     }
@@ -1342,10 +1342,10 @@ impl CoordinateGuide for GridFacetGuide {
         // Derive unified x-title from subplot guide (for col dimension)
         if self.unified_x_title.is_none() {
             if let Some(src) = self.facet_sources.first() {
-                use crate::facet::dimension_config::ColDimensionConfig;
+                use crate::facet::dimension_config::ColumnDimensionConfig;
                 if let Some(info) = src.subplot.compiled_guide.as_ref().and_then(|g| {
                     g.facet_unifiable_channel(
-                        ColDimensionConfig::facet_direction(),
+                        ColumnDimensionConfig::facet_direction(),
                         src.subplot.marks(),
                         _session_context,
                     )
@@ -1381,7 +1381,7 @@ impl CompiledGuide for GridFacetGuide {
 
         // Get row and col scales (may not exist for degenerate single-value cases)
         let row_scale_opt = scales.get("row");
-        let col_scale_opt = scales.get("col");
+        let col_scale_opt = scales.get("column");
 
         // If either scale is missing, this is a degenerate case - return empty marks
         if row_scale_opt.is_none() || col_scale_opt.is_none() {
@@ -1425,7 +1425,7 @@ impl CompiledGuide for GridFacetGuide {
             let col_expr = source
                 .data
                 .channels()
-                .get("col")
+                .get("column")
                 .and_then(|cv| cv.expr(ctx))
                 .ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
@@ -1469,7 +1469,7 @@ impl CompiledGuide for GridFacetGuide {
                 scale_sharing_by_channel.insert(ch.to_string(), mode);
             }
 
-            use crate::facet::dimension_config::{ColDimensionConfig, RowDimensionConfig};
+            use crate::facet::dimension_config::{ColumnDimensionConfig, RowDimensionConfig};
             use crate::facet::subplot_iterator::SubplotIterator;
 
             let num_rows = row_domain_vals.len();
@@ -1491,7 +1491,7 @@ impl CompiledGuide for GridFacetGuide {
             );
 
             for row_iteration in row_iter {
-                let col_iter = SubplotIterator::<ColDimensionConfig>::new(
+                let col_iter = SubplotIterator::<ColumnDimensionConfig>::new(
                     col_domain_vals.clone(),
                     params.clone(),
                     scale_sharing_by_channel.clone(),
@@ -1842,7 +1842,7 @@ impl CompiledGuide for GridFacetGuide {
             Some(s) => s,
             None => return Ok(marks), // Degenerate case: no row scale
         };
-        let col_scale = match scales.get("col") {
+        let col_scale = match scales.get("column") {
             Some(s) => s,
             None => return Ok(marks), // Degenerate case: no col scale
         };
@@ -1929,7 +1929,7 @@ impl CompiledGuide for GridFacetGuide {
             let col_expr = source
                 .data
                 .channels()
-                .get("col")
+                .get("column")
                 .and_then(|cv| cv.expr(ctx))
                 .ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
@@ -1973,7 +1973,7 @@ impl CompiledGuide for GridFacetGuide {
                 scale_sharing_by_channel.insert(ch.to_string(), mode);
             }
 
-            use crate::facet::dimension_config::{ColDimensionConfig, RowDimensionConfig};
+            use crate::facet::dimension_config::{ColumnDimensionConfig, RowDimensionConfig};
             use crate::facet::subplot_iterator::SubplotIterator;
 
             let num_rows = row_domain_vals.len();
@@ -1995,7 +1995,7 @@ impl CompiledGuide for GridFacetGuide {
             );
 
             for row_iteration in row_iter {
-                let col_iter = SubplotIterator::<ColDimensionConfig>::new(
+                let col_iter = SubplotIterator::<ColumnDimensionConfig>::new(
                     col_domain_vals.clone(),
                     params.clone(),
                     scale_sharing_by_channel.clone(),
