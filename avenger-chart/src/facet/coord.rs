@@ -5,7 +5,23 @@ use avenger_common::value::ScalarOrArray;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// FacetRow coordinate system: vertical bands addressed by a `row` channel.
+/// Row faceting coordinate system
+///
+/// Facets data along the row dimension, creating a vertical stack of subplots.
+/// Each subplot represents one unique value from the `row` channel.
+///
+/// # Example
+/// ```ignore
+/// let plot = Plot::<FacetRow>::new()
+///     .data(df)
+///     .mark(
+///         Facet::new()
+///             .row(col("species"))
+///             .subplot(
+///                 Plot::<Cartesian>::new().mark(Symbol::new()...),
+///             ),
+///     );
+/// ```
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct FacetRow;
 
@@ -75,9 +91,23 @@ impl CoordinateSystemTransform for FacetRow {
     }
 }
 
-/// FacetCol coordinate system: horizontal bands addressed by a `col` channel.
+/// Column faceting coordinate system
 ///
-/// Renders subplots side-by-side in horizontal arrangement with band scale on x-axis.
+/// Facets data along the column dimension, creating a horizontal row of subplots.
+/// Each subplot represents one unique value from the `column` channel.
+///
+/// # Example
+/// ```ignore
+/// let plot = Plot::<FacetColumn>::new()
+///     .data(df)
+///     .mark(
+///         Facet::new()
+///             .column(col("year"))
+///             .subplot(
+///                 Plot::<Cartesian>::new().mark(Symbol::new()...),
+///             ),
+///     );
+/// ```
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct FacetColumn;
 
@@ -145,10 +175,6 @@ impl CoordinateSystemTransform for FacetColumn {
         options
     }
 }
-
-// ============================================================================
-// GridFacet - 2D Grid Faceting (Row × Column)
-// ============================================================================
 
 /// Grid faceting coordinate system
 ///
