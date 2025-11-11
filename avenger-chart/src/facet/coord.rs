@@ -66,7 +66,7 @@ impl CoordinateSystemTransform for FacetRow {
         let mut options = HashMap::new();
         if channel == "row" && scale_impl.scale_type() == "band" {
             // Set outer padding to 0 to avoid extra space at top/bottom
-            // Set inner padding to 0.1 for spacing between facets
+            // Set inner padding to 0.1 for default spacing between facets
             options.insert("padding_inner".to_string(), ScalarValue::Float64(Some(0.1)));
             options.insert("padding_outer".to_string(), ScalarValue::Float64(Some(0.0)));
             options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
@@ -137,7 +137,7 @@ impl CoordinateSystemTransform for FacetCol {
         let mut options = HashMap::new();
         if channel == "col" && scale_impl.scale_type() == "band" {
             // Set outer padding to 0 to avoid extra space at left/right
-            // Set inner padding to 0.1 for spacing between facets
+            // Set inner padding to 0.1 for default spacing between facets
             options.insert("padding_inner".to_string(), ScalarValue::Float64(Some(0.1)));
             options.insert("padding_outer".to_string(), ScalarValue::Float64(Some(0.0)));
             options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
@@ -158,7 +158,7 @@ impl CoordinateSystemTransform for FacetCol {
 ///
 /// # Example
 /// ```ignore
-/// let plot = Plot::<GridFacet>::new()
+/// let plot = Plot::<FacetGrid>::new()
 ///     .data(df)
 ///     .mark(
 ///         Facet::new()
@@ -170,9 +170,9 @@ impl CoordinateSystemTransform for FacetCol {
 ///     );
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize)]
-pub struct GridFacet;
+pub struct FacetGrid;
 
-impl CoordinateSystem for GridFacet {
+impl CoordinateSystem for FacetGrid {
     type Guide = GridFacetGuide;
 
     fn required_channels(&self) -> &'static [&'static str] {
@@ -185,7 +185,7 @@ impl CoordinateSystem for GridFacet {
 }
 
 #[typetag::serde]
-impl CoordinateSystemTransform for GridFacet {
+impl CoordinateSystemTransform for FacetGrid {
     fn required_channels(&self) -> &'static [&'static str] {
         &["row", "col"]
     }

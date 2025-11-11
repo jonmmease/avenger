@@ -86,7 +86,7 @@ async fn test_grid_facet_shared_in_row() {
     // - Row 1 (R1): Both C1 and C2 share the same y-scale [0-300]
     // - Row 2 (R2): Both C1 and C2 share the same y-scale [200-500]
     // - x-scale is free (each cell has its own scale)
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 400)
         .mark(
@@ -121,7 +121,7 @@ async fn test_grid_facet_shared_in_column() {
     // - Column 1 (C1): Both R1 and R2 share the same x-scale [0-50]
     // - Column 2 (C2): Both R1 and R2 share the same x-scale [0-30]
     // - y-scale is free (each cell has its own scale)
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 400)
         .mark(
@@ -163,7 +163,7 @@ async fn test_grid_facet_mixed_sharing() {
     // - Each row has a shared y-scale (comparable across columns within a row)
     // - Each column has a shared x-scale (comparable across rows within a column)
     // - All subplots show axis labels only on edges
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 400)
         .mark(
@@ -195,7 +195,7 @@ async fn test_grid_facet_compare_sharing_modes() {
     let df = create_varying_data().await;
 
     // Free scales (default)
-    let free_plot = Plot::<GridFacet>::new()
+    let free_plot = Plot::<FacetGrid>::new()
         .data(df.clone())
         .canvas_size(280, 280)
         .mark(
@@ -224,7 +224,7 @@ async fn test_grid_facet_compare_sharing_modes() {
     .await;
 
     // Shared scales (both x and y shared)
-    let shared_plot = Plot::<GridFacet>::new()
+    let shared_plot = Plot::<FacetGrid>::new()
         .data(df.clone())
         .canvas_size(280, 280)
         .mark(
@@ -264,7 +264,7 @@ async fn test_grid_facet_axis_label_visibility() {
 
     // With SharedInRow: y-axis labels should only show on left and right edges
     // With free x-scale: x-axis labels show on all bottom cells
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 400)
         .mark(
@@ -302,7 +302,7 @@ async fn test_grid_facet_shared_in_row_with_varying_sizes() {
     let ctx = SessionContext::new();
     let df = create_varying_data().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 400)
         .mark(
@@ -340,7 +340,7 @@ async fn test_grid_facet_using_enum_directly() {
     let ctx = SessionContext::new();
     let df = create_varying_data().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 400)
         .mark(

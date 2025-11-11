@@ -269,7 +269,7 @@ async fn test_facet_grid_with_legends() {
         .await
         .expect("add categorical columns");
 
-    let plot = Plot::<GridFacet>::new()
+    let plot = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(800.0, 600.0)
         .mark(
@@ -340,7 +340,7 @@ async fn test_facet_grid_with_legends_alt_axes() {
         .await
         .expect("add categorical columns");
 
-    let plot = Plot::<GridFacet>::new()
+    let plot = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(800.0, 600.0)
         .mark(

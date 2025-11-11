@@ -45,7 +45,7 @@ async fn test_grid_facet_basic() {
         )
         .unwrap();
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -72,7 +72,7 @@ async fn test_grid_facet_with_titles() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -104,7 +104,7 @@ async fn test_grid_facet_shared_both() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -138,7 +138,7 @@ async fn test_grid_facet_free_scales() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -172,7 +172,7 @@ async fn test_grid_facet_shared_x() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -206,7 +206,7 @@ async fn test_grid_facet_shared_y() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -240,7 +240,7 @@ async fn test_grid_facet_with_unified_titles() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -285,7 +285,7 @@ async fn test_grid_facet_x_axis_top() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -322,7 +322,7 @@ async fn test_grid_facet_single_row() {
         .filter(col("species").eq(lit("setosa")))
         .unwrap();
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -352,7 +352,7 @@ async fn test_grid_facet_with_line_mark() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -382,7 +382,7 @@ async fn test_grid_facet_custom_spacing() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -413,7 +413,7 @@ async fn test_grid_facet_hybrid_sharing() {
     let df = iris_with_binned_petal_width().await;
 
     // Test hybrid scale sharing: x shared, y free
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -447,7 +447,7 @@ async fn test_grid_facet_y_axis_right() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<GridFacet>::new()
+    let outer = Plot::<FacetGrid>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(

@@ -2,7 +2,7 @@ use crate::channel::config_traits::ScaleSharing;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::facet::context::FacetContext;
-use crate::facet::coord::{FacetCol, FacetRow, GridFacet};
+use crate::facet::coord::{FacetCol, FacetRow, FacetGrid};
 use crate::facet::dimension_config::{
     ColDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
@@ -554,7 +554,7 @@ pub struct CompiledFacetGrid {
 }
 
 #[async_trait::async_trait]
-impl<InnerC: CoordinateSystem + Clone> Mark<GridFacet> for Facet<InnerC> {
+impl<InnerC: CoordinateSystem + Clone> Mark<FacetGrid> for Facet<InnerC> {
     fn state(&self) -> &MarkState {
         &self.state
     }
