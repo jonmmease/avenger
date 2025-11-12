@@ -124,7 +124,6 @@ impl CoordinateSystemTransform for FacetRow {
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
-        let _ = position_values; // Will be used in Stage 3
         let row_positions = position_channels.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing 'row' channel for FacetRow transform".into())
         })?;
@@ -141,11 +140,20 @@ impl CoordinateSystemTransform for FacetRow {
             return Ok(Box::new(crate::coords::SubplotGeometry::default()));
         }
 
+        // Extract actual row values from position_values (if provided)
+        let row_values = position_values
+            .and_then(|pv| pv.get("row"))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
         let rects = starts
             .into_iter()
-            .map(|start| {
+            .enumerate()
+            .map(|(i, start)| {
+                // Use actual facet value if available, otherwise Null
+                let value = row_values.get(i).cloned().unwrap_or(ScalarValue::Null);
                 crate::coords::SubplotRect::new(
-                    ScalarValue::Null,
+                    value,
                     0.0,
                     start,
                     plot_width,
@@ -266,7 +274,6 @@ impl CoordinateSystemTransform for FacetColumn {
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
-        let _ = position_values; // Will be used in Stage 3
         let column_positions = position_channels.get("column").ok_or_else(|| {
             AvengerChartError::InternalError(
                 "Missing 'column' channel for FacetColumn transform".into(),
@@ -285,11 +292,20 @@ impl CoordinateSystemTransform for FacetColumn {
             return Ok(Box::new(crate::coords::SubplotGeometry::default()));
         }
 
+        // Extract actual column values from position_values (if provided)
+        let column_values = position_values
+            .and_then(|pv| pv.get("column"))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
         let rects = starts
             .into_iter()
-            .map(|start| {
+            .enumerate()
+            .map(|(i, start)| {
+                // Use actual facet value if available, otherwise Null
+                let value = column_values.get(i).cloned().unwrap_or(ScalarValue::Null);
                 crate::coords::SubplotRect::new(
-                    ScalarValue::Null,
+                    value,
                     start,
                     0.0,
                     bandwidth,
@@ -420,7 +436,6 @@ impl CoordinateSystemTransform for FacetGrid {
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
-        let _ = position_values; // Will be used in Stage 3
         let row_positions = position_channels.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing 'row' channel for FacetGrid transform".into())
         })?;
@@ -448,11 +463,21 @@ impl CoordinateSystemTransform for FacetGrid {
             return Ok(Box::new(crate::coords::SubplotGeometry::default()));
         }
 
+        // Extract actual row values from position_values (if provided)
+        // Note: For FacetGrid, we store the row value. In the future, we could enhance
+        // this to store both row and column in a struct or list if needed.
+        let row_values = position_values
+            .and_then(|pv| pv.get("row"))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
         let mut rects = Vec::with_capacity(row_starts.len() * col_starts.len());
-        for &y in &row_starts {
-            for &x in &col_starts {
+        for (row_idx, &y) in row_starts.iter().enumerate() {
+            for (_col_idx, &x) in col_starts.iter().enumerate() {
+                // For FacetGrid, store the row value (simplified for now)
+                let value = row_values.get(row_idx).cloned().unwrap_or(ScalarValue::Null);
                 rects.push(crate::coords::SubplotRect::new(
-                    ScalarValue::Null,
+                    value,
                     x,
                     y,
                     col_bandwidth,
