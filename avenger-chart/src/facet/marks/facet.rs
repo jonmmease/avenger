@@ -267,6 +267,11 @@ impl CompiledMark for CompiledFacetRow {
             self.facet_title.clone(),
             self.facet_spacing,
             context,
+            if self.distinct_keys.is_empty() {
+                None
+            } else {
+                Some(&self.distinct_keys)
+            },
             // Row: height varies with band size, width is fixed
             // Round bandwidth to integer for pixel-aligned subplot dimensions
             |band_height, ctx| {
@@ -468,6 +473,11 @@ impl CompiledMark for CompiledFacetCol {
             self.facet_title.clone(),
             self.facet_spacing,
             context,
+            if self.distinct_keys.is_empty() {
+                None
+            } else {
+                Some(&self.distinct_keys)
+            },
             // Column: width varies with band size, height is fixed
             // Round bandwidth to integer for pixel-aligned subplot dimensions
             |band_width, ctx| {

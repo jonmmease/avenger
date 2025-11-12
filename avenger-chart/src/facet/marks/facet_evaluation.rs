@@ -54,6 +54,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     _facet_title: Option<String>,
     facet_spacing: Option<f32>,
     context: &RenderContext,
+    facet_keys: Option<&[ScalarValue]>,
     // Orientation-specific closures:
     // Returns (width, height) given band size and context
     subplot_dims: impl Fn(f32, &RenderContext) -> (f32, f32),
@@ -180,10 +181,14 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     // ========== PASS 1: MEASUREMENT PHASE ==========
     // Extract domain values from band positions for SubplotIterator
-    let domain_vals: Vec<ScalarValue> = initial_band_positions
-        .iter()
-        .map(|(val, _)| val.clone())
-        .collect();
+    let domain_vals: Vec<ScalarValue> = if let Some(keys) = facet_keys {
+        keys.to_vec()
+    } else {
+        initial_band_positions
+            .iter()
+            .map(|(val, _)| val.clone())
+            .collect()
+    };
 
     // Create SubplotIterator for logical iteration (FacetContext management)
     use crate::facet::subplot_iterator::SubplotIterator;
@@ -233,7 +238,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             .filter(facet_expr.clone().eq(lit(iteration.facet_value.clone())))?;
 
         // Build scales for this partition (use shared scales if available)
-        let (width, height) = subplot_dims(band_pos.bandwidth, context);
 
         // For free-scale facets, build a per-facet ScaleBuilder
         let free_scale_builder_pass1 = if any_shared {
