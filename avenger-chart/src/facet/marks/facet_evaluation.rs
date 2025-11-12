@@ -3,7 +3,7 @@
 /// This module provides a parameterized two-pass rendering algorithm that works for
 /// both row and column faceting by accepting orientation-specific closures.
 use crate::channel::config_traits::ScaleSharing;
-use crate::coords::SubplotGeometry;
+use crate::coords::{FacetAxis, SubplotGeometry};
 use crate::error::AvengerChartError;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use crate::facet::scale_helpers::build_scales_helper;
@@ -12,7 +12,6 @@ use crate::marks::CompiledMarkState;
 use crate::plot::CompiledPlot;
 use crate::render::RenderContext;
 use crate::scales::ConfiguredScaleWithSpec;
-use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::common::ScalarValue;
@@ -87,8 +86,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     let initial_band_positions: Vec<_> = BandPositionIterator::from_scale(dimension_scale)?
         .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
         .collect();
-
-    let mut coord = compiled_subplot.coord_transform.clone_box();
 
     // Get the inner plot-level DataFrame
     let ctx = &context.session_context;
@@ -196,48 +193,47 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         scale_sharing_by_channel.clone(),
     );
 
-    let mut position_channels: HashMap<&str, ScalarOrArray<f32>> = HashMap::new();
-    let centers: Vec<f32> = initial_band_positions
-        .iter()
-        .map(|(_, (start, bandwidth))| start + bandwidth / 2.0)
-        .collect();
-    position_channels.insert(DimConfig::channel_name(), ScalarOrArray::new_array(centers));
+    let initial_geometry = SubplotGeometry::from_band_positions(
+        BandPositionIterator::from_scale(dimension_scale)?,
+        if DimConfig::is_row_facet() {
+            FacetAxis::Row
+        } else {
+            FacetAxis::Column
+        },
+        if DimConfig::is_row_facet() {
+            context.plot_width
+        } else {
+            context.plot_height
+        },
+    );
+    let initial_rects = initial_geometry.rects;
 
-    let initial_geometry =
-        coord.transform(&position_channels, context.plot_width, context.plot_height)?;
-    let mut initial_rects = initial_geometry
-        .as_any()
-        .downcast_ref::<SubplotGeometry>()
-        .ok_or_else(|| {
-            AvengerChartError::InternalError(
-                "Expected SubplotGeometry from coord.transform()".into(),
-            )
-        })?
-        .rects
-        .clone();
+    // Create BandPositionIterator for geometric iteration (layout positions)
+    let band_iter = BandPositionIterator::from_scale(dimension_scale)?;
 
-    for (rect, value) in initial_rects.iter_mut().zip(domain_vals.iter()) {
-        rect.value = value.clone();
-    }
-
+    // Safety check: both iterators must have same length
     assert_eq!(
         subplot_iter.len(),
-        initial_rects.len(),
-        "SubplotIterator and geometry length mismatch in Pass 1"
+        band_iter.len(),
+        "SubplotIterator and BandPositionIterator length mismatch in Pass 1"
     );
 
     let mut overflow_measurements = Vec::new();
 
-    for (iteration, rect) in subplot_iter.zip(initial_rects.iter()) {
+    for ((iteration, band_pos), rect) in subplot_iter.zip(band_iter).zip(initial_rects.iter()) {
         let band_size = if DimConfig::is_row_facet() {
             rect.height
         } else {
             rect.width
         };
         let (width, height) = subplot_dims(band_size, context);
+        // Filter df by facet_value
         let filter_df: DataFrame = df
             .clone()
             .filter(facet_expr.clone().eq(lit(iteration.facet_value.clone())))?;
+
+        // Build scales for this partition (use shared scales if available)
+        let (width, height) = subplot_dims(band_pos.bandwidth, context);
 
         // For free-scale facets, build a per-facet ScaleBuilder
         let free_scale_builder_pass1 = if any_shared {
@@ -316,7 +312,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Round gap to nearest integer for pixel alignment
     // Use standard ceil() rounding - band scale and manual rounding handle filling the range
     let rounded_gap = max_required_gap.ceil();
-    coord = coord.with_measured_padding(rounded_gap, overflow_measurements.clone());
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
@@ -367,31 +362,21 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
         .collect();
 
-    let final_centers: Vec<f32> = band_positions
-        .iter()
-        .map(|(_, (start, bandwidth))| start + bandwidth / 2.0)
-        .collect();
-    position_channels.insert(
-        DimConfig::channel_name(),
-        ScalarOrArray::new_array(final_centers),
+    let final_geometry = SubplotGeometry::from_band_positions(
+        BandPositionIterator::from_scale(final_dimension_scale)?,
+        if DimConfig::is_row_facet() {
+            FacetAxis::Row
+        } else {
+            FacetAxis::Column
+        },
+        if DimConfig::is_row_facet() {
+            context.plot_width
+        } else {
+            context.plot_height
+        },
     );
-
-    let final_geometry =
-        coord.transform(&position_channels, context.plot_width, context.plot_height)?;
-    let mut final_rects = final_geometry
-        .as_any()
-        .downcast_ref::<SubplotGeometry>()
-        .ok_or_else(|| {
-            AvengerChartError::InternalError(
-                "Expected SubplotGeometry from coord.transform()".into(),
-            )
-        })?
-        .rects
-        .clone();
-
-    for (rect, value) in final_rects.iter_mut().zip(domain_vals.iter()) {
-        rect.value = value.clone();
-    }
+    let final_rects = final_geometry.rects;
+    let band_iter_pass2 = BandPositionIterator::from_scale(final_dimension_scale)?;
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         if let Some(last_pos) = band_positions.last() {
@@ -459,28 +444,31 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         scale_sharing_by_channel.clone(),
     );
 
+    // Create BandPositionIterator for Pass 2 (layout positions)
     // Safety check: both iterators must have same length
     assert_eq!(
         subplot_iter_pass2.len(),
-        final_rects.len(),
-        "SubplotIterator and geometry length mismatch in Pass 2"
+        band_iter_pass2.len(),
+        "SubplotIterator and BandPositionIterator length mismatch in Pass 2"
     );
 
-    for (subplot_index, (iteration, rect)) in subplot_iter_pass2.zip(final_rects.iter()).enumerate()
-    {
-        let band_size = if DimConfig::is_row_facet() {
-            rect.height
-        } else {
-            rect.width
-        };
+    assert_eq!(
+        final_rects.len(),
+        subplot_iter_pass2.len(),
+        "Final geometry rect count mismatch"
+    );
 
+    for (subplot_index, ((iteration, band_pos), rect)) in subplot_iter_pass2
+        .zip(band_iter_pass2)
+        .zip(final_rects.iter())
+        .enumerate()
+    {
         // Filter df by facet_value
         let filter_df: DataFrame = df
             .clone()
             .filter(facet_expr.clone().eq(lit(iteration.facet_value.clone())))?;
 
         // Build scales and evaluate inner components for this partition
-        let (width, height) = subplot_dims(band_size, context);
         let band_size = if DimConfig::is_row_facet() {
             rect.height
         } else {
@@ -552,11 +540,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             .await?;
 
         // Use raw group origin for smooth subpixel positioning
-        let origin = group_origin(if DimConfig::is_row_facet() {
-            rect.y
-        } else {
-            rect.x
-        });
+        let origin = group_origin(band_pos.start());
 
         // Wrap data marks in a clipped group translated to band position
         let data_group = SceneGroup {
@@ -629,16 +613,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                     .unwrap_or_default();
 
                 // Position within plot-area coordinates (before outer plot translation)
-                let band_start = if DimConfig::is_row_facet() {
-                    rect.y
-                } else {
-                    rect.x
-                };
-                let band_end = if DimConfig::is_row_facet() {
-                    rect.y + rect.height
-                } else {
-                    rect.x + rect.width
-                }; // geometry-derived end position
+                let band_start = band_pos.start();
+                let band_end = band_pos.end(); // Use band scale's actual end position (not band_start + rounded_width)
                 let left_rect_x_rel_plot = band_start - overflow_dbg.left;
                 let right_rect_x_rel_plot = band_end; // right overflow placed at band end
 
