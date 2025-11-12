@@ -225,7 +225,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     let mut overflow_measurements = Vec::new();
 
-    for ((iteration, band_pos), rect) in subplot_iter.zip(band_iter).zip(initial_rects.iter()) {
+    for ((iteration, _band_pos), rect) in subplot_iter.zip(band_iter).zip(initial_rects.iter()) {
         let band_size = if DimConfig::is_row_facet() {
             rect.height
         } else {

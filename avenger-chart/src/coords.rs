@@ -226,14 +226,22 @@ pub trait CoordinateSystemTransform: Send + Sync {
     ///
     /// # Arguments
     /// * `position_channels` - Map of position channel names to their scaled data
+    /// * `position_values` - Optional source ScalarValue for each position (faceting only)
     /// * `plot_width` - Width of the plot area
     /// * `plot_height` - Height of the plot area
+    ///
+    /// For facet coordinates (FacetRow, FacetColumn, FacetGrid), `position_values` provides
+    /// the original domain values that were scaled to produce `position_channels`. This enables
+    /// SubplotRect.value to store the actual facet key (e.g., "setosa", "versicolor").
+    ///
+    /// For point-based coordinates (Cartesian, Polar, ZeroD), this parameter is unused.
     ///
     /// # Returns
     /// The coordinate system's plot geometry type containing transformed positions
     fn transform(
         &self,
         position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn PlotGeometry>, AvengerChartError>;

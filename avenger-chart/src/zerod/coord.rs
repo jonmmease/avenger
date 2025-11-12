@@ -49,9 +49,11 @@ impl CoordinateSystemTransform for ZeroDCoord {
     fn transform(
         &self,
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+        let _ = position_values;
         use avenger_common::value::ScalarOrArray;
 
         // In 0D space, all points collapse to the center of the plot area
@@ -118,7 +120,7 @@ mod tests {
         // Test with empty position channels (single point)
         let position_channels = HashMap::new();
         let geometry = coord_transform
-            .transform(&position_channels, 100.0, 100.0)
+            .transform(&position_channels, None, 100.0, 100.0)
             .unwrap();
         let point_geometry = geometry
             .as_any()
@@ -143,7 +145,7 @@ mod tests {
         );
 
         let geometry_arr = coord_transform
-            .transform(&position_channels_with_data, 100.0, 100.0)
+            .transform(&position_channels_with_data, None, 100.0, 100.0)
             .unwrap();
         let point_geometry_arr = geometry_arr
             .as_any()

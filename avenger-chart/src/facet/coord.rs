@@ -6,7 +6,6 @@ use datafusion::common::ScalarValue;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Row faceting coordinate system
 ///
@@ -35,6 +34,7 @@ pub struct FacetRow {
 }
 
 impl FacetRow {
+    #[allow(dead_code)]
     pub(crate) fn new_with_state(
         padding_px: Option<f32>,
         overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
@@ -120,9 +120,11 @@ impl CoordinateSystemTransform for FacetRow {
     fn transform(
         &self,
         position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+        let _ = position_values; // Will be used in Stage 3
         let row_positions = position_channels.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing 'row' channel for FacetRow transform".into())
         })?;
@@ -212,6 +214,7 @@ pub struct FacetColumn {
 }
 
 impl FacetColumn {
+    #[allow(dead_code)]
     pub(crate) fn new_with_state(
         padding_px: Option<f32>,
         overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
@@ -259,9 +262,11 @@ impl CoordinateSystemTransform for FacetColumn {
     fn transform(
         &self,
         position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+        let _ = position_values; // Will be used in Stage 3
         let column_positions = position_channels.get("column").ok_or_else(|| {
             AvengerChartError::InternalError(
                 "Missing 'column' channel for FacetColumn transform".into(),
@@ -359,6 +364,7 @@ pub struct FacetGrid {
 }
 
 impl FacetGrid {
+    #[allow(dead_code)]
     pub(crate) fn new_with_state(
         row_padding_px: Option<f32>,
         col_padding_px: Option<f32>,
@@ -410,9 +416,11 @@ impl CoordinateSystemTransform for FacetGrid {
     fn transform(
         &self,
         position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+        let _ = position_values; // Will be used in Stage 3
         let row_positions = position_channels.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing 'row' channel for FacetGrid transform".into())
         })?;

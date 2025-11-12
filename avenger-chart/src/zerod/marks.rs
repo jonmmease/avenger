@@ -140,7 +140,7 @@ impl CompiledMark for CompiledZeroDSymbol {
         // Transform will give us a center point
         let position_channels = std::collections::HashMap::new();
         let geometry =
-            coord.transform(&position_channels, context.plot_width, context.plot_height)?;
+            coord.transform(&position_channels, None, context.plot_width, context.plot_height)?;
         let geometry = geometry
             .as_any()
             .downcast_ref::<crate::coords::PointGeometry>()

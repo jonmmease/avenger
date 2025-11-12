@@ -33,9 +33,11 @@ impl CoordinateSystemTransform for Cartesian {
     fn transform(
         &self,
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         _plot_width: f32,
         _plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+        let _ = position_values;
         // In Cartesian coordinates, the scaled values are already in plot coordinates
         // Just extract x and y from the position channels
         let x = position_channels

@@ -179,7 +179,7 @@ impl CompiledMark for CompiledCartesianLine {
 
         // Transform position channels to plot coordinates
         let geometry =
-            coord.transform(&position_channels, context.plot_width, context.plot_height)?;
+            coord.transform(&position_channels, None, context.plot_width, context.plot_height)?;
         let geometry = geometry
             .as_any()
             .downcast_ref::<crate::coords::PointGeometry>()

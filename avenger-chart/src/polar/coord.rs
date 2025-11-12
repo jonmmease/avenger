@@ -39,9 +39,11 @@ impl CoordinateSystemTransform for Polar {
     fn transform(
         &self,
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+        let _ = position_values;
         use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 
         // Get r and theta channels

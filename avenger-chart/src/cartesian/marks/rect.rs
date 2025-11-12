@@ -170,11 +170,13 @@ impl CompiledMark for CompiledCartesianRect {
         // Transform both corners through the coordinate system
         let geometry1 = coord.transform(
             &position_channels_corner1,
+            None,
             context.plot_width,
             context.plot_height,
         )?;
         let geometry2 = coord.transform(
             &position_channels_corner2,
+            None,
             context.plot_width,
             context.plot_height,
         )?;
