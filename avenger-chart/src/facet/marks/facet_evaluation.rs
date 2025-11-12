@@ -13,6 +13,7 @@ use crate::render::RenderContext;
 use crate::scales::ConfiguredScaleWithSpec;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::common::ScalarValue;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::lit;
 use std::collections::HashMap;
@@ -58,9 +59,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Returns [x, y] translation given band position
     group_origin: impl Fn(f32) -> [f32; 2],
     // Cache for storing Pass 1 maximum overflow across all subplots
-    cached_edge_overflow: &std::sync::Arc<
-        std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>,
-    >,
+    cached_edge_overflow: &Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
 ) -> Result<(Vec<SceneMark>, Box<dyn LayoutInfo>), AvengerChartError> {
     // Get dimension scale (row or col)
     let dimension_scale = context
@@ -180,7 +179,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     // ========== PASS 1: MEASUREMENT PHASE ==========
     // Extract domain values from band positions for SubplotIterator
-    let domain_vals: Vec<datafusion::common::ScalarValue> = initial_band_positions
+    let domain_vals: Vec<ScalarValue> = initial_band_positions
         .iter()
         .map(|(val, _)| val.clone())
         .collect();
@@ -397,7 +396,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     };
 
     // Extract domain values from final band positions for SubplotIterator
-    let domain_vals_final: Vec<datafusion::common::ScalarValue> =
+    let domain_vals_final: Vec<ScalarValue> =
         band_positions.iter().map(|(val, _)| val.clone()).collect();
 
     // Create SubplotIterator for Pass 2 (FacetContext management)

@@ -4,6 +4,7 @@ pub mod coord;
 pub mod dimension_config;
 pub mod guide;
 pub mod guide_utils;
+pub mod keys;
 pub mod marks;
 pub mod scale_grouping;
 pub mod scale_helpers;

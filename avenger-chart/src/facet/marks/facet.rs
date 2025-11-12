@@ -6,6 +6,7 @@ use crate::facet::coord::{FacetColumn, FacetGrid, FacetRow};
 use crate::facet::dimension_config::{
     ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
+use crate::facet::keys::FacetKeyExtractor;
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
 use crate::facet::subplot_iterator::{SubplotIteration, SubplotIterator};
 use crate::marks::{
@@ -13,11 +14,13 @@ use crate::marks::{
 };
 use crate::plot::{CompiledPlot, Plot};
 use crate::render::RenderContext;
+use crate::serialization::SerializableScalar;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::{FromInto, serde_as};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -137,12 +140,15 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
 }
 
 /// Compiled facet mark specialized for FacetRow outer coords
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetRow {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
+    #[serde_as(as = "Vec<FromInto<SerializableScalar>>")]
+    pub(crate) distinct_keys: Vec<ScalarValue>,
     /// Cached Pass 1 maximum overflow across all subplots
     /// Set during evaluation for use by guide
     #[serde(
@@ -182,11 +188,28 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
             Arc::new(plot_owned.compile(session_context).await?)
         };
+        let distinct_keys = {
+            let df = compiled_state
+                .data
+                .dataframe_with_context(session_context)
+                .ok_or_else(|| AvengerChartError::InternalError("FacetRow requires data".into()))?;
+            let expr = compiled_state
+                .data
+                .channels()
+                .get(RowDimensionConfig::channel_name())
+                .and_then(|cv| cv.expr(session_context))
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError("Facet 'row' channel not found".into())
+                })?;
+            FacetKeyExtractor::extract_keys(&df, &expr).await?
+        };
+
         Ok(Arc::new(CompiledFacetRow {
             state: compiled_state,
             compiled_subplot,
             facet_title: self.facet_row_title.clone(),
             facet_spacing: self.facet_spacing,
+            distinct_keys,
             cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }))
     }
@@ -319,12 +342,15 @@ impl CompiledMark for CompiledFacetRow {
 // ============================================================================
 
 /// Compiled facet mark specialized for FacetCol outer coords
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetCol {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
+    #[serde_as(as = "Vec<FromInto<SerializableScalar>>")]
+    pub(crate) distinct_keys: Vec<ScalarValue>,
     /// Cached Pass 1 maximum overflow across all subplots
     /// Set during evaluation for use by guide
     #[serde(
@@ -363,11 +389,30 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
             let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
             Arc::new(plot_owned.compile(session_context).await?)
         };
+        let distinct_keys = {
+            let df = compiled_state
+                .data
+                .dataframe_with_context(session_context)
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError("FacetColumn requires data".into())
+                })?;
+            let expr = compiled_state
+                .data
+                .channels()
+                .get(ColumnDimensionConfig::channel_name())
+                .and_then(|cv| cv.expr(session_context))
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError("Facet 'column' channel not found".into())
+                })?;
+            FacetKeyExtractor::extract_keys(&df, &expr).await?
+        };
+
         Ok(Arc::new(CompiledFacetCol {
             state: compiled_state,
             compiled_subplot,
             facet_title: self.facet_col_title.clone(),
             facet_spacing: self.facet_spacing,
+            distinct_keys,
             cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }))
     }
@@ -544,12 +589,17 @@ pub fn merge_grid_facet_contexts(
 }
 
 /// Compiled facet mark specialized for GridFacet outer coords (2D row×col grid)
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetGrid {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) row_title: Option<String>,
     pub(crate) col_title: Option<String>,
+    #[serde_as(as = "Vec<FromInto<SerializableScalar>>")]
+    pub(crate) row_keys: Vec<ScalarValue>,
+    #[serde_as(as = "Vec<FromInto<SerializableScalar>>")]
+    pub(crate) col_keys: Vec<ScalarValue>,
     pub(crate) facet_spacing: Option<f32>,
 }
 
@@ -581,11 +631,39 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetGrid> for Facet<InnerC> {
             let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
             Arc::new(plot_owned.compile(session_context).await?)
         };
+        let data_df = compiled_state
+            .data
+            .dataframe_with_context(session_context)
+            .ok_or_else(|| AvengerChartError::InternalError("FacetGrid requires data".into()))?;
+        let row_expr = compiled_state
+            .data
+            .channels()
+            .get(RowDimensionConfig::channel_name())
+            .and_then(|cv| cv.expr(session_context))
+            .ok_or_else(|| {
+                AvengerChartError::InternalError("FacetGrid 'row' channel not found".into())
+            })?;
+        let col_expr = compiled_state
+            .data
+            .channels()
+            .get(ColumnDimensionConfig::channel_name())
+            .and_then(|cv| cv.expr(session_context))
+            .ok_or_else(|| {
+                AvengerChartError::InternalError("FacetGrid 'column' channel not found".into())
+            })?;
+        let row_keys = {
+            let df = data_df.clone();
+            FacetKeyExtractor::extract_keys(&df, &row_expr).await?
+        };
+        let col_keys = FacetKeyExtractor::extract_keys(&data_df, &col_expr).await?;
+
         Ok(Arc::new(CompiledFacetGrid {
             state: compiled_state,
             compiled_subplot,
             row_title: self.facet_row_title.clone(),
             col_title: self.facet_col_title.clone(),
+            row_keys,
+            col_keys,
             facet_spacing: self.facet_spacing,
         }))
     }
@@ -674,35 +752,7 @@ impl CompiledMark for CompiledFacetGrid {
                 }
             }
         } else {
-            // No row scale means single value - get it from the data
-            let row_expr = self
-                .state
-                .data
-                .channels()
-                .get("row")
-                .and_then(|cv| cv.expr(&context.session_context))
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError("GridFacet 'row' channel not found".into())
-                })?;
-
-            let df = self
-                .state
-                .data
-                .dataframe_with_context(&context.session_context)
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError("GridFacet could not access data".into())
-                })?;
-
-            let distinct_df = df.clone().select(vec![row_expr.clone()])?.distinct()?;
-
-            let batches = distinct_df.collect().await?;
-            if batches.is_empty() || batches[0].num_rows() == 0 {
-                vec![]
-            } else {
-                let col = batches[0].column(0);
-                use datafusion::common::ScalarValue;
-                vec![ScalarValue::try_from_array(col, 0)?]
-            }
+            self.row_keys.clone()
         };
 
         let col_domain_vals = if let Some(col_scale) = col_scale_opt {
@@ -715,35 +765,7 @@ impl CompiledMark for CompiledFacetGrid {
                 }
             }
         } else {
-            // No col scale means single value - get it from the data
-            let col_expr = self
-                .state
-                .data
-                .channels()
-                .get("column")
-                .and_then(|cv| cv.expr(&context.session_context))
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError("GridFacet 'col' channel not found".into())
-                })?;
-
-            let df = self
-                .state
-                .data
-                .dataframe_with_context(&context.session_context)
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError("GridFacet could not access data".into())
-                })?;
-
-            let distinct_df = df.clone().select(vec![col_expr.clone()])?.distinct()?;
-
-            let batches = distinct_df.collect().await?;
-            if batches.is_empty() || batches[0].num_rows() == 0 {
-                vec![]
-            } else {
-                let col = batches[0].column(0);
-                use datafusion::common::ScalarValue;
-                vec![ScalarValue::try_from_array(col, 0)?]
-            }
+            self.col_keys.clone()
         };
 
         // Get row and col expressions
