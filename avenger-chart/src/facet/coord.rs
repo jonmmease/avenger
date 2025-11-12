@@ -356,3 +356,43 @@ impl CoordinateSystemTransform for FacetGrid {
         options
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::coords::OverflowSpaceRequirement;
+
+    #[test]
+    fn facet_row_new_with_state_constructs_struct() {
+        let coord = FacetRow::new_with_state(
+            Some(5.0),
+            Some(vec![OverflowSpaceRequirement {
+                top: 1.0,
+                bottom: 2.0,
+                left: 3.0,
+                right: 4.0,
+            }]),
+        );
+        assert_eq!(coord.padding_px, Some(5.0));
+        assert!(coord.overflow_by_facet.is_some());
+    }
+
+    #[test]
+    fn facet_grid_new_with_state_sets_fields() {
+        let coord = FacetGrid::new_with_state(
+            Some(2.0),
+            Some(3.0),
+            Some(vec![OverflowSpaceRequirement {
+                top: 0.5,
+                bottom: 0.5,
+                left: 0.25,
+                right: 0.25,
+            }]),
+            None,
+        );
+        assert_eq!(coord.row_padding_px, Some(2.0));
+        assert_eq!(coord.col_padding_px, Some(3.0));
+        assert!(coord.row_overflow_by_facet.is_some());
+        assert!(coord.col_overflow_by_facet.is_none());
+    }
+}
