@@ -3,7 +3,6 @@
 /// This module provides a parameterized two-pass rendering algorithm that works for
 /// both row and column faceting by accepting orientation-specific closures.
 use crate::channel::config_traits::ScaleSharing;
-use crate::coords::{FacetAxis, SubplotGeometry};
 use crate::error::AvengerChartError;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use crate::facet::scale_helpers::build_scales_helper;
@@ -198,20 +197,42 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         scale_sharing_by_channel.clone(),
     );
 
-    let initial_geometry = SubplotGeometry::from_band_positions(
-        BandPositionIterator::from_scale(dimension_scale)?,
-        if DimConfig::is_row_facet() {
-            FacetAxis::Row
-        } else {
-            FacetAxis::Column
-        },
-        if DimConfig::is_row_facet() {
-            context.plot_width
-        } else {
-            context.plot_height
-        },
-    );
-    let initial_rects = initial_geometry.rects;
+    // Build position_channels and position_values for coord.transform()
+    let band_iter_pass1 = BandPositionIterator::from_scale(dimension_scale)?;
+    let band_data: Vec<_> = band_iter_pass1.collect();
+
+    let position_channels_pass1 = {
+        use avenger_common::value::ScalarOrArray;
+        let positions: Vec<f32> = band_data.iter().map(|bp| bp.center()).collect();
+        let mut channels = HashMap::new();
+        channels.insert(
+            DimConfig::channel_name(),
+            ScalarOrArray::new_array(positions),
+        );
+        channels
+    };
+
+    let position_values_pass1 = {
+        let values: Vec<ScalarValue> = band_data.iter().map(|bp| bp.value.clone()).collect();
+        let mut vals = HashMap::new();
+        vals.insert(DimConfig::channel_name(), values);
+        vals
+    };
+
+    // Use coord.transform() instead of from_band_positions()
+    let initial_geometry_box = compiled_subplot.coord_transform.transform(
+        &position_channels_pass1,
+        Some(&position_values_pass1),
+        context.plot_width,
+        context.plot_height,
+    )?;
+    let initial_geometry = initial_geometry_box
+        .as_any()
+        .downcast_ref::<crate::coords::SubplotGeometry>()
+        .ok_or_else(|| {
+            AvengerChartError::InternalError("Expected SubplotGeometry from facet coord".into())
+        })?;
+    let initial_rects = &initial_geometry.rects;
 
     // Create BandPositionIterator for geometric iteration (layout positions)
     let band_iter = BandPositionIterator::from_scale(dimension_scale)?;
@@ -362,25 +383,50 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 format!("Missing rebuilt '{}' scale", DimConfig::channel_name()).into(),
             )
         })?;
-    let band_positions: Vec<_> = BandPositionIterator::from_scale(final_dimension_scale)?
+    // Collect band positions for both coord.transform() and debugging
+    let band_iter_pass2_collect = BandPositionIterator::from_scale(final_dimension_scale)?;
+    let band_data_pass2: Vec<_> = band_iter_pass2_collect.collect();
+    let band_positions: Vec<_> = band_data_pass2
+        .iter()
         .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
         .collect();
 
-    let final_geometry = SubplotGeometry::from_band_positions(
-        BandPositionIterator::from_scale(final_dimension_scale)?,
-        if DimConfig::is_row_facet() {
-            FacetAxis::Row
-        } else {
-            FacetAxis::Column
-        },
-        if DimConfig::is_row_facet() {
-            context.plot_width
-        } else {
-            context.plot_height
-        },
-    );
-    let final_rects = final_geometry.rects;
-    let band_iter_pass2 = BandPositionIterator::from_scale(final_dimension_scale)?;
+    // Build position_channels and position_values for coord.transform()
+    let position_channels_pass2 = {
+        use avenger_common::value::ScalarOrArray;
+        let positions: Vec<f32> = band_data_pass2.iter().map(|bp| bp.center()).collect();
+        let mut channels = HashMap::new();
+        channels.insert(
+            DimConfig::channel_name(),
+            ScalarOrArray::new_array(positions),
+        );
+        channels
+    };
+
+    let position_values_pass2 = {
+        let values: Vec<ScalarValue> = band_data_pass2.iter().map(|bp| bp.value.clone()).collect();
+        let mut vals = HashMap::new();
+        vals.insert(DimConfig::channel_name(), values);
+        vals
+    };
+
+    // Use coord.transform() instead of from_band_positions()
+    let final_geometry_box = compiled_subplot.coord_transform.transform(
+        &position_channels_pass2,
+        Some(&position_values_pass2),
+        context.plot_width,
+        context.plot_height,
+    )?;
+    let final_geometry = final_geometry_box
+        .as_any()
+        .downcast_ref::<crate::coords::SubplotGeometry>()
+        .ok_or_else(|| {
+            AvengerChartError::InternalError("Expected SubplotGeometry from facet coord".into())
+        })?;
+    let final_rects = &final_geometry.rects;
+
+    // Re-create band iterator for pass 2 loop iteration
+    let band_iter_pass2 = band_data_pass2.into_iter();
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         if let Some(last_pos) = band_positions.last() {
@@ -523,32 +569,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 }
             }
         }
-
-        // STAGE 2: Build position_channels and position_values for facet coordinates
-        // These will be consumed in Stage 3 when Facet coords use coord.transform()
-        // For now, prefix with underscore since they're not used until Stage 3
-        let _position_channels = {
-            use avenger_common::value::ScalarOrArray;
-            let mut channels = HashMap::new();
-
-            // For the facet dimension (row or col), insert the scaled band position
-            // band_pos.center() gives us the center of the band in plot coordinates
-            channels.insert(
-                DimConfig::channel_name(),
-                ScalarOrArray::new_scalar(band_pos.center()),
-            );
-            channels
-        };
-
-        let _position_values = {
-            let mut values = HashMap::new();
-            // For the facet dimension, store the original facet value
-            values.insert(
-                DimConfig::channel_name(),
-                vec![iteration.facet_value.clone()],
-            );
-            values
-        };
 
         // Render subplot using evaluate_in_canvas with Render mode
         // This creates all marks including legends, titles, and subtitles
