@@ -2,8 +2,11 @@ use crate::coords::{CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRe
 use crate::error::AvengerChartError;
 use crate::facet::guide::{FacetColGuide, FacetRowGuide, GridFacetGuide};
 use avenger_common::value::ScalarOrArray;
+use datafusion::common::ScalarValue;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Row faceting coordinate system
 ///
@@ -55,6 +58,44 @@ impl CoordinateSystem for FacetRow {
     }
 }
 
+fn compute_band_layout(centers: &[f32], extent: f32, padding_px: Option<f32>) -> (Vec<f32>, f32) {
+    if centers.is_empty() {
+        return (Vec::new(), 0.0);
+    }
+
+    let mut sorted = centers.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+
+    let mut base_bandwidth = if sorted.len() > 1 {
+        sorted
+            .windows(2)
+            .filter_map(|pair| {
+                let gap = (pair[1] - pair[0]).abs();
+                if gap.is_finite() && gap > 0.0 {
+                    Some(gap)
+                } else {
+                    None
+                }
+            })
+            .fold(f32::INFINITY, f32::min)
+    } else {
+        extent
+    };
+
+    if !base_bandwidth.is_finite() || base_bandwidth <= 0.0 {
+        base_bandwidth = extent;
+    }
+
+    let effective_bandwidth = (base_bandwidth - padding_px.unwrap_or(0.0)).max(0.0);
+
+    let starts = centers
+        .iter()
+        .map(|center| center - effective_bandwidth / 2.0)
+        .collect();
+
+    (starts, effective_bandwidth)
+}
+
 #[typetag::serde]
 impl CoordinateSystemTransform for FacetRow {
     fn required_channels(&self) -> &'static [&'static str] {
@@ -78,16 +119,40 @@ impl CoordinateSystemTransform for FacetRow {
 
     fn transform(
         &self,
-        _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
-        _plot_width: f32,
-        _plot_height: f32,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        plot_width: f32,
+        plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
-        // FacetRow's transform is not used for direct geometry; subplots manage their own.
-        // Return a degenerate point geometry to satisfy the trait.
-        Ok(Box::new(crate::coords::PointGeometry {
-            x: ScalarOrArray::new_scalar(0.0),
-            y: ScalarOrArray::new_scalar(0.0),
-        }))
+        let row_positions = position_channels.get("row").ok_or_else(|| {
+            AvengerChartError::InternalError("Missing 'row' channel for FacetRow transform".into())
+        })?;
+
+        let count = row_positions.len();
+        if count == 0 {
+            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+        }
+
+        let centers = row_positions.as_vec(count, None);
+        let (starts, bandwidth) = compute_band_layout(&centers, plot_height, self.padding_px);
+
+        if starts.is_empty() {
+            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+        }
+
+        let rects = starts
+            .into_iter()
+            .map(|start| {
+                crate::coords::SubplotRect::new(
+                    ScalarValue::Null,
+                    0.0,
+                    start,
+                    plot_width,
+                    bandwidth,
+                )
+            })
+            .collect();
+
+        Ok(Box::new(crate::coords::SubplotGeometry::new(rects)))
     }
 
     fn default_range(
@@ -193,15 +258,42 @@ impl CoordinateSystemTransform for FacetColumn {
 
     fn transform(
         &self,
-        _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
-        _plot_width: f32,
-        _plot_height: f32,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        plot_width: f32,
+        plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
-        // Facet mark handles subplot positioning; return degenerate geometry
-        Ok(Box::new(crate::coords::PointGeometry {
-            x: ScalarOrArray::new_scalar(0.0),
-            y: ScalarOrArray::new_scalar(0.0),
-        }))
+        let column_positions = position_channels.get("column").ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Missing 'column' channel for FacetColumn transform".into(),
+            )
+        })?;
+
+        let count = column_positions.len();
+        if count == 0 {
+            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+        }
+
+        let centers = column_positions.as_vec(count, None);
+        let (starts, bandwidth) = compute_band_layout(&centers, plot_width, self.padding_px);
+
+        if starts.is_empty() {
+            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+        }
+
+        let rects = starts
+            .into_iter()
+            .map(|start| {
+                crate::coords::SubplotRect::new(
+                    ScalarValue::Null,
+                    start,
+                    0.0,
+                    bandwidth,
+                    plot_height,
+                )
+            })
+            .collect();
+
+        Ok(Box::new(crate::coords::SubplotGeometry::new(rects)))
     }
 
     fn default_range(
@@ -317,15 +409,51 @@ impl CoordinateSystemTransform for FacetGrid {
 
     fn transform(
         &self,
-        _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
-        _plot_width: f32,
-        _plot_height: f32,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        plot_width: f32,
+        plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
-        // Facet mark handles subplot positioning; return degenerate geometry
-        Ok(Box::new(crate::coords::PointGeometry {
-            x: ScalarOrArray::new_scalar(0.0),
-            y: ScalarOrArray::new_scalar(0.0),
-        }))
+        let row_positions = position_channels.get("row").ok_or_else(|| {
+            AvengerChartError::InternalError("Missing 'row' channel for FacetGrid transform".into())
+        })?;
+        let column_positions = position_channels.get("column").ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Missing 'column' channel for FacetGrid transform".into(),
+            )
+        })?;
+
+        let row_count = row_positions.len();
+        let col_count = column_positions.len();
+        if row_count == 0 || col_count == 0 {
+            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+        }
+
+        let row_centers = row_positions.as_vec(row_count, None);
+        let col_centers = column_positions.as_vec(col_count, None);
+
+        let (row_starts, row_bandwidth) =
+            compute_band_layout(&row_centers, plot_height, self.row_padding_px);
+        let (col_starts, col_bandwidth) =
+            compute_band_layout(&col_centers, plot_width, self.col_padding_px);
+
+        if row_starts.is_empty() || col_starts.is_empty() {
+            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+        }
+
+        let mut rects = Vec::with_capacity(row_starts.len() * col_starts.len());
+        for &y in &row_starts {
+            for &x in &col_starts {
+                rects.push(crate::coords::SubplotRect::new(
+                    ScalarValue::Null,
+                    x,
+                    y,
+                    col_bandwidth,
+                    row_bandwidth,
+                ));
+            }
+        }
+
+        Ok(Box::new(crate::coords::SubplotGeometry::new(rects)))
     }
 
     fn default_range(
