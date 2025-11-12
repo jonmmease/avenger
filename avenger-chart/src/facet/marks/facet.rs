@@ -2,7 +2,7 @@ use crate::channel::config_traits::ScaleSharing;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::facet::context::FacetContext;
-use crate::facet::coord::{FacetColumn, FacetRow, FacetGrid};
+use crate::facet::coord::{FacetColumn, FacetGrid, FacetRow};
 use crate::facet::dimension_config::{
     ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };

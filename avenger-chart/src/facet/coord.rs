@@ -1,4 +1,4 @@
-use crate::coords::{CoordinateSystem, CoordinateSystemTransform};
+use crate::coords::{CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRequirement};
 use crate::error::AvengerChartError;
 use crate::facet::guide::{FacetColGuide, FacetRowGuide, GridFacetGuide};
 use avenger_common::value::ScalarOrArray;
@@ -22,8 +22,26 @@ use std::collections::HashMap;
 ///             ),
 ///     );
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct FacetRow;
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct FacetRow {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) padding_px: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+}
+
+impl FacetRow {
+    pub(crate) fn new_with_state(
+        padding_px: Option<f32>,
+        overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+    ) -> Self {
+        Self {
+            padding_px,
+            overflow_by_facet,
+        }
+    }
+}
 
 impl CoordinateSystem for FacetRow {
     type Guide = FacetRowGuide;
@@ -45,6 +63,17 @@ impl CoordinateSystemTransform for FacetRow {
 
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
+    }
+
+    fn with_measured_padding(
+        &self,
+        padding_px: f32,
+        overflow: Vec<crate::coords::OverflowSpaceRequirement>,
+    ) -> Box<dyn CoordinateSystemTransform> {
+        let mut updated = self.clone();
+        updated.padding_px = Some(padding_px);
+        updated.overflow_by_facet = Some(overflow);
+        Box::new(updated)
     }
 
     fn transform(
@@ -108,8 +137,26 @@ impl CoordinateSystemTransform for FacetRow {
 ///             ),
 ///     );
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct FacetColumn;
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct FacetColumn {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) padding_px: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+}
+
+impl FacetColumn {
+    pub(crate) fn new_with_state(
+        padding_px: Option<f32>,
+        overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+    ) -> Self {
+        Self {
+            padding_px,
+            overflow_by_facet,
+        }
+    }
+}
 
 impl CoordinateSystem for FacetColumn {
     type Guide = FacetColGuide;
@@ -131,6 +178,17 @@ impl CoordinateSystemTransform for FacetColumn {
 
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
+    }
+
+    fn with_measured_padding(
+        &self,
+        padding_px: f32,
+        overflow: Vec<crate::coords::OverflowSpaceRequirement>,
+    ) -> Box<dyn CoordinateSystemTransform> {
+        let mut updated = self.clone();
+        updated.padding_px = Some(padding_px);
+        updated.overflow_by_facet = Some(overflow);
+        Box::new(updated)
     }
 
     fn transform(
@@ -195,8 +253,34 @@ impl CoordinateSystemTransform for FacetColumn {
 ///             ),
 ///     );
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct FacetGrid;
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct FacetGrid {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) row_padding_px: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) col_padding_px: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) row_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) col_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+}
+
+impl FacetGrid {
+    pub(crate) fn new_with_state(
+        row_padding_px: Option<f32>,
+        col_padding_px: Option<f32>,
+        row_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+        col_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+    ) -> Self {
+        Self {
+            row_padding_px,
+            col_padding_px,
+            row_overflow_by_facet,
+            col_overflow_by_facet,
+        }
+    }
+}
 
 impl CoordinateSystem for FacetGrid {
     type Guide = GridFacetGuide;
@@ -218,6 +302,17 @@ impl CoordinateSystemTransform for FacetGrid {
 
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
         Box::new(self.clone())
+    }
+
+    fn with_measured_padding(
+        &self,
+        padding_px: f32,
+        overflow: Vec<crate::coords::OverflowSpaceRequirement>,
+    ) -> Box<dyn CoordinateSystemTransform> {
+        let mut updated = self.clone();
+        updated.row_padding_px = Some(padding_px);
+        updated.row_overflow_by_facet = Some(overflow);
+        Box::new(updated)
     }
 
     fn transform(

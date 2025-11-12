@@ -1,9 +1,13 @@
 use crate::error::AvengerChartError;
+use crate::facet::band_positions::BandPosition;
 use crate::guide::CoordinateGuide;
 pub use crate::guide::OverflowSpaceRequirement;
 use crate::marks::CompiledMark;
+use crate::serialization::SerializableScalar;
 use avenger_common::value::ScalarOrArray;
+use datafusion::common::ScalarValue;
 use serde::{Deserialize, Serialize};
+use serde_with::{FromInto, serde_as};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -24,6 +28,99 @@ impl PlotGeometry for PointGeometry {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubplotRect {
+    #[serde_as(as = "FromInto<SerializableScalar>")]
+    pub value: ScalarValue,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl SubplotRect {
+    pub fn new(value: ScalarValue, x: f32, y: f32, width: f32, height: f32) -> Self {
+        Self {
+            value,
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    pub fn scalar_value(&self) -> ScalarValue {
+        self.value.clone()
+    }
+}
+
+impl Default for SubplotRect {
+    fn default() -> Self {
+        SubplotRect::new(ScalarValue::Null, 0.0, 0.0, 0.0, 0.0)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SubplotGeometry {
+    pub rects: Vec<SubplotRect>,
+}
+
+impl SubplotGeometry {
+    pub fn new(rects: Vec<SubplotRect>) -> Self {
+        Self { rects }
+    }
+
+    pub fn count(&self) -> usize {
+        self.rects.len()
+    }
+
+    pub fn rect_at(&self, index: usize) -> Option<&SubplotRect> {
+        self.rects.get(index)
+    }
+
+    pub fn iter_rects(&self) -> impl Iterator<Item = &SubplotRect> {
+        self.rects.iter()
+    }
+
+    pub fn from_band_positions(
+        iter: impl IntoIterator<Item = BandPosition>,
+        axis: FacetAxis,
+        cross_extent: f32,
+    ) -> Self {
+        let rects = iter
+            .into_iter()
+            .map(|band| {
+                let value = band.value.clone();
+                let start = band.start();
+                let bandwidth = band.bandwidth;
+                match axis {
+                    FacetAxis::Row => {
+                        SubplotRect::new(value.clone(), 0.0, start, cross_extent, bandwidth)
+                    }
+                    FacetAxis::Column => {
+                        SubplotRect::new(value, start, 0.0, bandwidth, cross_extent)
+                    }
+                }
+            })
+            .collect();
+        Self { rects }
+    }
+}
+
+#[typetag::serde]
+impl PlotGeometry for SubplotGeometry {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FacetAxis {
+    Row,
+    Column,
 }
 
 pub trait CoordinateSystem: Sized + Send + Sync + 'static {
@@ -110,6 +207,18 @@ pub trait CoordinateSystemTransform: Send + Sync {
     /// Clone this transform into a new boxed instance
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform>;
 
+    /// Return a new transform updated with measured padding and overflow data.
+    ///
+    /// Default implementation returns an unchanged clone.
+    fn with_measured_padding(
+        &self,
+        padding_px: f32,
+        overflow: Vec<OverflowSpaceRequirement>,
+    ) -> Box<dyn CoordinateSystemTransform> {
+        let _ = (padding_px, overflow);
+        self.clone_box()
+    }
+
     /// Transform position channels to coordinate system geometry
     ///
     /// Takes position data in the coordinate system's native space (after scaling)
@@ -170,6 +279,8 @@ pub trait CoordinateSystemTransform: Send + Sync {
 mod tests {
     use super::*;
     use crate::cartesian::Cartesian;
+    use crate::facet::band_positions::BandPosition;
+    use datafusion::common::ScalarValue;
 
     #[test]
     fn test_coordinate_transform_serialization() {
@@ -186,5 +297,53 @@ mod tests {
 
         // Check that required channels match
         assert_eq!(deserialized.required_channels(), &["x", "y"]);
+    }
+
+    #[test]
+    fn test_subplot_geometry_row_helpers() {
+        let band_positions = vec![
+            BandPosition::new(ScalarValue::from("A"), 0.0, 20.0),
+            BandPosition::new(ScalarValue::from("B"), 20.0, 20.0),
+        ];
+
+        let geometry =
+            SubplotGeometry::from_band_positions(band_positions.clone(), FacetAxis::Row, 100.0);
+
+        assert_eq!(geometry.count(), 2);
+        let first = geometry.rect_at(0).unwrap();
+        assert_eq!(first.value, ScalarValue::from("A"));
+        assert_eq!(first.x, 0.0);
+        assert_eq!(first.y, 0.0);
+        assert_eq!(first.width, 100.0);
+        assert_eq!(first.height, 20.0);
+
+        let second = geometry.rect_at(1).unwrap();
+        assert_eq!(second.value, ScalarValue::from("B"));
+        assert_eq!(second.y, 20.0);
+
+        let collected: Vec<_> = geometry.iter_rects().collect();
+        assert_eq!(collected.len(), 2);
+    }
+
+    #[test]
+    fn test_subplot_geometry_column_helpers() {
+        let band_positions = vec![
+            BandPosition::new(ScalarValue::from("L"), 5.0, 15.0),
+            BandPosition::new(ScalarValue::from("R"), 20.0, 15.0),
+        ];
+
+        let geometry =
+            SubplotGeometry::from_band_positions(band_positions.clone(), FacetAxis::Column, 80.0);
+
+        let first = geometry.rect_at(0).unwrap();
+        assert_eq!(first.value, ScalarValue::from("L"));
+        assert_eq!(first.x, 5.0);
+        assert_eq!(first.y, 0.0);
+        assert_eq!(first.width, 15.0);
+        assert_eq!(first.height, 80.0);
+
+        let second = geometry.rect_at(1).unwrap();
+        assert_eq!(second.value, ScalarValue::from("R"));
+        assert_eq!(second.x, 20.0);
     }
 }

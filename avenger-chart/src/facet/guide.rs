@@ -839,7 +839,11 @@ impl CoordinateGuide for FacetColGuide {
         // Derive default facet title if not explicitly set
         if self.facet_title.is_none() {
             if let Some(src) = self.facet_sources.first() {
-                if let Some(cv) = src.data.channels().get(ColumnDimensionConfig::channel_name()) {
+                if let Some(cv) = src
+                    .data
+                    .channels()
+                    .get(ColumnDimensionConfig::channel_name())
+                {
                     if let Some(name) = cv.as_column_name(_session_context) {
                         self.facet_title = Some(name);
                     }

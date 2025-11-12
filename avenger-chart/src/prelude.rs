@@ -21,7 +21,7 @@
 // Re-export coordinate systems
 pub use crate::cartesian::Cartesian;
 pub use crate::channel::config_traits::ScaleSharing;
-pub use crate::facet::coord::{FacetColumn, FacetRow, FacetGrid};
+pub use crate::facet::coord::{FacetColumn, FacetGrid, FacetRow};
 pub use crate::facet::marks::facet::Facet;
 pub use crate::polar::Polar;
 pub use crate::zerod::ZeroDCoord;
