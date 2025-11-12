@@ -188,7 +188,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Create SubplotIterator for logical iteration (FacetContext management)
     use crate::facet::subplot_iterator::SubplotIterator;
     let subplot_iter = SubplotIterator::<DimConfig>::new(
-        domain_vals.clone(),
+        domain_vals,
         context.params.clone(),
         scale_sharing_by_channel.clone(),
     );
