@@ -3,6 +3,7 @@
 /// This module provides a parameterized two-pass rendering algorithm that works for
 /// both row and column faceting by accepting orientation-specific closures.
 use crate::channel::config_traits::ScaleSharing;
+use crate::coords::{FacetAxis, SubplotGeometry};
 use crate::error::AvengerChartError;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use crate::facet::scale_helpers::build_scales_helper;
@@ -192,6 +193,21 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         scale_sharing_by_channel.clone(),
     );
 
+    let initial_geometry = SubplotGeometry::from_band_positions(
+        BandPositionIterator::from_scale(dimension_scale)?,
+        if DimConfig::is_row_facet() {
+            FacetAxis::Row
+        } else {
+            FacetAxis::Column
+        },
+        if DimConfig::is_row_facet() {
+            context.plot_width
+        } else {
+            context.plot_height
+        },
+    );
+    let initial_rects = initial_geometry.rects;
+
     // Create BandPositionIterator for geometric iteration (layout positions)
     let band_iter = BandPositionIterator::from_scale(dimension_scale)?;
 
@@ -204,7 +220,13 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     let mut overflow_measurements = Vec::new();
 
-    for (iteration, band_pos) in subplot_iter.zip(band_iter) {
+    for ((iteration, band_pos), rect) in subplot_iter.zip(band_iter).zip(initial_rects.iter()) {
+        let band_size = if DimConfig::is_row_facet() {
+            rect.height
+        } else {
+            rect.width
+        };
+        let (width, height) = subplot_dims(band_size, context);
         // Filter df by facet_value
         let filter_df: DataFrame = df
             .clone()
@@ -340,6 +362,22 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
         .collect();
 
+    let final_geometry = SubplotGeometry::from_band_positions(
+        BandPositionIterator::from_scale(final_dimension_scale)?,
+        if DimConfig::is_row_facet() {
+            FacetAxis::Row
+        } else {
+            FacetAxis::Column
+        },
+        if DimConfig::is_row_facet() {
+            context.plot_width
+        } else {
+            context.plot_height
+        },
+    );
+    let final_rects = final_geometry.rects;
+    let band_iter_pass2 = BandPositionIterator::from_scale(final_dimension_scale)?;
+
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         if let Some(last_pos) = band_positions.last() {
             let (_, (start, bandwidth)) = last_pos;
@@ -407,8 +445,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     );
 
     // Create BandPositionIterator for Pass 2 (layout positions)
-    let band_iter_pass2 = BandPositionIterator::from_scale(final_dimension_scale)?;
-
     // Safety check: both iterators must have same length
     assert_eq!(
         subplot_iter_pass2.len(),
@@ -416,8 +452,16 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         "SubplotIterator and BandPositionIterator length mismatch in Pass 2"
     );
 
-    for (subplot_index, (iteration, band_pos)) in
-        subplot_iter_pass2.zip(band_iter_pass2).enumerate()
+    assert_eq!(
+        final_rects.len(),
+        subplot_iter_pass2.len(),
+        "Final geometry rect count mismatch"
+    );
+
+    for (subplot_index, ((iteration, band_pos), rect)) in subplot_iter_pass2
+        .zip(band_iter_pass2)
+        .zip(final_rects.iter())
+        .enumerate()
     {
         // Filter df by facet_value
         let filter_df: DataFrame = df
@@ -425,7 +469,12 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             .filter(facet_expr.clone().eq(lit(iteration.facet_value.clone())))?;
 
         // Build scales and evaluate inner components for this partition
-        let (width, height) = subplot_dims(band_pos.bandwidth, context);
+        let band_size = if DimConfig::is_row_facet() {
+            rect.height
+        } else {
+            rect.width
+        };
+        let (width, height) = subplot_dims(band_size, context);
 
         // Build a ScaleBuilder from filtered data for radius-aware free scales
         let free_scale_builder = compiled_subplot
