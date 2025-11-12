@@ -524,6 +524,32 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             }
         }
 
+        // STAGE 2: Build position_channels and position_values for facet coordinates
+        // These will be consumed in Stage 3 when Facet coords use coord.transform()
+        // For now, prefix with underscore since they're not used until Stage 3
+        let _position_channels = {
+            use avenger_common::value::ScalarOrArray;
+            let mut channels = HashMap::new();
+
+            // For the facet dimension (row or col), insert the scaled band position
+            // band_pos.center() gives us the center of the band in plot coordinates
+            channels.insert(
+                DimConfig::channel_name(),
+                ScalarOrArray::new_scalar(band_pos.center()),
+            );
+            channels
+        };
+
+        let _position_values = {
+            let mut values = HashMap::new();
+            // For the facet dimension, store the original facet value
+            values.insert(
+                DimConfig::channel_name(),
+                vec![iteration.facet_value.clone()],
+            );
+            values
+        };
+
         // Render subplot using evaluate_in_canvas with Render mode
         // This creates all marks including legends, titles, and subtitles
         let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
