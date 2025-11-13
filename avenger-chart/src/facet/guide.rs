@@ -14,6 +14,7 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use crate::facet::marks::facet::{deserialize_cached_overflow, serialize_cached_overflow};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct FacetRowGuide {
@@ -32,7 +33,10 @@ struct FacetSource {
     data: crate::marks::CompiledDataContext,
     user_title: Option<String>,
     /// Cached Pass 1 maximum overflow across all subplots from facet evaluation
-    #[serde(skip)]
+    #[serde(
+        serialize_with = "serialize_cached_overflow",
+        deserialize_with = "deserialize_cached_overflow"
+    )]
     cached_edge_overflow:
         std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
 }
@@ -50,7 +54,6 @@ impl FacetRowGuide {
         ctx: &SessionContext,
     ) -> Result<(f32, f32, f32, f32), crate::error::AvengerChartError> {
         use datafusion::logical_expr::lit;
-
         // Extract discrete domain values
         let domain_vals = match row_scale.domain_values()? {
             crate::scales::extensions::DomainValues::Discrete(vals) => vals,

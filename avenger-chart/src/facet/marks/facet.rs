@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 // Helper functions for serializing/deserializing Arc<Mutex<Option<...>>>
-fn serialize_cached_overflow<S>(
+pub(crate) fn serialize_cached_overflow<S>(
     value: &Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -36,7 +36,7 @@ where
     guard.serialize(serializer)
 }
 
-fn deserialize_cached_overflow<'de, D>(
+pub(crate) fn deserialize_cached_overflow<'de, D>(
     deserializer: D,
 ) -> Result<Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>, D::Error>
 where
