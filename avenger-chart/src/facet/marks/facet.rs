@@ -257,11 +257,12 @@ impl CompiledMark for CompiledFacetRow {
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
-        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+        coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
         use crate::facet::marks::facet_evaluation::evaluate_facet;
 
         evaluate_facet::<RowDimensionConfig>(
+            coord.as_ref(),
             &self.compiled_subplot,
             &self.state,
             self.facet_title.clone(),
@@ -463,11 +464,12 @@ impl CompiledMark for CompiledFacetCol {
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
-        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+        coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
         use crate::facet::marks::facet_evaluation::evaluate_facet;
 
         evaluate_facet::<ColumnDimensionConfig>(
+            coord.as_ref(),
             &self.compiled_subplot,
             &self.state,
             self.facet_title.clone(),

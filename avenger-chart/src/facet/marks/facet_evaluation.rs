@@ -3,7 +3,7 @@
 /// This module provides a parameterized two-pass rendering algorithm that works for
 /// both row and column faceting by accepting orientation-specific closures.
 use crate::channel::config_traits::ScaleSharing;
-use crate::coords::{FacetAxis, SubplotGeometry};
+use crate::coords::SubplotGeometry;
 use crate::error::AvengerChartError;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use crate::facet::scale_helpers::build_scales_helper;
@@ -12,6 +12,7 @@ use crate::marks::CompiledMarkState;
 use crate::plot::CompiledPlot;
 use crate::render::RenderContext;
 use crate::scales::ConfiguredScaleWithSpec;
+use avenger_scales::scalar::Scalar;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::common::ScalarValue;
@@ -49,6 +50,7 @@ const DEFAULT_FACET_SPACING: f32 = 3.0;
 /// - `DimConfig`: The facet dimension configuration (RowDimensionConfig or ColDimensionConfig)
 #[allow(clippy::too_many_arguments)]
 pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
+    facet_coord: &dyn crate::coords::CoordinateSystemTransform,
     compiled_subplot: &Arc<CompiledPlot>,
     state: &CompiledMarkState,
     _facet_title: Option<String>,
@@ -198,21 +200,44 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         scale_sharing_by_channel.clone(),
     );
 
-    // Build initial subplot geometry from band positions
-    let initial_geometry = SubplotGeometry::from_band_positions(
-        BandPositionIterator::from_scale(dimension_scale)?,
-        if DimConfig::is_row_facet() {
-            FacetAxis::Row
-        } else {
-            FacetAxis::Column
-        },
-        if DimConfig::is_row_facet() {
-            context.plot_width
-        } else {
-            context.plot_height
-        },
+    // Build position_channels and position_values for facet coord transform (Pass 1)
+    let channel_name = DimConfig::channel_name();
+    let positions_pass1: Vec<f32> = initial_band_positions
+        .iter()
+        .map(|(_, (start, _))| *start)
+        .collect();
+    let values_pass1: Vec<ScalarValue> = initial_band_positions
+        .iter()
+        .map(|(val, _)| val.clone())
+        .collect();
+
+    let mut position_channels_pass1 = HashMap::new();
+    position_channels_pass1.insert(
+        channel_name,
+        avenger_common::value::ScalarOrArray::new_array(positions_pass1),
     );
-    let initial_rects = &initial_geometry.rects;
+
+    let mut position_values_pass1 = HashMap::new();
+    position_values_pass1.insert(channel_name, values_pass1);
+
+    // Call facet coord transform to get initial geometry
+    let initial_geometry = facet_coord.transform(
+        &position_channels_pass1,
+        Some(&position_values_pass1),
+        context.plot_width,
+        context.plot_height,
+    )?;
+
+    let initial_rects = initial_geometry
+        .as_any()
+        .downcast_ref::<SubplotGeometry>()
+        .ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Expected SubplotGeometry from facet coord transform".into(),
+            )
+        })?
+        .rects
+        .clone();
 
     // Create BandPositionIterator for geometric iteration (layout positions)
     let band_iter = BandPositionIterator::from_scale(dimension_scale)?;
@@ -325,61 +350,88 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         );
     }
 
-    // Rebuild the facet dimension scale with measured padding_inner_px
-    let mut updated_scales = HashMap::new();
-    if rounded_gap > 0.0 {
-        use avenger_scales::scalar::Scalar;
-
-        // Clone the existing scale config and modify padding_inner_px option
-        let mut new_config = dimension_scale.configured().config.clone();
-        new_config.options.insert(
-            "padding_inner_px".to_string(),
-            Scalar::from_f32(rounded_gap),
-        );
-
-        // Create a new ConfiguredScale with the modified config
-        let new_configured = avenger_scales::scales::ConfiguredScale {
-            scale_impl: dimension_scale.configured().scale_impl.clone(),
-            config: new_config,
-        };
-
-        // Wrap in ConfiguredScaleWithSpec
-        updated_scales.insert(
-            DimConfig::channel_name().to_string(),
-            ConfiguredScaleWithSpec::new(dimension_scale.spec().clone(), new_configured),
-        );
-    }
-
-    // Create a merged scales map for pass 2 rendering
-    let mut merged_scales_for_rendering = context.scales.clone();
-    merged_scales_for_rendering.extend(updated_scales.clone());
+    // Update facet coord with measured padding for Pass 2
+    let updated_facet_coord = facet_coord.with_measured_padding(
+        rounded_gap,
+        overflow_measurements.clone(),
+    );
 
     // ========== PASS 2: RENDERING PHASE ==========
-    // Get updated band positions from rebuilt scale
-    let final_dimension_scale = merged_scales_for_rendering
-        .get(DimConfig::channel_name())
+    // Call coord.transform() again with measured padding to get final positions
+    // Build position_channels and position_values from the original scale
+    let temp_band_positions: Vec<_> = BandPositionIterator::from_scale(dimension_scale)?
+        .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
+        .collect();
+
+    let temp_positions: Vec<f32> = temp_band_positions
+        .iter()
+        .map(|(_, (start, _))| *start)
+        .collect();
+    let temp_values: Vec<ScalarValue> = temp_band_positions
+        .iter()
+        .map(|(val, _)| val.clone())
+        .collect();
+
+    let mut temp_position_channels = HashMap::new();
+    temp_position_channels.insert(
+        channel_name,
+        avenger_common::value::ScalarOrArray::new_array(temp_positions),
+    );
+
+    let mut temp_position_values = HashMap::new();
+    temp_position_values.insert(channel_name, temp_values);
+
+    // Get final geometry with measured padding from coord
+    let final_geometry_with_padding = updated_facet_coord.transform(
+        &temp_position_channels,
+        Some(&temp_position_values),
+        context.plot_width,
+        context.plot_height,
+    )?;
+
+    let final_rects_with_padding = final_geometry_with_padding
+        .as_any()
+        .downcast_ref::<SubplotGeometry>()
         .ok_or_else(|| {
             AvengerChartError::InternalError(
-                format!("Missing rebuilt '{}' scale", DimConfig::channel_name()).into(),
+                "Expected SubplotGeometry from facet coord transform in Pass 2".into(),
             )
-        })?;
-    // Build final subplot geometry from band positions with measured padding
-    let final_geometry = SubplotGeometry::from_band_positions(
-        BandPositionIterator::from_scale(final_dimension_scale)?,
-        if DimConfig::is_row_facet() {
-            FacetAxis::Row
-        } else {
-            FacetAxis::Column
-        },
-        if DimConfig::is_row_facet() {
-            context.plot_width
-        } else {
-            context.plot_height
-        },
-    );
-    let final_rects = &final_geometry.rects;
+        })?
+        .rects
+        .clone();
 
-    // Collect band positions for debugging
+    // Use the final_rects_with_padding that already has correct positions
+    let final_rects = final_rects_with_padding;
+
+    // Build a scale that reflects the measured gap so guides/facets agree
+    let mut new_config = dimension_scale.configured().config.clone();
+    new_config
+        .options
+        .insert("padding_inner_px".to_string(), Scalar::from_f32(rounded_gap));
+
+    let updated_spec = dimension_scale
+        .spec()
+        .clone()
+        .option(
+            "padding_inner_px",
+            lit(ScalarValue::Float32(Some(rounded_gap))),
+        );
+
+    let updated_configured = avenger_scales::scales::ConfiguredScale {
+        scale_impl: dimension_scale.configured().scale_impl.clone(),
+        config: new_config,
+    };
+
+    let final_dimension_scale =
+        ConfiguredScaleWithSpec::new(updated_spec, updated_configured);
+
+    let mut updated_scales = HashMap::with_capacity(1);
+    updated_scales.insert(
+        DimConfig::channel_name().to_string(),
+        final_dimension_scale.clone(),
+    );
+
+    // Collect band positions for debugging (reuse final_band_positions)
     let band_positions: Vec<_> = final_rects
         .iter()
         .map(|rect| {
@@ -392,8 +444,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         })
         .collect();
 
-    // Create band iterator for pass 2 loop iteration
-    let band_iter_pass2 = BandPositionIterator::from_scale(final_dimension_scale)?;
+    // Create band iterator for pass 2 loop iteration using the updated scale
+    let band_iter_pass2 = BandPositionIterator::from_scale(&final_dimension_scale)?;
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         if let Some(last_pos) = band_positions.last() {
@@ -426,10 +478,10 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 start + bw
             );
         }
-        // Also check the scale config
+        // Also check the scale config (from updated scale)
         let cfg = final_dimension_scale.configured();
         if let Some(padding_val) = cfg.config.options.get("padding_inner_px") {
-            eprintln!("  Scale padding_inner_px={:?}", padding_val);
+            eprintln!("  Updated scale padding_inner_px={:?}", padding_val);
         }
     }
 
