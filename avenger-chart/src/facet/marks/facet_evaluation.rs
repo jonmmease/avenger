@@ -64,6 +64,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     group_origin: impl Fn(f32) -> [f32; 2],
     // Cache for storing Pass 1 maximum overflow across all subplots
     cached_edge_overflow: &Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
+    // Per-facet overflow storage (replaces cached_edge_overflow with per-subplot data)
+    overflow_by_facet: &Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
 ) -> Result<(Vec<SceneMark>, Box<dyn LayoutInfo>), AvengerChartError> {
     // Get dimension scale (row or col)
     let dimension_scale = context
@@ -746,6 +748,10 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         }
         if let Ok(mut cache) = cached_edge_overflow.lock() {
             *cache = Some(max_overflow);
+        }
+        // Also store per-facet overflow data for guides
+        if let Ok(mut overflow_vec) = overflow_by_facet.lock() {
+            *overflow_vec = Some(overflow_measurements.clone());
         }
     }
 

@@ -39,6 +39,13 @@ struct FacetSource {
     )]
     cached_edge_overflow:
         std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
+    /// Per-facet overflow measurements (replaces cached_edge_overflow)
+    #[serde(
+        serialize_with = "crate::facet::marks::facet::serialize_overflow_by_facet",
+        deserialize_with = "crate::facet::marks::facet::deserialize_overflow_by_facet"
+    )]
+    overflow_by_facet:
+        std::sync::Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
 }
 
 impl FacetRowGuide {
@@ -73,23 +80,39 @@ impl FacetRowGuide {
             );
         }
         for (source_idx, source) in self.facet_sources.iter().enumerate() {
-            // Try to use cached Pass 1 maximum overflow across all subplots
-            let cached_overflow = source.cached_edge_overflow.lock().ok().and_then(|cache| {
+            // Try to use per-facet overflow data first (preferred for accuracy)
+            let overflow_vec = source.overflow_by_facet.lock().ok().and_then(|data| data.clone());
+
+            if let Some(per_facet_overflow) = overflow_vec {
+                // Use per-facet overflow: first subplot's left, last subplot's right
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetRowGuide [source {}]: Cache lock acquired, value={:?}",
+                        "FacetRowGuide [source {}]: Using per-facet overflow ({} subplots)",
                         source_idx,
-                        cache.as_ref().map(|v| format!("right={}", v.right))
+                        per_facet_overflow.len()
                     );
                 }
-                cache.clone()
-            });
 
-            if let Some(max_overflow) = cached_overflow {
-                // Use cached Pass 1 maximum measurements across all subplots
+                // Aggregate top/bottom across all subplots
+                for overflow in &per_facet_overflow {
+                    top = top.max(overflow.top);
+                    bottom = bottom.max(overflow.bottom);
+                }
+
+                // Use first subplot's left overflow
+                if let Some(first) = per_facet_overflow.first() {
+                    max_left = max_left.max(first.left);
+                }
+
+                // Use last subplot's right overflow
+                if let Some(last) = per_facet_overflow.last() {
+                    max_right = max_right.max(last.right);
+                }
+            } else if let Some(max_overflow) = source.cached_edge_overflow.lock().ok().and_then(|cache| cache.clone()) {
+                // Fallback to old cached max overflow if per-facet data not available
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetRowGuide [source {}]: Using cached max overflow - top={} bottom={} left={} right={}",
+                        "FacetRowGuide [source {}]: Using cached max overflow (fallback) - top={} bottom={} left={} right={}",
                         source_idx,
                         max_overflow.top,
                         max_overflow.bottom,
@@ -243,6 +266,7 @@ impl CoordinateGuide for FacetRowGuide {
                     data: facet.state.data.clone(),
                     user_title: facet.facet_title.clone(),
                     cached_edge_overflow: facet.cached_edge_overflow.clone(),
+                    overflow_by_facet: facet.overflow_by_facet.clone(),
                 });
             }
         }
@@ -676,18 +700,38 @@ impl FacetColGuide {
 
         // Measure edge subplots via the same path as rendering
         for source in &self.facet_sources {
-            // Try to use cached Pass 1 maximum overflow across all subplots
-            let cached_overflow = source
-                .cached_edge_overflow
-                .lock()
-                .ok()
-                .and_then(|cache| cache.clone());
+            // Try to use per-facet overflow data first (preferred for accuracy)
+            let overflow_vec = source.overflow_by_facet.lock().ok().and_then(|data| data.clone());
 
-            if let Some(max_overflow) = cached_overflow {
-                // Use cached Pass 1 maximum measurements across all subplots
+            if let Some(per_facet_overflow) = overflow_vec {
+                // Use per-facet overflow: first subplot's top, last subplot's bottom
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetColGuide: Using cached overflow - left={} right={}",
+                        "FacetColGuide: Using per-facet overflow ({} subplots)",
+                        per_facet_overflow.len()
+                    );
+                }
+
+                // Aggregate left/right across all subplots
+                for overflow in &per_facet_overflow {
+                    left_max = left_max.max(overflow.left);
+                    right_max = right_max.max(overflow.right);
+                }
+
+                // Use first subplot's top overflow
+                if let Some(first) = per_facet_overflow.first() {
+                    top_max = top_max.max(first.top);
+                }
+
+                // Use last subplot's bottom overflow
+                if let Some(last) = per_facet_overflow.last() {
+                    bottom_max = bottom_max.max(last.bottom);
+                }
+            } else if let Some(max_overflow) = source.cached_edge_overflow.lock().ok().and_then(|cache| cache.clone()) {
+                // Fallback to old cached max overflow if per-facet data not available
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetColGuide: Using cached overflow (fallback) - left={} right={}",
                         max_overflow.left, max_overflow.right
                     );
                 }
@@ -836,6 +880,7 @@ impl CoordinateGuide for FacetColGuide {
                     data: facet.state.data.clone(),
                     user_title: facet.facet_title.clone(),
                     cached_edge_overflow: facet.cached_edge_overflow.clone(),
+                    overflow_by_facet: facet.overflow_by_facet.clone(),
                 });
             }
         }
@@ -1295,6 +1340,7 @@ impl CoordinateGuide for GridFacetGuide {
                     data: facet.state.data.clone(),
                     user_title: None, // Grid stores separate row/col titles
                     cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)), // Grid facets don't cache (yet)
+                    overflow_by_facet: std::sync::Arc::new(std::sync::Mutex::new(None)), // Grid facets don't cache (yet)
                 });
 
                 // Use user-specified titles from facet if available

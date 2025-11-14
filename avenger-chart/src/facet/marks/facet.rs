@@ -46,6 +46,28 @@ where
     Ok(Arc::new(std::sync::Mutex::new(value)))
 }
 
+// Helper functions for serializing/deserializing Arc<Mutex<Option<Vec<...>>>>
+pub(crate) fn serialize_overflow_by_facet<S>(
+    value: &Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let guard = value.lock().unwrap();
+    guard.serialize(serializer)
+}
+
+pub(crate) fn deserialize_overflow_by_facet<'de, D>(
+    deserializer: D,
+) -> Result<Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::deserialize(deserializer)?;
+    Ok(Arc::new(std::sync::Mutex::new(value)))
+}
+
 /// Facet mark for FacetRow or FacetCol outer coordinate system.
 /// Renders a provided inner plot for each band value in the facet channel.
 #[derive(Clone)]
@@ -157,6 +179,14 @@ pub struct CompiledFacetRow {
     )]
     pub(crate) cached_edge_overflow:
         std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
+    /// Per-facet overflow measurements from Pass 1
+    /// Replaces cached_edge_overflow with per-subplot data
+    #[serde(
+        serialize_with = "serialize_overflow_by_facet",
+        deserialize_with = "deserialize_overflow_by_facet"
+    )]
+    pub(crate) overflow_by_facet:
+        std::sync::Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
 }
 
 #[async_trait::async_trait]
@@ -211,6 +241,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             facet_spacing: self.facet_spacing,
             distinct_keys,
             cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            overflow_by_facet: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }))
     }
 }
@@ -298,6 +329,7 @@ impl CompiledMark for CompiledFacetRow {
                 [0.0, rounded]
             },
             &self.cached_edge_overflow,
+            &self.overflow_by_facet,
         )
         .await
     }
@@ -365,6 +397,14 @@ pub struct CompiledFacetCol {
     )]
     pub(crate) cached_edge_overflow:
         std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
+    /// Per-facet overflow measurements from Pass 1
+    /// Replaces cached_edge_overflow with per-subplot data
+    #[serde(
+        serialize_with = "serialize_overflow_by_facet",
+        deserialize_with = "deserialize_overflow_by_facet"
+    )]
+    pub(crate) overflow_by_facet:
+        std::sync::Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
 }
 
 #[async_trait::async_trait]
@@ -420,6 +460,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
             facet_spacing: self.facet_spacing,
             distinct_keys,
             cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            overflow_by_facet: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }))
     }
 }
@@ -505,6 +546,7 @@ impl CompiledMark for CompiledFacetCol {
                 [rounded, 0.0]
             },
             &self.cached_edge_overflow,
+            &self.overflow_by_facet,
         )
         .await
     }
