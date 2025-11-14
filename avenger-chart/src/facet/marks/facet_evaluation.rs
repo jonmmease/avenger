@@ -357,53 +357,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     );
 
     // ========== PASS 2: RENDERING PHASE ==========
-    // Call coord.transform() again with measured padding to get final positions
-    // Build position_channels and position_values from the original scale
-    let temp_band_positions: Vec<_> = BandPositionIterator::from_scale(dimension_scale)?
-        .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
-        .collect();
-
-    let temp_positions: Vec<f32> = temp_band_positions
-        .iter()
-        .map(|(_, (start, _))| *start)
-        .collect();
-    let temp_values: Vec<ScalarValue> = temp_band_positions
-        .iter()
-        .map(|(val, _)| val.clone())
-        .collect();
-
-    let mut temp_position_channels = HashMap::new();
-    temp_position_channels.insert(
-        channel_name,
-        avenger_common::value::ScalarOrArray::new_array(temp_positions),
-    );
-
-    let mut temp_position_values = HashMap::new();
-    temp_position_values.insert(channel_name, temp_values);
-
-    // Get final geometry with measured padding from coord
-    let final_geometry_with_padding = updated_facet_coord.transform(
-        &temp_position_channels,
-        Some(&temp_position_values),
-        context.plot_width,
-        context.plot_height,
-    )?;
-
-    let final_rects_with_padding = final_geometry_with_padding
-        .as_any()
-        .downcast_ref::<SubplotGeometry>()
-        .ok_or_else(|| {
-            AvengerChartError::InternalError(
-                "Expected SubplotGeometry from facet coord transform in Pass 2".into(),
-            )
-        })?
-        .rects
-        .clone();
-
-    // Use the final_rects_with_padding that already has correct positions
-    let final_rects = final_rects_with_padding;
-
-    // Build a scale that reflects the measured gap so guides/facets agree
+    // STEP 1: Rebuild the facet dimension scale with measured padding FIRST
+    // This ensures coord.transform() receives positions that match its internal padding state
     let mut new_config = dimension_scale.configured().config.clone();
     new_config
         .options
@@ -430,6 +385,52 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         DimConfig::channel_name().to_string(),
         final_dimension_scale.clone(),
     );
+
+    // STEP 2: Extract positions from the REBUILT scale (now with correct padding)
+    let temp_band_positions: Vec<_> = BandPositionIterator::from_scale(&final_dimension_scale)?
+        .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
+        .collect();
+
+    let temp_positions: Vec<f32> = temp_band_positions
+        .iter()
+        .map(|(_, (start, _))| *start)
+        .collect();
+    let temp_values: Vec<ScalarValue> = temp_band_positions
+        .iter()
+        .map(|(val, _)| val.clone())
+        .collect();
+
+    let mut temp_position_channels = HashMap::new();
+    temp_position_channels.insert(
+        channel_name,
+        avenger_common::value::ScalarOrArray::new_array(temp_positions),
+    );
+
+    let mut temp_position_values = HashMap::new();
+    temp_position_values.insert(channel_name, temp_values);
+
+    // STEP 3: Call coord.transform() with positions from rebuilt scale
+    // Now the scale and coord are in sync (both have padding = rounded_gap)
+    let final_geometry_with_padding = updated_facet_coord.transform(
+        &temp_position_channels,
+        Some(&temp_position_values),
+        context.plot_width,
+        context.plot_height,
+    )?;
+
+    let final_rects_with_padding = final_geometry_with_padding
+        .as_any()
+        .downcast_ref::<SubplotGeometry>()
+        .ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Expected SubplotGeometry from facet coord transform in Pass 2".into(),
+            )
+        })?
+        .rects
+        .clone();
+
+    // Use the final_rects_with_padding that already has correct positions
+    let final_rects = final_rects_with_padding;
 
     // Collect band positions for debugging (reuse final_band_positions)
     let band_positions: Vec<_> = final_rects
