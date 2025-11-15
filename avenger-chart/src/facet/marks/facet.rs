@@ -19,54 +19,10 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-
-// Helper functions for serializing/deserializing Arc<Mutex<Option<...>>>
-pub(crate) fn serialize_cached_overflow<S>(
-    value: &Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let guard = value.lock().unwrap();
-    guard.serialize(serializer)
-}
-
-pub(crate) fn deserialize_cached_overflow<'de, D>(
-    deserializer: D,
-) -> Result<Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = Option::deserialize(deserializer)?;
-    Ok(Arc::new(std::sync::Mutex::new(value)))
-}
-
-// Helper functions for serializing/deserializing Arc<Mutex<Option<Vec<...>>>>
-pub(crate) fn serialize_overflow_by_facet<S>(
-    value: &Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let guard = value.lock().unwrap();
-    guard.serialize(serializer)
-}
-
-pub(crate) fn deserialize_overflow_by_facet<'de, D>(
-    deserializer: D,
-) -> Result<Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = Option::deserialize(deserializer)?;
-    Ok(Arc::new(std::sync::Mutex::new(value)))
-}
 
 /// Facet mark for FacetRow or FacetCol outer coordinate system.
 /// Renders a provided inner plot for each band value in the facet channel.
@@ -171,22 +127,6 @@ pub struct CompiledFacetRow {
     pub(crate) facet_spacing: Option<f32>,
     #[serde_as(as = "Vec<FromInto<SerializableScalar>>")]
     pub(crate) distinct_keys: Vec<ScalarValue>,
-    /// Cached Pass 1 maximum overflow across all subplots
-    /// Set during evaluation for use by guide
-    #[serde(
-        serialize_with = "serialize_cached_overflow",
-        deserialize_with = "deserialize_cached_overflow"
-    )]
-    pub(crate) cached_edge_overflow:
-        std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
-    /// Per-facet overflow measurements from Pass 1
-    /// Replaces cached_edge_overflow with per-subplot data
-    #[serde(
-        serialize_with = "serialize_overflow_by_facet",
-        deserialize_with = "deserialize_overflow_by_facet"
-    )]
-    pub(crate) overflow_by_facet:
-        std::sync::Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
 }
 
 #[async_trait::async_trait]
@@ -240,8 +180,6 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             facet_title: self.facet_row_title.clone(),
             facet_spacing: self.facet_spacing,
             distinct_keys,
-            cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)),
-            overflow_by_facet: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }))
     }
 }
@@ -289,7 +227,7 @@ impl CompiledMark for CompiledFacetRow {
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
         coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         use crate::facet::marks::facet_evaluation::evaluate_facet;
 
         evaluate_facet::<RowDimensionConfig>(
@@ -328,8 +266,6 @@ impl CompiledMark for CompiledFacetRow {
                 }
                 [0.0, rounded]
             },
-            &self.cached_edge_overflow,
-            &self.overflow_by_facet,
         )
         .await
     }
@@ -389,22 +325,6 @@ pub struct CompiledFacetCol {
     pub(crate) facet_spacing: Option<f32>,
     #[serde_as(as = "Vec<FromInto<SerializableScalar>>")]
     pub(crate) distinct_keys: Vec<ScalarValue>,
-    /// Cached Pass 1 maximum overflow across all subplots
-    /// Set during evaluation for use by guide
-    #[serde(
-        serialize_with = "serialize_cached_overflow",
-        deserialize_with = "deserialize_cached_overflow"
-    )]
-    pub(crate) cached_edge_overflow:
-        std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
-    /// Per-facet overflow measurements from Pass 1
-    /// Replaces cached_edge_overflow with per-subplot data
-    #[serde(
-        serialize_with = "serialize_overflow_by_facet",
-        deserialize_with = "deserialize_overflow_by_facet"
-    )]
-    pub(crate) overflow_by_facet:
-        std::sync::Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
 }
 
 #[async_trait::async_trait]
@@ -459,8 +379,6 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
             facet_title: self.facet_col_title.clone(),
             facet_spacing: self.facet_spacing,
             distinct_keys,
-            cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)),
-            overflow_by_facet: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }))
     }
 }
@@ -506,7 +424,7 @@ impl CompiledMark for CompiledFacetCol {
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
         coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         use crate::facet::marks::facet_evaluation::evaluate_facet;
 
         evaluate_facet::<ColumnDimensionConfig>(
@@ -545,8 +463,6 @@ impl CompiledMark for CompiledFacetCol {
                 }
                 [rounded, 0.0]
             },
-            &self.cached_edge_overflow,
-            &self.overflow_by_facet,
         )
         .await
     }
@@ -770,7 +686,7 @@ impl CompiledMark for CompiledFacetGrid {
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         use crate::scales::ConfiguredScaleLegendExt;
         use datafusion::logical_expr::lit;
 
@@ -1342,7 +1258,7 @@ impl CompiledMark for CompiledFacetGrid {
         // Return marks and scale updates so guides receive the updated scales with spacing
         Ok((
             marks,
-            Box::new(crate::layout::ScaleUpdates::new(updated_scales)),
+            crate::layout::LayoutUpdates::with_scales(updated_scales),
         ))
     }
 

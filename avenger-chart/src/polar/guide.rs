@@ -152,6 +152,8 @@ impl CompiledGuide for PolarGuide {
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
@@ -172,6 +174,8 @@ impl CompiledGuide for PolarGuide {
         let axis_marks = self
             .evaluate(
                 scales,
+                None,  // No row overflow during measurement
+                None,  // No col overflow during measurement
                 plot_width,
                 plot_height,
                 &initial_bounds,
@@ -232,6 +236,8 @@ impl CompiledGuide for PolarGuide {
     async fn evaluate(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,

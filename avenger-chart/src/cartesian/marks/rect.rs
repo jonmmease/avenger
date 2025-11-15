@@ -139,7 +139,7 @@ impl CompiledMark for CompiledCartesianRect {
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         use crate::marks::util::{
             coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
         };
@@ -259,7 +259,7 @@ impl CompiledMark for CompiledCartesianRect {
             zindex: self.state.zindex,
         };
 
-        Ok((vec![SceneMark::Rect(rect_mark)], Box::new(())))
+        Ok((vec![SceneMark::Rect(rect_mark)], crate::layout::LayoutUpdates::default()))
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {

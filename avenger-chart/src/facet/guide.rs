@@ -14,7 +14,6 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use crate::facet::marks::facet::{deserialize_cached_overflow, serialize_cached_overflow};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct FacetRowGuide {
@@ -32,20 +31,6 @@ struct FacetSource {
     subplot: std::sync::Arc<crate::plot::CompiledPlot>,
     data: crate::marks::CompiledDataContext,
     user_title: Option<String>,
-    /// Cached Pass 1 maximum overflow across all subplots from facet evaluation
-    #[serde(
-        serialize_with = "serialize_cached_overflow",
-        deserialize_with = "deserialize_cached_overflow"
-    )]
-    cached_edge_overflow:
-        std::sync::Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
-    /// Per-facet overflow measurements (replaces cached_edge_overflow)
-    #[serde(
-        serialize_with = "crate::facet::marks::facet::serialize_overflow_by_facet",
-        deserialize_with = "crate::facet::marks::facet::deserialize_overflow_by_facet"
-    )]
-    overflow_by_facet:
-        std::sync::Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
 }
 
 impl FacetRowGuide {
@@ -59,6 +44,7 @@ impl FacetRowGuide {
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &SessionContext,
+        overflow: Option<&Vec<OverflowSpaceRequirement>>,
     ) -> Result<(f32, f32, f32, f32), crate::error::AvengerChartError> {
         use datafusion::logical_expr::lit;
         // Extract discrete domain values
@@ -80,10 +66,8 @@ impl FacetRowGuide {
             );
         }
         for (source_idx, source) in self.facet_sources.iter().enumerate() {
-            // Try to use per-facet overflow data first (preferred for accuracy)
-            let overflow_vec = source.overflow_by_facet.lock().ok().and_then(|data| data.clone());
-
-            if let Some(per_facet_overflow) = overflow_vec {
+            // Use overflow parameter if provided (passed from rendering pipeline)
+            if let Some(per_facet_overflow) = overflow {
                 // Use per-facet overflow: first subplot's left, last subplot's right
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
@@ -94,9 +78,9 @@ impl FacetRowGuide {
                 }
 
                 // Aggregate top/bottom across all subplots
-                for overflow in &per_facet_overflow {
-                    top = top.max(overflow.top);
-                    bottom = bottom.max(overflow.bottom);
+                for overflow_item in per_facet_overflow {
+                    top = top.max(overflow_item.top);
+                    bottom = bottom.max(overflow_item.bottom);
                 }
 
                 // Use first subplot's left overflow
@@ -108,22 +92,6 @@ impl FacetRowGuide {
                 if let Some(last) = per_facet_overflow.last() {
                     max_right = max_right.max(last.right);
                 }
-            } else if let Some(max_overflow) = source.cached_edge_overflow.lock().ok().and_then(|cache| cache.clone()) {
-                // Fallback to old cached max overflow if per-facet data not available
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "FacetRowGuide [source {}]: Using cached max overflow (fallback) - top={} bottom={} left={} right={}",
-                        source_idx,
-                        max_overflow.top,
-                        max_overflow.bottom,
-                        max_overflow.left,
-                        max_overflow.right
-                    );
-                }
-                top = top.max(max_overflow.top);
-                bottom = bottom.max(max_overflow.bottom);
-                max_left = max_left.max(max_overflow.left);
-                max_right = max_right.max(max_overflow.right);
             } else {
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
@@ -265,8 +233,6 @@ impl CoordinateGuide for FacetRowGuide {
                     subplot: facet.compiled_subplot.clone(),
                     data: facet.state.data.clone(),
                     user_title: facet.facet_title.clone(),
-                    cached_edge_overflow: facet.cached_edge_overflow.clone(),
-                    overflow_by_facet: facet.overflow_by_facet.clone(),
                 });
             }
         }
@@ -316,6 +282,8 @@ impl CompiledGuide for FacetRowGuide {
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
+        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         theme: &crate::theme::Theme,
@@ -337,7 +305,7 @@ impl CompiledGuide for FacetRowGuide {
 
         // Compute subplot overflow using shared helper
         let (top, bottom, max_left, max_right) = self
-            .compute_max_subplot_overflow(row_scale, plot_width, plot_height, theme, params, ctx)
+            .compute_max_subplot_overflow(row_scale, plot_width, plot_height, theme, params, ctx, _row_overflow)
             .await?;
 
         // Add space for facet labels by measuring text bounds
@@ -473,6 +441,8 @@ impl CompiledGuide for FacetRowGuide {
     async fn evaluate(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
+        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
@@ -526,7 +496,7 @@ impl CompiledGuide for FacetRowGuide {
 
         // Compute subplot overflow using shared helper (no caching needed between calls)
         let (_top, _bottom, max_left_child, max_right_child) = self
-            .compute_max_subplot_overflow(row_scale, plot_width, plot_height, theme, params, ctx)
+            .compute_max_subplot_overflow(row_scale, plot_width, plot_height, theme, params, ctx, _row_overflow)
             .await?;
 
         // Determine y-axis position from subplot guide (default is left)
@@ -679,6 +649,7 @@ impl FacetColGuide {
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &SessionContext,
+        overflow: Option<&Vec<OverflowSpaceRequirement>>,
     ) -> Result<(f32, f32, f32, f32), crate::error::AvengerChartError> {
         use datafusion::logical_expr::lit;
 
@@ -700,10 +671,8 @@ impl FacetColGuide {
 
         // Measure edge subplots via the same path as rendering
         for source in &self.facet_sources {
-            // Try to use per-facet overflow data first (preferred for accuracy)
-            let overflow_vec = source.overflow_by_facet.lock().ok().and_then(|data| data.clone());
-
-            if let Some(per_facet_overflow) = overflow_vec {
+            // Use overflow parameter if provided (passed from rendering pipeline)
+            if let Some(per_facet_overflow) = overflow {
                 // Use per-facet overflow: first subplot's top, last subplot's bottom
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
@@ -713,9 +682,9 @@ impl FacetColGuide {
                 }
 
                 // Aggregate left/right across all subplots
-                for overflow in &per_facet_overflow {
-                    left_max = left_max.max(overflow.left);
-                    right_max = right_max.max(overflow.right);
+                for overflow_item in per_facet_overflow {
+                    left_max = left_max.max(overflow_item.left);
+                    right_max = right_max.max(overflow_item.right);
                 }
 
                 // Use first subplot's top overflow
@@ -727,20 +696,7 @@ impl FacetColGuide {
                 if let Some(last) = per_facet_overflow.last() {
                     bottom_max = bottom_max.max(last.bottom);
                 }
-            } else if let Some(max_overflow) = source.cached_edge_overflow.lock().ok().and_then(|cache| cache.clone()) {
-                // Fallback to old cached max overflow if per-facet data not available
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "FacetColGuide: Using cached overflow (fallback) - left={} right={}",
-                        max_overflow.left, max_overflow.right
-                    );
-                }
-                left_max = left_max.max(max_overflow.left);
-                right_max = right_max.max(max_overflow.right);
-                top_max = top_max.max(max_overflow.top);
-                bottom_max = bottom_max.max(max_overflow.bottom);
-                continue; // Skip remeasurement for this source
-            }
+            } else {
 
             // Fallback: Remeasure if cache not available
             // Measure ALL subplots (not just edges) to account for varying legend widths
@@ -854,6 +810,7 @@ impl FacetColGuide {
             }
             // Note: This fallback measures all subplots including legends
             // The facet evaluation will also cache these values for faster subsequent calls
+            }
         }
         Ok((top_max, bottom_max, left_max, right_max))
     }
@@ -879,8 +836,6 @@ impl CoordinateGuide for FacetColGuide {
                     subplot: facet.compiled_subplot.clone(),
                     data: facet.state.data.clone(),
                     user_title: facet.facet_title.clone(),
-                    cached_edge_overflow: facet.cached_edge_overflow.clone(),
-                    overflow_by_facet: facet.overflow_by_facet.clone(),
                 });
             }
         }
@@ -931,6 +886,8 @@ impl CompiledGuide for FacetColGuide {
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
+        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         _theme: &crate::theme::Theme,
@@ -954,7 +911,7 @@ impl CompiledGuide for FacetColGuide {
 
         // Compute subplot overflow using shared helper
         let (top_max, bottom_max, left_max, right_max) = self
-            .compute_max_subplot_overflow(col_scale, plot_width, plot_height, _theme, params, ctx)
+            .compute_max_subplot_overflow(col_scale, plot_width, plot_height, _theme, params, ctx, _col_overflow)
             .await?;
 
         // Add facet guide space (labels/titles) on top of child overflows
@@ -1092,6 +1049,8 @@ impl CompiledGuide for FacetColGuide {
     async fn evaluate(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
+        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
@@ -1115,7 +1074,7 @@ impl CompiledGuide for FacetColGuide {
 
         // Compute subplot overflow using shared helper (no caching needed between calls)
         let (subplot_max_top, subplot_max_bottom, _left, _right) = self
-            .compute_max_subplot_overflow(col_scale, plot_width, plot_height, theme, params, ctx)
+            .compute_max_subplot_overflow(col_scale, plot_width, plot_height, theme, params, ctx, _col_overflow)
             .await?;
 
         use crate::facet::band_positions::BandPositionIterator;
@@ -1339,8 +1298,6 @@ impl CoordinateGuide for GridFacetGuide {
                     subplot: facet.compiled_subplot.clone(),
                     data: facet.state.data.clone(),
                     user_title: None, // Grid stores separate row/col titles
-                    cached_edge_overflow: std::sync::Arc::new(std::sync::Mutex::new(None)), // Grid facets don't cache (yet)
-                    overflow_by_facet: std::sync::Arc::new(std::sync::Mutex::new(None)), // Grid facets don't cache (yet)
                 });
 
                 // Use user-specified titles from facet if available
@@ -1423,6 +1380,8 @@ impl CompiledGuide for GridFacetGuide {
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
+        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         theme: &crate::theme::Theme,
@@ -1876,6 +1835,8 @@ impl CompiledGuide for GridFacetGuide {
     async fn evaluate(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
+        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,

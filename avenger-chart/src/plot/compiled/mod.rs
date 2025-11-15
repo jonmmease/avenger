@@ -422,6 +422,8 @@ impl CompiledPlot {
     pub async fn measure_guide_overflow_with_scales(
         &self,
         scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        row_overflow: Option<&Vec<crate::guide::OverflowSpaceRequirement>>,
+        col_overflow: Option<&Vec<crate::guide::OverflowSpaceRequirement>>,
         plot_area_width: f32,
         plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
@@ -437,6 +439,8 @@ impl CompiledPlot {
             guide
                 .measure_overflow(
                     &configured,
+                    row_overflow,
+                    col_overflow,
                     plot_area_width,
                     plot_area_height,
                     theme.as_ref(),

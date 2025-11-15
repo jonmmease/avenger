@@ -7,7 +7,6 @@ use crate::coords::SubplotGeometry;
 use crate::error::AvengerChartError;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use crate::facet::scale_helpers::build_scales_helper;
-use crate::layout::LayoutInfo;
 use crate::marks::CompiledMarkState;
 use crate::plot::CompiledPlot;
 use crate::render::RenderContext;
@@ -62,11 +61,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     subplot_dims: impl Fn(f32, &RenderContext) -> (f32, f32),
     // Returns [x, y] translation given band position
     group_origin: impl Fn(f32) -> [f32; 2],
-    // Cache for storing Pass 1 maximum overflow across all subplots
-    cached_edge_overflow: &Arc<std::sync::Mutex<Option<crate::guide::OverflowSpaceRequirement>>>,
-    // Per-facet overflow storage (replaces cached_edge_overflow with per-subplot data)
-    overflow_by_facet: &Arc<std::sync::Mutex<Option<Vec<crate::guide::OverflowSpaceRequirement>>>>,
-) -> Result<(Vec<SceneMark>, Box<dyn LayoutInfo>), AvengerChartError> {
+) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
     // Get dimension scale (row or col)
     let dimension_scale = context
         .scales
@@ -746,19 +741,26 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 max_overflow.top, max_overflow.bottom, max_overflow.left, max_overflow.right
             );
         }
-        if let Ok(mut cache) = cached_edge_overflow.lock() {
-            *cache = Some(max_overflow);
-        }
-        // Also store per-facet overflow data for guides
-        if let Ok(mut overflow_vec) = overflow_by_facet.lock() {
-            *overflow_vec = Some(overflow_measurements.clone());
-        }
+        // Arc<Mutex> writes removed - overflow now returned in LayoutUpdates
     }
 
-    Ok((
-        all_marks,
-        Box::new(crate::layout::ScaleUpdates::new(updated_scales)),
-    ))
+    // Return overflow measurements in LayoutUpdates based on dimension
+    let layout_updates = if DimConfig::channel_name() == "row" {
+        crate::layout::LayoutUpdates::new(
+            updated_scales,
+            Some(overflow_measurements),
+            None,
+        )
+    } else {
+        // column facet
+        crate::layout::LayoutUpdates::new(
+            updated_scales,
+            None,
+            Some(overflow_measurements),
+        )
+    };
+
+    Ok((all_marks, layout_updates))
 }
 
 /// Helper to extract band size from band positions vector

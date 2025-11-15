@@ -301,7 +301,7 @@ impl CompiledPlot {
         plot_height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
 
@@ -461,7 +461,7 @@ impl CompiledPlot {
             };
             if batch.is_empty() {
                 // Create empty batch with correct schema
-                return Ok((vec![], Box::new(())));
+                return Ok((vec![], crate::layout::LayoutUpdates::default()));
             } else {
                 // Concat all batches into a single RecordBatch
                 use datafusion::arrow::compute::concat_batches;
@@ -521,7 +521,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError> {
+    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
 
@@ -662,7 +662,7 @@ impl CompiledPlot {
                 (*df).clone().select(scalar_select_exprs)?.collect().await?
             };
             if batch.is_empty() {
-                return Ok((vec![], Box::new(())));
+                return Ok((vec![], crate::layout::LayoutUpdates::default()));
             } else {
                 use datafusion::arrow::compute::concat_batches;
                 let schema = batch[0].schema();
@@ -706,6 +706,8 @@ impl CompiledPlot {
     pub(super) async fn create_guide_marks(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        row_overflow: Option<&Vec<crate::guide::OverflowSpaceRequirement>>,
+        col_overflow: Option<&Vec<crate::guide::OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
@@ -723,6 +725,8 @@ impl CompiledPlot {
             compiled_guide
                 .evaluate(
                     &configured_scales,
+                    row_overflow,
+                    col_overflow,
                     plot_width,
                     plot_height,
                     plot_bounds,
@@ -765,6 +769,8 @@ impl CompiledPlot {
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
+                    None,  // No row overflow during initial measurement
+                    None,  // No col overflow during initial measurement
                     width_estimate,
                     height_estimate,
                     theme.as_ref(),
@@ -847,6 +853,8 @@ impl CompiledPlot {
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
+                    None,  // No row overflow during measurement
+                    None,  // No col overflow during measurement
                     plot_width,
                     plot_height,
                     theme.as_ref(),
@@ -1027,7 +1035,7 @@ impl CompiledPlot {
 
         // Render marks
         let mut mark_groups = Vec::new();
-        let mut layout_infos: Vec<Box<dyn crate::layout::LayoutInfo>> = Vec::new();
+        let mut layout_updates: Vec<crate::layout::LayoutUpdates> = Vec::new();
         for mark in &self.marks {
             let (scene_marks, layout_info) = self
                 .evaluate_mark(
@@ -1040,16 +1048,27 @@ impl CompiledPlot {
                 )
                 .await?;
             mark_groups.extend(scene_marks);
-            layout_infos.push(layout_info);
+            layout_updates.push(layout_info);
         }
 
-        // Merge scale updates from layout info
-        let merged_scales = crate::layout::merge_scale_updates(scales, &layout_infos);
+        // Merge layout updates from marks
+        let merged_layout = crate::layout::merge_layout_updates(&layout_updates);
 
-        // Create guide marks (axes, grids, backgrounds) using merged scales
+        // Extract scales and overflow data
+        let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> =
+            scales.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let merged_scales = merged_scales.into_iter()
+            .chain(merged_layout.scales.into_iter())
+            .collect();
+        let row_overflow = merged_layout.row_overflow_by_facet.as_ref();
+        let col_overflow = merged_layout.col_overflow_by_facet.as_ref();
+
+        // Create guide marks (axes, grids, backgrounds) using merged scales and overflow
         let guide_marks = self
             .create_guide_marks(
                 &merged_scales,
+                row_overflow,
+                col_overflow,
                 plot_area_width,
                 plot_area_height,
                 plot_bounds,
@@ -1204,10 +1223,10 @@ impl CompiledPlot {
         match mode {
             EvaluationMode::Measure => {
                 // 6a. Measure mode: compute overflow WITH mark-driven scale updates
-                // Must evaluate marks to get layout infos (needed for scale padding updates)
+                // Must evaluate marks to get layout updates (needed for scale padding updates)
                 // to ensure overflow measurement matches Render mode's debug visualization
                 let df_opt = data_override;
-                let mut layout_infos = Vec::new();
+                let mut layout_updates = Vec::new();
                 for mark in &self.marks {
                     let (_, layout_info) = self
                         .evaluate_mark_with_plot_df(
@@ -1220,17 +1239,27 @@ impl CompiledPlot {
                             df_opt,
                         )
                         .await?;
-                    layout_infos.push(layout_info);
+                    layout_updates.push(layout_info);
                 }
 
-                // Merge scale updates from layout info (critical for correct overflow)
-                let merged_scales =
-                    crate::layout::merge_scale_updates(&final_scales, &layout_infos);
+                // Merge layout updates from marks (critical for correct overflow)
+                let merged_layout = crate::layout::merge_layout_updates(&layout_updates);
 
-                // Measure overflow with merged scales (matching Render mode path)
+                // Extract scales and overflow data
+                let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> =
+                    final_scales.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> = merged_scales.into_iter()
+                    .chain(merged_layout.scales.into_iter())
+                    .collect();
+                let row_overflow = merged_layout.row_overflow_by_facet.as_ref();
+                let col_overflow = merged_layout.col_overflow_by_facet.as_ref();
+
+                // Measure overflow with merged scales and overflow data (matching Render mode path)
                 let mut overflow = self
                     .measure_guide_overflow_with_scales(
                         &merged_scales,
+                        row_overflow,
+                        col_overflow,
                         plot_area_width,
                         plot_area_height,
                         ctx,
@@ -1335,7 +1364,7 @@ impl CompiledPlot {
 
                 // Evaluate marks (with optional data override for facets)
                 let mut data_marks = Vec::new();
-                let mut layout_infos = Vec::new();
+                let mut layout_updates = Vec::new();
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
                         "Evaluating marks with plot_area_width={} plot_area_height={}",
@@ -1355,12 +1384,20 @@ impl CompiledPlot {
                         )
                         .await?;
                     data_marks.extend(marks);
-                    layout_infos.push(layout_info);
+                    layout_updates.push(layout_info);
                 }
 
-                // Merge scale updates from layout info
-                let merged_scales =
-                    crate::layout::merge_scale_updates(&final_scales, &layout_infos);
+                // Merge layout updates from marks
+                let merged_layout = crate::layout::merge_layout_updates(&layout_updates);
+
+                // Extract scales and overflow data
+                let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> =
+                    final_scales.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> = merged_scales.into_iter()
+                    .chain(merged_layout.scales.into_iter())
+                    .collect();
+                let row_overflow = merged_layout.row_overflow_by_facet.as_ref();
+                let col_overflow = merged_layout.col_overflow_by_facet.as_ref();
 
                 // Create guide marks and other components based on mode
                 let (
@@ -1393,6 +1430,8 @@ impl CompiledPlot {
                             compiled_guide
                                 .measure_overflow(
                                     &configured_scales,
+                                    None,  // No row overflow during remeasurement
+                                    None,  // No col overflow during remeasurement
                                     pb.width,
                                     pb.height,
                                     theme.as_ref(),
@@ -1473,6 +1512,8 @@ impl CompiledPlot {
                         let guide_marks = self
                             .create_guide_marks(
                                 &merged_scales,
+                                row_overflow,
+                                col_overflow,
                                 plot_area_width,
                                 plot_area_height,
                                 &plot_bounds_struct,
@@ -1549,6 +1590,8 @@ impl CompiledPlot {
                         let guide_marks = self
                             .create_guide_marks(
                                 &merged_scales,
+                                row_overflow,
+                                col_overflow,
                                 plot_area_width,
                                 plot_area_height,
                                 &plot_bounds_struct,

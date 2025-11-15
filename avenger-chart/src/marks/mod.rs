@@ -128,9 +128,9 @@ pub trait CompiledMark: Any + Send + Sync {
     /// # Returns
     /// A tuple of:
     /// - A vector of scene marks ready for evaluation
-    /// - Layout information (Box<dyn LayoutInfo>) that marks can use to communicate layout data.
-    ///   Most marks return `Box::new(())` (no layout info). Layout marks like Facet return
-    ///   `Box::new(ScaleUpdates { ... })` to update scales based on measured content.
+    /// - Layout information (LayoutUpdates) that marks can use to communicate layout data.
+    ///   Most marks return `LayoutUpdates::default()` (empty). Layout marks like Facet return
+    ///   `LayoutUpdates` with updated scales and overflow measurements.
     ///
     /// # Layout Info Guidelines
     ///
@@ -148,7 +148,7 @@ pub trait CompiledMark: Any + Send + Sync {
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, Box<dyn crate::layout::LayoutInfo>), AvengerChartError>;
+    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError>;
 
     /// Whether this mark type supports the order encoding channel
     fn supports_order(&self) -> bool {
