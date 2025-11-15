@@ -48,10 +48,12 @@ impl FacetRowGuide {
     ) -> Result<(f32, f32, f32, f32), crate::error::AvengerChartError> {
         use datafusion::logical_expr::lit;
         // Extract discrete domain values
-        let domain_vals = match row_scale.domain_values()? {
+        let mut domain_vals = match row_scale.domain_values()? {
             crate::scales::extensions::DomainValues::Discrete(vals) => vals,
             _ => vec![],
         };
+        // Sort to ensure deterministic facet ordering
+        domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut max_left: f32 = 0.0;
         let mut max_right: f32 = 0.0;
@@ -654,10 +656,12 @@ impl FacetColGuide {
         use datafusion::logical_expr::lit;
 
         // Extract discrete domain values
-        let domain_vals = match col_scale.domain_values()? {
+        let mut domain_vals = match col_scale.domain_values()? {
             crate::scales::extensions::DomainValues::Discrete(vals) => vals,
             _ => vec![],
         };
+        // Sort to ensure deterministic facet ordering
+        domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut left_max = 0.0_f32;
         let mut right_max = 0.0_f32;
@@ -1404,14 +1408,17 @@ impl CompiledGuide for GridFacetGuide {
         let col_scale = col_scale_opt.unwrap();
 
         // Extract domain values
-        let row_domain_vals = match row_scale.domain_values()? {
+        let mut row_domain_vals = match row_scale.domain_values()? {
             crate::scales::extensions::DomainValues::Discrete(vals) => vals,
             _ => vec![],
         };
-        let col_domain_vals = match col_scale.domain_values()? {
+        let mut col_domain_vals = match col_scale.domain_values()? {
             crate::scales::extensions::DomainValues::Discrete(vals) => vals,
             _ => vec![],
         };
+        // Sort to ensure deterministic facet ordering
+        row_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        col_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         // Skip if single row or single col (degenerate grid)
         let skip_row_labels = row_domain_vals.len() <= 1;
@@ -1862,14 +1869,17 @@ impl CompiledGuide for GridFacetGuide {
         };
 
         // Extract domain values and labels
-        let row_domain_vals = match row_scale.domain_values()? {
+        let mut row_domain_vals = match row_scale.domain_values()? {
             crate::scales::extensions::DomainValues::Discrete(vals) => vals,
             _ => vec![],
         };
-        let col_domain_vals = match col_scale.domain_values()? {
+        let mut col_domain_vals = match col_scale.domain_values()? {
             crate::scales::extensions::DomainValues::Discrete(vals) => vals,
             _ => vec![],
         };
+        // Sort to ensure deterministic facet ordering
+        row_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        col_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let row_labels = row_scale.domain_labels()?;
         let col_labels = col_scale.domain_labels()?;

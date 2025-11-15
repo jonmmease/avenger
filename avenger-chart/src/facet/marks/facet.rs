@@ -712,7 +712,7 @@ impl CompiledMark for CompiledFacetGrid {
         let col_scale_opt = context.scales.get("column");
 
         // Handle degenerate cases where a scale doesn't exist (single unique value in that dimension)
-        let row_domain_vals = if let Some(row_scale) = row_scale_opt {
+        let mut row_domain_vals = if let Some(row_scale) = row_scale_opt {
             match row_scale.domain_values()? {
                 crate::scales::extensions::DomainValues::Discrete(vals) => vals,
                 _ => {
@@ -725,7 +725,7 @@ impl CompiledMark for CompiledFacetGrid {
             self.row_keys.clone()
         };
 
-        let col_domain_vals = if let Some(col_scale) = col_scale_opt {
+        let mut col_domain_vals = if let Some(col_scale) = col_scale_opt {
             match col_scale.domain_values()? {
                 crate::scales::extensions::DomainValues::Discrete(vals) => vals,
                 _ => {
@@ -737,6 +737,10 @@ impl CompiledMark for CompiledFacetGrid {
         } else {
             self.col_keys.clone()
         };
+
+        // Sort domain values to ensure deterministic facet ordering
+        row_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        col_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         // Get row and col expressions
         let row_expr = self

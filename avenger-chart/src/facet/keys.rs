@@ -14,6 +14,7 @@ impl FacetKeyExtractor {
     /// Extract all distinct values for a single facet dimension.
     ///
     /// The supplied expression should resolve to the column used by the facet channel.
+    /// Values are sorted to ensure deterministic facet ordering.
     pub async fn extract_keys(
         df: &DataFrame,
         expr: &Expr,
@@ -21,12 +22,17 @@ impl FacetKeyExtractor {
         let distinct_df = df.clone().select(vec![expr.clone()])?.distinct()?;
 
         let batches = distinct_df.collect().await?;
-        Ok(Self::scalar_column_to_vec(&batches, 0)?)
+        let mut values = Self::scalar_column_to_vec(&batches, 0)?;
+
+        // Sort values to ensure deterministic facet ordering
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        Ok(values)
     }
 
     /// Extract all distinct combinations for a two-dimensional (row/column) facet.
     ///
-    /// The returned vector preserves the order emitted by DataFusion.
+    /// Values are sorted by row then column to ensure deterministic facet ordering.
     pub async fn extract_key_pairs(
         df: &DataFrame,
         row_expr: &Expr,
@@ -38,7 +44,19 @@ impl FacetKeyExtractor {
             .distinct()?;
 
         let batches = distinct_df.collect().await?;
-        Self::pair_columns_to_vec(&batches, 0, 1)
+        let mut pairs = Self::pair_columns_to_vec(&batches, 0, 1)?;
+
+        // Sort by row first, then by column, to ensure deterministic facet ordering
+        pairs.sort_by(|(row_a, col_a), (row_b, col_b)| {
+            match row_a.partial_cmp(row_b).unwrap_or(std::cmp::Ordering::Equal) {
+                std::cmp::Ordering::Equal => {
+                    col_a.partial_cmp(col_b).unwrap_or(std::cmp::Ordering::Equal)
+                }
+                other => other,
+            }
+        });
+
+        Ok(pairs)
     }
 
     fn scalar_column_to_vec(
