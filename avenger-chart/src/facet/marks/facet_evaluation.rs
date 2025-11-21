@@ -447,9 +447,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         })
         .collect();
 
-    // Create band iterator for pass 2 loop iteration using the updated scale
-    let band_iter_pass2 = BandPositionIterator::from_scale(&final_dimension_scale)?;
-
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         if let Some(last_pos) = band_positions.last() {
             let (_, (start, bandwidth)) = last_pos;
@@ -516,22 +513,14 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         scale_sharing_by_channel.clone(),
     );
 
-    // Create BandPositionIterator for Pass 2 (layout positions)
-    // Safety check: both iterators must have same length
-    assert_eq!(
-        subplot_iter_pass2.len(),
-        band_iter_pass2.len(),
-        "SubplotIterator and BandPositionIterator length mismatch in Pass 2"
-    );
-
+    // Safety check: iterators must have same length
     assert_eq!(
         final_rects.len(),
         subplot_iter_pass2.len(),
-        "Final geometry rect count mismatch"
+        "Final geometry rect count mismatch with SubplotIterator"
     );
 
-    for (subplot_index, ((iteration, band_pos), rect)) in subplot_iter_pass2
-        .zip(band_iter_pass2)
+    for (subplot_index, (iteration, rect)) in subplot_iter_pass2
         .zip(final_rects.iter())
         .enumerate()
     {
@@ -612,17 +601,11 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             .await?;
 
         // Use raw group origin for smooth subpixel positioning
-        let origin = group_origin(band_pos.start());
+        // Position is taken from coord.transform() output (rect.x or rect.y)
+        let position = if DimConfig::is_row_facet() { rect.y } else { rect.x };
+        let origin = group_origin(position);
 
-        // COMPARISON LOGGING: Compare band_pos vs rect positioning
-        let rect_position = if DimConfig::is_row_facet() { rect.y } else { rect.x };
-        eprintln!("=== POSITIONING COMPARISON (subplot {}) ===", subplot_index);
-        eprintln!("  band_pos.start() = {}", band_pos.start());
-        eprintln!("  rect position (x or y) = {}", rect_position);
-        eprintln!("  rect.value = {:?}", rect.value);
-        eprintln!("  iteration.facet_value = {:?}", iteration.facet_value);
-
-        // Wrap data marks in a clipped group translated to band position
+        // Wrap data marks in a clipped group translated to subplot position
         let data_group = SceneGroup {
             origin,
             marks: components.data_marks,
@@ -693,8 +676,9 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                     .unwrap_or_default();
 
                 // Position within plot-area coordinates (before outer plot translation)
-                let band_start = band_pos.start();
-                let band_end = band_pos.end(); // Use band scale's actual end position (not band_start + rounded_width)
+                let band_start = if DimConfig::is_row_facet() { rect.y } else { rect.x };
+                let band_size = if DimConfig::is_row_facet() { rect.height } else { rect.width };
+                let band_end = band_start + band_size; // Use rect dimensions for end position
                 let left_rect_x_rel_plot = band_start - overflow_dbg.left;
                 let right_rect_x_rel_plot = band_end; // right overflow placed at band end
 
