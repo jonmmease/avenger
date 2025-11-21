@@ -29,3 +29,5 @@ avenger-lang-preview/preview.avgr
 avenger-chart/book/src/.generated/
 
 .codex-threads/
+
+.agent-ask-threads/

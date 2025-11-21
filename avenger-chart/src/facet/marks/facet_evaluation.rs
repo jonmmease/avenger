@@ -429,6 +429,11 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Use the final_rects_with_padding that already has correct positions
     let final_rects = final_rects_with_padding;
 
+    eprintln!("=== FINAL RECTS (Pass 2) ===");
+    for (i, rect) in final_rects.iter().enumerate() {
+        eprintln!("  rect[{}]: x={}, y={}, width={}, height={}", i, rect.x, rect.y, rect.width, rect.height);
+    }
+
     // Collect band positions for debugging (reuse final_band_positions)
     let band_positions: Vec<_> = final_rects
         .iter()
@@ -609,6 +614,14 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         // Use raw group origin for smooth subpixel positioning
         let origin = group_origin(band_pos.start());
 
+        // COMPARISON LOGGING: Compare band_pos vs rect positioning
+        let rect_position = if DimConfig::is_row_facet() { rect.y } else { rect.x };
+        eprintln!("=== POSITIONING COMPARISON (subplot {}) ===", subplot_index);
+        eprintln!("  band_pos.start() = {}", band_pos.start());
+        eprintln!("  rect position (x or y) = {}", rect_position);
+        eprintln!("  rect.value = {:?}", rect.value);
+        eprintln!("  iteration.facet_value = {:?}", iteration.facet_value);
+
         // Wrap data marks in a clipped group translated to band position
         let data_group = SceneGroup {
             origin,
@@ -745,6 +758,9 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     }
 
     // Return overflow measurements in LayoutUpdates based on dimension
+    eprintln!("=== LAYOUT UPDATES (facet evaluation) ===");
+    eprintln!("  overflow_measurements: {:?}", overflow_measurements);
+
     let layout_updates = if DimConfig::channel_name() == "row" {
         crate::layout::LayoutUpdates::new(
             updated_scales,

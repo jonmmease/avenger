@@ -27,23 +27,8 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct FacetRow {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) padding_px: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-}
-
-impl FacetRow {
-    #[allow(dead_code)]
-    pub(crate) fn new_with_state(
-        padding_px: Option<f32>,
-        overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-    ) -> Self {
-        Self {
-            padding_px,
-            overflow_by_facet,
-        }
-    }
 }
 
 impl CoordinateSystem for FacetRow {
@@ -58,12 +43,12 @@ impl CoordinateSystem for FacetRow {
     }
 }
 
-fn compute_band_layout(centers: &[f32], extent: f32, padding_px: Option<f32>) -> (Vec<f32>, f32) {
-    if centers.is_empty() {
+fn compute_band_layout(positions: &[f32], extent: f32, padding_px: Option<f32>) -> (Vec<f32>, f32) {
+    if positions.is_empty() {
         return (Vec::new(), 0.0);
     }
 
-    let mut sorted = centers.to_vec();
+    let mut sorted = positions.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
     let mut base_bandwidth = if sorted.len() > 1 {
@@ -88,10 +73,8 @@ fn compute_band_layout(centers: &[f32], extent: f32, padding_px: Option<f32>) ->
 
     let effective_bandwidth = (base_bandwidth - padding_px.unwrap_or(0.0)).max(0.0);
 
-    let starts = centers
-        .iter()
-        .map(|center| center - effective_bandwidth / 2.0)
-        .collect();
+    // Input positions are already starts (not centers), so use them directly
+    let starts: Vec<f32> = positions.to_vec();
 
     (starts, effective_bandwidth)
 }
@@ -215,23 +198,8 @@ impl CoordinateSystemTransform for FacetRow {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct FacetColumn {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) padding_px: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-}
-
-impl FacetColumn {
-    #[allow(dead_code)]
-    pub(crate) fn new_with_state(
-        padding_px: Option<f32>,
-        overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-    ) -> Self {
-        Self {
-            padding_px,
-            overflow_by_facet,
-        }
-    }
 }
 
 impl CoordinateSystem for FacetColumn {
@@ -270,7 +238,7 @@ impl CoordinateSystemTransform for FacetColumn {
     fn transform(
         &self,
         position_channels: &HashMap<&str, ScalarOrArray<f32>>,
-        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
+        position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
@@ -369,31 +337,10 @@ impl CoordinateSystemTransform for FacetColumn {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct FacetGrid {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) row_padding_px: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) col_padding_px: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) row_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) col_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-}
-
-impl FacetGrid {
-    #[allow(dead_code)]
-    pub(crate) fn new_with_state(
-        row_padding_px: Option<f32>,
-        col_padding_px: Option<f32>,
-        row_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-        col_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-    ) -> Self {
-        Self {
-            row_padding_px,
-            col_padding_px,
-            row_overflow_by_facet,
-            col_overflow_by_facet,
-        }
-    }
 }
 
 impl CoordinateSystem for FacetGrid {
@@ -524,33 +471,33 @@ mod tests {
     use crate::coords::OverflowSpaceRequirement;
 
     #[test]
-    fn facet_row_new_with_state_constructs_struct() {
-        let coord = FacetRow::new_with_state(
-            Some(5.0),
-            Some(vec![OverflowSpaceRequirement {
+    fn facet_row_constructs_struct() {
+        let coord = FacetRow {
+            padding_px: Some(5.0),
+            overflow_by_facet: Some(vec![OverflowSpaceRequirement {
                 top: 1.0,
                 bottom: 2.0,
                 left: 3.0,
                 right: 4.0,
             }]),
-        );
+        };
         assert_eq!(coord.padding_px, Some(5.0));
         assert!(coord.overflow_by_facet.is_some());
     }
 
     #[test]
-    fn facet_grid_new_with_state_sets_fields() {
-        let coord = FacetGrid::new_with_state(
-            Some(2.0),
-            Some(3.0),
-            Some(vec![OverflowSpaceRequirement {
+    fn facet_grid_sets_fields() {
+        let coord = FacetGrid {
+            row_padding_px: Some(2.0),
+            col_padding_px: Some(3.0),
+            row_overflow_by_facet: Some(vec![OverflowSpaceRequirement {
                 top: 0.5,
                 bottom: 0.5,
                 left: 0.25,
                 right: 0.25,
             }]),
-            None,
-        );
+            col_overflow_by_facet: None,
+        };
         assert_eq!(coord.row_padding_px, Some(2.0));
         assert_eq!(coord.col_padding_px, Some(3.0));
         assert!(coord.row_overflow_by_facet.is_some());
