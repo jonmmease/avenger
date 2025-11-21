@@ -81,11 +81,22 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         )));
     }
 
-    // Build initial (facet_value -> (position, bandwidth)) map with current scale
-    use crate::facet::band_positions::BandPositionIterator;
-    let initial_band_positions: Vec<_> = BandPositionIterator::from_scale(dimension_scale)?
-        .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
-        .collect();
+    // Extract domain values and bandwidth directly from scale
+    use avenger_scales::scales::band;
+    use crate::scales::extensions::{ConfiguredScaleLegendExt, DomainValues};
+
+    let configured = dimension_scale.configured();
+    let domain_vals_from_scale = configured.domain_values()?;
+    let initial_domain_vals: Vec<ScalarValue> = match domain_vals_from_scale {
+        DomainValues::Discrete(vals) => vals,
+        _ => {
+            return Err(AvengerChartError::InternalError(
+                "Expected discrete domain for facet band scale".into(),
+            ))
+        }
+    };
+    let initial_positions = configured.scale_scalars_to_numeric(&initial_domain_vals)?;
+    let initial_bandwidth = band::bandwidth(&configured.config)?;
 
     // Get the inner plot-level DataFrame
     let ctx = &context.session_context;
@@ -152,10 +163,6 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     let any_shared = scale_sharing_by_channel
         .values()
         .any(|v| *v == ScaleSharing::Shared);
-    let initial_band_size = extract_band_size(
-        &initial_band_positions,
-        context.plot_width.max(context.plot_height),
-    );
     let shared_scale_builder = if any_shared {
         Some(
             compiled_subplot
@@ -168,7 +175,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     // Build initial shared scales for Pass 1 using approximate band size
     let initial_shared_scales = if let Some(ref builder) = shared_scale_builder {
-        let (width, height) = subplot_dims(initial_band_size, context);
+        let (width, height) = subplot_dims(initial_bandwidth, context);
         Some(
             compiled_subplot
                 .build_scales_from_builder(builder, width, height, ctx, &context.params)
@@ -179,14 +186,11 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     };
 
     // ========== PASS 1: MEASUREMENT PHASE ==========
-    // Extract domain values from band positions for SubplotIterator
+    // Extract domain values for SubplotIterator
     let domain_vals: Vec<ScalarValue> = if let Some(keys) = facet_keys {
         keys.to_vec()
     } else {
-        initial_band_positions
-            .iter()
-            .map(|(val, _)| val.clone())
-            .collect()
+        initial_domain_vals.clone()
     };
 
     // Create SubplotIterator for logical iteration (FacetContext management)
@@ -199,23 +203,15 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     // Build position_channels and position_values for facet coord transform (Pass 1)
     let channel_name = DimConfig::channel_name();
-    let positions_pass1: Vec<f32> = initial_band_positions
-        .iter()
-        .map(|(_, (start, _))| *start)
-        .collect();
-    let values_pass1: Vec<ScalarValue> = initial_band_positions
-        .iter()
-        .map(|(val, _)| val.clone())
-        .collect();
 
     let mut position_channels_pass1 = HashMap::new();
     position_channels_pass1.insert(
         channel_name,
-        avenger_common::value::ScalarOrArray::new_array(positions_pass1),
+        avenger_common::value::ScalarOrArray::new_array(initial_positions.clone()),
     );
 
     let mut position_values_pass1 = HashMap::new();
-    position_values_pass1.insert(channel_name, values_pass1);
+    position_values_pass1.insert(channel_name, initial_domain_vals.clone());
 
     // Call facet coord transform to get initial geometry
     let initial_geometry = facet_coord.transform(
@@ -236,19 +232,16 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         .rects
         .clone();
 
-    // Create BandPositionIterator for geometric iteration (layout positions)
-    let band_iter = BandPositionIterator::from_scale(dimension_scale)?;
-
-    // Safety check: both iterators must have same length
+    // Safety check: subplot iterator and rects must have same length
     assert_eq!(
         subplot_iter.len(),
-        band_iter.len(),
-        "SubplotIterator and BandPositionIterator length mismatch in Pass 1"
+        initial_rects.len(),
+        "SubplotIterator and initial_rects length mismatch in Pass 1"
     );
 
     let mut overflow_measurements = Vec::new();
 
-    for ((iteration, _band_pos), rect) in subplot_iter.zip(band_iter).zip(initial_rects.iter()) {
+    for (iteration, rect) in subplot_iter.zip(initial_rects.iter()) {
         let band_size = if DimConfig::is_row_facet() {
             rect.height
         } else {
@@ -384,27 +377,26 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     );
 
     // STEP 2: Extract positions from the REBUILT scale (now with correct padding)
-    let temp_band_positions: Vec<_> = BandPositionIterator::from_scale(&final_dimension_scale)?
-        .map(|bp| (bp.value.clone(), (bp.start(), bp.bandwidth)))
-        .collect();
-
-    let temp_positions: Vec<f32> = temp_band_positions
-        .iter()
-        .map(|(_, (start, _))| *start)
-        .collect();
-    let temp_values: Vec<ScalarValue> = temp_band_positions
-        .iter()
-        .map(|(val, _)| val.clone())
-        .collect();
+    let final_configured = final_dimension_scale.configured();
+    let final_domain_vals_from_scale = final_configured.domain_values()?;
+    let final_domain_vals: Vec<ScalarValue> = match final_domain_vals_from_scale {
+        DomainValues::Discrete(vals) => vals,
+        _ => {
+            return Err(AvengerChartError::InternalError(
+                "Expected discrete domain for facet band scale".into(),
+            ))
+        }
+    };
+    let final_positions = final_configured.scale_scalars_to_numeric(&final_domain_vals)?;
 
     let mut temp_position_channels = HashMap::new();
     temp_position_channels.insert(
         channel_name,
-        avenger_common::value::ScalarOrArray::new_array(temp_positions),
+        avenger_common::value::ScalarOrArray::new_array(final_positions),
     );
 
     let mut temp_position_values = HashMap::new();
-    temp_position_values.insert(channel_name, temp_values);
+    temp_position_values.insert(channel_name, final_domain_vals);
 
     // STEP 3: Call coord.transform() with positions from rebuilt scale
     // Now the scale and coord are in sync (both have padding = rounded_gap)
@@ -434,22 +426,14 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         eprintln!("  rect[{}]: x={}, y={}, width={}, height={}", i, rect.x, rect.y, rect.width, rect.height);
     }
 
-    // Collect band positions for debugging (reuse final_band_positions)
-    let band_positions: Vec<_> = final_rects
-        .iter()
-        .map(|rect| {
-            let (start, size) = if DimConfig::is_row_facet() {
-                (rect.y, rect.height)
-            } else {
-                (rect.x, rect.width)
-            };
-            (rect.value.clone(), (start, size))
-        })
-        .collect();
-
+    // Debug logging for final geometry
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        if let Some(last_pos) = band_positions.last() {
-            let (_, (start, bandwidth)) = last_pos;
+        if let Some(last_rect) = final_rects.last() {
+            let (start, bandwidth) = if DimConfig::is_row_facet() {
+                (last_rect.y, last_rect.height)
+            } else {
+                (last_rect.x, last_rect.width)
+            };
             eprintln!(
                 "PASS2 Band scale: last subplot start={} bandwidth={} end={}",
                 start,
@@ -461,18 +445,21 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             "PASS2 Band scale range: context.plot_width={} context.plot_height={}",
             context.plot_width, context.plot_height
         );
-    }
 
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
             "PASS2: Band positions from rebuilt scale (count={}):",
-            band_positions.len()
+            final_rects.len()
         );
-        for (i, (val, (start, bw))) in band_positions.iter().enumerate() {
+        for (i, rect) in final_rects.iter().enumerate() {
+            let (start, bw) = if DimConfig::is_row_facet() {
+                (rect.y, rect.height)
+            } else {
+                (rect.x, rect.width)
+            };
             eprintln!(
                 "  Band {}: value={:?} start={:.3} bandwidth={:.3} end={:.3}",
                 i,
-                val,
+                rect.value,
                 start,
                 bw,
                 start + bw
@@ -489,9 +476,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // The initial_shared_scales were built with the approximate size BEFORE padding,
     // which causes incorrect data scaling (axis doesn't align properly)
     let final_shared_scales = if let Some(ref builder) = shared_scale_builder {
-        let final_band_size =
-            extract_band_size(&band_positions, context.plot_width.max(context.plot_height));
-        let (width, height) = subplot_dims(final_band_size, context);
+        let final_bandwidth = band::bandwidth(&final_dimension_scale.configured().config)?;
+        let (width, height) = subplot_dims(final_bandwidth, context);
 
         Some(
             compiled_subplot
@@ -502,9 +488,9 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         initial_shared_scales
     };
 
-    // Extract domain values from final band positions for SubplotIterator
+    // Extract domain values from final rects for SubplotIterator
     let domain_vals_final: Vec<ScalarValue> =
-        band_positions.iter().map(|(val, _)| val.clone()).collect();
+        final_rects.iter().map(|rect| rect.value.clone()).collect();
 
     // Create SubplotIterator for Pass 2 (FacetContext management)
     let subplot_iter_pass2 = SubplotIterator::<DimConfig>::new(
@@ -763,15 +749,3 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     Ok((all_marks, layout_updates))
 }
 
-/// Helper to extract band size from band positions vector
-///
-/// Returns the bandwidth from the first band position, or fallback_size if empty.
-fn extract_band_size(
-    band_positions: &[(datafusion::common::ScalarValue, (f32, f32))],
-    fallback_size: f32,
-) -> f32 {
-    band_positions
-        .first()
-        .map(|(_, (_, bandwidth))| *bandwidth)
-        .unwrap_or(fallback_size)
-}
