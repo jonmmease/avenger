@@ -639,6 +639,187 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetGrid> for Facet<InnerC> {
     }
 }
 
+// ============================================================================
+// Helper functions for GridFacet two-pass layout
+// ============================================================================
+
+/// Measure overflow for all cells in the grid from SubplotRects
+#[allow(clippy::too_many_arguments)]
+async fn measure_grid_overflow(
+    rects: &[crate::coords::SubplotRect],
+    compiled_subplot: &crate::plot::CompiledPlot,
+    scale_grouping: &crate::facet::scale_grouping::ScaleGrouping,
+    row_expr: &datafusion::logical_expr::Expr,
+    col_expr: &datafusion::logical_expr::Expr,
+    df: &datafusion::prelude::DataFrame,
+    session_context: &datafusion::prelude::SessionContext,
+    row_iterations: &[crate::facet::subplot_iterator::SubplotIteration],
+    col_iterations: &[crate::facet::subplot_iterator::SubplotIteration],
+    num_rows: usize,
+    num_cols: usize,
+) -> Result<Vec<Vec<crate::guide::OverflowSpaceRequirement>>, AvengerChartError> {
+    use datafusion::logical_expr::lit;
+
+    let mut overflow_grid = vec![vec![crate::guide::OverflowSpaceRequirement::default(); num_cols]; num_rows];
+
+    // Note: rects are guaranteed to be in row-major order by FacetGrid::transform()
+    // (see avenger-chart/src/facet/coord.rs:453-469 nested loop structure).
+    // We use row_index/col_index fields for explicit cell lookup rather than relying on iteration order.
+    for rect in rects {
+        let row_idx = rect.row_index.expect("SubplotRect missing row_index");
+        let col_idx = rect.col_index.expect("SubplotRect missing col_index");
+        let row_value = &rect.value;
+        let col_value = rect.col_value.as_ref().expect("SubplotRect missing col_value");
+
+        // Filter data for this cell (both row AND column match)
+        let filter_df = df
+            .clone()
+            .filter(row_expr.clone().eq(lit(row_value.clone())))?
+            .filter(col_expr.clone().eq(lit(col_value.clone())))?;
+
+        // Get cell-specific params by merging row and col FacetContexts
+        let cell_params = merge_grid_facet_contexts(
+            &row_iterations[row_idx],
+            &col_iterations[col_idx],
+            num_rows,
+            num_cols,
+        );
+
+        // Build scales for this subplot position using ScaleGrouping with cell-specific params
+        let inner_scales = scale_grouping
+            .build_scales_for_position(
+                compiled_subplot,
+                row_idx,
+                col_idx,
+                rect.width,
+                rect.height,
+                session_context,
+                &cell_params,
+            )
+            .await?;
+
+        // Measure guide AND legend overflow for this cell using evaluate_in_canvas with Measure mode
+        let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
+            scales: inner_scales.clone(),
+        };
+
+        let components = compiled_subplot
+            .build_plot_components(
+                rect.width,
+                rect.height,
+                session_context,
+                &cell_params,
+                &scale_provider,
+                crate::plot::compiled::EvaluationMode::Measure,
+                Some(&filter_df),
+                true, // Plot area mode: both dimensions are already plot area size
+            )
+            .await?;
+
+        // Extract overflow from the returned components
+        let overflow = components.overflow.unwrap_or_default();
+        overflow_grid[row_idx][col_idx] = overflow;
+    }
+
+    Ok(overflow_grid)
+}
+
+/// Calculate row padding from 2D overflow grid
+fn calculate_row_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> f32 {
+    let num_rows = overflow_grid.len();
+    if num_rows <= 1 {
+        return 0.0;
+    }
+
+    let mut max_gap: f32 = 0.0;
+    for i in 0..(num_rows - 1) {
+        // Get max bottom overflow for row i across all columns
+        let max_bottom = overflow_grid[i].iter()
+            .map(|o| o.bottom)
+            .fold(0.0f32, f32::max);
+
+        // Get max top overflow for row i+1 across all columns
+        let max_top = overflow_grid[i + 1].iter()
+            .map(|o| o.top)
+            .fold(0.0f32, f32::max);
+
+        max_gap = max_gap.max(max_bottom + max_top);
+    }
+
+    max_gap.ceil()
+}
+
+/// Calculate column padding from 2D overflow grid
+fn calculate_col_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> f32 {
+    let num_cols = overflow_grid.first().map(|row| row.len()).unwrap_or(0);
+    if num_cols <= 1 {
+        return 0.0;
+    }
+
+    let mut max_gap: f32 = 0.0;
+    for j in 0..(num_cols - 1) {
+        // Get max right overflow for col j across all rows
+        let max_right = overflow_grid.iter()
+            .map(|row| row[j].right)
+            .fold(0.0f32, f32::max);
+
+        // Get max left overflow for col j+1 across all rows
+        let max_left = overflow_grid.iter()
+            .map(|row| row[j + 1].left)
+            .fold(0.0f32, f32::max);
+
+        max_gap = max_gap.max(max_right + max_left);
+    }
+
+    max_gap.ceil()
+}
+
+/// Calculate both row and column padding from 2D overflow grid
+fn calculate_grid_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> (f32, f32) {
+    let row_padding = calculate_row_padding(overflow_grid);
+    let col_padding = calculate_col_padding(overflow_grid);
+    (row_padding, col_padding)
+}
+
+/// Extract 1D row overflow vector from 2D overflow grid
+/// Takes max overflow in each direction across all columns in each row
+fn extract_row_overflow(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> Vec<crate::guide::OverflowSpaceRequirement> {
+    overflow_grid.iter().map(|row_overflows| {
+        // Take max overflow in each direction across all columns in this row
+        row_overflows.iter().fold(
+            crate::guide::OverflowSpaceRequirement::default(),
+            |acc, o| crate::guide::OverflowSpaceRequirement {
+                top: acc.top.max(o.top),
+                bottom: acc.bottom.max(o.bottom),
+                left: acc.left.max(o.left),
+                right: acc.right.max(o.right),
+            }
+        )
+    }).collect()
+}
+
+/// Extract 1D column overflow vector from 2D overflow grid
+/// Takes max overflow in each direction across all rows in each column
+fn extract_col_overflow(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> Vec<crate::guide::OverflowSpaceRequirement> {
+    let num_cols = overflow_grid.first().map(|row| row.len()).unwrap_or(0);
+
+    // For each column, combine overflow from all rows
+    (0..num_cols).map(|col_idx| {
+        overflow_grid.iter().fold(
+            crate::guide::OverflowSpaceRequirement::default(),
+            |acc, row| {
+                let o = &row[col_idx];
+                crate::guide::OverflowSpaceRequirement {
+                    top: acc.top.max(o.top),
+                    bottom: acc.bottom.max(o.bottom),
+                    left: acc.left.max(o.left),
+                    right: acc.right.max(o.right),
+                }
+            }
+        )
+    }).collect()
+}
+
 #[typetag::serde]
 #[async_trait::async_trait]
 impl CompiledMark for CompiledFacetGrid {
@@ -685,7 +866,7 @@ impl CompiledMark for CompiledFacetGrid {
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
-        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+        coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         use crate::scales::ConfiguredScaleLegendExt;
         use datafusion::logical_expr::lit;
@@ -809,10 +990,6 @@ impl CompiledMark for CompiledFacetGrid {
 
         let (num_rows, num_cols) = (row_domain_vals.len(), col_domain_vals.len());
 
-        // Initial band dimensions (will be recalculated after measuring required spacing)
-        let mut band_w = context.plot_width / num_cols.max(1) as f32;
-        let mut band_h = context.plot_height / num_rows.max(1) as f32;
-
         // Build ScaleGrouping once for reuse across both passes
         use crate::facet::scale_grouping::ScaleGrouping;
         let scale_grouping = ScaleGrouping::build(
@@ -828,101 +1005,106 @@ impl CompiledMark for CompiledFacetGrid {
         )
         .await?;
 
-        // Create a 2D array to store overflow measurements for each grid cell
-        // overflow_grid[row_idx][col_idx] = OverflowSpaceRequirement
-        let mut overflow_grid: Vec<Vec<crate::guide::OverflowSpaceRequirement>> =
-            vec![vec![crate::guide::OverflowSpaceRequirement::default(); num_cols]; num_rows];
+        // ========== PASS 1: MEASUREMENT PHASE ==========
+        // Extract initial positions from scales (or use fallback for degenerate cases)
+        let initial_row_positions: Vec<f32> = if let Some(row_scale) = row_scale_opt {
+            row_scale.configured().scale_scalars_to_numeric(&row_domain_vals)?
+        } else {
+            // Fallback: single value at origin for degenerate case
+            vec![0.0; row_domain_vals.len()]
+        };
 
-        // Measure overflow for each grid cell using nested SubplotIterators
-        use crate::facet::dimension_config::{ColumnDimensionConfig, RowDimensionConfig};
+        let initial_col_positions: Vec<f32> = if let Some(col_scale) = col_scale_opt {
+            col_scale.configured().scale_scalars_to_numeric(&col_domain_vals)?
+        } else {
+            // Fallback: single value at origin for degenerate case
+            vec![0.0; col_domain_vals.len()]
+        };
 
-        let row_iter_pass1 = SubplotIterator::<RowDimensionConfig>::new(
+        // Critical: Verify lengths match
+        assert_eq!(
+            initial_row_positions.len(),
+            row_domain_vals.len(),
+            "Row positions length must match row domain values"
+        );
+        assert_eq!(
+            initial_col_positions.len(),
+            col_domain_vals.len(),
+            "Col positions length must match col domain values"
+        );
+
+        // Build position_channels and position_values for coord.transform()
+        use std::collections::HashMap;
+        let mut position_channels_pass1 = HashMap::new();
+        position_channels_pass1.insert(
+            "row",
+            avenger_common::value::ScalarOrArray::new_array(initial_row_positions),
+        );
+        position_channels_pass1.insert(
+            "column",
+            avenger_common::value::ScalarOrArray::new_array(initial_col_positions),
+        );
+
+        let mut position_values_pass1 = HashMap::new();
+        position_values_pass1.insert("row", row_domain_vals.clone());
+        position_values_pass1.insert("column", col_domain_vals.clone());
+
+        // Call coord.transform() to get initial geometry
+        let initial_geometry = coord.transform(
+            &position_channels_pass1,
+            Some(&position_values_pass1),
+            context.plot_width,
+            context.plot_height,
+        )?;
+
+        let initial_rects = initial_geometry
+            .as_any()
+            .downcast_ref::<crate::coords::SubplotGeometry>()
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "Expected SubplotGeometry from GridFacet coord transform".into(),
+                )
+            })?
+            .rects
+            .as_slice();
+
+        // Collect SubplotIterations for cell-specific FacetContext
+        // These will be reused in Pass 2 to ensure measurement and rendering use identical context
+        let row_iterations: Vec<_> = SubplotIterator::<RowDimensionConfig>::new(
             row_domain_vals.clone(),
             context.params.clone(),
             scale_sharing_by_channel.clone(),
-        );
+        )
+        .collect();
 
-        for row_iteration in row_iter_pass1 {
-            let col_iter_pass1 = SubplotIterator::<ColumnDimensionConfig>::new(
-                col_domain_vals.clone(),
-                context.params.clone(),
-                scale_sharing_by_channel.clone(),
-            );
+        let col_iterations: Vec<_> = SubplotIterator::<ColumnDimensionConfig>::new(
+            col_domain_vals.clone(),
+            context.params.clone(),
+            scale_sharing_by_channel.clone(),
+        )
+        .collect();
 
-            for col_iteration in col_iter_pass1 {
-                // Merge row and col contexts into unified GridFacet context
-                let merged_params =
-                    merge_grid_facet_contexts(&row_iteration, &col_iteration, num_rows, num_cols);
+        // Measure overflow for all grid cells using the helper function
+        let overflow_grid = measure_grid_overflow(
+            initial_rects,
+            &self.compiled_subplot,
+            &scale_grouping,
+            &row_expr,
+            &col_expr,
+            &df,
+            &context.session_context,
+            &row_iterations,
+            &col_iterations,
+            num_rows,
+            num_cols,
+        )
+        .await?;
 
-                // Filter to rows matching both row AND col values
-                let filter_df = df
-                    .clone()
-                    .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
-                    .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
+        // ========== BETWEEN PASSES: CALCULATE PADDING ==========
+        // Calculate padding from overflow measurements
+        let (row_padding_px, col_padding_px) = calculate_grid_padding(&overflow_grid);
 
-                // Build scales for this subplot position using ScaleGrouping
-                let inner_scales = scale_grouping
-                    .build_scales_for_position(
-                        &self.compiled_subplot,
-                        row_iteration.index,
-                        col_iteration.index,
-                        band_w,
-                        band_h,
-                        &context.session_context,
-                        &merged_params,
-                    )
-                    .await?;
-
-                // Measure guide AND legend overflow for this cell using evaluate_in_canvas with Measure mode
-                let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
-                    scales: inner_scales.clone(),
-                };
-
-                let components = self
-                    .compiled_subplot
-                    .build_plot_components(
-                        band_w,
-                        band_h,
-                        &context.session_context,
-                        &merged_params,
-                        &scale_provider,
-                        crate::plot::compiled::EvaluationMode::Measure,
-                        Some(&filter_df),
-                        true, // Plot area mode: both dimensions are already plot area size
-                    )
-                    .await?;
-
-                // Extract overflow from the returned components
-                let overflow = components.overflow.unwrap_or_default();
-                overflow_grid[row_iteration.index][col_iteration.index] = overflow;
-            }
-        }
-
-        // Calculate required vertical spacing (between rows)
-        let mut max_vertical_gap = 0.0_f32;
-        for row_idx in 0..num_rows.saturating_sub(1) {
-            for col_idx in 0..num_cols {
-                let gap = RowDimensionConfig::calculate_adjacent_overflow(
-                    &overflow_grid[row_idx][col_idx],
-                    &overflow_grid[row_idx + 1][col_idx],
-                );
-                max_vertical_gap = max_vertical_gap.max(gap);
-            }
-        }
-
-        // Calculate required horizontal spacing (between columns)
-        let mut max_horizontal_gap = 0.0_f32;
-        for row_idx in 0..num_rows {
-            for col_idx in 0..num_cols.saturating_sub(1) {
-                let gap = ColumnDimensionConfig::calculate_adjacent_overflow(
-                    &overflow_grid[row_idx][col_idx],
-                    &overflow_grid[row_idx][col_idx + 1],
-                );
-                max_horizontal_gap = max_horizontal_gap.max(gap);
-            }
-        }
-
-        // Add configured facet_spacing to both dimensions
+        // Get configured facet_spacing
         const DEFAULT_FACET_SPACING: f32 = 3.0;
         let spacing = self.facet_spacing.unwrap_or_else(|| {
             let facet_ctx = context
@@ -936,29 +1118,51 @@ impl CompiledMark for CompiledFacetGrid {
                 .unwrap_or(DEFAULT_FACET_SPACING)
         });
 
-        max_vertical_gap += spacing;
-        max_horizontal_gap += spacing;
+        // Zero padding for single-dimension axes to avoid shrinking
+        let row_padding_px = if num_rows == 1 {
+            0.0
+        } else {
+            row_padding_px + spacing
+        };
+        let col_padding_px = if num_cols == 1 {
+            0.0
+        } else {
+            col_padding_px + spacing
+        };
+
+        // Extract overflow vectors for coord update
+        let row_overflow = extract_row_overflow(&overflow_grid);
+        let col_overflow = extract_col_overflow(&overflow_grid);
 
         // Debug: log measured spacing and gaps
         tracing::debug!(
             num_rows = num_rows,
             num_cols = num_cols,
             spacing = spacing,
-            max_vertical_gap = max_vertical_gap,
-            max_horizontal_gap = max_horizontal_gap,
+            row_padding_px = row_padding_px,
+            col_padding_px = col_padding_px,
             "GridFacet: computed facet spacing (including theme spacing)"
         );
 
+        // Update coord with measured padding
+        let updated_coord = coord.with_measured_padding(&crate::coords::PaddingSpec::Grid {
+            row_padding_px,
+            col_padding_px,
+            row_overflow: row_overflow.clone(),
+            col_overflow: col_overflow.clone(),
+        });
+
+        // ========== REBUILD SCALES WITH PADDING ==========
         // Rebuild row and col scales with measured spacing
         let mut updated_scales = context.scales.clone();
 
-        if max_vertical_gap > 0.0 && row_scale_opt.is_some() {
+        if row_padding_px > 0.0 && row_scale_opt.is_some() {
             use avenger_scales::scalar::Scalar;
             let row_scale = row_scale_opt.unwrap();
             let mut new_config = row_scale.configured().config.clone();
             new_config.options.insert(
                 "padding_inner_px".to_string(),
-                Scalar::from_f32(max_vertical_gap),
+                Scalar::from_f32(row_padding_px),
             );
             let new_configured = avenger_scales::scales::ConfiguredScale {
                 scale_impl: row_scale.configured().scale_impl.clone(),
@@ -972,18 +1176,18 @@ impl CompiledMark for CompiledFacetGrid {
                 ),
             );
             tracing::debug!(
-                padding_inner_px = max_vertical_gap,
+                padding_inner_px = row_padding_px,
                 "GridFacet: updated row scale padding_inner_px"
             );
         }
 
-        if max_horizontal_gap > 0.0 && col_scale_opt.is_some() {
+        if col_padding_px > 0.0 && col_scale_opt.is_some() {
             use avenger_scales::scalar::Scalar;
             let col_scale = col_scale_opt.unwrap();
             let mut new_config = col_scale.configured().config.clone();
             new_config.options.insert(
                 "padding_inner_px".to_string(),
-                Scalar::from_f32(max_horizontal_gap),
+                Scalar::from_f32(col_padding_px),
             );
             let new_configured = avenger_scales::scales::ConfiguredScale {
                 scale_impl: col_scale.configured().scale_impl.clone(),
@@ -997,265 +1201,240 @@ impl CompiledMark for CompiledFacetGrid {
                 ),
             );
             tracing::debug!(
-                padding_inner_px = max_horizontal_gap,
+                padding_inner_px = col_padding_px,
                 "GridFacet: updated col scale padding_inner_px"
             );
         }
 
-        // Recalculate band dimensions using updated scales with spacing
-        // After setting padding_inner_px, the band scale automatically reduces bandwidth
-        // to make room for gaps. Extract this new bandwidth.
-        if let Some(row_scale) = updated_scales.get("row") {
-            if let Ok(band_iter) =
-                crate::facet::band_positions::BandPositionIterator::from_scale(row_scale)
-            {
-                let positions: Vec<_> = band_iter.collect();
-                if let Some(first) = positions.first() {
-                    band_h = first.bandwidth;
-                }
-            }
-        }
-
-        if let Some(col_scale) = updated_scales.get("column") {
-            if let Ok(band_iter) =
-                crate::facet::band_positions::BandPositionIterator::from_scale(col_scale)
-            {
-                let positions: Vec<_> = band_iter.collect();
-                if let Some(first) = positions.first() {
-                    band_w = first.bandwidth;
-                }
-            }
-        }
-
-        // Rebuild base scales with new band dimensions
-        // Note: ScaleGrouping will rebuild scales with new band dimensions in Pass 2
-        // No need to rebuild base_scales here since we use build_scales_for_position()
-
-        // ====================================================================================
-        // PASS 2: Render all grid cells using measured spacing
-        // ====================================================================================
-
-        // Get band positions from updated scales for proper positioning with spacing
-        use crate::facet::band_positions::BandPositionIterator;
-        let row_band_iter_pass2 = if let Some(row_scale) = updated_scales.get("row") {
-            Some(BandPositionIterator::from_scale(row_scale)?)
+        // ========== PASS 2: FINAL RENDERING PHASE ==========
+        // Extract updated positions from rebuilt scales
+        let updated_row_positions: Vec<f32> = if let Some(row_scale) = updated_scales.get("row") {
+            row_scale.configured().scale_scalars_to_numeric(&row_domain_vals)?
         } else {
-            None
+            vec![0.0; row_domain_vals.len()]
         };
-        let col_band_iter_pass2 = if let Some(col_scale) = updated_scales.get("column") {
-            Some(BandPositionIterator::from_scale(col_scale)?)
+
+        let updated_col_positions: Vec<f32> = if let Some(col_scale) = updated_scales.get("column") {
+            col_scale.configured().scale_scalars_to_numeric(&col_domain_vals)?
         } else {
-            None
+            vec![0.0; col_domain_vals.len()]
         };
+
+        // Build position_channels for Pass 2
+        let mut final_position_channels = HashMap::new();
+        final_position_channels.insert(
+            "row",
+            avenger_common::value::ScalarOrArray::new_array(updated_row_positions),
+        );
+        final_position_channels.insert(
+            "column",
+            avenger_common::value::ScalarOrArray::new_array(updated_col_positions),
+        );
+
+        let mut final_position_values = HashMap::new();
+        final_position_values.insert("row", row_domain_vals.clone());
+        final_position_values.insert("column", col_domain_vals.clone());
+
+        // Get final geometry from updated coord
+        let final_geometry = updated_coord.transform(
+            &final_position_channels,
+            Some(&final_position_values),
+            context.plot_width,
+            context.plot_height,
+        )?;
+
+        let final_rects = final_geometry
+            .as_any()
+            .downcast_ref::<crate::coords::SubplotGeometry>()
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "Expected SubplotGeometry from GridFacet coord transform".into(),
+                )
+            })?
+            .rects
+            .as_slice();
+
+        // Verify counts match
+        assert_eq!(
+            final_rects.len(),
+            num_rows * num_cols,
+            "Final rects count must equal num_rows * num_cols"
+        );
+
+        // Reuse iteration vectors from Pass 1 to ensure identical FacetContext
+        // These were already built before measure_grid_overflow and contain cell-specific params
+        assert_eq!(
+            row_iterations.len(),
+            num_rows,
+            "Row iteration count mismatch"
+        );
+        assert_eq!(
+            col_iterations.len(),
+            num_cols,
+            "Col iteration count mismatch"
+        );
 
         let mut marks: Vec<SceneMark> = Vec::new();
 
-        // Create nested SubplotIterators for Pass 2 rendering
-        let row_iter_pass2 = SubplotIterator::<RowDimensionConfig>::new(
-            row_domain_vals.clone(),
-            context.params.clone(),
-            scale_sharing_by_channel.clone(),
-        );
+        // Render each grid cell using index-based lookup
+        for rect in final_rects {
+            let row_idx = rect.row_index.expect("SubplotRect missing row_index");
+            let col_idx = rect.col_index.expect("SubplotRect missing col_index");
 
-        // Zip row iterator with row band positions (or use fallback positions)
-        let row_iter_with_bands = if let Some(band_iter) = row_band_iter_pass2 {
-            row_iter_pass2.zip(band_iter).collect::<Vec<_>>()
-        } else {
-            // Fallback: use index-based positions without band scale
-            row_iter_pass2
-                .enumerate()
-                .map(|(idx, iter)| {
-                    let band_pos = crate::facet::band_positions::BandPosition::new(
-                        iter.facet_value.clone(),
-                        idx as f32 * band_h,
-                        band_h,
-                    );
-                    (iter, band_pos)
-                })
-                .collect()
-        };
+            // Index-based lookup - no reliance on ordering!
+            let row_iteration = &row_iterations[row_idx];
+            let col_iteration = &col_iterations[col_idx];
 
-        // Render each grid cell using nested loops
-        for (row_iteration, row_band_pos) in row_iter_with_bands {
-            let col_iter_pass2 = SubplotIterator::<ColumnDimensionConfig>::new(
-                col_domain_vals.clone(),
-                context.params.clone(),
-                scale_sharing_by_channel.clone(),
+            // Double-check indices match (can be debug_assert in production)
+            assert_eq!(
+                row_iteration.index, row_idx,
+                "Row iteration index mismatch"
+            );
+            assert_eq!(
+                col_iteration.index, col_idx,
+                "Col iteration index mismatch"
             );
 
-            // Zip col iterator with col band positions (or use fallback positions)
-            let col_iter_with_bands = if let Some(_band_iter) = col_band_iter_pass2.as_ref() {
-                // Need to recreate the band iterator for each row since iterators aren't Clone
-                let col_scale = updated_scales.get("column").unwrap();
-                let band_iter = BandPositionIterator::from_scale(col_scale)?;
-                col_iter_pass2.zip(band_iter).collect::<Vec<_>>()
-            } else {
-                col_iter_pass2
-                    .enumerate()
-                    .map(|(idx, iter)| {
-                        let band_pos = crate::facet::band_positions::BandPosition::new(
-                            iter.facet_value.clone(),
-                            idx as f32 * band_w,
-                            band_w,
-                        );
-                        (iter, band_pos)
-                    })
-                    .collect()
+            // Merge row and col contexts into unified GridFacet context
+            let merged_params =
+                merge_grid_facet_contexts(row_iteration, col_iteration, num_rows, num_cols);
+
+            // Filter to rows matching both row AND col values
+            let filter_df = df
+                .clone()
+                .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
+                .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
+
+            // Check if this cell has any data
+            let cell_count = filter_df.clone().count().await?;
+            let cell_is_empty = cell_count == 0;
+
+            // Build scales for this subplot position using ScaleGrouping
+            let inner_scales = scale_grouping
+                .build_scales_for_position(
+                    &self.compiled_subplot,
+                    row_idx,
+                    col_idx,
+                    rect.width,
+                    rect.height,
+                    &context.session_context,
+                    &merged_params,
+                )
+                .await?;
+
+            // CRITICAL CHANGE: Use rect.x, rect.y from coord.transform() instead of manual calculation
+            let x_offset = rect.x;
+            let y_offset = rect.y;
+
+            // Render subplot using build_plot_components with Render mode
+            let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
+                scales: inner_scales.clone(),
             };
 
-            for (col_iteration, col_band_pos) in col_iter_with_bands {
-                // Merge row and col contexts into unified GridFacet context
-                let merged_params =
-                    merge_grid_facet_contexts(&row_iteration, &col_iteration, num_rows, num_cols);
+            let components = self
+                .compiled_subplot
+                .build_plot_components(
+                    rect.width,
+                    rect.height,
+                    &context.session_context,
+                    &merged_params,
+                    &scale_provider,
+                    crate::plot::compiled::EvaluationMode::Render,
+                    Some(&filter_df),
+                    true, // Plot area mode: both dimensions are already plot area size
+                )
+                .await?;
 
-                // Filter to rows matching both row AND col values
-                let filter_df = df
-                    .clone()
-                    .filter(row_expr.clone().eq(lit(row_iteration.facet_value.clone())))?
-                    .filter(col_expr.clone().eq(lit(col_iteration.facet_value.clone())))?;
-
-                // Check if this cell has any data
-                let cell_count = filter_df.clone().count().await?;
-                let cell_is_empty = cell_count == 0;
-
-                // Build scales for this subplot position using ScaleGrouping (Pass 2 with final band dimensions)
-                let inner_scales = scale_grouping
-                    .build_scales_for_position(
-                        &self.compiled_subplot,
-                        row_iteration.index,
-                        col_iteration.index,
-                        band_w,
-                        band_h,
-                        &context.session_context,
-                        &merged_params,
-                    )
-                    .await?;
-
-                // Calculate subplot position from band positions
-                let x_offset = col_band_pos.start();
-                let y_offset = row_band_pos.start();
-
-                // Render subplot using evaluate_in_canvas with Render mode
-                // This creates all marks including legends, titles, and subtitles
-                // For empty cells, use the filtered dataframe which will result in no data marks
-                let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
-                    scales: inner_scales.clone(),
+            // Wrap data marks in a clipped group translated to grid cell position
+            use avenger_scenegraph::marks::group::SceneGroup;
+            if !components.data_marks.is_empty() {
+                let data_group = SceneGroup {
+                    origin: [x_offset, y_offset].into(),
+                    marks: components.data_marks,
+                    clip: components.clip,
+                    zindex: Some(0),
+                    ..Default::default()
                 };
+                marks.push(SceneMark::Group(data_group));
+            }
 
-                let components = self
-                    .compiled_subplot
-                    .build_plot_components(
-                        band_w,
-                        band_h,
-                        &context.session_context,
-                        &merged_params,
-                        &scale_provider,
-                        crate::plot::compiled::EvaluationMode::Render,
-                        Some(&filter_df),
-                        true, // Plot area mode: both dimensions are already plot area size
-                    )
-                    .await?;
+            // Wrap guide marks (axes) in a non-clipped translated group
+            if !components.guide_marks.is_empty() {
+                let guide_group = SceneGroup {
+                    origin: [x_offset, y_offset].into(),
+                    marks: components.guide_marks,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    zindex: Some(1),
+                    ..Default::default()
+                };
+                marks.push(SceneMark::Group(guide_group));
+            }
 
-                // Wrap data marks in a clipped group translated to grid cell position
-                use avenger_scenegraph::marks::group::SceneGroup;
-                if !components.data_marks.is_empty() {
-                    let data_group = SceneGroup {
-                        origin: [x_offset, y_offset].into(),
-                        marks: components.data_marks,
-                        clip: components.clip,
-                        zindex: Some(0),
-                        ..Default::default()
-                    };
-                    marks.push(SceneMark::Group(data_group));
+            // Wrap legend marks in a non-clipped translated group
+            // Skip legends for empty cells to avoid showing misleading legend entries
+            if !cell_is_empty && !components.legend_marks.is_empty() {
+                let legend_group = SceneGroup {
+                    origin: [x_offset, y_offset].into(),
+                    marks: components.legend_marks,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    zindex: Some(2),
+                    ..Default::default()
+                };
+                marks.push(SceneMark::Group(legend_group));
+            }
+
+            // Wrap title marks in a non-clipped translated group
+            if !components.title_marks.is_empty() {
+                let title_group = SceneGroup {
+                    origin: [x_offset, y_offset].into(),
+                    marks: components.title_marks,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    zindex: Some(3),
+                    ..Default::default()
+                };
+                marks.push(SceneMark::Group(title_group));
+            }
+
+            // Wrap subtitle marks in a non-clipped translated group
+            if !components.subtitle_marks.is_empty() {
+                let subtitle_group = SceneGroup {
+                    origin: [x_offset, y_offset].into(),
+                    marks: components.subtitle_marks,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    zindex: Some(4),
+                    ..Default::default()
+                };
+                marks.push(SceneMark::Group(subtitle_group));
+            }
+
+            // Wrap debug marks in a non-clipped translated group
+            if !components.debug_marks.is_empty() {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    // Use Pass 1 overflow measurement for debug visualization
+                    let overflow_dbg = &overflow_grid[row_idx][col_idx];
+
+                    eprintln!(
+                        "GRID SUBPLOT r={} c={}: x={:.3} y={:.3} w={:.3} h={:.3} overflowT={:.3} overflowB={:.3} overflowL={:.3} overflowR={:.3}",
+                        row_idx,
+                        col_idx,
+                        rect.x,
+                        rect.y,
+                        rect.width,
+                        rect.height,
+                        overflow_dbg.top,
+                        overflow_dbg.bottom,
+                        overflow_dbg.left,
+                        overflow_dbg.right
+                    );
                 }
-
-                // Wrap guide marks (axes) in a non-clipped translated group
-                if !components.guide_marks.is_empty() {
-                    let guide_group = SceneGroup {
-                        origin: [x_offset, y_offset].into(),
-                        marks: components.guide_marks,
-                        clip: avenger_scenegraph::marks::group::Clip::None,
-                        zindex: Some(1),
-                        ..Default::default()
-                    };
-                    marks.push(SceneMark::Group(guide_group));
-                }
-
-                // Wrap legend marks in a non-clipped translated group
-                // Skip legends for empty cells to avoid showing misleading legend entries
-                if !cell_is_empty && !components.legend_marks.is_empty() {
-                    let legend_group = SceneGroup {
-                        origin: [x_offset, y_offset].into(),
-                        marks: components.legend_marks,
-                        clip: avenger_scenegraph::marks::group::Clip::None,
-                        zindex: Some(2),
-                        ..Default::default()
-                    };
-                    marks.push(SceneMark::Group(legend_group));
-                }
-
-                // Wrap title marks in a non-clipped translated group
-                if !components.title_marks.is_empty() {
-                    let title_group = SceneGroup {
-                        origin: [x_offset, y_offset].into(),
-                        marks: components.title_marks,
-                        clip: avenger_scenegraph::marks::group::Clip::None,
-                        zindex: Some(3),
-                        ..Default::default()
-                    };
-                    marks.push(SceneMark::Group(title_group));
-                }
-
-                // Wrap subtitle marks in a non-clipped translated group
-                if !components.subtitle_marks.is_empty() {
-                    let subtitle_group = SceneGroup {
-                        origin: [x_offset, y_offset].into(),
-                        marks: components.subtitle_marks,
-                        clip: avenger_scenegraph::marks::group::Clip::None,
-                        zindex: Some(4),
-                        ..Default::default()
-                    };
-                    marks.push(SceneMark::Group(subtitle_group));
-                }
-
-                // Wrap debug marks in a non-clipped translated group
-                // Debug marks are in absolute canvas coordinates relative to the subplot,
-                // so we need to translate them to the correct grid cell position
-                if !components.debug_marks.is_empty() {
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        // Use Pass 1 overflow measurement for debug visualization
-                        // This matches the overflow used to compute the final band scale padding
-                        let overflow_dbg = &overflow_grid[row_iteration.index][col_iteration.index];
-
-                        // Position within plot-area coordinates (before outer plot translation)
-                        let row_band_start = row_band_pos.start();
-                        let _row_band_end = row_band_pos.end();
-                        let col_band_start = col_band_pos.start();
-                        let _col_band_end = col_band_pos.end();
-
-                        eprintln!(
-                            "GRID SUBPLOT r={} c={}: row_start={:.3} h={:.3} col_start={:.3} w={:.3} overflowT={:.3} overflowB={:.3} overflowL={:.3} overflowR={:.3}",
-                            row_iteration.index,
-                            col_iteration.index,
-                            row_band_start,
-                            band_h,
-                            col_band_start,
-                            band_w,
-                            overflow_dbg.top,
-                            overflow_dbg.bottom,
-                            overflow_dbg.left,
-                            overflow_dbg.right
-                        );
-                    }
-                    let debug_group = SceneGroup {
-                        origin: [x_offset, y_offset].into(),
-                        marks: components.debug_marks,
-                        clip: avenger_scenegraph::marks::group::Clip::None,
-                        zindex: Some(100), // High z-index to ensure debug marks render on top
-                        ..Default::default()
-                    };
-                    marks.push(SceneMark::Group(debug_group));
-                }
+                let debug_group = SceneGroup {
+                    origin: [x_offset, y_offset].into(),
+                    marks: components.debug_marks,
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    zindex: Some(100), // High z-index to ensure debug marks render on top
+                    ..Default::default()
+                };
+                marks.push(SceneMark::Group(debug_group));
             }
         }
 

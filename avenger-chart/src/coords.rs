@@ -33,12 +33,28 @@ impl PlotGeometry for PointGeometry {
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubplotRect {
+    /// Primary facet value (row for GridFacet, facet value for Row/Col)
     #[serde_as(as = "FromInto<SerializableScalar>")]
     pub value: ScalarValue,
     pub x: f32,
     pub y: f32,
     pub width: f32,
     pub height: f32,
+
+    // Grid-specific fields (None for FacetRow/FacetCol)
+
+    /// Row index in grid (for overflow lookup)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_index: Option<usize>,
+
+    /// Column index in grid (for overflow lookup)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub col_index: Option<usize>,
+
+    /// Column facet value (for GridFacet data filtering)
+    #[serde_as(as = "Option<FromInto<SerializableScalar>>")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub col_value: Option<ScalarValue>,
 }
 
 impl SubplotRect {
@@ -49,6 +65,32 @@ impl SubplotRect {
             y,
             width,
             height,
+            row_index: None,
+            col_index: None,
+            col_value: None,
+        }
+    }
+
+    /// Grid-specific constructor
+    pub fn new_grid(
+        row_value: ScalarValue,
+        col_value: ScalarValue,
+        row_index: usize,
+        col_index: usize,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> Self {
+        Self {
+            value: row_value,
+            x,
+            y,
+            width,
+            height,
+            row_index: Some(row_index),
+            col_index: Some(col_index),
+            col_value: Some(col_value),
         }
     }
 
@@ -121,6 +163,33 @@ impl PlotGeometry for SubplotGeometry {
 pub enum FacetAxis {
     Row,
     Column,
+}
+
+/// Padding specification for coordinate system transforms
+///
+/// Facet coordinate systems need padding between subplots to accommodate overflow
+/// from axes, legends, and other guides. This enum supports both single-dimension
+/// padding (FacetRow/FacetCol) and dual-dimension padding (GridFacet).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum PaddingSpec {
+    /// Single-dimension padding for row or column facets
+    Single {
+        /// Padding in pixels between subplots
+        padding_px: f32,
+        /// Overflow measurements for each subplot
+        overflow: Vec<OverflowSpaceRequirement>,
+    },
+    /// Two-dimension padding for grid facets
+    Grid {
+        /// Padding in pixels between rows
+        row_padding_px: f32,
+        /// Padding in pixels between columns
+        col_padding_px: f32,
+        /// Overflow measurements for each row
+        row_overflow: Vec<OverflowSpaceRequirement>,
+        /// Overflow measurements for each column
+        col_overflow: Vec<OverflowSpaceRequirement>,
+    },
 }
 
 pub trait CoordinateSystem: Sized + Send + Sync + 'static {
@@ -209,13 +278,15 @@ pub trait CoordinateSystemTransform: Send + Sync {
 
     /// Return a new transform updated with measured padding and overflow data.
     ///
-    /// Default implementation returns an unchanged clone.
+    /// # Arguments
+    /// * `spec` - Padding specification (Single for row/col facets, Grid for grid facets)
+    ///
+    /// Default implementation returns an unchanged clone (for non-facet coordinates).
     fn with_measured_padding(
         &self,
-        padding_px: f32,
-        overflow: Vec<OverflowSpaceRequirement>,
+        spec: &PaddingSpec,
     ) -> Box<dyn CoordinateSystemTransform> {
-        let _ = (padding_px, overflow);
+        let _ = spec;
         self.clone_box()
     }
 

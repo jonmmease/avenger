@@ -341,10 +341,11 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     }
 
     // Update facet coord with measured padding for Pass 2
-    let updated_facet_coord = facet_coord.with_measured_padding(
-        rounded_gap,
-        overflow_measurements.clone(),
-    );
+    let padding_spec = crate::coords::PaddingSpec::Single {
+        padding_px: rounded_gap,
+        overflow: overflow_measurements.clone(),
+    };
+    let updated_facet_coord = facet_coord.with_measured_padding(&padding_spec);
 
     // ========== PASS 2: RENDERING PHASE ==========
     // STEP 1: Rebuild the facet dimension scale with measured padding FIRST

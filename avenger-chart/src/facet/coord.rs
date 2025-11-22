@@ -91,13 +91,20 @@ impl CoordinateSystemTransform for FacetRow {
 
     fn with_measured_padding(
         &self,
-        padding_px: f32,
-        overflow: Vec<crate::coords::OverflowSpaceRequirement>,
+        spec: &crate::coords::PaddingSpec,
     ) -> Box<dyn CoordinateSystemTransform> {
-        let mut updated = self.clone();
-        updated.padding_px = Some(padding_px);
-        updated.overflow_by_facet = Some(overflow);
-        Box::new(updated)
+        match spec {
+            crate::coords::PaddingSpec::Single { padding_px, overflow } => {
+                let mut updated = self.clone();
+                updated.padding_px = Some(*padding_px);
+                updated.overflow_by_facet = Some(overflow.clone());
+                Box::new(updated)
+            }
+            crate::coords::PaddingSpec::Grid { .. } => {
+                // FacetRow requires Single padding, not Grid
+                panic!("FacetRow::with_measured_padding requires PaddingSpec::Single, got Grid");
+            }
+        }
     }
 
     fn transform(
@@ -226,13 +233,20 @@ impl CoordinateSystemTransform for FacetColumn {
 
     fn with_measured_padding(
         &self,
-        padding_px: f32,
-        overflow: Vec<crate::coords::OverflowSpaceRequirement>,
+        spec: &crate::coords::PaddingSpec,
     ) -> Box<dyn CoordinateSystemTransform> {
-        let mut updated = self.clone();
-        updated.padding_px = Some(padding_px);
-        updated.overflow_by_facet = Some(overflow);
-        Box::new(updated)
+        match spec {
+            crate::coords::PaddingSpec::Single { padding_px, overflow } => {
+                let mut updated = self.clone();
+                updated.padding_px = Some(*padding_px);
+                updated.overflow_by_facet = Some(overflow.clone());
+                Box::new(updated)
+            }
+            crate::coords::PaddingSpec::Grid { .. } => {
+                // FacetColumn requires Single padding, not Grid
+                panic!("FacetColumn::with_measured_padding requires PaddingSpec::Single, got Grid");
+            }
+        }
     }
 
     fn transform(
@@ -367,13 +381,27 @@ impl CoordinateSystemTransform for FacetGrid {
 
     fn with_measured_padding(
         &self,
-        padding_px: f32,
-        overflow: Vec<crate::coords::OverflowSpaceRequirement>,
+        spec: &crate::coords::PaddingSpec,
     ) -> Box<dyn CoordinateSystemTransform> {
-        let mut updated = self.clone();
-        updated.row_padding_px = Some(padding_px);
-        updated.row_overflow_by_facet = Some(overflow);
-        Box::new(updated)
+        match spec {
+            crate::coords::PaddingSpec::Grid {
+                row_padding_px,
+                col_padding_px,
+                row_overflow,
+                col_overflow
+            } => {
+                let mut updated = self.clone();
+                updated.row_padding_px = Some(*row_padding_px);
+                updated.col_padding_px = Some(*col_padding_px);
+                updated.row_overflow_by_facet = Some(row_overflow.clone());
+                updated.col_overflow_by_facet = Some(col_overflow.clone());
+                Box::new(updated)
+            }
+            crate::coords::PaddingSpec::Single { .. } => {
+                // FacetGrid requires Grid padding, not Single
+                panic!("FacetGrid::with_measured_padding requires PaddingSpec::Grid, got Single");
+            }
+        }
     }
 
     fn transform(
@@ -410,21 +438,28 @@ impl CoordinateSystemTransform for FacetGrid {
             return Ok(Box::new(crate::coords::SubplotGeometry::default()));
         }
 
-        // Extract actual row values from position_values (if provided)
-        // Note: For FacetGrid, we store the row value. In the future, we could enhance
-        // this to store both row and column in a struct or list if needed.
+        // Extract actual row and column values from position_values (if provided)
         let row_values = position_values
             .and_then(|pv| pv.get("row"))
             .map(|v| v.as_slice())
             .unwrap_or(&[]);
 
+        let col_values = position_values
+            .and_then(|pv| pv.get("column"))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
         let mut rects = Vec::with_capacity(row_starts.len() * col_starts.len());
         for (row_idx, &y) in row_starts.iter().enumerate() {
-            for (_col_idx, &x) in col_starts.iter().enumerate() {
-                // For FacetGrid, store the row value (simplified for now)
-                let value = row_values.get(row_idx).cloned().unwrap_or(ScalarValue::Null);
-                rects.push(crate::coords::SubplotRect::new(
-                    value,
+            for (col_idx, &x) in col_starts.iter().enumerate() {
+                let row_value = row_values.get(row_idx).cloned().unwrap_or(ScalarValue::Null);
+                let col_value = col_values.get(col_idx).cloned().unwrap_or(ScalarValue::Null);
+
+                rects.push(crate::coords::SubplotRect::new_grid(
+                    row_value,
+                    col_value,
+                    row_idx,
+                    col_idx,
                     x,
                     y,
                     col_bandwidth,
