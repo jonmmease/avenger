@@ -17,8 +17,34 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::common::ScalarValue;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::lit;
+use datafusion::prelude::SessionContext;
+use datafusion::arrow::record_batch::RecordBatch;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Convert RecordBatch to DataFrame using DataFusion's read_batch method
+///
+/// This creates a DataFrame from a RecordBatch using DataFusion's built-in `read_batch()`
+/// method, which internally creates an unnamed MemTable (with table name "?table?").
+/// This avoids manual table registration and naming collisions.
+///
+/// # Arguments
+/// * `batch` - The RecordBatch to convert
+/// * `ctx` - The SessionContext for DataFrame operations
+///
+/// # Returns
+/// A DataFrame backed by an in-memory table containing the batch data
+#[allow(dead_code)]
+fn batch_to_dataframe(
+    batch: &RecordBatch,
+    ctx: &SessionContext,
+) -> Result<DataFrame, AvengerChartError> {
+    // Use DataFusion's built-in read_batch which creates an unnamed table
+    ctx.read_batch(batch.clone())
+        .map_err(|e| AvengerChartError::InternalError(
+            format!("Failed to create DataFrame from RecordBatch: {}", e)
+        ))
+}
 
 /// Default spacing between facets in pixels when not specified by theme or configuration
 const DEFAULT_FACET_SPACING: f32 = 3.0;
