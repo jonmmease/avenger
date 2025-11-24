@@ -256,22 +256,11 @@ impl<C: CoordinateSystem> Plot<C> {
         for m in &self.marks {
             let mark_state = m.state();
             // Get the DataFrame (or use plot-level data)
-            let df = mark_state
+            let df_opt = mark_state
                 .data
                 .dataframe()
                 .cloned()
-                .or_else(|| self.data.clone())
-                .unwrap_or_else(|| {
-                    DataFrame::new(
-                        session_context.state().clone(),
-                        datafusion::logical_expr::LogicalPlan::EmptyRelation(
-                            datafusion::logical_expr::EmptyRelation {
-                                produce_one_row: false,
-                                schema: Arc::new(datafusion::common::DFSchema::empty()),
-                            },
-                        ),
-                    )
-                });
+                .or_else(|| self.data.clone());
 
             // Check if any channel uses aggregate functions
             let needs_aggregation = mark_state
@@ -283,11 +272,24 @@ impl<C: CoordinateSystem> Plot<C> {
 
             let compiled_mark = if needs_aggregation {
                 // Apply aggregation and update channel expressions
+                // If no data is available but aggregation is requested, use an empty DataFrame
+                // which will result in an empty aggregated DataFrame
+                let df = df_opt.unwrap_or_else(|| {
+                    DataFrame::new(
+                        session_context.state().clone(),
+                        datafusion::logical_expr::LogicalPlan::EmptyRelation(
+                            datafusion::logical_expr::EmptyRelation {
+                                produce_one_row: false,
+                                schema: Arc::new(datafusion::common::DFSchema::empty()),
+                            },
+                        ),
+                    )
+                });
                 self.compile_mark_with_aggregation(m, mark_state, df, session_context)
                     .await?
             } else {
                 // No aggregation needed - compile as-is
-                let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
+                let compiled_state = CompiledMarkState::from_mark_state(mark_state, df_opt);
                 m.compile(compiled_state, session_context).await?
             };
             compiled_marks.push(compiled_mark);

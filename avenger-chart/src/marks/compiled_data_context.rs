@@ -19,10 +19,15 @@ pub struct CompiledDataContext {
 
 impl CompiledDataContext {
     /// Create a new CompiledDataContext from a DataFrame
-    pub fn new(dataframe: DataFrame, channels: IndexMap<String, ChannelValue>) -> Self {
-        let plan = dataframe.logical_plan().clone();
+    pub fn new(dataframe: Option<DataFrame>, channels: IndexMap<String, ChannelValue>) -> Self {
+        let logical_plan = if let Some(df) = dataframe {
+            let plan = df.logical_plan().clone();
+            LogicalPlanNode::from_logical_plan(&plan).ok()
+        } else {
+            None
+        };
         Self {
-            logical_plan: LogicalPlanNode::from_logical_plan(&plan).ok(),
+            logical_plan,
             channels,
         }
     }

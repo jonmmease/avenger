@@ -557,10 +557,13 @@ impl CompiledPlot {
         });
 
         // Determine data source
-        let df_ref = if let Some(df_override) = provided_plot_df.cloned() {
-            Some(df_override)
-        } else if let Some(mark_df) = mark.data_context().dataframe_with_context(ctx) {
+        // Priority 1: Mark's own data (e.g., reference lines) - should be used in full for all facets
+        // Priority 2: Parent facet's filtered data - for nested marks without their own data
+        // Priority 3: Plot-level data - fallback for top-level marks
+        let df_ref = if let Some(mark_df) = mark.data_context().dataframe_with_context(ctx) {
             Some(mark_df)
+        } else if let Some(df_override) = provided_plot_df.cloned() {
+            Some(df_override)
         } else if !references_columns {
             None
         } else if let Some(df) = self.data.as_ref().and_then(|node| {
@@ -616,7 +619,30 @@ impl CompiledPlot {
         }
 
         // Build array data batch
-        let data_batch = if has_array_data {
+        let data_batch = if mark.wants_full_data_batch() && provided_plot_df.is_some() {
+            // For container marks (facets) with parent data override: preserve ALL columns for nested marks
+            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let batch = if let Some(param_values) = datafusion_params {
+                (*df)
+                    .clone()
+                    .with_param_values(param_values)?
+                    .collect()
+                    .await?
+            } else {
+                (*df).clone().collect().await?
+            };
+
+            if batch.is_empty() {
+                // Return empty batch WITH SCHEMA for facets (enables key extraction)
+                let arrow_schema = std::sync::Arc::new(df.schema().as_arrow().clone());
+                Some(datafusion::arrow::record_batch::RecordBatch::new_empty(arrow_schema))
+            } else {
+                use datafusion::arrow::compute::concat_batches;
+                let schema = batch[0].schema();
+                Some(concat_batches(&schema, &batch)?)
+            }
+        } else if has_array_data && !mark.wants_full_data_batch() {
+            // Normal path (non-facet marks): select only needed channels
             let mut select_exprs = vec![];
             for (name, expr) in &array_channels {
                 select_exprs.push(expr.clone().alias(*name));

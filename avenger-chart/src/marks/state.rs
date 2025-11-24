@@ -44,7 +44,7 @@ impl CompiledMarkState {
     ///
     /// This is used during plot compilation to apply transformations (like aggregation)
     /// to the mark's data before serialization.
-    pub fn from_mark_state(state: &MarkState, transformed_df: DataFrame) -> Self {
+    pub fn from_mark_state(state: &MarkState, transformed_df: Option<DataFrame>) -> Self {
         Self {
             data: CompiledDataContext::new(transformed_df, state.data.channels().clone()),
             facet_strategy: state.facet_strategy.clone(),
@@ -64,7 +64,7 @@ impl CompiledMarkState {
         channels: indexmap::IndexMap<String, crate::marks::ChannelValue>,
     ) -> Self {
         Self {
-            data: CompiledDataContext::new(transformed_df, channels),
+            data: CompiledDataContext::new(Some(transformed_df), channels),
             facet_strategy: state.facet_strategy.clone(),
             details: state.details.clone(),
             zindex: state.zindex,

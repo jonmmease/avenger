@@ -198,29 +198,40 @@ impl CompiledMark for CompiledFacetRow {
         }]
     }
 
+    fn wants_full_data_batch(&self) -> bool {
+        true  // Facets need full data for nested filtering
+    }
+
     /// Evaluate faceted row layout using a two-pass rendering algorithm
     ///
     /// Delegates to the generic `evaluate_facet` helper with row-specific orientation closures.
     async fn evaluate_from_data(
         &self,
-        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
         coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
-        use crate::facet::marks::facet_evaluation::evaluate_facet;
+        use crate::facet::marks::facet_evaluation::{batch_to_dataframe, evaluate_facet};
+
+        // Convert RecordBatch to DataFrame if provided (for nested facets)
+        let data_override = if let Some(batch) = data {
+            Some(batch_to_dataframe(batch, &context.session_context)?)
+        } else {
+            None
+        };
 
         evaluate_facet::<RowDimensionConfig>(
             coord.as_ref(),
             &self.compiled_subplot,
             &self.state,
+            data_override.as_ref(),
             self.facet_title.clone(),
             self.facet_spacing,
             context,
-            None,  // facet_keys parameter removed - will be extracted at render time
             // Row: height varies with band size, width is fixed
             // Round bandwidth to integer for pixel-aligned subplot dimensions
-            |band_height, ctx| {
+            |band_height: f32, ctx: &RenderContext| {
                 let rounded = band_height.round();
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
@@ -232,7 +243,7 @@ impl CompiledMark for CompiledFacetRow {
             },
             // Row: translate vertically
             // Round positions to integers for pixel alignment
-            |y_pos| {
+            |y_pos: f32| {
                 let rounded = y_pos.round();
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
@@ -364,11 +375,15 @@ impl CompiledMark for CompiledFacetCol {
 
     fn supported_channels(&self) -> Vec<ChannelDescriptor> {
         vec![ChannelDescriptor {
-            name: ColumnDimensionConfig::channel_name(),
+            name: "column",
             required: true,
             default_value: None,
             allow_column_ref: true,
         }]
+    }
+
+    fn wants_full_data_batch(&self) -> bool {
+        true  // Facets need full data for nested filtering
     }
 
     /// Evaluate faceted column layout using a two-pass rendering algorithm
@@ -376,24 +391,31 @@ impl CompiledMark for CompiledFacetCol {
     /// Delegates to the generic `evaluate_facet` helper with column-specific orientation closures.
     async fn evaluate_from_data(
         &self,
-        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
         coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
-        use crate::facet::marks::facet_evaluation::evaluate_facet;
+        use crate::facet::marks::facet_evaluation::{batch_to_dataframe, evaluate_facet};
+
+        // Convert RecordBatch to DataFrame if provided (for nested facets)
+        let data_override = if let Some(batch) = data {
+            Some(batch_to_dataframe(batch, &context.session_context)?)
+        } else {
+            None
+        };
 
         evaluate_facet::<ColumnDimensionConfig>(
             coord.as_ref(),
             &self.compiled_subplot,
             &self.state,
+            data_override.as_ref(),
             self.facet_title.clone(),
             self.facet_spacing,
             context,
-            None,  // facet_keys parameter removed - will be extracted at render time
             // Column: width varies with band size, height is fixed
             // Round bandwidth to integer for pixel-aligned subplot dimensions
-            |band_width, ctx| {
+            |band_width: f32, ctx: &RenderContext| {
                 let rounded = band_width.round();
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
@@ -405,7 +427,7 @@ impl CompiledMark for CompiledFacetCol {
             },
             // Column: translate horizontally
             // Round positions to integers for pixel alignment
-            |x_pos| {
+            |x_pos: f32| {
                 let rounded = x_pos.round();
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
@@ -781,16 +803,28 @@ impl CompiledMark for CompiledFacetGrid {
         ]
     }
 
+    fn wants_full_data_batch(&self) -> bool {
+        true  // Facets need full data for nested filtering
+    }
+
     /// Evaluate grid facet layout (2D row×col grid)
     async fn evaluate_from_data(
         &self,
-        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
         coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
+        use crate::facet::marks::facet_evaluation::batch_to_dataframe;
         use crate::scales::ConfiguredScaleLegendExt;
         use datafusion::logical_expr::lit;
+
+        // Convert RecordBatch to DataFrame if provided (for nested facets)
+        let data_override = if let Some(batch) = data {
+            Some(batch_to_dataframe(batch, &context.session_context)?)
+        } else {
+            None
+        };
 
         // Validate required channels with helpful error messages
         let _row_channel = self.state.data.channels().get("row").ok_or_else(|| {
@@ -813,38 +847,7 @@ impl CompiledMark for CompiledFacetGrid {
         let row_scale_opt = context.scales.get("row");
         let col_scale_opt = context.scales.get("column");
 
-        // Handle degenerate cases where a scale doesn't exist (single unique value in that dimension)
-        let mut row_domain_vals = if let Some(row_scale) = row_scale_opt {
-            match row_scale.domain_values()? {
-                crate::scales::extensions::DomainValues::Discrete(vals) => vals,
-                _ => {
-                    return Err(AvengerChartError::InternalError(
-                        "GridFacet requires discrete row scale".into(),
-                    ));
-                }
-            }
-        } else {
-            Vec::new()  // Will be extracted from render-time data in Phase 2
-        };
-
-        let mut col_domain_vals = if let Some(col_scale) = col_scale_opt {
-            match col_scale.domain_values()? {
-                crate::scales::extensions::DomainValues::Discrete(vals) => vals,
-                _ => {
-                    return Err(AvengerChartError::InternalError(
-                        "GridFacet requires discrete col scale".into(),
-                    ));
-                }
-            }
-        } else {
-            Vec::new()  // Will be extracted from render-time data in Phase 2
-        };
-
-        // Sort domain values to ensure deterministic facet ordering
-        row_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        col_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Get row and col expressions
+        // Get row and col expressions for render-time key extraction
         let row_expr = self
             .state
             .data
@@ -864,14 +867,29 @@ impl CompiledMark for CompiledFacetGrid {
                 AvengerChartError::InternalError("GridFacet 'col' channel not found".into())
             })?;
 
-        // Get DataFrame
-        let df = self
-            .state
-            .data
-            .dataframe_with_context(&context.session_context)
-            .ok_or_else(|| {
-                AvengerChartError::InternalError("GridFacet could not access data".into())
-            })?;
+        // Determine data source: parent override OR compiled data
+        let ctx = &context.session_context;
+        let df = if let Some(override_df) = data_override.as_ref() {
+            // Nested facet: use filtered data from parent
+            override_df.clone()
+        } else {
+            // Top-level facet: use compiled data
+            self.state
+                .data
+                .dataframe_with_context(ctx)
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError("GridFacet could not access data".into())
+                })?
+        };
+
+        // Extract facet keys at render time from actual data
+        use crate::facet::keys::FacetKeyExtractor;
+        let mut row_domain_vals = FacetKeyExtractor::extract_keys(&df, &row_expr).await?;
+        let mut col_domain_vals = FacetKeyExtractor::extract_keys(&df, &col_expr).await?;
+
+        // Sort domain values to ensure deterministic facet ordering
+        row_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        col_domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         // Compute scale sharing for ALL channels used by marks (not just coord channels)
         // This ensures non-coordinate channels like fill, color, size also get per-subplot scales

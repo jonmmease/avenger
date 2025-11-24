@@ -84,11 +84,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         let mark_state = self.state();
-        let df = mark_state
-            .data
-            .dataframe()
-            .cloned()
-            .unwrap_or_else(|| ctx.read_empty().unwrap());
+        let df = mark_state.data.dataframe().cloned();
         let compiled_state = CompiledMarkState::from_mark_state(mark_state, df);
         self.compile(compiled_state, ctx).await
     }
@@ -153,6 +149,17 @@ pub trait CompiledMark: Any + Send + Sync {
     /// Whether this mark type supports the order encoding channel
     fn supports_order(&self) -> bool {
         false
+    }
+
+    /// Whether this mark needs the full DataFrame as RecordBatch
+    ///
+    /// Most marks only need columns for their specific channels (default: false).
+    /// Container marks like facets need all columns to pass to nested marks (return: true).
+    ///
+    /// When true, `evaluate_mark_with_plot_df` will convert the entire DataFrame to
+    /// RecordBatch instead of selecting only the mark's channel columns.
+    fn wants_full_data_batch(&self) -> bool {
+        false  // Default: only select needed channels
     }
 
     /// Returns the default value for a channel if not explicitly mapped

@@ -35,7 +35,7 @@ use std::sync::Arc;
 /// # Returns
 /// A DataFrame backed by an in-memory table containing the batch data
 #[allow(dead_code)]
-fn batch_to_dataframe(
+pub fn batch_to_dataframe(
     batch: &RecordBatch,
     ctx: &SessionContext,
 ) -> Result<DataFrame, AvengerChartError> {
@@ -78,16 +78,18 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     facet_coord: &dyn crate::coords::CoordinateSystemTransform,
     compiled_subplot: &Arc<CompiledPlot>,
     state: &CompiledMarkState,
+    data_override: Option<&datafusion::dataframe::DataFrame>,
     _facet_title: Option<String>,
     facet_spacing: Option<f32>,
     context: &RenderContext,
-    facet_keys: Option<&[ScalarValue]>,
     // Orientation-specific closures:
     // Returns (width, height) given band size and context
     subplot_dims: impl Fn(f32, &RenderContext) -> (f32, f32),
     // Returns [x, y] translation given band position
     group_origin: impl Fn(f32) -> [f32; 2],
 ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
+    eprintln!("evaluate_facet entering: channel={}", DimConfig::channel_name());
+    
     // Get dimension scale (row or col)
     let dimension_scale = context
         .scales
@@ -109,26 +111,27 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     // Extract domain values and bandwidth directly from scale
     use avenger_scales::scales::band;
-    use crate::scales::extensions::{ConfiguredScaleLegendExt, DomainValues};
+    use crate::scales::extensions::ConfiguredScaleLegendExt;
 
     let configured = dimension_scale.configured();
-    let domain_vals_from_scale = configured.domain_values()?;
-    let initial_domain_vals: Vec<ScalarValue> = match domain_vals_from_scale {
-        DomainValues::Discrete(vals) => vals,
-        _ => {
-            return Err(AvengerChartError::InternalError(
-                "Expected discrete domain for facet band scale".into(),
-            ))
-        }
-    };
-    let initial_positions = configured.scale_scalars_to_numeric(&initial_domain_vals)?;
+    // REMOVED: extraction of initial_domain_vals from scale. 
+    // We now drive layout using keys extracted from the data to ensure sync with SubplotIterator.
+    
     let initial_bandwidth = band::bandwidth(&configured.config)?;
 
-    // Get the inner plot-level DataFrame
+    // Determine data source: parent override OR compiled data
     let ctx = &context.session_context;
-    let df = state.data.dataframe_with_context(ctx).ok_or_else(|| {
-        AvengerChartError::InternalError("Facet mark requires plot or mark data".into())
-    })?;
+    let df = if let Some(override_df) = data_override {
+        // Nested facet: use filtered data from parent
+        eprintln!("✅ Using data_override (nested facet with filtered data)");
+        override_df.clone()
+    } else {
+        // Top-level facet: use compiled data
+        eprintln!("⚠️  Using compiled state data (top-level facet)");
+        state.data.dataframe_with_context(ctx).ok_or_else(|| {
+            AvengerChartError::InternalError("Facet mark requires plot or mark data".into())
+        })?
+    };
 
     // Extract the raw expression for the facet channel to filter by facet value
     let facet_expr = state
@@ -212,17 +215,23 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     };
 
     // ========== PASS 1: MEASUREMENT PHASE ==========
-    // Extract domain values for SubplotIterator
-    let domain_vals: Vec<ScalarValue> = if let Some(keys) = facet_keys {
-        keys.to_vec()
-    } else {
-        initial_domain_vals.clone()
-    };
+    eprintln!("Pass 1 starting for channel={}", DimConfig::channel_name());
+    // Extract facet keys at render time from actual data
+    use crate::facet::keys::FacetKeyExtractor;
+    let mut domain_vals = FacetKeyExtractor::extract_keys(&df, &facet_expr).await?;
+    eprintln!("🔑 Extracted {} keys for channel '{}'", domain_vals.len(), DimConfig::channel_name());
+
+    // Sort domain values to ensure deterministic facet ordering
+    domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Calculate positions for the extracted keys
+    // This uses the scale's domain to map keys to positions, but only for keys present in the data
+    let initial_positions = configured.scale_scalars_to_numeric(&domain_vals)?;
 
     // Create SubplotIterator for logical iteration (FacetContext management)
     use crate::facet::subplot_iterator::SubplotIterator;
     let subplot_iter = SubplotIterator::<DimConfig>::new(
-        domain_vals,
+        domain_vals.clone(),
         context.params.clone(),
         scale_sharing_by_channel.clone(),
     );
@@ -237,7 +246,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     );
 
     let mut position_values_pass1 = HashMap::new();
-    position_values_pass1.insert(channel_name, initial_domain_vals.clone());
+    position_values_pass1.insert(channel_name, domain_vals.clone());
 
     // Call facet coord transform to get initial geometry
     let initial_geometry = facet_coord.transform(
@@ -268,6 +277,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     let mut overflow_measurements = Vec::new();
 
     for (iteration, rect) in subplot_iter.zip(initial_rects.iter()) {
+        eprintln!("Pass 1 iteration");
         let band_size = if DimConfig::is_row_facet() {
             rect.height
         } else {
@@ -310,6 +320,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             scales: scales.clone(),
         };
 
+        eprintln!("Pass 1 build_plot_components");
         let components = compiled_subplot
             .build_plot_components(
                 width,
@@ -322,6 +333,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 true, // Plot area mode: dimensions are already plot area size
             )
             .await?;
+        eprintln!("Pass 1 build_plot_components done");
 
         // Extract overflow from the returned components
         let overflow = components.overflow.unwrap_or_default();
@@ -405,16 +417,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     // STEP 2: Extract positions from the REBUILT scale (now with correct padding)
     let final_configured = final_dimension_scale.configured();
-    let final_domain_vals_from_scale = final_configured.domain_values()?;
-    let final_domain_vals: Vec<ScalarValue> = match final_domain_vals_from_scale {
-        DomainValues::Discrete(vals) => vals,
-        _ => {
-            return Err(AvengerChartError::InternalError(
-                "Expected discrete domain for facet band scale".into(),
-            ))
-        }
-    };
-    let final_positions = final_configured.scale_scalars_to_numeric(&final_domain_vals)?;
+    // Use the same domain_vals as Pass 1 to ensure consistency
+    let final_positions = final_configured.scale_scalars_to_numeric(&domain_vals)?;
 
     let mut temp_position_channels = HashMap::new();
     temp_position_channels.insert(
@@ -423,7 +427,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     );
 
     let mut temp_position_values = HashMap::new();
-    temp_position_values.insert(channel_name, final_domain_vals);
+    temp_position_values.insert(channel_name, domain_vals);
 
     // STEP 3: Call coord.transform() with positions from rebuilt scale
     // Now the scale and coord are in sync (both have padding = rounded_gap)
@@ -600,6 +604,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             scales: scales.clone(),
         };
 
+        eprintln!("Calling build_plot_components (Render) for iteration {}", subplot_index);
         let components = compiled_subplot
             .build_plot_components(
                 width,
@@ -612,6 +617,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 true, // Plot area mode: dimensions are already plot area size
             )
             .await?;
+        eprintln!("Finished build_plot_components (Render) for iteration {}", subplot_index);
 
         // Use raw group origin for smooth subpixel positioning
         // Position is taken from coord.transform() output (rect.x or rect.y)
