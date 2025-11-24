@@ -149,6 +149,16 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
                 .subplot
                 .as_ref()
                 .ok_or_else(|| AvengerChartError::InternalError("Facet subplot not set".into()))?;
+
+            // Validate that subplot doesn't have its own data
+            if plot_ref.data.is_some() {
+                return Err(AvengerChartError::InvalidArgument(
+                    "Nested facet plots should not have their own data attached. \
+                     Data flows from the parent facet to child plots. \
+                     Remove the .data() call from the inner Plot.".to_string()
+                ));
+            }
+
             let plot_clone = plot_ref.clone();
             // Plot<InnerC> implements Clone; explicitly call Clone::clone
             let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
@@ -336,6 +346,16 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
                 .subplot
                 .as_ref()
                 .ok_or_else(|| AvengerChartError::InternalError("Facet subplot not set".into()))?;
+
+            // Validate that subplot doesn't have its own data
+            if plot_ref.data.is_some() {
+                return Err(AvengerChartError::InvalidArgument(
+                    "Nested facet plots should not have their own data attached. \
+                     Data flows from the parent facet to child plots. \
+                     Remove the .data() call from the inner Plot.".to_string()
+                ));
+            }
+
             let plot_clone = plot_ref.clone();
             let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
             Arc::new(plot_owned.compile(session_context).await?)
@@ -567,6 +587,16 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetGrid> for Facet<InnerC> {
                 .subplot
                 .as_ref()
                 .ok_or_else(|| AvengerChartError::InternalError("Facet subplot not set".into()))?;
+
+            // Validate that subplot doesn't have its own data
+            if plot_ref.data.is_some() {
+                return Err(AvengerChartError::InvalidArgument(
+                    "Nested facet plots should not have their own data attached. \
+                     Data flows from the parent facet to child plots. \
+                     Remove the .data() call from the inner Plot.".to_string()
+                ));
+            }
+
             let plot_clone = plot_ref.clone();
             let plot_owned: Plot<InnerC> = Clone::clone(&plot_clone);
             Arc::new(plot_owned.compile(session_context).await?)

@@ -2,20 +2,18 @@ use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
-/// Test nested faceting: FacetRow inside FacetColumn
+/// Test that nested facets with invalid data attachment are rejected
 ///
-/// CURRENT STATUS: This test is disabled because nested faceting causes stack overflow.
-/// The facet system was designed with the assumption that facets only contain Cartesian
-/// plots, not other facets. Supporting nested facets would require significant
-/// architectural changes to how data filtering and facet evaluation works.
+/// This test verifies that the system correctly prevents inner facet plots from
+/// having their own data attached. The validation error should occur during
+/// compilation with a clear message explaining that data must flow from the
+/// parent facet through the data_override mechanism.
 ///
-/// The key issues are:
-/// 1. Both facet levels try to operate on the full dataset independently
-/// 2. The inner facet doesn't receive the filtered data from the outer facet
-/// 3. This creates infinite recursion during compilation
+/// Expected behavior: Test fails with InvalidArgument error during compilation.
 ///
-/// For now, use GridFacet for multi-dimensional faceting instead of nesting.
+/// For multi-dimensional faceting, use GridFacet instead of nested facets.
 #[tokio::test]
+#[should_panic(expected = "Nested facet plots should not have their own data attached")]
 async fn test_col_with_nested_row() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
@@ -45,7 +43,7 @@ async fn test_col_with_nested_row() {
             Facet::new()
                 .col_with(col("species"), |c| c.facet(|f| f.title("Species")))
                 .subplot(
-                    // Middle layer: FacetRow (needs same data reference)
+                    // Middle layer: FacetRow (INVALID: should not have own data)
                     Plot::<FacetRow>::new().data(df).mark(
                         Facet::new()
                             .row_with(col("petal_width_bin"), |c| {
