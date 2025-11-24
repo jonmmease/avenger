@@ -194,6 +194,7 @@ impl CompiledGuide for CartesianGuide {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        _data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
@@ -210,8 +211,8 @@ impl CompiledGuide for CartesianGuide {
         let axis_marks = self
             .evaluate(
                 scales,
-                None,  // No row overflow during measurement
-                None,  // No col overflow during measurement
+                None, // No row overflow during measurement
+                None, // No col overflow during measurement
                 plot_width,
                 plot_height,
                 &initial_bounds,

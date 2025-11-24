@@ -635,7 +635,9 @@ impl CompiledPlot {
             if batch.is_empty() {
                 // Return empty batch WITH SCHEMA for facets (enables key extraction)
                 let arrow_schema = std::sync::Arc::new(df.schema().as_arrow().clone());
-                Some(datafusion::arrow::record_batch::RecordBatch::new_empty(arrow_schema))
+                Some(datafusion::arrow::record_batch::RecordBatch::new_empty(
+                    arrow_schema,
+                ))
             } else {
                 use datafusion::arrow::compute::concat_batches;
                 let schema = batch[0].schema();
@@ -795,12 +797,13 @@ impl CompiledPlot {
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
-                    None,  // No row overflow during initial measurement
-                    None,  // No col overflow during initial measurement
+                    None, // No row overflow during initial measurement
+                    None, // No col overflow during initial measurement
                     width_estimate,
                     height_estimate,
                     theme.as_ref(),
                     params,
+                    None, // No data override in top-level estimate
                     ctx,
                 )
                 .await?
@@ -861,6 +864,7 @@ impl CompiledPlot {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&DataFrame>,
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
         use crate::layout::{
             ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
@@ -879,12 +883,13 @@ impl CompiledPlot {
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
-                    None,  // No row overflow during measurement
-                    None,  // No col overflow during measurement
+                    None, // No row overflow during measurement
+                    None, // No col overflow during measurement
                     plot_width,
                     plot_height,
                     theme.as_ref(),
                     params,
+                    data_override,
                     ctx,
                 )
                 .await?
@@ -1081,9 +1086,12 @@ impl CompiledPlot {
         let merged_layout = crate::layout::merge_layout_updates(&layout_updates);
 
         // Extract scales and overflow data
-        let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> =
-            scales.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        let merged_scales = merged_scales.into_iter()
+        let merged_scales: std::collections::HashMap<
+            String,
+            crate::scales::ConfiguredScaleWithSpec,
+        > = scales.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let merged_scales = merged_scales
+            .into_iter()
             .chain(merged_layout.scales.into_iter())
             .collect();
         let row_overflow = merged_layout.row_overflow_by_facet.as_ref();
@@ -1197,6 +1205,7 @@ impl CompiledPlot {
                         &initial_scales,
                         ctx,
                         &merged_params,
+                        data_override,
                     )
                     .await?;
 
@@ -1272,9 +1281,18 @@ impl CompiledPlot {
                 let merged_layout = crate::layout::merge_layout_updates(&layout_updates);
 
                 // Extract scales and overflow data
-                let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> =
-                    final_scales.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> = merged_scales.into_iter()
+                let merged_scales: std::collections::HashMap<
+                    String,
+                    crate::scales::ConfiguredScaleWithSpec,
+                > = final_scales
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                let merged_scales: std::collections::HashMap<
+                    String,
+                    crate::scales::ConfiguredScaleWithSpec,
+                > = merged_scales
+                    .into_iter()
                     .chain(merged_layout.scales.into_iter())
                     .collect();
                 let row_overflow = merged_layout.row_overflow_by_facet.as_ref();
@@ -1290,6 +1308,7 @@ impl CompiledPlot {
                         plot_area_height,
                         ctx,
                         &merged_params,
+                        data_override,
                     )
                     .await?;
 
@@ -1417,9 +1436,18 @@ impl CompiledPlot {
                 let merged_layout = crate::layout::merge_layout_updates(&layout_updates);
 
                 // Extract scales and overflow data
-                let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> =
-                    final_scales.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                let merged_scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec> = merged_scales.into_iter()
+                let merged_scales: std::collections::HashMap<
+                    String,
+                    crate::scales::ConfiguredScaleWithSpec,
+                > = final_scales
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                let merged_scales: std::collections::HashMap<
+                    String,
+                    crate::scales::ConfiguredScaleWithSpec,
+                > = merged_scales
+                    .into_iter()
                     .chain(merged_layout.scales.into_iter())
                     .collect();
                 let row_overflow = merged_layout.row_overflow_by_facet.as_ref();
@@ -1456,12 +1484,13 @@ impl CompiledPlot {
                             compiled_guide
                                 .measure_overflow(
                                     &configured_scales,
-                                    None,  // No row overflow during remeasurement
-                                    None,  // No col overflow during remeasurement
+                                    None, // No row overflow during remeasurement
+                                    None, // No col overflow during remeasurement
                                     pb.width,
                                     pb.height,
                                     theme.as_ref(),
                                     &merged_params,
+                                    data_override,
                                     ctx,
                                 )
                                 .await?

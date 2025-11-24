@@ -347,9 +347,29 @@ impl ChartLayout {
         // Extract layout result
         let taffy_layout = self.extract_layout_result()?;
 
+        // Overflow for the whole plot is the union of guide overflow nodes; use max per side.
+        let mut overflow = crate::guide::OverflowSpaceRequirement::default();
+        for (pos, bounds) in &taffy_layout.guide_overflows {
+            match pos {
+                AxisPosition::Left => {
+                    overflow.left = overflow.left.max(bounds.width);
+                }
+                AxisPosition::Right => {
+                    overflow.right = overflow.right.max(bounds.width);
+                }
+                AxisPosition::Top => {
+                    overflow.top = overflow.top.max(bounds.height);
+                }
+                AxisPosition::Bottom => {
+                    overflow.bottom = overflow.bottom.max(bounds.height);
+                }
+            }
+        }
+
         Ok(crate::render::LayoutSolution {
             taffy_layout,
             canvas_size,
+            overflow,
         })
     }
 

@@ -14,11 +14,12 @@ use crate::scales::ConfiguredScaleWithSpec;
 use avenger_scales::scalar::Scalar;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::ScalarValue;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::SessionContext;
-use datafusion::arrow::record_batch::RecordBatch;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -40,10 +41,12 @@ pub fn batch_to_dataframe(
     ctx: &SessionContext,
 ) -> Result<DataFrame, AvengerChartError> {
     // Use DataFusion's built-in read_batch which creates an unnamed table
-    ctx.read_batch(batch.clone())
-        .map_err(|e| AvengerChartError::InternalError(
-            format!("Failed to create DataFrame from RecordBatch: {}", e)
+    ctx.read_batch(batch.clone()).map_err(|e| {
+        AvengerChartError::InternalError(format!(
+            "Failed to create DataFrame from RecordBatch: {}",
+            e
         ))
+    })
 }
 
 /// Default spacing between facets in pixels when not specified by theme or configuration
@@ -88,8 +91,11 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Returns [x, y] translation given band position
     group_origin: impl Fn(f32) -> [f32; 2],
 ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
-    eprintln!("evaluate_facet entering: channel={}", DimConfig::channel_name());
-    
+    eprintln!(
+        "evaluate_facet entering: channel={}",
+        DimConfig::channel_name()
+    );
+
     // Get dimension scale (row or col)
     let dimension_scale = context
         .scales
@@ -110,13 +116,13 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     }
 
     // Extract domain values and bandwidth directly from scale
-    use avenger_scales::scales::band;
     use crate::scales::extensions::ConfiguredScaleLegendExt;
+    use avenger_scales::scales::band;
 
     let configured = dimension_scale.configured();
-    // REMOVED: extraction of initial_domain_vals from scale. 
+    // REMOVED: extraction of initial_domain_vals from scale.
     // We now drive layout using keys extracted from the data to ensure sync with SubplotIterator.
-    
+
     let initial_bandwidth = band::bandwidth(&configured.config)?;
 
     // Determine data source: parent override OR compiled data
@@ -219,7 +225,11 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Extract facet keys at render time from actual data
     use crate::facet::keys::FacetKeyExtractor;
     let mut domain_vals = FacetKeyExtractor::extract_keys(&df, &facet_expr).await?;
-    eprintln!("🔑 Extracted {} keys for channel '{}'", domain_vals.len(), DimConfig::channel_name());
+    eprintln!(
+        "🔑 Extracted {} keys for channel '{}'",
+        domain_vals.len(),
+        DimConfig::channel_name()
+    );
 
     // Sort domain values to ensure deterministic facet ordering
     domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -276,6 +286,21 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     let mut overflow_measurements = Vec::new();
 
+    // Small helper to measure one subplot to keep the parent future small
+    async fn measure_subplot(
+        compiled_subplot: &Arc<CompiledPlot>,
+        width: f32,
+        height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        filter_df: &DataFrame,
+    ) -> Result<crate::guide::OverflowSpaceRequirement, AvengerChartError> {
+        compiled_subplot
+            .measure_with_scales(width, height, ctx, params, scales, Some(filter_df))
+            .await
+    }
+
     for (iteration, rect) in subplot_iter.zip(initial_rects.iter()) {
         eprintln!("Pass 1 iteration");
         let band_size = if DimConfig::is_row_facet() {
@@ -316,27 +341,21 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
         // Measure guide AND legend overflow for this partition with FacetContext applied
         // Use evaluate_in_canvas with Measure mode to get full layout including legends
-        let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
+        let _scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
             scales: scales.clone(),
         };
 
-        eprintln!("Pass 1 build_plot_components");
-        let components = compiled_subplot
-            .build_plot_components(
-                width,
-                height,
-                ctx,
-                &iteration.params,
-                &scale_provider,
-                crate::plot::compiled::EvaluationMode::Measure,
-                Some(&filter_df),
-                true, // Plot area mode: dimensions are already plot area size
-            )
-            .await?;
-        eprintln!("Pass 1 build_plot_components done");
-
-        // Extract overflow from the returned components
-        let overflow = components.overflow.unwrap_or_default();
+        // Lightweight measurement: avoid full render recursion; measure overflow using provided scales and filtered data.
+        let overflow = measure_subplot(
+            compiled_subplot,
+            width,
+            height,
+            ctx,
+            &iteration.params,
+            &scales,
+            &filter_df,
+        )
+        .await?;
         overflow_measurements.push(overflow);
     }
 
@@ -389,25 +408,22 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // STEP 1: Rebuild the facet dimension scale with measured padding FIRST
     // This ensures coord.transform() receives positions that match its internal padding state
     let mut new_config = dimension_scale.configured().config.clone();
-    new_config
-        .options
-        .insert("padding_inner_px".to_string(), Scalar::from_f32(rounded_gap));
+    new_config.options.insert(
+        "padding_inner_px".to_string(),
+        Scalar::from_f32(rounded_gap),
+    );
 
-    let updated_spec = dimension_scale
-        .spec()
-        .clone()
-        .option(
-            "padding_inner_px",
-            lit(ScalarValue::Float32(Some(rounded_gap))),
-        );
+    let updated_spec = dimension_scale.spec().clone().option(
+        "padding_inner_px",
+        lit(ScalarValue::Float32(Some(rounded_gap))),
+    );
 
     let updated_configured = avenger_scales::scales::ConfiguredScale {
         scale_impl: dimension_scale.configured().scale_impl.clone(),
         config: new_config,
     };
 
-    let final_dimension_scale =
-        ConfiguredScaleWithSpec::new(updated_spec, updated_configured);
+    let final_dimension_scale = ConfiguredScaleWithSpec::new(updated_spec, updated_configured);
 
     let mut updated_scales = HashMap::with_capacity(1);
     updated_scales.insert(
@@ -454,7 +470,10 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     eprintln!("=== FINAL RECTS (Pass 2) ===");
     for (i, rect) in final_rects.iter().enumerate() {
-        eprintln!("  rect[{}]: x={}, y={}, width={}, height={}", i, rect.x, rect.y, rect.width, rect.height);
+        eprintln!(
+            "  rect[{}]: x={}, y={}, width={}, height={}",
+            i, rect.x, rect.y, rect.width, rect.height
+        );
     }
 
     // Debug logging for final geometry
@@ -537,9 +556,31 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         "Final geometry rect count mismatch with SubplotIterator"
     );
 
-    for (subplot_index, (iteration, rect)) in subplot_iter_pass2
-        .zip(final_rects.iter())
-        .enumerate()
+    // Small helper to render one subplot to keep the outer future small.
+    async fn render_subplot(
+        compiled_subplot: &Arc<CompiledPlot>,
+        width: f32,
+        height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
+        filter_df: &DataFrame,
+    ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
+        compiled_subplot
+            .build_plot_components(
+                width,
+                height,
+                ctx,
+                params,
+                scale_provider,
+                crate::plot::compiled::EvaluationMode::Render,
+                Some(filter_df),
+                true, // Plot area mode: dimensions are already plot area size
+            )
+            .await
+    }
+
+    for (subplot_index, (iteration, rect)) in subplot_iter_pass2.zip(final_rects.iter()).enumerate()
     {
         // Filter df by facet_value
         let filter_df: DataFrame = df
@@ -604,24 +645,32 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             scales: scales.clone(),
         };
 
-        eprintln!("Calling build_plot_components (Render) for iteration {}", subplot_index);
-        let components = compiled_subplot
-            .build_plot_components(
-                width,
-                height,
-                ctx,
-                &iteration.params,
-                &scale_provider,
-                crate::plot::compiled::EvaluationMode::Render,
-                Some(&filter_df),
-                true, // Plot area mode: dimensions are already plot area size
-            )
-            .await?;
-        eprintln!("Finished build_plot_components (Render) for iteration {}", subplot_index);
+        eprintln!(
+            "Calling build_plot_components (Render) for iteration {}",
+            subplot_index
+        );
+        let components = render_subplot(
+            compiled_subplot,
+            width,
+            height,
+            ctx,
+            &iteration.params,
+            &scale_provider,
+            &filter_df,
+        )
+        .await?;
+        eprintln!(
+            "Finished build_plot_components (Render) for iteration {}",
+            subplot_index
+        );
 
         // Use raw group origin for smooth subpixel positioning
         // Position is taken from coord.transform() output (rect.x or rect.y)
-        let position = if DimConfig::is_row_facet() { rect.y } else { rect.x };
+        let position = if DimConfig::is_row_facet() {
+            rect.y
+        } else {
+            rect.x
+        };
         let origin = group_origin(position);
 
         // Wrap data marks in a clipped group translated to subplot position
@@ -695,8 +744,16 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                     .unwrap_or_default();
 
                 // Position within plot-area coordinates (before outer plot translation)
-                let band_start = if DimConfig::is_row_facet() { rect.y } else { rect.x };
-                let band_size = if DimConfig::is_row_facet() { rect.height } else { rect.width };
+                let band_start = if DimConfig::is_row_facet() {
+                    rect.y
+                } else {
+                    rect.x
+                };
+                let band_size = if DimConfig::is_row_facet() {
+                    rect.height
+                } else {
+                    rect.width
+                };
                 let band_end = band_start + band_size; // Use rect dimensions for end position
                 let left_rect_x_rel_plot = band_start - overflow_dbg.left;
                 let right_rect_x_rel_plot = band_end; // right overflow placed at band end
@@ -765,20 +822,11 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     eprintln!("  overflow_measurements: {:?}", overflow_measurements);
 
     let layout_updates = if DimConfig::channel_name() == "row" {
-        crate::layout::LayoutUpdates::new(
-            updated_scales,
-            Some(overflow_measurements),
-            None,
-        )
+        crate::layout::LayoutUpdates::new(updated_scales, Some(overflow_measurements), None)
     } else {
         // column facet
-        crate::layout::LayoutUpdates::new(
-            updated_scales,
-            None,
-            Some(overflow_measurements),
-        )
+        crate::layout::LayoutUpdates::new(updated_scales, None, Some(overflow_measurements))
     };
 
     Ok((all_marks, layout_updates))
 }
-

@@ -24,6 +24,8 @@ pub struct LayoutSolution {
     pub taffy_layout: crate::layout::LayoutResult,
     /// Computed canvas size (may differ from requested when using plot_size)
     pub canvas_size: (f32, f32),
+    /// Guide overflow measured during layout (top, right, bottom, left)
+    pub overflow: crate::guide::OverflowSpaceRequirement,
 }
 
 impl LayoutSolution {

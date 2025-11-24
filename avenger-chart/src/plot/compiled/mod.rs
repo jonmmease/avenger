@@ -190,6 +190,23 @@ impl CompiledPlot {
         Ok(built)
     }
 
+    /// Check if this plot has a facet guide (FacetRow, FacetCol, or GridFacet)
+    ///
+    /// This is used to detect nested facets and avoid infinite recursion during
+    /// Pass 1 measurement. Nested facet plots should use estimated overflow instead
+    /// of recursive `build_plot_components` calls.
+    pub(crate) fn has_facet_guide(&self) -> bool {
+        if let Some(guide) = &self.compiled_guide {
+            // Check if the guide is one of the facet guide types by checking the type name
+            let type_name = std::any::type_name_of_val(guide.as_ref());
+            type_name.contains("FacetRowGuide")
+                || type_name.contains("FacetColGuide")
+                || type_name.contains("GridFacetGuide")
+        } else {
+            false
+        }
+    }
+
     /// Build scales from an existing ScaleBuilder with specific dimensions.
     ///
     /// This is more efficient than `build_scales_with_dimensions` when you need to
@@ -428,6 +445,7 @@ impl CompiledPlot {
         plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<crate::guide::OverflowSpaceRequirement, crate::error::AvengerChartError> {
         if let Some(guide) = &self.compiled_guide {
             // Downcast to ConfiguredScale for the guide API
@@ -445,12 +463,36 @@ impl CompiledPlot {
                     plot_area_height,
                     theme.as_ref(),
                     params,
+                    data_override,
                     ctx,
                 )
                 .await
         } else {
             Ok(crate::guide::OverflowSpaceRequirement::default())
         }
+    }
+
+    /// Lightweight measurement entry point used by facet Pass 1 to avoid full render recursion.
+    ///
+    /// - Assumes `width`/`height` are plot-area dimensions.
+    /// - Uses provided scales (no scale building).
+    /// - Forwards `data_override` so nested facets measure with filtered data.
+    pub async fn measure_with_scales(
+        &self,
+        width: f32,
+        height: f32,
+        ctx: &datafusion::prelude::SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+    ) -> Result<crate::guide::OverflowSpaceRequirement, crate::error::AvengerChartError> {
+        // Measure guide overflow using provided scales and data.
+        // Legends and titles also contribute; reuse the layout computation but skip mark rendering.
+        let layout = self
+            .compute_layout_with_fixed_plot_area(width, height, scales, ctx, params, data_override)
+            .await?;
+        // compute_layout_with_fixed_plot_area measures guide + legends; use its overflow estimate
+        Ok(layout.overflow)
     }
 }
 
