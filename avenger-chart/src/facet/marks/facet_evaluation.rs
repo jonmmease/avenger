@@ -174,6 +174,7 @@ where
     let mut legend_infos = Vec::new();
 
     // Small helper to measure one subplot to keep the parent future small
+    // Returns (total_overflow, legend_info) - uses total overflow for row/col facet spacing
     async fn measure_subplot(
         compiled_subplot: &Arc<CompiledPlot>,
         width: f32,
@@ -189,9 +190,11 @@ where
         ),
         AvengerChartError,
     > {
-        compiled_subplot
+        let (_guide_only, total_overflow, legend_info, _legend_positions) = compiled_subplot
             .measure_with_scales(width, height, ctx, params, scales, Some(filter_df))
-            .await
+            .await?;
+        // Row/col facets use total overflow (including legends) for spacing
+        Ok((total_overflow, legend_info))
     }
 
     // Bound concurrency to avoid overwhelming DataFusion while still flattening stack growth.

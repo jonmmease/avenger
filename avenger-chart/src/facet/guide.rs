@@ -154,7 +154,7 @@ impl FacetRowGuide {
                         use datafusion::logical_expr::lit;
                         let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
 
-                        let (subplot_overflow, _) = source
+                        let (_guide_only, total_overflow, _legend_info, _legend_positions) = source
                             .subplot
                             .measure_with_scales(
                                 plot_width,
@@ -166,7 +166,7 @@ impl FacetRowGuide {
                             )
                             .await?;
 
-                        computed_overflow.push(subplot_overflow);
+                        computed_overflow.push(total_overflow);
                     }
 
                     // Aggregate computed overflow
@@ -274,7 +274,7 @@ impl FacetRowGuide {
                             updated_params
                         };
 
-                        let (subplot_overflow, _) = source
+                        let (_guide_only, total_overflow, _legend_info, _legend_positions) = source
                             .subplot
                             .measure_with_scales(
                                 plot_width,
@@ -286,7 +286,7 @@ impl FacetRowGuide {
                             )
                             .await?;
 
-                        computed_overflow.push(subplot_overflow);
+                        computed_overflow.push(total_overflow);
                     }
 
                     // Aggregate computed overflow
@@ -1031,7 +1031,7 @@ impl FacetColGuide {
                             updated_params
                         };
 
-                        let (subplot_overflow, _) = source
+                        let (_guide_only, total_overflow, _legend_info, _legend_positions) = source
                             .subplot
                             .measure_with_scales(
                                 band_width,
@@ -1043,7 +1043,7 @@ impl FacetColGuide {
                             )
                             .await?;
 
-                        computed_overflow.push(subplot_overflow);
+                        computed_overflow.push(total_overflow);
                     }
 
                     // Aggregate computed overflow - first column for left, ALL columns for right
@@ -1129,7 +1129,7 @@ impl FacetColGuide {
                             updated_params
                         };
 
-                        let (subplot_overflow, _) = source
+                        let (_guide_only, total_overflow, _legend_info, _legend_positions) = source
                             .subplot
                             .measure_with_scales(
                                 band_width,
@@ -1141,7 +1141,7 @@ impl FacetColGuide {
                             )
                             .await?;
 
-                        computed_overflow.push(subplot_overflow);
+                        computed_overflow.push(total_overflow);
                     }
 
                     // Aggregate computed overflow - first column for left, ALL columns for right
@@ -2448,8 +2448,8 @@ impl CompiledGuide for GridFacetGuide {
     async fn evaluate(
         &self,
         scales: &HashMap<String, ConfiguredScale>,
-        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
-        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
@@ -2541,11 +2541,48 @@ impl CompiledGuide for GridFacetGuide {
         }
 
         // Measure subplot overflows to determine row and col label placement
+        // Use pre-computed overflow from row_overflow/col_overflow if available (includes legends),
+        // otherwise fall back to recomputing (which won't include legend dimensions).
         let mut subplot_max_top: f32 = 0.0;
         let mut subplot_max_bottom: f32 = 0.0;
         let mut subplot_max_left: f32 = 0.0;
         let mut subplot_max_right: f32 = 0.0;
 
+        // Extract overflow from pre-computed row_overflow and col_overflow
+        // row_overflow contains one entry per row, col_overflow contains one entry per column
+        // For facet labels, we need the max overflow across all rows/cols
+        let has_precomputed_overflow = row_overflow.is_some() && col_overflow.is_some();
+        if let Some(row_of) = row_overflow {
+            for r in row_of {
+                subplot_max_top = subplot_max_top.max(r.top);
+                subplot_max_bottom = subplot_max_bottom.max(r.bottom);
+                // For right side (last column), use rightmost overflow
+                // We track max since all subplots may have legends
+                subplot_max_right = subplot_max_right.max(r.right);
+            }
+            // Left overflow: use first row's left
+            if let Some(first) = row_of.first() {
+                subplot_max_left = subplot_max_left.max(first.left);
+            }
+        }
+        if let Some(col_of) = col_overflow {
+            for c in col_of {
+                subplot_max_top = subplot_max_top.max(c.top);
+                subplot_max_bottom = subplot_max_bottom.max(c.bottom);
+                subplot_max_left = subplot_max_left.max(c.left);
+                subplot_max_right = subplot_max_right.max(c.right);
+            }
+        }
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "GridFacetGuide evaluate: has_precomputed_overflow={} subplot_max(T={:.3} B={:.3} L={:.3} R={:.3})",
+                has_precomputed_overflow, subplot_max_top, subplot_max_bottom, subplot_max_left, subplot_max_right
+            );
+        }
+
+        // If no pre-computed overflow, fall back to measuring (won't include legend dimensions)
+        if !has_precomputed_overflow {
         if let Some(source) = self.facet_sources.first() {
             let row_expr = source
                 .data
@@ -2711,6 +2748,7 @@ impl CompiledGuide for GridFacetGuide {
                 }
             }
         }
+        } // end if !has_precomputed_overflow
 
         // Determine row label placement (opposite side of y-axis, like FacetRow)
         // Check actual y-axis position first, only fall back to overflow inference if None

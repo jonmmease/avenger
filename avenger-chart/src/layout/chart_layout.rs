@@ -408,6 +408,9 @@ impl ChartLayout {
         Ok(crate::render::LayoutSolution {
             taffy_layout,
             canvas_size,
+            // guide_only_overflow contains just axis tick labels/titles - no legends
+            guide_only_overflow: overflow.clone(),
+            // overflow will have legend dimensions added by caller if needed
             overflow,
             legend_info,
         })

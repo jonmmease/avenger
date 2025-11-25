@@ -875,8 +875,19 @@ impl CompiledPlot {
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
 
-        // Measure how much space the guide needs
-        let overflow = if let Some(compiled_guide) = &self.compiled_guide {
+        // Helper to extract f32 from params
+        let get_param_f32 = |key: &str| -> Option<f32> {
+            params.get(key).and_then(|v| {
+                if let datafusion::common::ScalarValue::Float32(Some(f)) = v {
+                    Some(*f)
+                } else {
+                    None
+                }
+            })
+        };
+
+        // First, measure the guide overflow (axis tick labels, titles, etc.)
+        let mut overflow = if let Some(compiled_guide) = &self.compiled_guide {
             let theme = self.get_theme();
             let configured_scales: HashMap<String, ConfiguredScale> = scales
                 .iter()
@@ -898,6 +909,27 @@ impl CompiledPlot {
         } else {
             crate::guide::OverflowSpaceRequirement::default()
         };
+
+        // Check for unified overflow params (passed by grid facets for legend alignment).
+        // Only override specific sides that have unified values - this ensures legends align
+        // while allowing other sides to use their actual measured overflow.
+        //
+        // Typically only `__unified_overflow_right` is passed because:
+        // - Legends are usually on the right side
+        // - Left/top/bottom overflow varies per subplot (edge vs inner subplots have different axes)
+        // - Unifying all sides would cause inner subplots to claim space they don't need
+        if let Some(unified_right) = get_param_f32("__unified_overflow_right") {
+            overflow.right = unified_right;
+        }
+        if let Some(unified_left) = get_param_f32("__unified_overflow_left") {
+            overflow.left = unified_left;
+        }
+        if let Some(unified_top) = get_param_f32("__unified_overflow_top") {
+            overflow.top = unified_top;
+        }
+        if let Some(unified_bottom) = get_param_f32("__unified_overflow_bottom") {
+            overflow.bottom = unified_bottom;
+        }
 
         // Get legends with theme applied
         let all_legends = self.get_legends_with_theme(scales, ctx, params);
@@ -1096,9 +1128,10 @@ impl CompiledPlot {
                 })
         };
 
-        // Get alignment mode: "row" or "col" (or None for non-faceted plots)
+        // Get alignment mode: "row", "col", or "grid" (or None for non-faceted plots)
         // - "row" facets: align Right/Left legends horizontally (X alignment)
         // - "col" facets: align Top/Bottom legends vertically (Y alignment)
+        // - "grid" facets: align both X and Y (combines row and col behavior)
         let align_mode = params.get("__legend_align_mode").and_then(|v| {
             if let datafusion::common::ScalarValue::Utf8(Some(s)) = v {
                 Some(s.as_str())
@@ -1127,10 +1160,13 @@ impl CompiledPlot {
         // Only apply alignment in the appropriate direction for the facet type:
         // - Row facets: X alignment for Right/Left legends (subplots stacked vertically)
         // - Col facets: Y alignment for Top/Bottom legends (subplots side by side)
+        // - Grid facets: Use unified overflow approach instead (via __unified_overflow_* params)
+        //   which ensures all subplots have identical overflow sizes, naturally aligning legends.
         use crate::legend::LegendPosition;
         match position {
             LegendPosition::Right => {
-                // Right legends: X alignment only for row facets
+                // Right legends: X alignment for row facets only
+                // (grid facets use unified overflow instead)
                 if align_mode == Some("row") {
                     if let Some(target_x) = get_param("__legend_align_max_right_x") {
                         return (target_x - bounds.x, 0.0);
@@ -1139,33 +1175,34 @@ impl CompiledPlot {
                 (0.0, 0.0)
             }
             LegendPosition::Left => {
-                // Left legends: X alignment only for row facets
+                // Left legends: X alignment for row facets only
+                // (grid facets use unified overflow instead)
                 if align_mode == Some("row") {
                     if let Some(target_x) = get_param("__legend_align_min_left_x") {
-                        let offset = target_x - bounds.x;
-                        return (offset, 0.0);
+                        return (target_x - bounds.x, 0.0);
                     }
                 }
                 (0.0, 0.0)
             }
             LegendPosition::Top => {
-                // Top legends: Y alignment only for col facets
+                // Top legends: Y alignment for col facets only
+                // (grid facets use unified overflow instead)
                 if align_mode == Some("col") {
                     if let Some(target_y) = get_param("__legend_align_min_top_y") {
-                        let offset = target_y - bounds.y;
-                        return (0.0, offset);
+                        return (0.0, target_y - bounds.y);
                     }
                 }
                 (0.0, 0.0)
             }
             LegendPosition::Bottom => {
-                // Bottom legends: Y alignment only for col facets
+                // Bottom legends: Y alignment for col facets only
+                // (grid facets use unified overflow instead)
                 if align_mode == Some("col") {
                     if let Some(target_y) = get_param("__legend_align_max_bottom_y") {
-                        let offset = target_y - bounds.y;
-                        return (0.0, offset);
+                        return (0.0, target_y - bounds.y);
                     }
                 }
+                // Grid facets: no alignment needed (rows share height)
                 (0.0, 0.0)
             }
         }

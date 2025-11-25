@@ -24,7 +24,11 @@ pub struct LayoutSolution {
     pub taffy_layout: crate::layout::LayoutResult,
     /// Computed canvas size (may differ from requested when using plot_size)
     pub canvas_size: (f32, f32),
-    /// Guide overflow measured during layout (top, right, bottom, left)
+    /// Guide-only overflow (axis tick labels, titles) - excludes legend dimensions.
+    /// This is used for cross-subplot alignment in grid facets.
+    pub guide_only_overflow: crate::guide::OverflowSpaceRequirement,
+    /// Total overflow including both guide overflow and legend dimensions.
+    /// This is used for outer facet positioning and padding.
     pub overflow: crate::guide::OverflowSpaceRequirement,
     /// Legend bounding box dimensions for cross-subplot alignment
     pub legend_info: crate::layout::LegendLayoutInfo,

@@ -461,7 +461,11 @@ impl CompiledPlot {
     /// - Uses provided scales (no scale building).
     /// - Forwards `data_override` so nested facets measure with filtered data.
     ///
-    /// Returns both overflow space requirements and legend layout info for cross-subplot alignment.
+    /// Returns:
+    /// - `guide_only_overflow`: Overflow for axis tick labels/titles only (for cross-subplot alignment)
+    /// - `total_overflow`: Guide overflow + legend dimensions (for outer facet positioning)
+    /// - `legend_info`: Legend layout info for cross-subplot alignment
+    /// - `legend_positions`: Set of legend positions used in this subplot
     pub async fn measure_with_scales(
         &self,
         width: f32,
@@ -472,8 +476,10 @@ impl CompiledPlot {
         data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<
         (
-            crate::guide::OverflowSpaceRequirement,
+            crate::guide::OverflowSpaceRequirement, // guide_only_overflow
+            crate::guide::OverflowSpaceRequirement, // total_overflow (guide + legends)
             crate::layout::LegendLayoutInfo,
+            std::collections::HashSet<crate::legend::LegendPosition>, // legend_positions
         ),
         crate::error::AvengerChartError,
     > {
@@ -482,8 +488,48 @@ impl CompiledPlot {
         let layout = self
             .compute_layout_with_fixed_plot_area(width, height, scales, ctx, params, data_override)
             .await?;
-        // compute_layout_with_fixed_plot_area measures guide + legends; use its overflow estimate
-        Ok((layout.overflow, layout.legend_info))
+
+        // Collect legend positions from the layout
+        let legend_positions: std::collections::HashSet<crate::legend::LegendPosition> = layout
+            .taffy_layout
+            .legends_by_position
+            .keys()
+            .cloned()
+            .collect();
+
+        // Compute total overflow by adding legend dimensions to guide overflow.
+        // The guide_only_overflow is axis tick labels/titles.
+        // For facet label positioning, we need guide overflow + legend dimensions.
+        let mut total_overflow = layout.guide_only_overflow.clone();
+
+        // Add legend dimensions for each position
+        use crate::legend::LegendPosition;
+        for (position, legend_names) in &layout.taffy_layout.legends_by_position {
+            // Sum up dimensions for all legends at this position
+            let mut total_width = 0.0f32;
+            let mut total_height = 0.0f32;
+            for name in legend_names {
+                if let Some(bounds) = layout.taffy_layout.legends.get(name) {
+                    total_width = total_width.max(bounds.width);
+                    total_height = total_height.max(bounds.height);
+                }
+            }
+
+            match position {
+                LegendPosition::Right => total_overflow.right += total_width,
+                LegendPosition::Left => total_overflow.left += total_width,
+                LegendPosition::Top => total_overflow.top += total_height,
+                LegendPosition::Bottom => total_overflow.bottom += total_height,
+            }
+        }
+
+        // Return both guide-only overflow (for alignment) and total overflow (for positioning)
+        Ok((
+            layout.guide_only_overflow,
+            total_overflow,
+            layout.legend_info,
+            legend_positions,
+        ))
     }
 
     /// Measure only intrinsic subplot overflow (excluding facet-level content)

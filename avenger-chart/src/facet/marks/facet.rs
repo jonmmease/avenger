@@ -620,6 +620,10 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetGrid> for Facet<InnerC> {
 // ============================================================================
 
 /// Measure overflow for all cells in the grid from SubplotRects
+///
+/// Returns two overflow grids:
+/// - `guide_only_grid`: Axis-only overflow for cross-subplot alignment (unified overflow)
+/// - `total_overflow_grid`: Full overflow including legends for spacing calculations
 #[allow(clippy::too_many_arguments)]
 async fn measure_grid_overflow(
     rects: &[crate::coords::SubplotRect],
@@ -633,11 +637,21 @@ async fn measure_grid_overflow(
     col_iterations: &[crate::facet::subplot_iterator::SubplotIteration],
     num_rows: usize,
     num_cols: usize,
-) -> Result<Vec<Vec<crate::guide::OverflowSpaceRequirement>>, AvengerChartError> {
+) -> Result<
+    (
+        Vec<Vec<crate::guide::OverflowSpaceRequirement>>, // guide_only (for alignment)
+        Vec<Vec<crate::guide::OverflowSpaceRequirement>>, // total (for spacing)
+        HashSet<crate::legend::LegendPosition>,           // legend positions used
+    ),
+    AvengerChartError,
+> {
     use datafusion::logical_expr::lit;
 
-    let mut overflow_grid =
+    let mut guide_only_grid =
         vec![vec![crate::guide::OverflowSpaceRequirement::default(); num_cols]; num_rows];
+    let mut total_overflow_grid =
+        vec![vec![crate::guide::OverflowSpaceRequirement::default(); num_cols]; num_rows];
+    let mut all_legend_positions: HashSet<crate::legend::LegendPosition> = HashSet::new();
 
     // Note: rects are guaranteed to be in row-major order by FacetGrid::transform()
     // (see avenger-chart/src/facet/coord.rs:453-469 nested loop structure).
@@ -678,30 +692,24 @@ async fn measure_grid_overflow(
             )
             .await?;
 
-        // Measure guide AND legend overflow for this cell using evaluate_in_canvas with Measure mode
-        let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
-            scales: inner_scales.clone(),
-        };
-
-        let components = compiled_subplot
-            .build_plot_components(
+        // Measure both guide-only overflow (for alignment) and total overflow (for spacing)
+        let (guide_only_overflow, total_overflow, _legend_info, legend_positions) = compiled_subplot
+            .measure_with_scales(
                 rect.width,
                 rect.height,
                 session_context,
                 &cell_params,
-                &scale_provider,
-                crate::plot::compiled::EvaluationMode::Measure,
+                &inner_scales,
                 Some(&filter_df),
-                true, // Plot area mode: both dimensions are already plot area size
             )
             .await?;
 
-        // Extract overflow from the returned components
-        let overflow = components.overflow.unwrap_or_default();
-        overflow_grid[row_idx][col_idx] = overflow;
+        guide_only_grid[row_idx][col_idx] = guide_only_overflow;
+        total_overflow_grid[row_idx][col_idx] = total_overflow;
+        all_legend_positions.extend(legend_positions);
     }
 
-    Ok(overflow_grid)
+    Ok((guide_only_grid, total_overflow_grid, all_legend_positions))
 }
 
 /// Calculate row padding from 2D overflow grid
@@ -765,6 +773,26 @@ fn calculate_grid_padding(
     let row_padding = calculate_row_padding(overflow_grid);
     let col_padding = calculate_col_padding(overflow_grid);
     (row_padding, col_padding)
+}
+
+/// Compute global maximum overflow across all cells in the grid
+///
+/// Returns a single OverflowSpaceRequirement where each side has the maximum
+/// value from all cells. This ensures all subplots use identical overflow
+/// sizes, causing legends to naturally align across the grid.
+fn compute_global_max_overflow(
+    overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>],
+) -> crate::guide::OverflowSpaceRequirement {
+    let mut max_overflow = crate::guide::OverflowSpaceRequirement::default();
+    for row in overflow_grid {
+        for cell_overflow in row {
+            max_overflow.top = max_overflow.top.max(cell_overflow.top);
+            max_overflow.bottom = max_overflow.bottom.max(cell_overflow.bottom);
+            max_overflow.left = max_overflow.left.max(cell_overflow.left);
+            max_overflow.right = max_overflow.right.max(cell_overflow.right);
+        }
+    }
+    max_overflow
 }
 
 /// Extract 1D row overflow vector from 2D overflow grid
@@ -1077,7 +1105,11 @@ impl CompiledMark for CompiledFacetGrid {
         .collect();
 
         // Measure overflow for all grid cells using the helper function
-        let overflow_grid = measure_grid_overflow(
+        // Returns:
+        // - guide_only_grid: For alignment (axis overflow only, no legends)
+        // - total_overflow_grid: For spacing (includes legend dimensions)
+        // - legend_positions: Set of legend positions used across all subplots
+        let (guide_only_grid, total_overflow_grid, legend_positions) = measure_grid_overflow(
             initial_rects,
             &self.compiled_subplot,
             &scale_grouping,
@@ -1092,9 +1124,15 @@ impl CompiledMark for CompiledFacetGrid {
         )
         .await?;
 
+        // Compute global max overflow across all cells for legend alignment
+        // Use GUIDE-ONLY overflow so all subplots have identical axis overflow,
+        // causing legends to naturally align relative to the overflow region.
+        let global_max_overflow = compute_global_max_overflow(&guide_only_grid);
+
         // ========== BETWEEN PASSES: CALCULATE PADDING ==========
-        // Calculate padding from overflow measurements
-        let (row_padding_px, col_padding_px) = calculate_grid_padding(&overflow_grid);
+        // Calculate padding from TOTAL overflow measurements (includes legends)
+        // This ensures enough space between subplots for legends to fit.
+        let (row_padding_px, col_padding_px) = calculate_grid_padding(&total_overflow_grid);
 
         // Get configured facet_spacing
         const DEFAULT_FACET_SPACING: f32 = 3.0;
@@ -1122,9 +1160,9 @@ impl CompiledMark for CompiledFacetGrid {
             col_padding_px + spacing
         };
 
-        // Extract overflow vectors for coord update
-        let row_overflow = extract_row_overflow(&overflow_grid);
-        let col_overflow = extract_col_overflow(&overflow_grid);
+        // Extract overflow vectors for coord update (use total overflow for proper spacing)
+        let row_overflow = extract_row_overflow(&total_overflow_grid);
+        let col_overflow = extract_col_overflow(&total_overflow_grid);
 
         // Debug: log measured spacing and gaps
         tracing::debug!(
@@ -1287,8 +1325,46 @@ impl CompiledMark for CompiledFacetGrid {
             assert_eq!(col_iteration.index, col_idx, "Col iteration index mismatch");
 
             // Merge row and col contexts into unified GridFacet context
-            let merged_params =
+            let mut merged_params =
                 merge_grid_facet_contexts(row_iteration, col_iteration, num_rows, num_cols);
+
+            // Pass unified overflow ONLY for sides where legends are positioned.
+            // This ensures legends align across subplots in the same row/column.
+            //
+            // We don't unify sides that have no legends because:
+            // - Axis overflow varies by subplot (edge subplots have axis ticks, inner ones don't)
+            // - Unifying all sides would cause inner subplots to claim space they don't need,
+            //   leading to overlap with adjacent subplots' overflow regions.
+            //
+            // The spacing calculation (calculate_grid_padding) uses actual per-subplot overflow,
+            // so rendering must also use actual overflow for consistency - except for
+            // legend sides where alignment is needed.
+            use datafusion::common::ScalarValue;
+            use crate::legend::LegendPosition;
+            if legend_positions.contains(&LegendPosition::Right) {
+                merged_params.insert(
+                    "__unified_overflow_right".to_string(),
+                    ScalarValue::Float32(Some(global_max_overflow.right)),
+                );
+            }
+            if legend_positions.contains(&LegendPosition::Left) {
+                merged_params.insert(
+                    "__unified_overflow_left".to_string(),
+                    ScalarValue::Float32(Some(global_max_overflow.left)),
+                );
+            }
+            if legend_positions.contains(&LegendPosition::Top) {
+                merged_params.insert(
+                    "__unified_overflow_top".to_string(),
+                    ScalarValue::Float32(Some(global_max_overflow.top)),
+                );
+            }
+            if legend_positions.contains(&LegendPosition::Bottom) {
+                merged_params.insert(
+                    "__unified_overflow_bottom".to_string(),
+                    ScalarValue::Float32(Some(global_max_overflow.bottom)),
+                );
+            }
 
             // Filter to rows matching both row AND col values
             let filter_df = df
@@ -1401,8 +1477,8 @@ impl CompiledMark for CompiledFacetGrid {
             // Wrap debug marks in a non-clipped translated group
             if !components.debug_marks.is_empty() {
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    // Use Pass 1 overflow measurement for debug visualization
-                    let overflow_dbg = &overflow_grid[row_idx][col_idx];
+                    // Use total overflow measurement for debug visualization
+                    let overflow_dbg = &total_overflow_grid[row_idx][col_idx];
 
                     eprintln!(
                         "GRID SUBPLOT r={} c={}: x={:.3} y={:.3} w={:.3} h={:.3} overflowT={:.3} overflowB={:.3} overflowL={:.3} overflowR={:.3}",
@@ -1429,10 +1505,15 @@ impl CompiledMark for CompiledFacetGrid {
             }
         }
 
-        // Return marks and scale updates so guides receive the updated scales with spacing
+        // Return marks and scale updates so guides receive the updated scales with spacing.
+        // Also return overflow info so the outer guide can position facet labels past legends.
         Ok((
             marks,
-            crate::layout::LayoutUpdates::with_scales(updated_scales),
+            crate::layout::LayoutUpdates::new(
+                updated_scales,
+                Some(row_overflow),
+                Some(col_overflow),
+            ),
         ))
     }
 

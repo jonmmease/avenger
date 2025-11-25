@@ -46,40 +46,74 @@ pub struct LegendLayoutInfo {
 /// Contains target positions that all legends should align to.
 #[derive(Debug, Clone, Default)]
 pub struct LegendAlignmentInfo {
-    /// Maximum X position of right legends (target position for alignment)
+    /// Maximum X position of right legends (for row facets: align to rightmost)
     pub max_right_x: f32,
+    /// Minimum X position of right legends (for grid facets: align to leftmost to prevent overflow)
+    pub min_right_x: f32,
     /// Minimum X position of left legends (target position for alignment)
     pub min_left_x: f32,
+    /// Maximum X position of left legends (for grid facets: align to rightmost)
+    pub max_left_x: f32,
     /// Minimum Y position of top legends (target position for alignment)
     pub min_top_y: f32,
+    /// Maximum Y position of top legends (for grid facets)
+    pub max_top_y: f32,
     /// Maximum Y position of bottom legends (target position for alignment)
     pub max_bottom_y: f32,
+    /// Minimum Y position of bottom legends (for grid facets)
+    pub min_bottom_y: f32,
 }
 
 impl LegendAlignmentInfo {
     /// Aggregate legend layout info from multiple subplots to find target alignment positions
     pub fn aggregate(infos: &[LegendLayoutInfo]) -> Self {
         let mut result = Self {
+            min_right_x: f32::MAX,
             min_left_x: f32::MAX,
             min_top_y: f32::MAX,
+            min_bottom_y: f32::MAX,
             ..Default::default()
         };
         for info in infos {
-            result.max_right_x = result.max_right_x.max(info.right_x);
+            // Right legends: track both min and max
+            if info.right_x > 0.0 {
+                result.max_right_x = result.max_right_x.max(info.right_x);
+                result.min_right_x = result.min_right_x.min(info.right_x);
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "  Aggregating right_x={}, current min={}, max={}",
+                        info.right_x, result.min_right_x, result.max_right_x
+                    );
+                }
+            }
+            // Left legends: track both min and max
             if info.left_x > 0.0 {
                 result.min_left_x = result.min_left_x.min(info.left_x);
+                result.max_left_x = result.max_left_x.max(info.left_x);
             }
+            // Top legends: track both min and max
             if info.top_y > 0.0 {
                 result.min_top_y = result.min_top_y.min(info.top_y);
+                result.max_top_y = result.max_top_y.max(info.top_y);
             }
-            result.max_bottom_y = result.max_bottom_y.max(info.bottom_y);
+            // Bottom legends: track both min and max
+            if info.bottom_y > 0.0 {
+                result.max_bottom_y = result.max_bottom_y.max(info.bottom_y);
+                result.min_bottom_y = result.min_bottom_y.min(info.bottom_y);
+            }
         }
         // Reset min values if not set
+        if result.min_right_x == f32::MAX {
+            result.min_right_x = 0.0;
+        }
         if result.min_left_x == f32::MAX {
             result.min_left_x = 0.0;
         }
         if result.min_top_y == f32::MAX {
             result.min_top_y = 0.0;
+        }
+        if result.min_bottom_y == f32::MAX {
+            result.min_bottom_y = 0.0;
         }
         result
     }
