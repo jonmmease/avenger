@@ -42,7 +42,6 @@ pub struct SubplotRect {
     pub height: f32,
 
     // Grid-specific fields (None for FacetRow/FacetCol)
-
     /// Row index in grid (for overflow lookup)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_index: Option<usize>,
@@ -282,10 +281,7 @@ pub trait CoordinateSystemTransform: Send + Sync {
     /// * `spec` - Padding specification (Single for row/col facets, Grid for grid facets)
     ///
     /// Default implementation returns an unchanged clone (for non-facet coordinates).
-    fn with_measured_padding(
-        &self,
-        spec: &PaddingSpec,
-    ) -> Box<dyn CoordinateSystemTransform> {
+    fn with_measured_padding(&self, spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
         let _ = spec;
         self.clone_box()
     }

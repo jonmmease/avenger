@@ -159,7 +159,7 @@ pub trait CompiledMark: Any + Send + Sync {
     /// When true, `evaluate_mark_with_plot_df` will convert the entire DataFrame to
     /// RecordBatch instead of selecting only the mark's channel columns.
     fn wants_full_data_batch(&self) -> bool {
-        false  // Default: only select needed channels
+        false // Default: only select needed channels
     }
 
     /// Returns the default value for a channel if not explicitly mapped

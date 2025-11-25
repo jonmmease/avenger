@@ -194,7 +194,7 @@ impl CompiledGuide for CartesianGuide {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        _data_override: Option<&datafusion::dataframe::DataFrame>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
@@ -219,6 +219,7 @@ impl CompiledGuide for CartesianGuide {
                 theme,
                 params,
                 ctx,
+                data_override,
             )
             .await?;
 
@@ -289,6 +290,7 @@ impl CompiledGuide for CartesianGuide {
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &datafusion::prelude::SessionContext,
+        _data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

@@ -60,6 +60,11 @@ pub trait CoordinateGuide: Clone + Default + Send + Sync {
 #[typetag::serde(tag = "type")]
 pub trait CompiledGuide: Send + Sync + 'static {
     /// Measure how much space this guide needs outside the plot area
+    ///
+    /// # Arguments
+    /// * `data_override` - Optional DataFrame to use instead of compiled data.
+    ///   This enables nested facets to pass filtered data to inner guides at runtime.
+    ///   When Some, guides should use this data. When None, use compiled data.
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -69,10 +74,55 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
+    /// Measure only the intrinsic subplot overflow, excluding facet-level decorative content
+    ///
+    /// For facet guides (FacetRow, FacetCol), this returns only the overflow needed by
+    /// the Cartesian subplots (axes, tick labels), WITHOUT adding space for facet labels,
+    /// titles, or unified axis titles. This is used when measuring nested facets to avoid
+    /// double-counting facet-level spacing.
+    ///
+    /// For non-facet guides (Cartesian, Polar), this is equivalent to `measure_overflow()`.
+    ///
+    /// # Arguments
+    /// Same as `measure_overflow()`
+    async fn measure_intrinsic_overflow(
+        &self,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        // Default implementation: same as measure_overflow()
+        // Facet guides will override this to exclude facet-level content
+        self.measure_overflow(
+            scales,
+            row_overflow,
+            col_overflow,
+            plot_width,
+            plot_height,
+            theme,
+            params,
+            data_override,
+            ctx,
+        )
+        .await
+    }
+
     /// Evaluate this guide to scene marks
+    ///
+    /// # Arguments
+    /// * `data_override` - Optional DataFrame to use instead of compiled data.
+    ///   This enables nested facets to pass filtered data to inner guides at runtime.
+    ///   When Some, guides should use this data. When None, use compiled data.
     async fn evaluate(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -84,6 +134,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &datafusion::prelude::SessionContext,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Get the clipping region for the coordinate system
@@ -162,5 +213,26 @@ pub trait CompiledGuide: Send + Sync + 'static {
     fn axis_position(&self, _channel: &str) -> Option<crate::cartesian::axis::AxisPosition> {
         // Default: no position info available
         None
+    }
+
+    /// Check if this guide suppresses the specified channel's axis title
+    ///
+    /// This is used by outer facet guides to determine whether they should render
+    /// a unified axis title. If a subplot guide returns true, it means the subplot
+    /// will NOT render that axis title (expecting the outer facet to handle it).
+    ///
+    /// # Arguments
+    /// * `channel` - The channel name (e.g., "x", "y")
+    ///
+    /// # Returns
+    /// true if this guide suppresses the channel's axis title, false otherwise
+    ///
+    /// # Examples
+    /// - CartesianGuide always returns false (renders its own axis titles)
+    /// - FacetRowGuide returns true for "y" (suppresses y-axis titles in subplots)
+    /// - FacetColGuide returns true for "x" (suppresses x-axis titles in subplots)
+    fn unifies_channel(&self, _channel: &str) -> bool {
+        // Default: guides render their own axis titles
+        false
     }
 }

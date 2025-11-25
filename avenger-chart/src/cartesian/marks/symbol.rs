@@ -153,8 +153,12 @@ impl CompiledMark for CompiledCartesianSymbol {
         }
 
         // Transform position channels to plot coordinates
-        let geometry =
-            coord.transform(&position_channels, None, context.plot_width, context.plot_height)?;
+        let geometry = coord.transform(
+            &position_channels,
+            None,
+            context.plot_width,
+            context.plot_height,
+        )?;
         let geometry = geometry
             .as_any()
             .downcast_ref::<crate::coords::PointGeometry>()
@@ -256,7 +260,10 @@ impl CompiledMark for CompiledCartesianSymbol {
             y_adjustment: None,
         };
 
-        Ok((vec![SceneMark::Symbol(symbol_mark)], crate::layout::LayoutUpdates::default()))
+        Ok((
+            vec![SceneMark::Symbol(symbol_mark)],
+            crate::layout::LayoutUpdates::default(),
+        ))
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {

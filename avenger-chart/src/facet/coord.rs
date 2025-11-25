@@ -94,7 +94,10 @@ impl CoordinateSystemTransform for FacetRow {
         spec: &crate::coords::PaddingSpec,
     ) -> Box<dyn CoordinateSystemTransform> {
         match spec {
-            crate::coords::PaddingSpec::Single { padding_px, overflow } => {
+            crate::coords::PaddingSpec::Single {
+                padding_px,
+                overflow,
+            } => {
                 let mut updated = self.clone();
                 updated.padding_px = Some(*padding_px);
                 updated.overflow_by_facet = Some(overflow.clone());
@@ -142,13 +145,7 @@ impl CoordinateSystemTransform for FacetRow {
             .map(|(i, start)| {
                 // Use actual facet value if available, otherwise Null
                 let value = row_values.get(i).cloned().unwrap_or(ScalarValue::Null);
-                crate::coords::SubplotRect::new(
-                    value,
-                    0.0,
-                    start,
-                    plot_width,
-                    bandwidth,
-                )
+                crate::coords::SubplotRect::new(value, 0.0, start, plot_width, bandwidth)
             })
             .collect();
 
@@ -236,7 +233,10 @@ impl CoordinateSystemTransform for FacetColumn {
         spec: &crate::coords::PaddingSpec,
     ) -> Box<dyn CoordinateSystemTransform> {
         match spec {
-            crate::coords::PaddingSpec::Single { padding_px, overflow } => {
+            crate::coords::PaddingSpec::Single {
+                padding_px,
+                overflow,
+            } => {
                 let mut updated = self.clone();
                 updated.padding_px = Some(*padding_px);
                 updated.overflow_by_facet = Some(overflow.clone());
@@ -286,13 +286,7 @@ impl CoordinateSystemTransform for FacetColumn {
             .map(|(i, start)| {
                 // Use actual facet value if available, otherwise Null
                 let value = column_values.get(i).cloned().unwrap_or(ScalarValue::Null);
-                crate::coords::SubplotRect::new(
-                    value,
-                    start,
-                    0.0,
-                    bandwidth,
-                    plot_height,
-                )
+                crate::coords::SubplotRect::new(value, start, 0.0, bandwidth, plot_height)
             })
             .collect();
 
@@ -388,7 +382,7 @@ impl CoordinateSystemTransform for FacetGrid {
                 row_padding_px,
                 col_padding_px,
                 row_overflow,
-                col_overflow
+                col_overflow,
             } => {
                 let mut updated = self.clone();
                 updated.row_padding_px = Some(*row_padding_px);
@@ -452,8 +446,14 @@ impl CoordinateSystemTransform for FacetGrid {
         let mut rects = Vec::with_capacity(row_starts.len() * col_starts.len());
         for (row_idx, &y) in row_starts.iter().enumerate() {
             for (col_idx, &x) in col_starts.iter().enumerate() {
-                let row_value = row_values.get(row_idx).cloned().unwrap_or(ScalarValue::Null);
-                let col_value = col_values.get(col_idx).cloned().unwrap_or(ScalarValue::Null);
+                let row_value = row_values
+                    .get(row_idx)
+                    .cloned()
+                    .unwrap_or(ScalarValue::Null);
+                let col_value = col_values
+                    .get(col_idx)
+                    .cloned()
+                    .unwrap_or(ScalarValue::Null);
 
                 rects.push(crate::coords::SubplotRect::new_grid(
                     row_value,

@@ -48,10 +48,13 @@ impl FacetKeyExtractor {
 
         // Sort by row first, then by column, to ensure deterministic facet ordering
         pairs.sort_by(|(row_a, col_a), (row_b, col_b)| {
-            match row_a.partial_cmp(row_b).unwrap_or(std::cmp::Ordering::Equal) {
-                std::cmp::Ordering::Equal => {
-                    col_a.partial_cmp(col_b).unwrap_or(std::cmp::Ordering::Equal)
-                }
+            match row_a
+                .partial_cmp(row_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+            {
+                std::cmp::Ordering::Equal => col_a
+                    .partial_cmp(col_b)
+                    .unwrap_or(std::cmp::Ordering::Equal),
                 other => other,
             }
         });

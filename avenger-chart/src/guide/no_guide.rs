@@ -55,6 +55,7 @@ impl CompiledGuide for NoGuide {
         _plot_height: f32,
         _theme: &Theme,
         _params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        _data_override: Option<&datafusion::dataframe::DataFrame>,
         _ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
@@ -71,6 +72,7 @@ impl CompiledGuide for NoGuide {
         _theme: &Theme,
         _params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         _ctx: &datafusion::prelude::SessionContext,
+        _data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }

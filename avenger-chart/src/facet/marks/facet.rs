@@ -155,7 +155,8 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
                 return Err(AvengerChartError::InvalidArgument(
                     "Nested facet plots should not have their own data attached. \
                      Data flows from the parent facet to child plots. \
-                     Remove the .data() call from the inner Plot.".to_string()
+                     Remove the .data() call from the inner Plot."
+                        .to_string(),
                 ));
             }
 
@@ -209,7 +210,7 @@ impl CompiledMark for CompiledFacetRow {
     }
 
     fn wants_full_data_batch(&self) -> bool {
-        true  // Facets need full data for nested filtering
+        true // Facets need full data for nested filtering
     }
 
     /// Evaluate faceted row layout using a two-pass rendering algorithm
@@ -352,7 +353,8 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
                 return Err(AvengerChartError::InvalidArgument(
                     "Nested facet plots should not have their own data attached. \
                      Data flows from the parent facet to child plots. \
-                     Remove the .data() call from the inner Plot.".to_string()
+                     Remove the .data() call from the inner Plot."
+                        .to_string(),
                 ));
             }
 
@@ -403,7 +405,7 @@ impl CompiledMark for CompiledFacetCol {
     }
 
     fn wants_full_data_batch(&self) -> bool {
-        true  // Facets need full data for nested filtering
+        true // Facets need full data for nested filtering
     }
 
     /// Evaluate faceted column layout using a two-pass rendering algorithm
@@ -593,7 +595,8 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetGrid> for Facet<InnerC> {
                 return Err(AvengerChartError::InvalidArgument(
                     "Nested facet plots should not have their own data attached. \
                      Data flows from the parent facet to child plots. \
-                     Remove the .data() call from the inner Plot.".to_string()
+                     Remove the .data() call from the inner Plot."
+                        .to_string(),
                 ));
             }
 
@@ -633,7 +636,8 @@ async fn measure_grid_overflow(
 ) -> Result<Vec<Vec<crate::guide::OverflowSpaceRequirement>>, AvengerChartError> {
     use datafusion::logical_expr::lit;
 
-    let mut overflow_grid = vec![vec![crate::guide::OverflowSpaceRequirement::default(); num_cols]; num_rows];
+    let mut overflow_grid =
+        vec![vec![crate::guide::OverflowSpaceRequirement::default(); num_cols]; num_rows];
 
     // Note: rects are guaranteed to be in row-major order by FacetGrid::transform()
     // (see avenger-chart/src/facet/coord.rs:453-469 nested loop structure).
@@ -642,7 +646,10 @@ async fn measure_grid_overflow(
         let row_idx = rect.row_index.expect("SubplotRect missing row_index");
         let col_idx = rect.col_index.expect("SubplotRect missing col_index");
         let row_value = &rect.value;
-        let col_value = rect.col_value.as_ref().expect("SubplotRect missing col_value");
+        let col_value = rect
+            .col_value
+            .as_ref()
+            .expect("SubplotRect missing col_value");
 
         // Filter data for this cell (both row AND column match)
         let filter_df = df
@@ -707,12 +714,14 @@ fn calculate_row_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequire
     let mut max_gap: f32 = 0.0;
     for i in 0..(num_rows - 1) {
         // Get max bottom overflow for row i across all columns
-        let max_bottom = overflow_grid[i].iter()
+        let max_bottom = overflow_grid[i]
+            .iter()
             .map(|o| o.bottom)
             .fold(0.0f32, f32::max);
 
         // Get max top overflow for row i+1 across all columns
-        let max_top = overflow_grid[i + 1].iter()
+        let max_top = overflow_grid[i + 1]
+            .iter()
             .map(|o| o.top)
             .fold(0.0f32, f32::max);
 
@@ -732,12 +741,14 @@ fn calculate_col_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequire
     let mut max_gap: f32 = 0.0;
     for j in 0..(num_cols - 1) {
         // Get max right overflow for col j across all rows
-        let max_right = overflow_grid.iter()
+        let max_right = overflow_grid
+            .iter()
             .map(|row| row[j].right)
             .fold(0.0f32, f32::max);
 
         // Get max left overflow for col j+1 across all rows
-        let max_left = overflow_grid.iter()
+        let max_left = overflow_grid
+            .iter()
             .map(|row| row[j + 1].left)
             .fold(0.0f32, f32::max);
 
@@ -748,7 +759,9 @@ fn calculate_col_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequire
 }
 
 /// Calculate both row and column padding from 2D overflow grid
-fn calculate_grid_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> (f32, f32) {
+fn calculate_grid_padding(
+    overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>],
+) -> (f32, f32) {
     let row_padding = calculate_row_padding(overflow_grid);
     let col_padding = calculate_col_padding(overflow_grid);
     (row_padding, col_padding)
@@ -756,41 +769,50 @@ fn calculate_grid_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequir
 
 /// Extract 1D row overflow vector from 2D overflow grid
 /// Takes max overflow in each direction across all columns in each row
-fn extract_row_overflow(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> Vec<crate::guide::OverflowSpaceRequirement> {
-    overflow_grid.iter().map(|row_overflows| {
-        // Take max overflow in each direction across all columns in this row
-        row_overflows.iter().fold(
-            crate::guide::OverflowSpaceRequirement::default(),
-            |acc, o| crate::guide::OverflowSpaceRequirement {
-                top: acc.top.max(o.top),
-                bottom: acc.bottom.max(o.bottom),
-                left: acc.left.max(o.left),
-                right: acc.right.max(o.right),
-            }
-        )
-    }).collect()
-}
-
-/// Extract 1D column overflow vector from 2D overflow grid
-/// Takes max overflow in each direction across all rows in each column
-fn extract_col_overflow(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> Vec<crate::guide::OverflowSpaceRequirement> {
-    let num_cols = overflow_grid.first().map(|row| row.len()).unwrap_or(0);
-
-    // For each column, combine overflow from all rows
-    (0..num_cols).map(|col_idx| {
-        overflow_grid.iter().fold(
-            crate::guide::OverflowSpaceRequirement::default(),
-            |acc, row| {
-                let o = &row[col_idx];
-                crate::guide::OverflowSpaceRequirement {
+fn extract_row_overflow(
+    overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>],
+) -> Vec<crate::guide::OverflowSpaceRequirement> {
+    overflow_grid
+        .iter()
+        .map(|row_overflows| {
+            // Take max overflow in each direction across all columns in this row
+            row_overflows.iter().fold(
+                crate::guide::OverflowSpaceRequirement::default(),
+                |acc, o| crate::guide::OverflowSpaceRequirement {
                     top: acc.top.max(o.top),
                     bottom: acc.bottom.max(o.bottom),
                     left: acc.left.max(o.left),
                     right: acc.right.max(o.right),
-                }
-            }
-        )
-    }).collect()
+                },
+            )
+        })
+        .collect()
+}
+
+/// Extract 1D column overflow vector from 2D overflow grid
+/// Takes max overflow in each direction across all rows in each column
+fn extract_col_overflow(
+    overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>],
+) -> Vec<crate::guide::OverflowSpaceRequirement> {
+    let num_cols = overflow_grid.first().map(|row| row.len()).unwrap_or(0);
+
+    // For each column, combine overflow from all rows
+    (0..num_cols)
+        .map(|col_idx| {
+            overflow_grid.iter().fold(
+                crate::guide::OverflowSpaceRequirement::default(),
+                |acc, row| {
+                    let o = &row[col_idx];
+                    crate::guide::OverflowSpaceRequirement {
+                        top: acc.top.max(o.top),
+                        bottom: acc.bottom.max(o.bottom),
+                        left: acc.left.max(o.left),
+                        right: acc.right.max(o.right),
+                    }
+                },
+            )
+        })
+        .collect()
 }
 
 #[typetag::serde]
@@ -834,7 +856,7 @@ impl CompiledMark for CompiledFacetGrid {
     }
 
     fn wants_full_data_batch(&self) -> bool {
-        true  // Facets need full data for nested filtering
+        true // Facets need full data for nested filtering
     }
 
     /// Evaluate grid facet layout (2D row×col grid)
@@ -904,12 +926,9 @@ impl CompiledMark for CompiledFacetGrid {
             override_df.clone()
         } else {
             // Top-level facet: use compiled data
-            self.state
-                .data
-                .dataframe_with_context(ctx)
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError("GridFacet could not access data".into())
-                })?
+            self.state.data.dataframe_with_context(ctx).ok_or_else(|| {
+                AvengerChartError::InternalError("GridFacet could not access data".into())
+            })?
         };
 
         // Extract facet keys at render time from actual data
@@ -977,14 +996,18 @@ impl CompiledMark for CompiledFacetGrid {
         // ========== PASS 1: MEASUREMENT PHASE ==========
         // Extract initial positions from scales (or use fallback for degenerate cases)
         let initial_row_positions: Vec<f32> = if let Some(row_scale) = row_scale_opt {
-            row_scale.configured().scale_scalars_to_numeric(&row_domain_vals)?
+            row_scale
+                .configured()
+                .scale_scalars_to_numeric(&row_domain_vals)?
         } else {
             // Fallback: single value at origin for degenerate case
             vec![0.0; row_domain_vals.len()]
         };
 
         let initial_col_positions: Vec<f32> = if let Some(col_scale) = col_scale_opt {
-            col_scale.configured().scale_scalars_to_numeric(&col_domain_vals)?
+            col_scale
+                .configured()
+                .scale_scalars_to_numeric(&col_domain_vals)?
         } else {
             // Fallback: single value at origin for degenerate case
             vec![0.0; col_domain_vals.len()]
@@ -1178,13 +1201,18 @@ impl CompiledMark for CompiledFacetGrid {
         // ========== PASS 2: FINAL RENDERING PHASE ==========
         // Extract updated positions from rebuilt scales
         let updated_row_positions: Vec<f32> = if let Some(row_scale) = updated_scales.get("row") {
-            row_scale.configured().scale_scalars_to_numeric(&row_domain_vals)?
+            row_scale
+                .configured()
+                .scale_scalars_to_numeric(&row_domain_vals)?
         } else {
             vec![0.0; row_domain_vals.len()]
         };
 
-        let updated_col_positions: Vec<f32> = if let Some(col_scale) = updated_scales.get("column") {
-            col_scale.configured().scale_scalars_to_numeric(&col_domain_vals)?
+        let updated_col_positions: Vec<f32> = if let Some(col_scale) = updated_scales.get("column")
+        {
+            col_scale
+                .configured()
+                .scale_scalars_to_numeric(&col_domain_vals)?
         } else {
             vec![0.0; col_domain_vals.len()]
         };
@@ -1255,14 +1283,8 @@ impl CompiledMark for CompiledFacetGrid {
             let col_iteration = &col_iterations[col_idx];
 
             // Double-check indices match (can be debug_assert in production)
-            assert_eq!(
-                row_iteration.index, row_idx,
-                "Row iteration index mismatch"
-            );
-            assert_eq!(
-                col_iteration.index, col_idx,
-                "Col iteration index mismatch"
-            );
+            assert_eq!(row_iteration.index, row_idx, "Row iteration index mismatch");
+            assert_eq!(col_iteration.index, col_idx, "Col iteration index mismatch");
 
             // Merge row and col contexts into unified GridFacet context
             let merged_params =

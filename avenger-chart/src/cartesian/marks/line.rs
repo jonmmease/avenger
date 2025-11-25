@@ -178,8 +178,12 @@ impl CompiledMark for CompiledCartesianLine {
         }
 
         // Transform position channels to plot coordinates
-        let geometry =
-            coord.transform(&position_channels, None, context.plot_width, context.plot_height)?;
+        let geometry = coord.transform(
+            &position_channels,
+            None,
+            context.plot_width,
+            context.plot_height,
+        )?;
         let geometry = geometry
             .as_any()
             .downcast_ref::<crate::coords::PointGeometry>()
@@ -292,7 +296,10 @@ impl CompiledMark for CompiledCartesianLine {
                 zindex: self.state.zindex,
             };
 
-            return Ok((vec![SceneMark::Line(line_mark)], crate::layout::LayoutUpdates::default()));
+            return Ok((
+                vec![SceneMark::Line(line_mark)],
+                crate::layout::LayoutUpdates::default(),
+            ));
         }
 
         // Complex case: need to partition based on varying style properties

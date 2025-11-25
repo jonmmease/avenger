@@ -210,10 +210,14 @@ impl avenger_chart::guide::CompiledGuide for CompiledIsometricGuide {
     async fn measure_overflow(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         _plot_width: f32,
         _plot_height: f32,
         _theme: &avenger_chart::theme::Theme,
         _params: &IndexMap<String, ScalarValue>,
+        _data_override: Option<&datafusion::dataframe::DataFrame>,
+        _ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement {
             top: 0.0,

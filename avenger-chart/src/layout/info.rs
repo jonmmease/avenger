@@ -238,8 +238,8 @@ mod tests {
     }
 
     fn create_dummy_scale() -> ConfiguredScaleWithSpec {
-        use avenger_scales::scales::linear::LinearScale;
         use crate::scales::{Scale, ScaleDomain, ScaleRange};
+        use avenger_scales::scales::linear::LinearScale;
         use datafusion::logical_expr::lit;
 
         // Create a scale specification

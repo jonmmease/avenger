@@ -58,7 +58,6 @@ const DEFAULT_FACET_SPACING: f32 = 3.0;
 /// Output of the facet measurement pass (Pass 1)
 struct FacetPass1Result {
     overflow_measurements: Vec<crate::guide::OverflowSpaceRequirement>,
-    rounded_gap: f32,
     final_dimension_scale: ConfiguredScaleWithSpec,
     final_shared_scales: Option<HashMap<String, ConfiguredScaleWithSpec>>,
     final_rects: Vec<SubplotRect>,
@@ -349,7 +348,7 @@ where
         context.plot_height,
     )?;
 
-    let final_rects = final_geometry_with_padding
+    let mut final_rects = final_geometry_with_padding
         .as_any()
         .downcast_ref::<SubplotGeometry>()
         .ok_or_else(|| {
@@ -359,6 +358,26 @@ where
         })?
         .rects
         .clone();
+
+    // Adjust the last rect to fill remaining space, avoiding rounding gaps
+    // This ensures the last band reaches exactly to the plot boundary
+    if let Some(last_rect) = final_rects.last_mut() {
+        if DimConfig::is_row_facet() {
+            // For row faceting, adjust height so last band reaches plot_height
+            let expected_end = context.plot_height;
+            let current_end = last_rect.y + last_rect.height;
+            if (expected_end - current_end).abs() > 0.001 {
+                last_rect.height = expected_end - last_rect.y;
+            }
+        } else {
+            // For column faceting, adjust width so last band reaches plot_width
+            let expected_end = context.plot_width;
+            let current_end = last_rect.x + last_rect.width;
+            if (expected_end - current_end).abs() > 0.001 {
+                last_rect.width = expected_end - last_rect.x;
+            }
+        }
+    }
 
     let final_shared_scales = if let Some(ref builder) = shared_scale_builder {
         let final_bandwidth = band::bandwidth(&final_dimension_scale.configured().config)?;
@@ -381,7 +400,6 @@ where
 
     Ok(FacetPass1Result {
         overflow_measurements,
-        rounded_gap,
         final_dimension_scale,
         final_shared_scales,
         final_rects,
@@ -459,7 +477,7 @@ where
 
     let results: Vec<_> = stream::iter(work_items)
         .map(|(idx, iteration, rect)| {
-            let subplot_dims = subplot_dims.clone();
+            let _subplot_dims = subplot_dims.clone(); // Kept for potential debugging
             let compiled_subplot = Arc::clone(compiled_subplot);
             let facet_expr = facet_expr.clone();
             let ctx = context.session_context.clone();
@@ -481,12 +499,15 @@ where
                     .clone()
                     .filter(facet_expr.eq(lit(iteration.facet_value.clone())))?;
 
-                let band_size = if DimConfig::is_row_facet() {
-                    rect.height
+                // Use rect dimensions directly - we've already adjusted the last rect
+                // to fill remaining space, so avoid double-rounding by using rect values
+                let (width, height) = if DimConfig::is_row_facet() {
+                    // Row faceting: width is fixed, height varies with band
+                    (context.plot_width, rect.height.round())
                 } else {
-                    rect.width
+                    // Column faceting: height is fixed, width varies with band
+                    (rect.width.round(), context.plot_height)
                 };
-                let (width, height) = subplot_dims(band_size, context);
 
                 let free_scale_builder = compiled_subplot
                     .build_scale_builder_from_dataframe(&ctx, &params_base, &filter_df)

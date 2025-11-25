@@ -259,7 +259,10 @@ impl CompiledMark for CompiledCartesianRect {
             zindex: self.state.zindex,
         };
 
-        Ok((vec![SceneMark::Rect(rect_mark)], crate::layout::LayoutUpdates::default()))
+        Ok((
+            vec![SceneMark::Rect(rect_mark)],
+            crate::layout::LayoutUpdates::default(),
+        ))
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {

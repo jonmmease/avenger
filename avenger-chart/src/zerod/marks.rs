@@ -139,8 +139,12 @@ impl CompiledMark for CompiledZeroDSymbol {
         // In 0D space, there are no position channels
         // Transform will give us a center point
         let position_channels = std::collections::HashMap::new();
-        let geometry =
-            coord.transform(&position_channels, None, context.plot_width, context.plot_height)?;
+        let geometry = coord.transform(
+            &position_channels,
+            None,
+            context.plot_width,
+            context.plot_height,
+        )?;
         let geometry = geometry
             .as_any()
             .downcast_ref::<crate::coords::PointGeometry>()
@@ -235,7 +239,10 @@ impl CompiledMark for CompiledZeroDSymbol {
             y_adjustment: None,
         };
 
-        Ok((vec![SceneMark::Symbol(symbol_mark)], crate::layout::LayoutUpdates::default()))
+        Ok((
+            vec![SceneMark::Symbol(symbol_mark)],
+            crate::layout::LayoutUpdates::default(),
+        ))
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {

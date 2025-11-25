@@ -105,11 +105,24 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
         let facet_value = self.domain_vals[index].clone();
 
         // Create FacetContext with invariants enforced, using DimConfig for position/grid/unified_channels
+        // For nested facets, we need to MERGE unified_channels from parent context, not replace
         use crate::facet::context::FacetContext;
+
+        // Get unified_channels: merge parent's with this dimension's
+        let unified_channels = if let Some(parent_ctx) = FacetContext::from_params(&self.base_params) {
+            // Merge parent's unified_channels with this dimension's
+            let mut merged = parent_ctx.unified_channels;
+            merged.extend(DimConfig::unified_channels());
+            merged
+        } else {
+            // No parent context, use just this dimension's channels
+            DimConfig::unified_channels()
+        };
+
         let facet_ctx = FacetContext {
             position: DimConfig::index_to_position(index),
             grid_dimensions: DimConfig::count_to_grid_dimensions(self.domain_vals.len()),
-            unified_channels: DimConfig::unified_channels(),
+            unified_channels,
             scale_sharing: self.scale_sharing.clone(),
         };
 

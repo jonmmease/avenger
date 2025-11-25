@@ -190,23 +190,6 @@ impl CompiledPlot {
         Ok(built)
     }
 
-    /// Check if this plot has a facet guide (FacetRow, FacetCol, or GridFacet)
-    ///
-    /// This is used to detect nested facets and avoid infinite recursion during
-    /// Pass 1 measurement. Nested facet plots should use estimated overflow instead
-    /// of recursive `build_plot_components` calls.
-    pub(crate) fn has_facet_guide(&self) -> bool {
-        if let Some(guide) = &self.compiled_guide {
-            // Check if the guide is one of the facet guide types by checking the type name
-            let type_name = std::any::type_name_of_val(guide.as_ref());
-            type_name.contains("FacetRowGuide")
-                || type_name.contains("FacetColGuide")
-                || type_name.contains("GridFacetGuide")
-        } else {
-            false
-        }
-    }
-
     /// Build scales from an existing ScaleBuilder with specific dimensions.
     ///
     /// This is more efficient than `build_scales_with_dimensions` when you need to
@@ -493,6 +476,59 @@ impl CompiledPlot {
             .await?;
         // compute_layout_with_fixed_plot_area measures guide + legends; use its overflow estimate
         Ok(layout.overflow)
+    }
+
+    /// Measure only intrinsic subplot overflow (excluding facet-level content)
+    ///
+    /// This is similar to `measure_with_scales()` but calls the guide's
+    /// `measure_intrinsic_overflow()` method instead of `measure_overflow()`.
+    /// This returns only the overflow needed by the Cartesian axes, without
+    /// facet labels, titles, or unified axis titles.
+    ///
+    /// Used by outer facets when measuring nested facet subplots to avoid
+    /// double-counting facet-level spacing.
+    pub async fn measure_intrinsic_with_scales(
+        &self,
+        width: f32,
+        height: f32,
+        ctx: &datafusion::prelude::SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+    ) -> Result<crate::guide::OverflowSpaceRequirement, crate::error::AvengerChartError> {
+        // Get theme for measurement
+        let theme = self.get_theme();
+
+        // Call guide's measure_intrinsic_overflow if guide exists
+        if let Some(ref compiled_guide) = self.compiled_guide {
+            let configured_scales: HashMap<String, avenger_scales::scales::ConfiguredScale> =
+                scales
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.configured().clone()))
+                    .collect();
+
+            compiled_guide
+                .measure_intrinsic_overflow(
+                    &configured_scales,
+                    None,
+                    None,
+                    width,
+                    height,
+                    &theme,
+                    params,
+                    data_override,
+                    ctx,
+                )
+                .await
+        } else {
+            // No guide - return zero overflow
+            Ok(crate::guide::OverflowSpaceRequirement {
+                top: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+                right: 0.0,
+            })
+        }
     }
 }
 

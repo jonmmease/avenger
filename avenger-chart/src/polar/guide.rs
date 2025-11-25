@@ -158,6 +158,7 @@ impl CompiledGuide for PolarGuide {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
@@ -174,14 +175,15 @@ impl CompiledGuide for PolarGuide {
         let axis_marks = self
             .evaluate(
                 scales,
-                None,  // No row overflow during measurement
-                None,  // No col overflow during measurement
+                None, // No row overflow during measurement
+                None, // No col overflow during measurement
                 plot_width,
                 plot_height,
                 &initial_bounds,
                 theme,
                 params,
                 ctx,
+                data_override,
             )
             .await?;
 
@@ -244,6 +246,7 @@ impl CompiledGuide for PolarGuide {
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         _ctx: &datafusion::prelude::SessionContext,
+        _data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 
