@@ -61,6 +61,8 @@ struct FacetPass1Result {
     final_dimension_scale: ConfiguredScaleWithSpec,
     final_shared_scales: Option<HashMap<String, ConfiguredScaleWithSpec>>,
     final_rects: Vec<SubplotRect>,
+    /// Aggregated legend positions across all subplots for cross-subplot alignment
+    legend_alignment: crate::layout::LegendAlignmentInfo,
 }
 
 /// Measure facet layout and overflow (Pass 1) while keeping the outer future small
@@ -168,6 +170,7 @@ where
     );
 
     let mut overflow_measurements = Vec::new();
+    let mut legend_infos = Vec::new();
 
     // Small helper to measure one subplot to keep the parent future small
     async fn measure_subplot(
@@ -178,7 +181,13 @@ where
         params: &IndexMap<String, ScalarValue>,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         filter_df: &DataFrame,
-    ) -> Result<crate::guide::OverflowSpaceRequirement, AvengerChartError> {
+    ) -> Result<
+        (
+            crate::guide::OverflowSpaceRequirement,
+            crate::layout::LegendLayoutInfo,
+        ),
+        AvengerChartError,
+    > {
         compiled_subplot
             .measure_with_scales(width, height, ctx, params, scales, Some(filter_df))
             .await
@@ -246,7 +255,7 @@ where
                 )
                 .await?;
 
-                let overflow = measure_subplot(
+                let (overflow, legend_info) = measure_subplot(
                     &compiled_subplot,
                     width,
                     height,
@@ -257,7 +266,7 @@ where
                 )
                 .await?;
 
-                Ok::<_, AvengerChartError>((idx, overflow))
+                Ok::<_, AvengerChartError>((idx, overflow, legend_info))
             }
         })
         .buffer_unordered(MAX_CONCURRENT_MEASURE)
@@ -268,9 +277,10 @@ where
     let mut sorted = results
         .into_iter()
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
-    sorted.sort_by_key(|(idx, _)| *idx);
-    for (_, overflow) in sorted {
+    sorted.sort_by_key(|(idx, _, _)| *idx);
+    for (_, overflow, legend_info) in sorted {
         overflow_measurements.push(overflow);
+        legend_infos.push(legend_info);
     }
 
     let mut max_required_gap = 0.0f32;
@@ -398,11 +408,15 @@ where
         initial_shared_scales
     };
 
+    // Aggregate legend layout info for cross-subplot alignment
+    let legend_alignment = crate::layout::LegendAlignmentInfo::aggregate(&legend_infos);
+
     Ok(FacetPass1Result {
         overflow_measurements,
         final_dimension_scale,
         final_shared_scales,
         final_rects,
+        legend_alignment,
     })
 }
 
@@ -415,7 +429,7 @@ async fn render_pass<DimConfig: FacetDimensionConfig, SubplotDimsFn, GroupOrigin
     context: &RenderContext,
     scale_sharing_by_channel: HashMap<String, ScaleSharing>,
     pass1: FacetPass1Result,
-    subplot_dims: &SubplotDimsFn,
+    _subplot_dims: &SubplotDimsFn,
     group_origin: &GroupOriginFn,
 ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError>
 where
@@ -475,9 +489,11 @@ where
         .map(|(idx, (iter, rect))| (idx, iter, rect))
         .collect();
 
+    // Clone aggregated legend alignment info for threading to subplots
+    let legend_alignment = pass1.legend_alignment.clone();
+
     let results: Vec<_> = stream::iter(work_items)
         .map(|(idx, iteration, rect)| {
-            let _subplot_dims = subplot_dims.clone(); // Kept for potential debugging
             let compiled_subplot = Arc::clone(compiled_subplot);
             let facet_expr = facet_expr.clone();
             let ctx = context.session_context.clone();
@@ -491,6 +507,7 @@ where
                 .cloned()
                 .unwrap_or_default();
             let semaphore = Arc::clone(&semaphore);
+            let legend_alignment = legend_alignment.clone();
 
             async move {
                 let _permit = semaphore.acquire().await.unwrap();
@@ -560,12 +577,43 @@ where
                     scales: scales.clone(),
                 };
 
+                // Add legend alignment params for cross-subplot alignment.
+                // These target positions enable legends to align at the same absolute
+                // position across subplots regardless of individual layout differences.
+                let mut params_with_legend_align = params_base.clone();
+
+                // Alignment mode determines which direction alignment applies:
+                // - "row" facets: X alignment for Right/Left legends (subplots stacked vertically)
+                // - "col" facets: Y alignment for Top/Bottom legends (subplots side by side)
+                params_with_legend_align.insert(
+                    "__legend_align_mode".to_string(),
+                    ScalarValue::Utf8(Some(
+                        if DimConfig::is_row_facet() { "row" } else { "col" }.to_string()
+                    )),
+                );
+                params_with_legend_align.insert(
+                    "__legend_align_max_right_x".to_string(),
+                    ScalarValue::Float32(Some(legend_alignment.max_right_x)),
+                );
+                params_with_legend_align.insert(
+                    "__legend_align_min_left_x".to_string(),
+                    ScalarValue::Float32(Some(legend_alignment.min_left_x)),
+                );
+                params_with_legend_align.insert(
+                    "__legend_align_min_top_y".to_string(),
+                    ScalarValue::Float32(Some(legend_alignment.min_top_y)),
+                );
+                params_with_legend_align.insert(
+                    "__legend_align_max_bottom_y".to_string(),
+                    ScalarValue::Float32(Some(legend_alignment.max_bottom_y)),
+                );
+
                 let components = render_subplot(
                     &compiled_subplot,
                     width,
                     height,
                     &ctx,
-                    &params_base,
+                    &params_with_legend_align,
                     &scale_provider,
                     &filter_df,
                 )

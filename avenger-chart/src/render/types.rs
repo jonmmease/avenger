@@ -26,6 +26,8 @@ pub struct LayoutSolution {
     pub canvas_size: (f32, f32),
     /// Guide overflow measured during layout (top, right, bottom, left)
     pub overflow: crate::guide::OverflowSpaceRequirement,
+    /// Legend bounding box dimensions for cross-subplot alignment
+    pub legend_info: crate::layout::LegendLayoutInfo,
 }
 
 impl LayoutSolution {

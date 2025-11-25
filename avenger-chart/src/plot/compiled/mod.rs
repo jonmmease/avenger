@@ -460,6 +460,8 @@ impl CompiledPlot {
     /// - Assumes `width`/`height` are plot-area dimensions.
     /// - Uses provided scales (no scale building).
     /// - Forwards `data_override` so nested facets measure with filtered data.
+    ///
+    /// Returns both overflow space requirements and legend layout info for cross-subplot alignment.
     pub async fn measure_with_scales(
         &self,
         width: f32,
@@ -468,14 +470,20 @@ impl CompiledPlot {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
-    ) -> Result<crate::guide::OverflowSpaceRequirement, crate::error::AvengerChartError> {
+    ) -> Result<
+        (
+            crate::guide::OverflowSpaceRequirement,
+            crate::layout::LegendLayoutInfo,
+        ),
+        crate::error::AvengerChartError,
+    > {
         // Measure guide overflow using provided scales and data.
         // Legends and titles also contribute; reuse the layout computation but skip mark rendering.
         let layout = self
             .compute_layout_with_fixed_plot_area(width, height, scales, ctx, params, data_override)
             .await?;
         // compute_layout_with_fixed_plot_area measures guide + legends; use its overflow estimate
-        Ok(layout.overflow)
+        Ok((layout.overflow, layout.legend_info))
     }
 
     /// Measure only intrinsic subplot overflow (excluding facet-level content)

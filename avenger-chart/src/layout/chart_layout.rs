@@ -85,6 +85,8 @@ pub struct ChartLayout {
     nodes: TaffyNodes,
     grid_layout: GridLayout,
     legends_by_position: IndexMap<LegendPosition, Vec<String>>,
+    /// Legend bounding box info computed from measurements
+    legend_info: super::info::LegendLayoutInfo,
 }
 
 impl ChartLayout {
@@ -223,12 +225,16 @@ impl ChartLayout {
             subtitle_span,
         )?;
 
+        // Compute legend layout info from measurements
+        let legend_info = super::info::LegendLayoutInfo::from_measurements(legend_measurements);
+
         // Create the ChartLayout with the built tree and nodes
         let layout = ChartLayout {
             taffy,
             nodes,
             grid_layout,
             legends_by_position: builder.legends_by_position.clone(),
+            legend_info,
         };
 
         Ok(layout)
@@ -366,10 +372,44 @@ impl ChartLayout {
             }
         }
 
+        // Update legend_info with actual positions from Taffy layout
+        let mut legend_info = self.legend_info.clone();
+        for (_channel, bounds) in &taffy_layout.legends {
+            // Find which position this legend belongs to
+            for (position, legend_keys) in &self.legends_by_position {
+                if legend_keys.contains(_channel) {
+                    match position {
+                        crate::legend::LegendPosition::Right => {
+                            // Use max X for right legends (we want all to align at rightmost position)
+                            legend_info.right_x = legend_info.right_x.max(bounds.x);
+                        }
+                        crate::legend::LegendPosition::Left => {
+                            // Use min X for left legends (leftmost position)
+                            if legend_info.left_x == 0.0 || bounds.x < legend_info.left_x {
+                                legend_info.left_x = bounds.x;
+                            }
+                        }
+                        crate::legend::LegendPosition::Top => {
+                            // Use min Y for top legends
+                            if legend_info.top_y == 0.0 || bounds.y < legend_info.top_y {
+                                legend_info.top_y = bounds.y;
+                            }
+                        }
+                        crate::legend::LegendPosition::Bottom => {
+                            // Use max Y for bottom legends
+                            legend_info.bottom_y = legend_info.bottom_y.max(bounds.y);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
         Ok(crate::render::LayoutSolution {
             taffy_layout,
             canvas_size,
             overflow,
+            legend_info,
         })
     }
 

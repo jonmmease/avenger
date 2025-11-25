@@ -154,7 +154,7 @@ impl FacetRowGuide {
                         use datafusion::logical_expr::lit;
                         let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
 
-                        let subplot_overflow = source
+                        let (subplot_overflow, _legend_info) = source
                             .subplot
                             .measure_with_scales(
                                 plot_width,
@@ -274,7 +274,7 @@ impl FacetRowGuide {
                             updated_params
                         };
 
-                        let subplot_overflow = source
+                        let (subplot_overflow, _legend_info) = source
                             .subplot
                             .measure_with_scales(
                                 plot_width,
@@ -1031,7 +1031,7 @@ impl FacetColGuide {
                             updated_params
                         };
 
-                        let subplot_overflow = source
+                        let (subplot_overflow, _legend_info) = source
                             .subplot
                             .measure_with_scales(
                                 band_width,
@@ -1129,7 +1129,7 @@ impl FacetColGuide {
                             updated_params
                         };
 
-                        let subplot_overflow = source
+                        let (subplot_overflow, _legend_info) = source
                             .subplot
                             .measure_with_scales(
                                 band_width,

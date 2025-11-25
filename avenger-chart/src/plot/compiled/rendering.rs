@@ -1037,14 +1037,18 @@ impl CompiledPlot {
                 // Skip this legend group if no renderer is available or if not visible
                 if visible {
                     if let Some(renderer) = renderer_opt {
+                        // Calculate legend alignment offset for cross-subplot alignment in faceted charts
+                        let (offset_x, offset_y) =
+                            self.calculate_legend_alignment_offset(&primary_channel.name, layout, bounds, params);
+
                         // Evaluate the legend with the determined renderer
                         let theme = self.get_theme();
                         let group_opt = renderer
                             .evaluate(
                                 &channels,
                                 legend,
-                                bounds.x,
-                                bounds.y,
+                                bounds.x + offset_x,
+                                bounds.y + offset_y,
                                 bounds.width,
                                 bounds.height,
                                 theme.as_ref(),
@@ -1063,6 +1067,108 @@ impl CompiledPlot {
         }
 
         Ok(legend_marks)
+    }
+
+    /// Calculate alignment offset for a legend to align it with legends in other subplots
+    ///
+    /// This enables cross-subplot legend alignment in faceted charts. The offset is calculated
+    /// based on the difference between the max legend dimensions (across all subplots) and
+    /// this subplot's actual legend bounds from Taffy layout.
+    ///
+    /// Returns (offset_x, offset_y) to apply to the legend position.
+    fn calculate_legend_alignment_offset(
+        &self,
+        legend_channel: &str,
+        layout: &crate::layout::LayoutResult,
+        bounds: &crate::layout::LayoutBounds,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+    ) -> (f32, f32) {
+        // Helper to extract f32 from params
+        let get_param = |key: &str| -> Option<f32> {
+            params
+                .get(key)
+                .and_then(|v| {
+                    if let datafusion::common::ScalarValue::Float32(Some(f)) = v {
+                        Some(*f)
+                    } else {
+                        None
+                    }
+                })
+        };
+
+        // Get alignment mode: "row" or "col" (or None for non-faceted plots)
+        // - "row" facets: align Right/Left legends horizontally (X alignment)
+        // - "col" facets: align Top/Bottom legends vertically (Y alignment)
+        let align_mode = params.get("__legend_align_mode").and_then(|v| {
+            if let datafusion::common::ScalarValue::Utf8(Some(s)) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        });
+
+        // Find the position of this legend
+        let legend_position = layout
+            .legends_by_position
+            .iter()
+            .find_map(|(position, legend_keys)| {
+                if legend_keys.contains(&legend_channel.to_string()) {
+                    Some(position.clone())
+                } else {
+                    None
+                }
+            });
+
+        let Some(position) = legend_position else {
+            return (0.0, 0.0); // Legend not found in any position
+        };
+
+        // Calculate offset to align legends across subplots.
+        // Only apply alignment in the appropriate direction for the facet type:
+        // - Row facets: X alignment for Right/Left legends (subplots stacked vertically)
+        // - Col facets: Y alignment for Top/Bottom legends (subplots side by side)
+        use crate::legend::LegendPosition;
+        match position {
+            LegendPosition::Right => {
+                // Right legends: X alignment only for row facets
+                if align_mode == Some("row") {
+                    if let Some(target_x) = get_param("__legend_align_max_right_x") {
+                        return (target_x - bounds.x, 0.0);
+                    }
+                }
+                (0.0, 0.0)
+            }
+            LegendPosition::Left => {
+                // Left legends: X alignment only for row facets
+                if align_mode == Some("row") {
+                    if let Some(target_x) = get_param("__legend_align_min_left_x") {
+                        let offset = target_x - bounds.x;
+                        return (offset, 0.0);
+                    }
+                }
+                (0.0, 0.0)
+            }
+            LegendPosition::Top => {
+                // Top legends: Y alignment only for col facets
+                if align_mode == Some("col") {
+                    if let Some(target_y) = get_param("__legend_align_min_top_y") {
+                        let offset = target_y - bounds.y;
+                        return (0.0, offset);
+                    }
+                }
+                (0.0, 0.0)
+            }
+            LegendPosition::Bottom => {
+                // Bottom legends: Y alignment only for col facets
+                if align_mode == Some("col") {
+                    if let Some(target_y) = get_param("__legend_align_max_bottom_y") {
+                        let offset = target_y - bounds.y;
+                        return (0.0, offset);
+                    }
+                }
+                (0.0, 0.0)
+            }
+        }
     }
 
     /// Evaluate all components (marks, axes, legends, titles)
