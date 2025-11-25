@@ -2,6 +2,7 @@
 // Tests various combinations of scale sharing modes with legends
 
 use crate::visual_tests::helpers::assert_visual_match_default;
+use avenger_chart::legend::LegendPosition;
 use avenger_chart::prelude::*;
 use avenger_chart::scales::{Linear, Ordinal, ScaleRange};
 use datafusion::prelude::*;
@@ -57,6 +58,60 @@ async fn test_facet_row_free_scales_with_free_color_legend() {
         None,
         "facet_legends",
         "facet_row_free_scales_with_free_color_legend",
+    )
+    .await;
+}
+
+/// Test: Row facet with Free x/y scales + Free color legend positioned on the LEFT
+/// Tests that left-positioned legends align correctly across row facets
+#[tokio::test]
+async fn test_facet_row_free_scales_with_left_color_legend() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<FacetRow>::new()
+        .data(df)
+        .mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Free)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.with_scale_sharing(ScaleSharing::Free)
+                                .scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .fill_with(col("petal_length"), |c| {
+                            c.scale_with::<Linear>(|s| {
+                                s.range(ScaleRange::new_color(vec![
+                                    Srgba::new(0.267, 0.004, 0.329, 1.0), // viridis start
+                                    Srgba::new(0.127, 0.566, 0.550, 1.0), // viridis mid
+                                    Srgba::new(0.993, 0.906, 0.144, 1.0), // viridis end
+                                ]))
+                            })
+                            .legend(|l| l.title("Petal Length").position(LegendPosition::Left))
+                        })
+                        .size(48.0),
+                ),
+            ),
+        )
+        .canvas_size(700.0, 550.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_row_free_scales_with_left_color_legend",
     )
     .await;
 }
