@@ -741,6 +741,7 @@ impl CompiledPlot {
         plot_bounds: &crate::layout::LayoutBounds,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &SessionContext,
+        data_override: Option<&DataFrame>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use the pre-built guide renderer if available
         if let Some(compiled_guide) = &self.compiled_guide {
@@ -761,6 +762,7 @@ impl CompiledPlot {
                     theme.as_ref(),
                     params,
                     ctx,
+                    data_override,
                 )
                 .await
         } else {
@@ -942,7 +944,28 @@ impl CompiledPlot {
         )
         .await?;
 
-        let result = layout.compute(&evaluated_spec)?;
+        let mut result = layout.compute(&evaluated_spec)?;
+
+        // Add legend dimensions to overflow so facets can position their labels correctly
+        // (ChartLayout.compute() only includes guide overflow, not legend space)
+        for (channel, measurement) in legend_measurements.iter() {
+            match measurement.position {
+                crate::legend::LegendPosition::Left => {
+                    result.overflow.left += measurement.size.width;
+                }
+                crate::legend::LegendPosition::Right => {
+                    result.overflow.right += measurement.size.width;
+                }
+                crate::legend::LegendPosition::Top => {
+                    result.overflow.top += measurement.size.height;
+                }
+                crate::legend::LegendPosition::Bottom => {
+                    result.overflow.bottom += measurement.size.height;
+                }
+            }
+            let _ = channel; // suppress unused warning
+        }
+
         Ok(result)
     }
 
@@ -1098,6 +1121,7 @@ impl CompiledPlot {
         let col_overflow = merged_layout.col_overflow_by_facet.as_ref();
 
         // Create guide marks (axes, grids, backgrounds) using merged scales and overflow
+        // No data_override for top-level evaluation (use compiled data)
         let guide_marks = self
             .create_guide_marks(
                 &merged_scales,
@@ -1108,6 +1132,7 @@ impl CompiledPlot {
                 plot_bounds,
                 params,
                 ctx,
+                None,
             )
             .await?;
 
@@ -1569,6 +1594,7 @@ impl CompiledPlot {
                             &plot_bounds_struct,
                             &merged_params,
                             ctx,
+                            data_override,
                         )
                         .await?;
 
@@ -1637,6 +1663,7 @@ impl CompiledPlot {
                     };
 
                     // Create guide marks
+                    // Pass data_override so nested facets use filtered data
                     let guide_marks = self
                         .create_guide_marks(
                             &merged_scales,
@@ -1647,6 +1674,7 @@ impl CompiledPlot {
                             &plot_bounds_struct,
                             &merged_params,
                             ctx,
+                            data_override,
                         )
                         .await?;
 
