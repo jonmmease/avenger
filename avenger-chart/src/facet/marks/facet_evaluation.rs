@@ -23,7 +23,7 @@ use datafusion::logical_expr::lit;
 use datafusion::prelude::SessionContext;
 use futures::{StreamExt, stream};
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Convert RecordBatch to DataFrame using DataFusion's read_batch method
@@ -56,12 +56,15 @@ const DEFAULT_FACET_SPACING: f32 = 3.0;
 
 /// Output of the facet measurement pass (Pass 1)
 struct FacetPass1Result {
+    /// Total overflow (including legends) for spacing calculations
     overflow_measurements: Vec<crate::guide::OverflowSpaceRequirement>,
     final_dimension_scale: ConfiguredScaleWithSpec,
     final_shared_scales: Option<HashMap<String, ConfiguredScaleWithSpec>>,
     final_rects: Vec<SubplotRect>,
-    /// Aggregated legend positions across all subplots for cross-subplot alignment
-    legend_alignment: crate::layout::LegendAlignmentInfo,
+    /// Global maximum guide-only overflow for unified overflow alignment
+    global_max_overflow: crate::guide::OverflowSpaceRequirement,
+    /// Set of legend positions used across all subplots
+    legend_positions: HashSet<crate::legend::LegendPosition>,
 }
 
 /// Measure facet layout and overflow (Pass 1) while keeping the outer future small
@@ -171,10 +174,11 @@ where
     );
 
     let mut overflow_measurements = Vec::new();
-    let mut legend_infos = Vec::new();
+    let mut guide_only_measurements = Vec::new();
+    let mut all_legend_positions: HashSet<crate::legend::LegendPosition> = HashSet::new();
 
     // Small helper to measure one subplot to keep the parent future small
-    // Returns (total_overflow, legend_info) - uses total overflow for row/col facet spacing
+    // Returns (guide_only_overflow, total_overflow, legend_positions)
     async fn measure_subplot(
         compiled_subplot: &Arc<CompiledPlot>,
         width: f32,
@@ -186,15 +190,16 @@ where
     ) -> Result<
         (
             crate::guide::OverflowSpaceRequirement,
-            crate::layout::LegendLayoutInfo,
+            crate::guide::OverflowSpaceRequirement,
+            HashSet<crate::legend::LegendPosition>,
         ),
         AvengerChartError,
     > {
-        let (_guide_only, total_overflow, legend_info, _legend_positions) = compiled_subplot
+        let (guide_only, total_overflow, _legend_info, legend_positions) = compiled_subplot
             .measure_with_scales(width, height, ctx, params, scales, Some(filter_df))
             .await?;
-        // Row/col facets use total overflow (including legends) for spacing
-        Ok((total_overflow, legend_info))
+        // Return both overflows: guide_only for alignment, total for spacing
+        Ok((guide_only, total_overflow, legend_positions))
     }
 
     // Bound concurrency to avoid overwhelming DataFusion while still flattening stack growth.
@@ -259,7 +264,7 @@ where
                 )
                 .await?;
 
-                let (overflow, legend_info) = measure_subplot(
+                let (guide_only, total_overflow, legend_positions) = measure_subplot(
                     &compiled_subplot,
                     width,
                     height,
@@ -270,7 +275,7 @@ where
                 )
                 .await?;
 
-                Ok::<_, AvengerChartError>((idx, overflow, legend_info))
+                Ok::<_, AvengerChartError>((idx, guide_only, total_overflow, legend_positions))
             }
         })
         .buffer_unordered(MAX_CONCURRENT_MEASURE)
@@ -281,11 +286,24 @@ where
     let mut sorted = results
         .into_iter()
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
-    sorted.sort_by_key(|(idx, _, _)| *idx);
-    for (_, overflow, legend_info) in sorted {
-        overflow_measurements.push(overflow);
-        legend_infos.push(legend_info);
+    sorted.sort_by_key(|(idx, _, _, _)| *idx);
+    for (_, guide_only, total_overflow, legend_positions) in sorted {
+        guide_only_measurements.push(guide_only);
+        overflow_measurements.push(total_overflow);
+        all_legend_positions.extend(legend_positions);
     }
+
+    // Compute global maximum guide-only overflow for unified alignment
+    let global_max_overflow = {
+        let mut max_overflow = crate::guide::OverflowSpaceRequirement::default();
+        for overflow in &guide_only_measurements {
+            max_overflow.top = max_overflow.top.max(overflow.top);
+            max_overflow.bottom = max_overflow.bottom.max(overflow.bottom);
+            max_overflow.left = max_overflow.left.max(overflow.left);
+            max_overflow.right = max_overflow.right.max(overflow.right);
+        }
+        max_overflow
+    };
 
     let mut max_required_gap = 0.0f32;
     for i in 0..overflow_measurements.len().saturating_sub(1) {
@@ -412,15 +430,13 @@ where
         initial_shared_scales
     };
 
-    // Aggregate legend layout info for cross-subplot alignment
-    let legend_alignment = crate::layout::LegendAlignmentInfo::aggregate(&legend_infos);
-
     Ok(FacetPass1Result {
         overflow_measurements,
         final_dimension_scale,
         final_shared_scales,
         final_rects,
-        legend_alignment,
+        global_max_overflow,
+        legend_positions: all_legend_positions,
     })
 }
 
@@ -491,8 +507,9 @@ where
         .map(|(idx, (iter, rect))| (idx, iter, rect))
         .collect();
 
-    // Clone aggregated legend alignment info for threading to subplots
-    let legend_alignment = pass1.legend_alignment.clone();
+    // Clone unified overflow info for threading to subplots
+    let global_max_overflow = pass1.global_max_overflow.clone();
+    let legend_positions = pass1.legend_positions.clone();
 
     let results: Vec<_> = stream::iter(work_items)
         .map(|(idx, iteration, rect)| {
@@ -509,7 +526,8 @@ where
                 .cloned()
                 .unwrap_or_default();
             let semaphore = Arc::clone(&semaphore);
-            let legend_alignment = legend_alignment.clone();
+            let global_max_overflow = global_max_overflow.clone();
+            let legend_positions = legend_positions.clone();
 
             async move {
                 let _permit = semaphore.acquire().await.unwrap();
@@ -579,43 +597,43 @@ where
                     scales: scales.clone(),
                 };
 
-                // Add legend alignment params for cross-subplot alignment.
-                // These target positions enable legends to align at the same absolute
-                // position across subplots regardless of individual layout differences.
-                let mut params_with_legend_align = params_base.clone();
+                // Add unified overflow params for cross-subplot legend alignment.
+                // These override the measured overflow to ensure all subplots use
+                // identical overflow, causing legends to naturally align during layout.
+                let mut merged_params = params_base.clone();
 
-                // Alignment mode determines which direction alignment applies:
-                // - "row" facets: X alignment for Right/Left legends (subplots stacked vertically)
-                // - "col" facets: Y alignment for Top/Bottom legends (subplots side by side)
-                params_with_legend_align.insert(
-                    "__legend_align_mode".to_string(),
-                    ScalarValue::Utf8(Some(
-                        if DimConfig::is_row_facet() { "row" } else { "col" }.to_string()
-                    )),
-                );
-                params_with_legend_align.insert(
-                    "__legend_align_max_right_x".to_string(),
-                    ScalarValue::Float32(Some(legend_alignment.max_right_x)),
-                );
-                params_with_legend_align.insert(
-                    "__legend_align_min_left_x".to_string(),
-                    ScalarValue::Float32(Some(legend_alignment.min_left_x)),
-                );
-                params_with_legend_align.insert(
-                    "__legend_align_min_top_y".to_string(),
-                    ScalarValue::Float32(Some(legend_alignment.min_top_y)),
-                );
-                params_with_legend_align.insert(
-                    "__legend_align_max_bottom_y".to_string(),
-                    ScalarValue::Float32(Some(legend_alignment.max_bottom_y)),
-                );
+                use crate::legend::LegendPosition;
+                if legend_positions.contains(&LegendPosition::Right) {
+                    merged_params.insert(
+                        "__unified_overflow_right".to_string(),
+                        ScalarValue::Float32(Some(global_max_overflow.right)),
+                    );
+                }
+                if legend_positions.contains(&LegendPosition::Left) {
+                    merged_params.insert(
+                        "__unified_overflow_left".to_string(),
+                        ScalarValue::Float32(Some(global_max_overflow.left)),
+                    );
+                }
+                if legend_positions.contains(&LegendPosition::Top) {
+                    merged_params.insert(
+                        "__unified_overflow_top".to_string(),
+                        ScalarValue::Float32(Some(global_max_overflow.top)),
+                    );
+                }
+                if legend_positions.contains(&LegendPosition::Bottom) {
+                    merged_params.insert(
+                        "__unified_overflow_bottom".to_string(),
+                        ScalarValue::Float32(Some(global_max_overflow.bottom)),
+                    );
+                }
 
                 let components = render_subplot(
                     &compiled_subplot,
                     width,
                     height,
                     &ctx,
-                    &params_with_legend_align,
+                    &merged_params,
                     &scale_provider,
                     &filter_df,
                 )
