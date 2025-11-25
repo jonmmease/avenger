@@ -38,7 +38,6 @@ use std::sync::Arc;
 ///
 /// # Returns
 /// A DataFrame backed by an in-memory table containing the batch data
-#[allow(dead_code)]
 pub fn batch_to_dataframe(
     batch: &RecordBatch,
     ctx: &SessionContext,
@@ -121,7 +120,9 @@ where
     };
 
     // ========== PASS 1: MEASUREMENT PHASE ==========
-    eprintln!("Pass 1 starting for channel={}", DimConfig::channel_name());
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!("Pass 1 starting for channel={}", DimConfig::channel_name());
+    }
     use crate::facet::keys::FacetKeyExtractor;
     let mut domain_vals = FacetKeyExtractor::extract_keys(df, facet_expr).await?;
     domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -422,18 +423,16 @@ where
 
 /// Render faceted subplots (Pass 2) using the measurement results
 #[allow(clippy::too_many_arguments)]
-async fn render_pass<DimConfig: FacetDimensionConfig, SubplotDimsFn, GroupOriginFn>(
+async fn render_pass<DimConfig: FacetDimensionConfig, GroupOriginFn>(
     compiled_subplot: &Arc<CompiledPlot>,
     df: &DataFrame,
     facet_expr: &datafusion::logical_expr::Expr,
     context: &RenderContext,
     scale_sharing_by_channel: HashMap<String, ScaleSharing>,
     pass1: FacetPass1Result,
-    _subplot_dims: &SubplotDimsFn,
     group_origin: &GroupOriginFn,
 ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError>
 where
-    SubplotDimsFn: Fn(f32, &RenderContext) -> (f32, f32) + Clone,
     GroupOriginFn: Fn(f32) -> [f32; 2] + Clone,
 {
     // Extract domain values from final rects for SubplotIterator
@@ -825,10 +824,12 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Returns [x, y] translation given band position
     group_origin: impl Fn(f32) -> [f32; 2] + Clone,
 ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
-    eprintln!(
-        "evaluate_facet entering: channel={}",
-        DimConfig::channel_name()
-    );
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "evaluate_facet entering: channel={}",
+            DimConfig::channel_name()
+        );
+    }
 
     // Get dimension scale (row or col)
     let dimension_scale = context
@@ -919,14 +920,13 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     )
     .await?;
 
-    render_pass::<DimConfig, _, _>(
+    render_pass::<DimConfig, _>(
         compiled_subplot,
         &df,
         &facet_expr,
         context,
         scale_sharing_by_channel,
         pass1,
-        &subplot_dims,
         &group_origin,
     )
     .await

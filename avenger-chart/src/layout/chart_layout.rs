@@ -225,8 +225,8 @@ impl ChartLayout {
             subtitle_span,
         )?;
 
-        // Compute legend layout info from measurements
-        let legend_info = super::info::LegendLayoutInfo::from_measurements(legend_measurements);
+        // Legend positions are populated later from Taffy layout bounds
+        let legend_info = super::info::LegendLayoutInfo::default();
 
         // Create the ChartLayout with the built tree and nodes
         let layout = ChartLayout {

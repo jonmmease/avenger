@@ -21,7 +21,6 @@
 //! **Do NOT use for regular data marks** (Symbol, Line, Rect, etc.)
 
 use crate::guide::OverflowSpaceRequirement;
-use crate::render::types::LegendMeasurements;
 use crate::scales::ConfiguredScaleWithSpec;
 use std::collections::HashMap;
 
@@ -39,13 +38,6 @@ pub struct LegendLayoutInfo {
     pub top_y: f32,
     /// Y position of bottom legends (for alignment across subplots)
     pub bottom_y: f32,
-}
-
-impl LegendLayoutInfo {
-    /// Create an empty layout info (positions are set later from Taffy bounds)
-    pub fn from_measurements(_measurements: &LegendMeasurements) -> Self {
-        Self::default()
-    }
 }
 
 /// Aggregated legend positions across all subplots for cross-subplot alignment
