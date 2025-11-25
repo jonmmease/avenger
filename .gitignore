@@ -31,3 +31,5 @@ avenger-chart/book/src/.generated/
 .codex-threads/
 
 .agent-ask-threads/
+
+.claude/settings.local.json
