@@ -1,6 +1,7 @@
 pub mod band_positions;
 pub mod context;
 pub mod coord;
+pub mod coordination;
 pub mod dimension_config;
 pub mod guide;
 pub mod guide_utils;

@@ -183,6 +183,142 @@ impl ScaleBuilder {
         &self.channel_builders
     }
 
+    /// Extract data extents for specified channels as SerializableDataExtents
+    ///
+    /// This is used to extract extents from a ScaleBuilder to pass to inner facets
+    /// for SharedInColumn mode. Returns a HashMap of channel name to serializable extents.
+    pub fn extract_serializable_extents(
+        &self,
+        channels: &[&str],
+    ) -> std::collections::HashMap<String, crate::facet::coordination::SerializableDataExtents> {
+        use crate::facet::coordination::SerializableDataExtents;
+
+        let mut result = std::collections::HashMap::new();
+
+        for channel in channels {
+            if let Some(builder) = self.channel_builders.get(*channel) {
+                match builder {
+                    ChannelScaleBuilder::Standard { data_extents, .. } => {
+                        let serializable = match data_extents {
+                            DataExtents::Interval(min, max) => {
+                                SerializableDataExtents::interval(*min, *max)
+                            }
+                            DataExtents::Temporal(min, max) => {
+                                SerializableDataExtents::temporal(*min, *max)
+                            }
+                            DataExtents::Discrete(values) => {
+                                SerializableDataExtents::discrete(values.clone())
+                            }
+                        };
+                        result.insert(channel.to_string(), serializable);
+                    }
+                    ChannelScaleBuilder::RadiusAware { position_data, .. } => {
+                        // For radius-aware scales, compute min/max from position data
+                        if !position_data.is_empty() {
+                            let min = position_data.iter().cloned().fold(f64::INFINITY, f64::min);
+                            let max = position_data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                            result.insert(channel.to_string(), SerializableDataExtents::interval(min, max));
+                        }
+                    }
+                    ChannelScaleBuilder::ExplicitDomain { .. } => {
+                        // Explicit domain doesn't have extractable extents
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Extend data extents using shared extents from coordination context
+    ///
+    /// This is used for nested facets with shared scales. The outer facet computes
+    /// the data extents from the FULL dataset and passes them through the coordination
+    /// context. This method extends the local extents (computed from filtered data)
+    /// to include the full dataset range, ensuring consistent scale domains across
+    /// all subplots.
+    ///
+    /// For interval extents, the resulting domain is the union (min of mins, max of maxes).
+    pub fn extend_with_shared_extents(
+        &mut self,
+        shared_extents: &std::collections::HashMap<String, crate::facet::coordination::SerializableDataExtents>,
+    ) {
+        use crate::facet::coordination::SerializableDataExtents;
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!("extend_with_shared_extents called with {} channels", shared_extents.len());
+            for (ch, ext) in shared_extents {
+                eprintln!("  shared extent {}: {:?}", ch, ext);
+            }
+            eprintln!("  channel_builders available: {:?}", self.channel_builders.keys().collect::<Vec<_>>());
+        }
+
+        for (channel, shared_extent) in shared_extents {
+            if let Some(channel_builder) = self.channel_builders.get_mut(channel) {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    let variant = match channel_builder {
+                        ChannelScaleBuilder::Standard { data_extents, .. } => format!("Standard({:?})", data_extents),
+                        ChannelScaleBuilder::RadiusAware { .. } => "RadiusAware".to_string(),
+                        ChannelScaleBuilder::ExplicitDomain { .. } => "ExplicitDomain".to_string(),
+                    };
+                    eprintln!("  Processing channel {}: builder={}", channel, variant);
+                }
+                match channel_builder {
+                    ChannelScaleBuilder::Standard { data_extents, .. } => {
+                        // Extend the local extents with shared extents
+                        match (data_extents, shared_extent) {
+                            (DataExtents::Interval(local_min, local_max), SerializableDataExtents::Interval { min: shared_min, max: shared_max }) => {
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                    eprintln!("  Extending {} extents: local=({}, {}) shared=({}, {})",
+                                        channel, local_min, local_max, shared_min, shared_max);
+                                }
+                                // Take union: min of mins, max of maxes
+                                *local_min = local_min.min(*shared_min);
+                                *local_max = local_max.max(*shared_max);
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                    eprintln!("  Result: ({}, {})", local_min, local_max);
+                                }
+                            }
+                            (DataExtents::Temporal(local_min, local_max), SerializableDataExtents::Temporal { min: shared_min, max: shared_max }) => {
+                                *local_min = (*local_min).min(*shared_min);
+                                *local_max = (*local_max).max(*shared_max);
+                            }
+                            // For discrete extents, we could merge unique values, but that's more complex
+                            // For now, just leave discrete extents unchanged
+                            _ => {
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                    eprintln!("  No match for data_extents/shared_extent combination");
+                                }
+                            }
+                        }
+                    }
+                    ChannelScaleBuilder::RadiusAware { position_data, radius_lower_data, radius_upper_data, .. } => {
+                        // For RadiusAware scales, we need to add synthetic data points at the shared extents
+                        // to ensure the domain includes them. The radius values are 0.0 since they don't
+                        // affect min/max computation, only padding.
+                        if let SerializableDataExtents::Interval { min: shared_min, max: shared_max } = shared_extent {
+                            // Add synthetic points at shared min and max
+                            position_data.push(*shared_min);
+                            radius_lower_data.push(0.0);
+                            radius_upper_data.push(0.0);
+
+                            position_data.push(*shared_max);
+                            radius_lower_data.push(0.0);
+                            radius_upper_data.push(0.0);
+
+                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                eprintln!("  Extended RadiusAware {} with shared extents ({}, {})", channel, shared_min, shared_max);
+                            }
+                        }
+                    }
+                    ChannelScaleBuilder::ExplicitDomain { .. } => {
+                        // Explicit domains should not be modified by shared extents
+                    }
+                }
+            }
+        }
+    }
+
     /// Build scales on-demand with current dimensions and padding
     ///
     /// This is the core method that constructs ConfiguredScale objects

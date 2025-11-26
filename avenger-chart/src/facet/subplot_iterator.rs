@@ -1,12 +1,17 @@
 //! Iterator abstraction for consistent subplot iteration in faceted layouts
 //!
 //! Ensures that every subplot iteration gets correct FacetContext with invariants enforced:
-//! - position matches the iteration index
-//! - grid_dimensions matches the total number of subplots
+//! - position matches the iteration index (combined with parent context for nested facets)
+//! - grid_dimensions matches the total number of subplots (combined with parent context for nested facets)
 //! - unified_channels are computed consistently from DimConfig
 //! - FacetContext is always present in params
+//!
+//! For nested facets, the iterator uses FacetCoordinationContext to compute proper grid positions:
+//! - outer_position and outer_count from coordination context determine the parent dimension
+//! - This enables correct edge detection for axis label visibility
 
 use crate::channel::config_traits::ScaleSharing;
+use crate::facet::coordination::FacetCoordinationContext;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
@@ -119,9 +124,89 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             DimConfig::unified_channels()
         };
 
+        // Check for FacetCoordinationContext from outer facet (for nested facets)
+        // This provides outer_position and outer_count for computing proper grid positions
+        let coordination_ctx = FacetCoordinationContext::from_params(&self.base_params);
+
+        // Compute position and grid_dimensions
+        // For nested facets, combine inner index with outer position
+        let (position, grid_dimensions) = if let Some(ref coord_ctx) = coordination_ctx {
+            // Check if this coordination context is meant for this channel
+            let current_channel = DimConfig::channel_name();
+            if coord_ctx.inner_channel.as_deref() == Some(current_channel) {
+                // This coordination is for us - use outer position to compute true grid position
+                // Use inner_domain_count from coordination context for consistent grid dimensions
+                // across all outer subplots, even if some have fewer actual data values.
+                let inner_count = if coord_ctx.inner_domain_count > 0 {
+                    coord_ctx.inner_domain_count
+                } else {
+                    // Fallback to actual domain size if inner_domain_count not set
+                    self.domain_vals.len()
+                };
+
+                let (pos, dims) = if DimConfig::is_row_facet() {
+                    // This is FacetRow inside FacetColumn
+                    // position: (row_index, column_position_from_outer)
+                    // grid_dimensions: (num_rows, num_columns_from_outer)
+                    let row = index;
+                    let col = coord_ctx.outer_position;
+                    let num_rows = inner_count;
+                    let num_cols = coord_ctx.outer_count;
+                    ((row, col), (num_rows, num_cols))
+                } else {
+                    // This is FacetColumn inside FacetRow
+                    // position: (row_position_from_outer, column_index)
+                    // grid_dimensions: (num_rows_from_outer, num_columns)
+                    let row = coord_ctx.outer_position;
+                    let col = index;
+                    let num_rows = coord_ctx.outer_count;
+                    let num_cols = inner_count;
+                    ((row, col), (num_rows, num_cols))
+                };
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "SubplotIterator: channel={} inner_channel={:?} coord matched! outer_pos={} outer_count={} inner_domain_count={} -> position=({},{}) grid=({},{})",
+                        current_channel,
+                        coord_ctx.inner_channel,
+                        coord_ctx.outer_position,
+                        coord_ctx.outer_count,
+                        coord_ctx.inner_domain_count,
+                        pos.0, pos.1,
+                        dims.0, dims.1
+                    );
+                }
+                (pos, dims)
+            } else {
+                // Coordination context is not for us (e.g., we're the outer facet) - use default
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "SubplotIterator: channel={} inner_channel={:?} - NOT FOR US, using default",
+                        current_channel,
+                        coord_ctx.inner_channel
+                    );
+                }
+                (
+                    DimConfig::index_to_position(index),
+                    DimConfig::count_to_grid_dimensions(self.domain_vals.len()),
+                )
+            }
+        } else {
+            // No coordination context - use default (single-level faceting)
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "SubplotIterator: channel={} - NO coordination context",
+                    DimConfig::channel_name()
+                );
+            }
+            (
+                DimConfig::index_to_position(index),
+                DimConfig::count_to_grid_dimensions(self.domain_vals.len()),
+            )
+        };
+
         let facet_ctx = FacetContext {
-            position: DimConfig::index_to_position(index),
-            grid_dimensions: DimConfig::count_to_grid_dimensions(self.domain_vals.len()),
+            position,
+            grid_dimensions,
             unified_channels,
             scale_sharing: self.scale_sharing.clone(),
         };

@@ -50,6 +50,7 @@ pub mod test_media_query_guide_background;
 pub mod test_multiple_legends;
 pub mod test_multiple_legends_background;
 pub mod test_nested_facets;
+pub mod test_nested_grid_equivalent;
 pub mod test_param_fill_color;
 pub mod test_plot_background;
 pub mod test_plot_level_config;

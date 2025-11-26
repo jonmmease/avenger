@@ -31,6 +31,8 @@ pub struct Facet<InnerC: CoordinateSystem> {
     pub(crate) facet_row_title: Option<String>,
     pub(crate) facet_col_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
+    pub(crate) facet_row_scale_sharing: Option<ScaleSharing>,
+    pub(crate) facet_col_scale_sharing: Option<ScaleSharing>,
 }
 
 impl<InnerC: CoordinateSystem> Facet<InnerC> {
@@ -47,6 +49,8 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
             facet_row_title: None,
             facet_col_title: None,
             facet_spacing: None,
+            facet_row_scale_sharing: None,
+            facet_col_scale_sharing: None,
         }
     }
 
@@ -72,7 +76,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s
     }
 
-    /// Configure row with facet options (e.g., title, spacing)
+    /// Configure row with facet options (e.g., title, spacing, scale_sharing)
     pub fn row_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -82,6 +86,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         let cfg = f(FacetRowChannelConfig::default());
         s.facet_row_title = cfg.title;
         s.facet_spacing = cfg.spacing;
+        s.facet_row_scale_sharing = cfg.scale_sharing;
         s
     }
 
@@ -95,7 +100,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s
     }
 
-    /// Configure col with facet options (e.g., title, spacing)
+    /// Configure col with facet options (e.g., title, spacing, scale_sharing)
     pub fn col_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -105,6 +110,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         let cfg = f(FacetColChannelConfig::default());
         s.facet_col_title = cfg.title;
         s.facet_spacing = cfg.spacing;
+        s.facet_col_scale_sharing = cfg.scale_sharing;
         s
     }
 
@@ -123,6 +129,7 @@ pub struct CompiledFacetRow {
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
+    pub(crate) facet_scale_sharing: Option<ScaleSharing>,
 }
 
 #[async_trait::async_trait]
@@ -171,6 +178,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             compiled_subplot,
             facet_title: self.facet_row_title.clone(),
             facet_spacing: self.facet_spacing,
+            facet_scale_sharing: self.facet_row_scale_sharing,
         }))
     }
 }
@@ -321,6 +329,7 @@ pub struct CompiledFacetCol {
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
+    pub(crate) facet_scale_sharing: Option<ScaleSharing>,
 }
 
 #[async_trait::async_trait]
@@ -368,6 +377,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
             compiled_subplot,
             facet_title: self.facet_col_title.clone(),
             facet_spacing: self.facet_spacing,
+            facet_scale_sharing: self.facet_col_scale_sharing,
         }))
     }
 }

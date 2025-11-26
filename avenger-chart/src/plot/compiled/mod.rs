@@ -112,13 +112,17 @@ impl CompiledPlot {
     ///
     /// This is primarily used by faceting when building free scales per facet, so that
     /// domain inference (including radius-aware padding) runs against the facet-filtered data.
+    ///
+    /// If the params contain a FacetCoordinationContext with shared_data_extents,
+    /// the builder will be extended to include those extents. This ensures nested facets
+    /// use the full dataset range for their scales.
     pub(crate) async fn build_scale_builder_from_dataframe(
         &self,
         ctx: &datafusion::prelude::SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         df: &datafusion::dataframe::DataFrame,
     ) -> Result<crate::scales::builder::ScaleBuilder, crate::error::AvengerChartError> {
-        build_scale_builder_from_marks(
+        let builder = build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
             &self.coord_transform,
@@ -128,7 +132,9 @@ impl CompiledPlot {
             params,
             self.get_theme().as_ref(),
         )
-        .await
+        .await?;
+
+        Ok(builder)
     }
 
     /// Build scales with specific dimensions for the current evaluation.
@@ -136,6 +142,9 @@ impl CompiledPlot {
     /// We rebuild a temporary ScaleBuilder on each call using the current params
     /// so domain inference reflects paramized data queries. This keeps direct
     /// and serialized paths identical and avoids stale caches.
+    ///
+    /// If params contain a FacetCoordinationContext with shared_data_extents,
+    /// the builder will be extended to include those extents.
     pub async fn build_scales_with_dimensions(
         &self,
         plot_area_width: f32,

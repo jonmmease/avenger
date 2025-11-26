@@ -179,6 +179,13 @@ impl FacetContext {
         let (row, col) = self.position;
         let (num_rows, num_cols) = self.grid_dimensions;
 
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "should_show_labels: channel={} position={:?} sharing_mode={:?} grid_pos=({},{}) grid_dims=({},{})",
+                channel, position, sharing_mode, row, col, num_rows, num_cols
+            );
+        }
+
         match sharing_mode {
             ScaleSharing::Free => {
                 // Independent scales: always show labels
