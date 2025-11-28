@@ -9,6 +9,7 @@ use crate::scales::ConfiguredScaleLegendExt;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_text::measurement::TextMeasurer;
+use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -121,11 +122,17 @@ pub struct FacetRowGuide {
     unifiable_channel: Option<String>,
 }
 
+/// A facet source represents a compiled facet mark and its associated data context.
+/// Used during overflow measurement to determine how many cells should be measured.
 #[derive(Clone, Serialize, Deserialize)]
 struct FacetSource {
     subplot: std::sync::Arc<crate::plot::CompiledPlot>,
     data: crate::marks::CompiledDataContext,
     user_title: Option<String>,
+    /// Scale sharing mode for this facet dimension.
+    /// When `Shared`, measurement should use the full domain (including empty cells).
+    /// When `Free` or None, measurement should only use values present in the current data slice.
+    facet_scale_sharing: Option<ScaleSharing>,
 }
 
 impl FacetRowGuide {
@@ -182,33 +189,63 @@ impl FacetRowGuide {
                 };
 
                 if let Some(expr) = facet_expr {
-                    // Filter domain_vals to only include values present in the data_override
-                    // The scale domain may include all possible values, but this column's data
-                    // may only contain a subset (e.g., Iris-setosa only has "narrow" width category)
-                    let mut filtered_domain_vals = Vec::new();
+                    use crate::facet::coordination::FacetCoordinationContext;
+                    use datafusion::logical_expr::lit;
+
+                    // Check if scales are shared via coordination context or facet config
+                    let coord_ctx = FacetCoordinationContext::from_params(params);
+                    let use_full_domain = if let Some(ctx) = coord_ctx.as_ref() {
+                        // Use coordination context's inner_scale_sharing
+                        !matches!(ctx.inner_scale_sharing, ScaleSharing::Free)
+                    } else {
+                        // No coordination context - check the facet's scale sharing config
+                        // This is stored in the FacetSource (from CompiledFacetRow.facet_scale_sharing)
+                        source
+                            .facet_scale_sharing
+                            .map(|mode| !matches!(mode, ScaleSharing::Free))
+                            .unwrap_or(false)
+                    };
+
+                    // Build filtered_domain_vals to track which values have data
+                    // Also collect (domain_val, has_data) pairs for iteration
+                    let mut domain_with_data: Vec<(ScalarValue, bool)> = Vec::new();
                     for domain_val in &domain_vals {
-                        use datafusion::logical_expr::lit;
                         let filter_df = df
                             .clone()
                             .filter(expr.clone().eq(lit(domain_val.clone())))?;
                         // Check if there's any data for this domain value
                         let count = filter_df.clone().count().await?;
-                        if count > 0 {
-                            filtered_domain_vals.push(domain_val.clone());
-                        }
+                        domain_with_data.push((domain_val.clone(), count > 0));
                     }
+
+                    // Determine which domain values to iterate over
+                    // When scales are shared, use full domain (with empty cells for missing data)
+                    // When scales are free, only use values present in this column's data
+                    let iteration_domain: Vec<(ScalarValue, bool)> = if use_full_domain {
+                        // Shared: use all domain values, track which have data
+                        domain_with_data.clone()
+                    } else {
+                        // Free: filter to only values with data
+                        domain_with_data
+                            .into_iter()
+                            .filter(|(_, has_data)| *has_data)
+                            .collect()
+                    };
+
+                    let num_present = iteration_domain.iter().filter(|(_, has)| *has).count();
 
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                         eprintln!(
-                            "FacetRowGuide [source {}]: Computing overflow from data_override ({} of {} domain values present)",
+                            "FacetRowGuide [source {}]: Computing overflow from data_override ({} of {} domain values present, use_full_domain={})",
                             source_idx,
-                            filtered_domain_vals.len(),
-                            domain_vals.len()
+                            num_present,
+                            domain_vals.len(),
+                            use_full_domain
                         );
                     }
 
-                    // Compute band height for subplots based on actual rows present
-                    let num_rows = filtered_domain_vals.len().max(1);
+                    // Compute band height for subplots based on iteration domain size
+                    let num_rows = iteration_domain.len().max(1);
                     let band_height = plot_height / num_rows as f32;
 
                     // Build scales for subplot measurement using two-step pattern for data override
@@ -221,17 +258,19 @@ impl FacetRowGuide {
                         .build_scales_from_builder(&builder, plot_width, band_height, ctx, params)
                         .await?;
 
-                    // Measure each subplot using only the filtered domain values
+                    // Measure each subplot using the iteration domain
                     // Create per-row FacetContext with correct position so Cartesian
                     // subplots correctly determine which axes to show/measure
                     let mut computed_overflow = Vec::new();
-                    for (row_idx, domain_val) in filtered_domain_vals.iter().enumerate() {
+                    for (row_idx, (domain_val, has_data)) in iteration_domain.iter().enumerate() {
                         use crate::facet::context::FacetContext;
-                        use crate::facet::coordination::FacetCoordinationContext;
-                        use datafusion::logical_expr::lit;
-                        let filter_df = df
-                            .clone()
-                            .filter(expr.clone().eq(lit(domain_val.clone())))?;
+                        // Get the DataFrame for this cell - either filtered data or empty
+                        let cell_df = if *has_data {
+                            df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?
+                        } else {
+                            // Empty cell: create an empty DataFrame with the same schema
+                            df.clone().limit(0, Some(0))?
+                        };
 
                         // Create FacetContext with correct position for THIS row
                         let measure_params = {
@@ -298,7 +337,7 @@ impl FacetRowGuide {
                                 ctx,
                                 &measure_params,
                                 &subplot_scales,
-                                Some(&filter_df),
+                                Some(&cell_df),
                             )
                             .await?;
 
@@ -507,6 +546,7 @@ impl CoordinateGuide for FacetRowGuide {
                     subplot: facet.compiled_subplot.clone(),
                     data: facet.state.data.clone(),
                     user_title: facet.facet_title.clone(),
+                    facet_scale_sharing: facet.facet_scale_sharing,
                 });
             }
         }
@@ -1261,8 +1301,59 @@ impl FacetColGuide {
                 };
 
                 if let Some(expr) = facet_expr {
-                    // Compute band width for subplots
-                    let num_cols = domain_vals.len().max(1);
+                    use crate::facet::coordination::FacetCoordinationContext;
+                    use datafusion::logical_expr::lit;
+
+                    // Check if scales are shared via coordination context or facet config
+                    let coord_ctx = FacetCoordinationContext::from_params(params);
+                    let use_full_domain = if let Some(ctx) = coord_ctx.as_ref() {
+                        // Use coordination context's inner_scale_sharing
+                        !matches!(ctx.inner_scale_sharing, ScaleSharing::Free)
+                    } else {
+                        // No coordination context - check the facet's scale sharing config
+                        // This is stored in the FacetSource (from CompiledFacetCol.facet_scale_sharing)
+                        source
+                            .facet_scale_sharing
+                            .map(|mode| !matches!(mode, ScaleSharing::Free))
+                            .unwrap_or(false)
+                    };
+
+                    // Build domain_with_data to track which values have data
+                    let mut domain_with_data: Vec<(ScalarValue, bool)> = Vec::new();
+                    for domain_val in &domain_vals {
+                        let filter_df = df
+                            .clone()
+                            .filter(expr.clone().eq(lit(domain_val.clone())))?;
+                        let count = filter_df.clone().count().await?;
+                        domain_with_data.push((domain_val.clone(), count > 0));
+                    }
+
+                    // Determine which domain values to iterate over
+                    // When scales are shared, use full domain (with empty cells for missing data)
+                    // When scales are free, only use values present in this row's data
+                    let iteration_domain: Vec<(ScalarValue, bool)> = if use_full_domain {
+                        domain_with_data.clone()
+                    } else {
+                        domain_with_data
+                            .into_iter()
+                            .filter(|(_, has_data)| *has_data)
+                            .collect()
+                    };
+
+                    let num_present = iteration_domain.iter().filter(|(_, has)| *has).count();
+
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "FacetColGuide [source {}]: Iteration domain has {} values ({} with data, use_full_domain={})",
+                            source_idx,
+                            iteration_domain.len(),
+                            num_present,
+                            use_full_domain
+                        );
+                    }
+
+                    // Compute band width for subplots based on iteration domain size
+                    let num_cols = iteration_domain.len().max(1);
                     let band_width = plot_width / num_cols as f32;
 
                     // Build scales for subplot measurement using two-step pattern for data override
@@ -1278,18 +1369,20 @@ impl FacetColGuide {
                     // Measure each subplot with correct per-subplot FacetContext
                     let has_unified_y = self.unified_y_title.is_some();
                     let mut computed_overflow = Vec::new();
-                    let num_cols = domain_vals.len();
 
                     // Compute scale sharing from marks so subplots know which axes to measure
                     // Use nested facet version to correctly handle FacetRow inside FacetCol
                     let computed_scale_sharing =
                         compute_scale_sharing_for_nested_facet(&source.subplot.marks);
 
-                    for (col_idx, domain_val) in domain_vals.iter().enumerate() {
-                        use datafusion::logical_expr::lit;
-                        let filter_df = df
-                            .clone()
-                            .filter(expr.clone().eq(lit(domain_val.clone())))?;
+                    for (col_idx, (domain_val, has_data)) in iteration_domain.iter().enumerate() {
+                        // Get the DataFrame for this cell - either filtered data or empty
+                        let cell_df = if *has_data {
+                            df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?
+                        } else {
+                            // Empty cell: create an empty DataFrame with the same schema
+                            df.clone().limit(0, Some(0))?
+                        };
 
                         // Create FacetContext with correct position for this subplot
                         // so that should_show_title/should_show_labels work correctly
@@ -1342,7 +1435,7 @@ impl FacetColGuide {
                                 ctx,
                                 &subplot_measure_params,
                                 &subplot_scales,
-                                Some(&filter_df),
+                                Some(&cell_df),
                             )
                             .await?;
 
@@ -1549,6 +1642,7 @@ impl CoordinateGuide for FacetColGuide {
                     subplot: facet.compiled_subplot.clone(),
                     data: facet.state.data.clone(),
                     user_title: facet.facet_title.clone(),
+                    facet_scale_sharing: facet.facet_scale_sharing,
                 });
             }
         }
@@ -2269,6 +2363,7 @@ impl CoordinateGuide for GridFacetGuide {
                     subplot: facet.compiled_subplot.clone(),
                     data: facet.state.data.clone(),
                     user_title: None, // Grid stores separate row/col titles
+                    facet_scale_sharing: None, // Grid facets have implicit shared scales
                 });
 
                 // Use user-specified titles from facet if available
