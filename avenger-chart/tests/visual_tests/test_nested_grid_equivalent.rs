@@ -1690,8 +1690,8 @@ fn test_nested_shared_row_hybrid_sharing() {
 // =============================================================================
 //
 // These tests use FacetRow as outer and FacetColumn as inner (inverted pattern).
-// The `measured_col_gap` coordination should ensure columns align vertically
-// across all rows, symmetric with the Column(Row) pattern.
+// The coordinated_spacing["inter_col_gap"] coordination should ensure columns align
+// vertically across all rows, symmetric with the Column(Row) pattern.
 
 /// Test Row(Column(Cartesian)) with shared column scale
 ///

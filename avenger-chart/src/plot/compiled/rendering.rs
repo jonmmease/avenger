@@ -875,17 +875,6 @@ impl CompiledPlot {
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
 
-        // Helper to extract f32 from params
-        let get_param_f32 = |key: &str| -> Option<f32> {
-            params.get(key).and_then(|v| {
-                if let datafusion::common::ScalarValue::Float32(Some(f)) = v {
-                    Some(*f)
-                } else {
-                    None
-                }
-            })
-        };
-
         // First, measure the guide overflow (axis tick labels, titles, etc.)
         let mut overflow = if let Some(compiled_guide) = &self.compiled_guide {
             let theme = self.get_theme();
@@ -910,25 +899,27 @@ impl CompiledPlot {
             crate::guide::OverflowSpaceRequirement::default()
         };
 
-        // Check for unified overflow params (passed by grid facets for legend alignment).
+        // Check for coordinated spacing for cross-subplot legend alignment.
+        // Values are passed via FacetCoordinationContext.coordinated_spacing:
+        // - legend_right, legend_left, legend_top, legend_bottom
+        //
         // Only override specific sides that have unified values - this ensures legends align
         // while allowing other sides to use their actual measured overflow.
-        //
-        // Typically only `__unified_overflow_right` is passed because:
-        // - Legends are usually on the right side
-        // - Left/top/bottom overflow varies per subplot (edge vs inner subplots have different axes)
-        // - Unifying all sides would cause inner subplots to claim space they don't need
-        if let Some(unified_right) = get_param_f32("__unified_overflow_right") {
-            overflow.right = unified_right;
-        }
-        if let Some(unified_left) = get_param_f32("__unified_overflow_left") {
-            overflow.left = unified_left;
-        }
-        if let Some(unified_top) = get_param_f32("__unified_overflow_top") {
-            overflow.top = unified_top;
-        }
-        if let Some(unified_bottom) = get_param_f32("__unified_overflow_bottom") {
-            overflow.bottom = unified_bottom;
+        let coord_ctx = crate::facet::coordination::FacetCoordinationContext::from_params(params);
+
+        if let Some(ctx) = coord_ctx.as_ref() {
+            if let Some(unified_right) = ctx.get_coordinated_spacing("legend_right") {
+                overflow.right = unified_right;
+            }
+            if let Some(unified_left) = ctx.get_coordinated_spacing("legend_left") {
+                overflow.left = unified_left;
+            }
+            if let Some(unified_top) = ctx.get_coordinated_spacing("legend_top") {
+                overflow.top = unified_top;
+            }
+            if let Some(unified_bottom) = ctx.get_coordinated_spacing("legend_bottom") {
+                overflow.bottom = unified_bottom;
+            }
         }
 
         // Get legends with theme applied

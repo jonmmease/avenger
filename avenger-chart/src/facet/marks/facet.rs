@@ -1353,42 +1353,33 @@ impl CompiledMark for CompiledFacetGrid {
             let mut merged_params =
                 merge_grid_facet_contexts(row_iteration, col_iteration, num_rows, num_cols);
 
-            // Pass unified overflow ONLY for sides where legends are positioned.
-            // This ensures legends align across subplots in the same row/column.
-            //
-            // We don't unify sides that have no legends because:
-            // - Axis overflow varies by subplot (edge subplots have axis ticks, inner ones don't)
-            // - Unifying all sides would cause inner subplots to claim space they don't need,
-            //   leading to overlap with adjacent subplots' overflow regions.
-            //
-            // The spacing calculation (calculate_grid_padding) uses actual per-subplot overflow,
-            // so rendering must also use actual overflow for consistency - except for
-            // legend sides where alignment is needed.
-            use crate::legend::LegendPosition;
-            use datafusion::common::ScalarValue;
-            if legend_positions.contains(&LegendPosition::Right) {
-                merged_params.insert(
-                    "__unified_overflow_right".to_string(),
-                    ScalarValue::Float32(Some(global_max_overflow.right)),
-                );
-            }
-            if legend_positions.contains(&LegendPosition::Left) {
-                merged_params.insert(
-                    "__unified_overflow_left".to_string(),
-                    ScalarValue::Float32(Some(global_max_overflow.left)),
-                );
-            }
-            if legend_positions.contains(&LegendPosition::Top) {
-                merged_params.insert(
-                    "__unified_overflow_top".to_string(),
-                    ScalarValue::Float32(Some(global_max_overflow.top)),
-                );
-            }
-            if legend_positions.contains(&LegendPosition::Bottom) {
-                merged_params.insert(
-                    "__unified_overflow_bottom".to_string(),
-                    ScalarValue::Float32(Some(global_max_overflow.bottom)),
-                );
+            // Build coordinated_spacing for legend alignment
+            // Uses global max overflow only for sides with legends
+            {
+                use crate::facet::coordination::FacetCoordinationContext;
+                use crate::legend::LegendPosition;
+
+                let mut coordinated_spacing = std::collections::HashMap::new();
+                if legend_positions.contains(&LegendPosition::Right) {
+                    coordinated_spacing
+                        .insert("legend_right".to_string(), global_max_overflow.right);
+                }
+                if legend_positions.contains(&LegendPosition::Left) {
+                    coordinated_spacing.insert("legend_left".to_string(), global_max_overflow.left);
+                }
+                if legend_positions.contains(&LegendPosition::Top) {
+                    coordinated_spacing.insert("legend_top".to_string(), global_max_overflow.top);
+                }
+                if legend_positions.contains(&LegendPosition::Bottom) {
+                    coordinated_spacing
+                        .insert("legend_bottom".to_string(), global_max_overflow.bottom);
+                }
+
+                // Create or update coordination context with coordinated_spacing
+                let coord_ctx = FacetCoordinationContext::from_params(&merged_params)
+                    .unwrap_or_default()
+                    .with_coordinated_spacing(coordinated_spacing);
+                merged_params.extend(coord_ctx.to_params());
             }
 
             // Filter to rows matching both row AND col values

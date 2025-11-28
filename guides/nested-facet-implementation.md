@@ -215,6 +215,131 @@ Each nesting level adds its own FacetContext information:
 
 The Cartesian subplots see both parent's and inner facet's context, suppressing both x and y titles.
 
+## Named Spacing Coordination System
+
+### Overview
+
+The named spacing system provides an extensible mechanism for coordinating spacing values across nested facets. It replaces the earlier specific `measured_row_gap` and `measured_col_gap` fields with a generic key-value approach.
+
+### Core Data Structures
+
+**FacetPass1Result.spacing_needs**
+```rust
+// In facet_evaluation.rs
+pub spacing_needs: HashMap<String, f32>
+```
+During `measure_pass`, each facet computes and reports its spacing requirements using named keys. These are collected and aggregated by parent facets.
+
+**FacetCoordinationContext.coordinated_spacing**
+```rust
+// In coordination.rs
+pub coordinated_spacing: HashMap<String, f32>
+```
+During Phase 1.5, the outer facet aggregates all `spacing_needs` from its subplots and passes them back via `coordinated_spacing` in the coordination context for the re-measure phase.
+
+### Standard Spacing Keys
+
+| Key | Producer | Consumer | Description |
+|-----|----------|----------|-------------|
+| `inter_row_gap` | FacetRow or outer FacetColumn | FacetRow | Gap between rows in a row facet |
+| `inter_col_gap` | FacetColumn or outer FacetRow | FacetColumn | Gap between columns in a column facet |
+| `legend_right` | Any facet with right legends | Plot rendering | Right margin for legend alignment |
+| `legend_left` | Any facet with left legends | Plot rendering | Left margin for legend alignment |
+| `legend_top` | Any facet with top legends | Plot rendering | Top margin for legend alignment |
+| `legend_bottom` | Any facet with bottom legends | Plot rendering | Bottom margin for legend alignment |
+
+### Flow for Gap Coordination (Nested Facets)
+
+1. **Phase 1 (Initial Measurement)**:
+   - Inner facet computes its own gap from overflow and adds to `spacing_needs["inter_row_gap"]` or `["inter_col_gap"]`
+   - Outer facet performs 2D overflow analysis and also adds cross-dimension gap to `spacing_needs`
+
+2. **Phase 1.5 (Coordination)**:
+   - Outer facet aggregates all `spacing_needs` from subplots (taking max for each key)
+   - Builds `coordinated_spacing` HashMap from aggregated values
+   - Passes updated coordination context for re-measurement
+
+3. **Phase 2 (Re-measurement)**:
+   - Inner facets check `coordinated_spacing` for their gap key
+   - Use coordinated value instead of computing own (ensures consistency across siblings)
+
+### Flow for Legend Coordination
+
+1. **During measure_pass**:
+   - Facets collect legend positions from all subplots
+   - Global max overflow is computed for each side with legends
+   - Legend margin values are added to `spacing_needs` (e.g., `legend_right`, `legend_bottom`)
+
+2. **GridFacet injection**:
+   - GridFacet reads `spacing_needs` and builds `coordinated_spacing`
+   - Injects into subplot params via `FacetCoordinationContext`
+
+3. **Plot rendering**:
+   - `rendering.rs` checks for `coordinated_spacing` in params
+   - Uses coordinated legend margins to ensure alignment across subplots
+
+### Detection Logic for Re-measurement
+
+The Phase 1.5 logic determines whether to re-run `measure_pass`:
+
+```rust
+// Check for cross-dimension gap (indicates nested facet)
+let has_cross_dimension_gap = if DimConfig::is_col_facet() {
+    pass1.spacing_needs.contains_key("inter_row_gap")  // FacetColumn with nested FacetRow
+} else {
+    pass1.spacing_needs.contains_key("inter_col_gap")  // FacetRow with nested FacetColumn
+};
+
+if has_cross_dimension_gap {
+    // Re-run measure_pass with coordinated_spacing
+} else if has_spacing_needs {
+    // Standalone facet: just pass coordination context to render_pass
+}
+```
+
+### Adding New Spacing Coordination
+
+To add coordination for a new spacing type:
+
+1. **Define a standard key** (e.g., `"header_height"`)
+
+2. **Produce the value** in `measure_pass`:
+   ```rust
+   spacing_needs.insert("header_height".to_string(), computed_height);
+   ```
+
+3. **Consume the value** where needed:
+   ```rust
+   if let Some(ctx) = FacetCoordinationContext::from_params(params) {
+       if let Some(height) = ctx.get_coordinated_spacing("header_height") {
+           // Use coordinated height
+       }
+   }
+   ```
+
+4. **Aggregation is automatic**: Parent facets aggregate `spacing_needs` by taking max for each key
+
+### Preventing Infinite Recursion
+
+During Phase 1.5, the outer facet passes `coordinated_spacing` with the computed gap. When the inner facet runs `measure_pass` again, it checks:
+
+```rust
+let already_computed = coord_ctx
+    .as_ref()
+    .map(|ctx| ctx.get_coordinated_spacing("inter_row_gap").is_some())
+    .unwrap_or(false);
+
+if already_computed {
+    // Skip recomputing - we're in the second pass
+    None
+} else {
+    // First pass - compute the gap
+    Some(computed_gap)
+}
+```
+
+This ensures gap computation only happens in the first pass, while the second pass uses the coordinated value.
+
 ## Current Limitations and Gaps
 
 ### 1. Guide Overflow Fallback is Conservative
@@ -239,12 +364,11 @@ For nested FacetRow:
 
 ### 3. Limited Testing of Deep Nesting
 
-Current test (test_nested_facets.rs) only covers:
-- 2 levels: FacetColumn → FacetRow
-- Cartesian leaf (not 3+ levels deep)
+Current tests cover:
+- **FacetColumn → FacetRow**: Multiple tests with various scale sharing modes
+- **FacetRow → FacetColumn**: Symmetric tests for inverted nesting order
 
-No tests for:
-- FacetRow → FacetColumn
+Still no tests for:
 - 3+ nesting levels
 - Grid facets nested inside other facets
 
@@ -254,18 +378,16 @@ Nested facet guides measure subplots synchronously during `measure_overflow`, wh
 
 **For comparison**: `measure_pass` in facet_evaluation.rs bounds concurrency to 4 to avoid overwhelming DataFusion. The guide measurement doesn't have this protection.
 
-### 5. No Explicit Coordination Between Parent and Child Overflow
+### 5. Explicit Coordination via Named Spacing (Resolved)
 
-When outer facet's guide measures overflow:
-1. It measures each subplot (which might be a facet)
-2. Inner facets measure their own subplots in the same call
-3. But there's no feedback loop - outer facet doesn't adjust its spacing based on inner facet's actual needs
+**Status**: This limitation has been addressed by the named spacing coordination system.
 
-This works because:
-- Inner facets return their total overflow (including labels/titles)
-- Outer facet uses this total as its base and adds its own content on top
+The named spacing system now provides explicit coordination:
+1. Inner facets report their spacing needs via `spacing_needs` HashMap
+2. Outer facets aggregate these needs and pass back via `coordinated_spacing`
+3. During Phase 1.5 re-measurement, inner facets use the coordinated values
 
-But it's implicit and fragile if changes break the feedback.
+This replaces the implicit overflow-based coordination with explicit named spacing, making the system more robust and extensible.
 
 ### 6. Data Override Path in Guide Measurement
 

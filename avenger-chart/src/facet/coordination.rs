@@ -317,28 +317,6 @@ pub struct FacetCoordinationContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner_facet_spacing: Option<f32>,
 
-    /// Measured row gap from outer facet's 2D overflow analysis
-    ///
-    /// When an outer FacetColumn measures its inner FacetRow subplots, it collects
-    /// per-row overflow from ALL columns and computes the required row gap using
-    /// the GridFacet algorithm: max(bottom[row_i][col] + top[row_i+1][col]).
-    ///
-    /// This measured value is passed to the inner FacetRow so it can use the correct
-    /// gap that accounts for overflow from all columns, not just its own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub measured_row_gap: Option<f32>,
-
-    /// Measured column gap from outer facet's 2D overflow analysis
-    ///
-    /// When an outer FacetRow measures its inner FacetColumn subplots, it collects
-    /// per-column overflow from ALL rows and computes the required column gap using
-    /// the GridFacet algorithm: max(right[row][col_i] + left[row][col_i+1]).
-    ///
-    /// This measured value is passed to the inner FacetColumn so it can use the correct
-    /// gap that accounts for overflow from all rows, not just its own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub measured_col_gap: Option<f32>,
-
     /// Per-column overflow measurements across all rows (for nested coordination)
     ///
     /// When outer FacetRow measures all inner FacetColumn subplots, it computes max overflow
@@ -346,6 +324,21 @@ pub struct FacetCoordinationContext {
     /// The index in this Vec corresponds to the column index within each inner facet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub col_overflow_by_index: Option<Vec<OverflowSpaceRequirement>>,
+
+    /// Coordinated spacing values aggregated from child facets
+    ///
+    /// During measure_pass, inner facets compute their spacing needs and report them in
+    /// FacetPass1Result::spacing_needs. The outer facet aggregates these by taking the max
+    /// of each named spacing value across all children, then passes the result back here
+    /// during render_pass.
+    ///
+    /// Standard keys:
+    /// - "inter_row_gap": Gap between rows (computed by inner row facet)
+    /// - "inter_col_gap": Gap between columns (computed by inner column facet)
+    /// - "legend_right": Right margin for legend alignment
+    /// - "legend_bottom": Bottom margin for legend alignment
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub coordinated_spacing: HashMap<String, f32>,
 }
 
 fn default_scale_sharing() -> ScaleSharing {
@@ -369,9 +362,8 @@ impl Default for FacetCoordinationContext {
             shared_data_extents_for_column: None,
             axis_scale_sharing: None,
             inner_facet_spacing: None,
-            measured_row_gap: None,
-            measured_col_gap: None,
             col_overflow_by_index: None,
+            coordinated_spacing: HashMap::new(),
         }
     }
 }
@@ -412,9 +404,8 @@ impl FacetCoordinationContext {
             shared_data_extents_for_column: None,
             axis_scale_sharing: None,
             inner_facet_spacing: None,
-            measured_row_gap: None,
-            measured_col_gap: None,
             col_overflow_by_index: None,
+            coordinated_spacing: HashMap::new(),
         }
     }
 
@@ -432,24 +423,6 @@ impl FacetCoordinationContext {
     /// to the outer facet so it can account for the total inner spacing.
     pub fn with_inner_facet_spacing(mut self, spacing: f32) -> Self {
         self.inner_facet_spacing = Some(spacing);
-        self
-    }
-
-    /// Builder: Set measured row gap from outer facet's 2D overflow analysis
-    ///
-    /// This enables the inner FacetRow to use a row gap that accounts for
-    /// overflow from ALL columns, not just its own.
-    pub fn with_measured_row_gap(mut self, gap: f32) -> Self {
-        self.measured_row_gap = Some(gap);
-        self
-    }
-
-    /// Builder: Set measured column gap from outer facet's 2D overflow analysis
-    ///
-    /// This enables the inner FacetColumn to use a column gap that accounts for
-    /// overflow from ALL rows, not just its own.
-    pub fn with_measured_col_gap(mut self, gap: f32) -> Self {
-        self.measured_col_gap = Some(gap);
         self
     }
 
@@ -474,6 +447,22 @@ impl FacetCoordinationContext {
     pub fn with_col_overflow(mut self, overflow: Vec<OverflowSpaceRequirement>) -> Self {
         self.col_overflow_by_index = Some(overflow);
         self
+    }
+
+    /// Builder: Set coordinated spacing values from aggregated child spacing needs
+    ///
+    /// The outer facet aggregates spacing_needs from all children by taking the max
+    /// of each key, then passes the result here for inner facets to use during render.
+    pub fn with_coordinated_spacing(mut self, spacing: HashMap<String, f32>) -> Self {
+        self.coordinated_spacing = spacing;
+        self
+    }
+
+    /// Get a coordinated spacing value by key
+    ///
+    /// Returns the aggregated spacing value if it exists, None otherwise.
+    pub fn get_coordinated_spacing(&self, key: &str) -> Option<f32> {
+        self.coordinated_spacing.get(key).copied()
     }
 
     /// Builder: Set outer position and count for proper grid coordinate computation
