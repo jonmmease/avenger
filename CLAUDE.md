@@ -128,3 +128,5 @@ When implementing new features:
    - Use `AVENGER_CHART_DEBUG_LAYOUT=1` to visualize layout bounds (magenta rectangles)
    - Use `RUST_LOG=avenger_chart::layout=debug` for layout calculations
    - See `avenger-chart/docs/DEBUGGING.md` for comprehensive debugging guide
+
+@guides/INDEX.md
