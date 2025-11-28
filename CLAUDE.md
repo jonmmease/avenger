@@ -129,4 +129,22 @@ When implementing new features:
    - Use `RUST_LOG=avenger_chart::layout=debug` for layout calculations
    - See `avenger-chart/docs/DEBUGGING.md` for comprehensive debugging guide
 
+## Using Guides in Plans
+
+When creating implementation plans (e.g., with jons-plan), include guide references as task steps to ensure relevant context is loaded:
+
+```json
+{
+  "id": "implement-facet-feature",
+  "steps": [
+    "Read guides/facet-layout-overflow-model.md",
+    "Read guides/nested-facet-implementation.md",
+    "Implement the new facet behavior",
+    "..."
+  ]
+}
+```
+
+This ensures Claude reads the relevant architectural knowledge before implementing.
+
 @guides/INDEX.md
