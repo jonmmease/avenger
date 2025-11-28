@@ -16,3 +16,4 @@ These files contain cached analysis and architectural knowledge. Read them when 
 | `guides/avenger-chart-documentation-system.md` | Working on documentation |
 | `guides/suggested-commands.md` | Need common development commands |
 | `guides/task-completion-checklist.md` | Completing tasks and ensuring quality |
+| `guides/debugging-strategy.md` | Choosing between interactive debugging and logging |
