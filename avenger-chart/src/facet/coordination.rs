@@ -293,6 +293,39 @@ pub struct FacetCoordinationContext {
     /// Value: data extents for this column/channel combination
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_data_extents_for_column: Option<HashMap<String, SerializableDataExtents>>,
+
+    /// Per-channel scale sharing modes for x/y axes (computed from channel configs)
+    ///
+    /// This enables measurement to use the same axis visibility decisions as rendering.
+    /// Unlike `inner_scale_sharing` which controls the facet dimension channel (row/column),
+    /// this field contains the scale sharing modes for data channels like x and y.
+    ///
+    /// Key: channel name (e.g., "x", "y")
+    /// Value: ScaleSharing mode for that channel
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis_scale_sharing: Option<HashMap<String, ScaleSharing>>,
+
+    /// Inner facet's explicit spacing between subplots (if configured)
+    ///
+    /// When the inner facet has explicit spacing (e.g., `spacing(20.0)`), this is
+    /// propagated to the outer facet so it can account for the total inner spacing
+    /// when allocating space for each outer subplot.
+    ///
+    /// The total inner spacing is: (inner_domain_count - 1) * inner_facet_spacing
+    /// This must be accounted for when the outer facet computes band sizes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner_facet_spacing: Option<f32>,
+
+    /// Measured row gap from outer facet's 2D overflow analysis
+    ///
+    /// When an outer FacetColumn measures its inner FacetRow subplots, it collects
+    /// per-row overflow from ALL columns and computes the required row gap using
+    /// the GridFacet algorithm: max(bottom[row_i][col] + top[row_i+1][col]).
+    ///
+    /// This measured value is passed to the inner FacetRow so it can use the correct
+    /// gap that accounts for overflow from all columns, not just its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measured_row_gap: Option<f32>,
 }
 
 fn default_scale_sharing() -> ScaleSharing {
@@ -314,6 +347,9 @@ impl Default for FacetCoordinationContext {
             shared_data_extents: None,
             shared_data_extents_by_row: None,
             shared_data_extents_for_column: None,
+            axis_scale_sharing: None,
+            inner_facet_spacing: None,
+            measured_row_gap: None,
         }
     }
 }
@@ -352,7 +388,36 @@ impl FacetCoordinationContext {
             shared_data_extents: None,
             shared_data_extents_by_row: None,
             shared_data_extents_for_column: None,
+            axis_scale_sharing: None,
+            inner_facet_spacing: None,
+            measured_row_gap: None,
         }
+    }
+
+    /// Builder: Set per-channel scale sharing modes for x/y axes
+    ///
+    /// This enables measurement to use the same axis visibility decisions as rendering.
+    pub fn with_axis_scale_sharing(mut self, sharing: HashMap<String, ScaleSharing>) -> Self {
+        self.axis_scale_sharing = Some(sharing);
+        self
+    }
+
+    /// Builder: Set inner facet's explicit spacing
+    ///
+    /// When the inner facet has custom spacing configured, this propagates it
+    /// to the outer facet so it can account for the total inner spacing.
+    pub fn with_inner_facet_spacing(mut self, spacing: f32) -> Self {
+        self.inner_facet_spacing = Some(spacing);
+        self
+    }
+
+    /// Builder: Set measured row gap from outer facet's 2D overflow analysis
+    ///
+    /// This enables the inner FacetRow to use a row gap that accounts for
+    /// overflow from ALL columns, not just its own.
+    pub fn with_measured_row_gap(mut self, gap: f32) -> Self {
+        self.measured_row_gap = Some(gap);
+        self
     }
 
     /// Builder: Set inner domain from ScalarValues

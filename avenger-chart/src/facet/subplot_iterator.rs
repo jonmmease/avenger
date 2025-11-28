@@ -204,11 +204,44 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             )
         };
 
+        // Build scale_sharing: start with parent's, then overlay this facet's, then coordination context
+        // This ensures that y-axis sharing from outer FacetRow is preserved when inner FacetCol iterates
+        let mut scale_sharing =
+            if let Some(parent_ctx) = FacetContext::from_params(&self.base_params) {
+                parent_ctx.scale_sharing.clone()
+            } else {
+                std::collections::HashMap::new()
+            };
+
+        // Overlay this facet's scale_sharing (don't overwrite parent's values)
+        for (k, v) in self.scale_sharing.iter() {
+            scale_sharing.entry(k.clone()).or_insert(*v);
+        }
+
+        // Add facet channel scale sharing from coordination context if specified
+        if let Some(ref coord_ctx) = coordination_ctx {
+            // This enables FacetContext.should_show_facet_labels() to work correctly
+            if coord_ctx.inner_scale_sharing != ScaleSharing::Free {
+                if let Some(ref channel) = coord_ctx.inner_channel {
+                    scale_sharing.insert(channel.clone(), coord_ctx.inner_scale_sharing);
+                }
+            }
+
+            // Merge axis_scale_sharing for x/y channels from coordination context
+            // This ensures FacetContext has the correct per-channel scale sharing modes
+            // computed from channel configs, enabling consistent axis visibility decisions.
+            if let Some(ref axis_sharing) = coord_ctx.axis_scale_sharing {
+                for (channel, mode) in axis_sharing {
+                    scale_sharing.insert(channel.clone(), *mode);
+                }
+            }
+        }
+
         let facet_ctx = FacetContext {
             position,
             grid_dimensions,
             unified_channels,
-            scale_sharing: self.scale_sharing.clone(),
+            scale_sharing,
         };
 
         // Merge FacetContext into params
