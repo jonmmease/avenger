@@ -276,7 +276,8 @@ pub struct FacetCoordinationContext {
     /// Inner key: channel name (e.g., "x", "y")
     /// Inner value: data extents for that row/channel combination
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shared_data_extents_by_row: Option<HashMap<String, HashMap<String, SerializableDataExtents>>>,
+    pub shared_data_extents_by_row:
+        Option<HashMap<String, HashMap<String, SerializableDataExtents>>>,
 
     /// Pre-computed data extents for SharedInColumn scale channels
     ///
@@ -326,6 +327,25 @@ pub struct FacetCoordinationContext {
     /// gap that accounts for overflow from all columns, not just its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub measured_row_gap: Option<f32>,
+
+    /// Measured column gap from outer facet's 2D overflow analysis
+    ///
+    /// When an outer FacetRow measures its inner FacetColumn subplots, it collects
+    /// per-column overflow from ALL rows and computes the required column gap using
+    /// the GridFacet algorithm: max(right[row][col_i] + left[row][col_i+1]).
+    ///
+    /// This measured value is passed to the inner FacetColumn so it can use the correct
+    /// gap that accounts for overflow from all rows, not just its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measured_col_gap: Option<f32>,
+
+    /// Per-column overflow measurements across all rows (for nested coordination)
+    ///
+    /// When outer FacetRow measures all inner FacetColumn subplots, it computes max overflow
+    /// per column index across rows. This enables consistent column widths.
+    /// The index in this Vec corresponds to the column index within each inner facet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub col_overflow_by_index: Option<Vec<OverflowSpaceRequirement>>,
 }
 
 fn default_scale_sharing() -> ScaleSharing {
@@ -350,6 +370,8 @@ impl Default for FacetCoordinationContext {
             axis_scale_sharing: None,
             inner_facet_spacing: None,
             measured_row_gap: None,
+            measured_col_gap: None,
+            col_overflow_by_index: None,
         }
     }
 }
@@ -391,6 +413,8 @@ impl FacetCoordinationContext {
             axis_scale_sharing: None,
             inner_facet_spacing: None,
             measured_row_gap: None,
+            measured_col_gap: None,
+            col_overflow_by_index: None,
         }
     }
 
@@ -420,6 +444,15 @@ impl FacetCoordinationContext {
         self
     }
 
+    /// Builder: Set measured column gap from outer facet's 2D overflow analysis
+    ///
+    /// This enables the inner FacetColumn to use a column gap that accounts for
+    /// overflow from ALL rows, not just its own.
+    pub fn with_measured_col_gap(mut self, gap: f32) -> Self {
+        self.measured_col_gap = Some(gap);
+        self
+    }
+
     /// Builder: Set inner domain from ScalarValues
     pub fn with_inner_domain(mut self, domain: Vec<ScalarValue>) -> Self {
         self.inner_domain = Some(
@@ -434,6 +467,12 @@ impl FacetCoordinationContext {
     /// Builder: Set row overflow by index
     pub fn with_row_overflow(mut self, overflow: Vec<OverflowSpaceRequirement>) -> Self {
         self.row_overflow_by_index = Some(overflow);
+        self
+    }
+
+    /// Builder: Set column overflow by index
+    pub fn with_col_overflow(mut self, overflow: Vec<OverflowSpaceRequirement>) -> Self {
+        self.col_overflow_by_index = Some(overflow);
         self
     }
 
@@ -677,12 +716,18 @@ mod tests {
 
     #[test]
     fn test_coordination_context_serialization() {
-        let ctx =
-            FacetCoordinationContext::new("row", ScaleSharing::Shared, GuideOwnership::Edge, 2, 3, 2)
-                .with_inner_domain(vec![
-                    ScalarValue::Utf8(Some("a".to_string())),
-                    ScalarValue::Utf8(Some("b".to_string())),
-                ]);
+        let ctx = FacetCoordinationContext::new(
+            "row",
+            ScaleSharing::Shared,
+            GuideOwnership::Edge,
+            2,
+            3,
+            2,
+        )
+        .with_inner_domain(vec![
+            ScalarValue::Utf8(Some("a".to_string())),
+            ScalarValue::Utf8(Some("b".to_string())),
+        ]);
 
         // Test to_params
         let params = ctx.to_params();
@@ -725,8 +770,14 @@ mod tests {
         assert!(ctx_suppress.should_suppress_guides());
         assert!(!ctx_suppress.should_render_guides());
 
-        let ctx_edge =
-            FacetCoordinationContext::new("row", ScaleSharing::Shared, GuideOwnership::Edge, 2, 3, 3);
+        let ctx_edge = FacetCoordinationContext::new(
+            "row",
+            ScaleSharing::Shared,
+            GuideOwnership::Edge,
+            2,
+            3,
+            3,
+        );
         assert!(!ctx_edge.should_suppress_guides());
         assert!(ctx_edge.should_render_guides());
 
@@ -741,10 +792,7 @@ mod tests {
         // Test string
         let s = SerializableDomainValue::from_scalar(&ScalarValue::Utf8(Some("test".to_string())));
         assert!(matches!(s, SerializableDomainValue::String(_)));
-        assert_eq!(
-            s.to_scalar(),
-            ScalarValue::Utf8(Some("test".to_string()))
-        );
+        assert_eq!(s.to_scalar(), ScalarValue::Utf8(Some("test".to_string())));
 
         // Test int
         let i = SerializableDomainValue::from_scalar(&ScalarValue::Int64(Some(42)));

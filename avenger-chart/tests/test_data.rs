@@ -6,6 +6,14 @@
 use datafusion::dataframe::DataFrame;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::*;
+use std::path::PathBuf;
+
+/// Get the absolute path to a test data file
+fn test_data_path(filename: &str) -> String {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let path: PathBuf = [manifest_dir, "tests", "data", filename].iter().collect();
+    path.to_string_lossy().to_string()
+}
 
 /// Load the Seattle weather dataset
 ///
@@ -14,7 +22,7 @@ use datafusion::prelude::*;
 /// - Columns: date, precipitation, temp_max, temp_min, wind, weather
 pub async fn seattle_weather(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
     ctx.read_parquet(
-        "tests/data/seattle-weather.parquet",
+        &test_data_path("seattle-weather.parquet"),
         ParquetReadOptions::default(),
     )
     .await
@@ -26,8 +34,11 @@ pub async fn seattle_weather(ctx: &SessionContext) -> Result<DataFrame, DataFusi
 /// - Rows: ~560
 /// - Columns: symbol, date, price
 pub async fn stocks(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
-    ctx.read_parquet("tests/data/stocks.parquet", ParquetReadOptions::default())
-        .await
+    ctx.read_parquet(
+        &test_data_path("stocks.parquet"),
+        ParquetReadOptions::default(),
+    )
+    .await
 }
 
 /// Load the Iris flower dataset
@@ -36,8 +47,11 @@ pub async fn stocks(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> 
 /// - Rows: 150
 /// - Columns: sepal_length, sepal_width, petal_length, petal_width, species
 pub async fn iris(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
-    ctx.read_parquet("tests/data/iris.parquet", ParquetReadOptions::default())
-        .await
+    ctx.read_parquet(
+        &test_data_path("iris.parquet"),
+        ParquetReadOptions::default(),
+    )
+    .await
 }
 
 /// Load the cars dataset
@@ -46,8 +60,11 @@ pub async fn iris(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
 /// - Rows: 406
 /// - Columns: Name, Miles_per_Gallon, Cylinders, Displacement, Horsepower, Weight, Acceleration, Year, Origin
 pub async fn cars(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
-    ctx.read_parquet("tests/data/cars.parquet", ParquetReadOptions::default())
-        .await
+    ctx.read_parquet(
+        &test_data_path("cars.parquet"),
+        ParquetReadOptions::default(),
+    )
+    .await
 }
 
 /// Load the barley dataset
@@ -56,8 +73,11 @@ pub async fn cars(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
 /// - Rows: 120
 /// - Columns: yield, variety, year, site
 pub async fn barley(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
-    ctx.read_parquet("tests/data/barley.parquet", ParquetReadOptions::default())
-        .await
+    ctx.read_parquet(
+        &test_data_path("barley.parquet"),
+        ParquetReadOptions::default(),
+    )
+    .await
 }
 
 /// Load the airports dataset
@@ -66,8 +86,11 @@ pub async fn barley(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> 
 /// - Rows: 3,376
 /// - Columns: iata, name, city, state, country, latitude, longitude
 pub async fn airports(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
-    ctx.read_parquet("tests/data/airports.parquet", ParquetReadOptions::default())
-        .await
+    ctx.read_parquet(
+        &test_data_path("airports.parquet"),
+        ParquetReadOptions::default(),
+    )
+    .await
 }
 
 /// Load the CO2 concentration dataset
@@ -77,7 +100,7 @@ pub async fn airports(ctx: &SessionContext) -> Result<DataFrame, DataFusionError
 /// - Columns: Date, CO2 (parts per million)
 pub async fn co2_concentration(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
     ctx.read_parquet(
-        "tests/data/co2-concentration.parquet",
+        &test_data_path("co2-concentration.parquet"),
         ParquetReadOptions::default(),
     )
     .await
@@ -90,7 +113,7 @@ pub async fn co2_concentration(ctx: &SessionContext) -> Result<DataFrame, DataFu
 /// - Columns: id (county FIPS), rate (by month)
 pub async fn unemployment(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
     ctx.read_parquet(
-        "tests/data/unemployment.parquet",
+        &test_data_path("unemployment.parquet"),
         ParquetReadOptions::default(),
     )
     .await
@@ -104,8 +127,11 @@ pub async fn unemployment(ctx: &SessionContext) -> Result<DataFrame, DataFusionE
 ///   MPAA Rating, Running Time min, Distributor, Source, Major Genre, Creative Type, Director,
 ///   Rotten Tomatoes Rating, IMDB Rating, IMDB Votes
 pub async fn movies(ctx: &SessionContext) -> Result<DataFrame, DataFusionError> {
-    ctx.read_parquet("tests/data/movies.parquet", ParquetReadOptions::default())
-        .await
+    ctx.read_parquet(
+        &test_data_path("movies.parquet"),
+        ParquetReadOptions::default(),
+    )
+    .await
 }
 
 #[cfg(test)]

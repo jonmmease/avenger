@@ -114,15 +114,16 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
         use crate::facet::context::FacetContext;
 
         // Get unified_channels: merge parent's with this dimension's
-        let unified_channels = if let Some(parent_ctx) = FacetContext::from_params(&self.base_params) {
-            // Merge parent's unified_channels with this dimension's
-            let mut merged = parent_ctx.unified_channels;
-            merged.extend(DimConfig::unified_channels());
-            merged
-        } else {
-            // No parent context, use just this dimension's channels
-            DimConfig::unified_channels()
-        };
+        let unified_channels =
+            if let Some(parent_ctx) = FacetContext::from_params(&self.base_params) {
+                // Merge parent's unified_channels with this dimension's
+                let mut merged = parent_ctx.unified_channels;
+                merged.extend(DimConfig::unified_channels());
+                merged
+            } else {
+                // No parent context, use just this dimension's channels
+                DimConfig::unified_channels()
+            };
 
         // Check for FacetCoordinationContext from outer facet (for nested facets)
         // This provides outer_position and outer_count for computing proper grid positions
@@ -171,8 +172,10 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                         coord_ctx.outer_position,
                         coord_ctx.outer_count,
                         coord_ctx.inner_domain_count,
-                        pos.0, pos.1,
-                        dims.0, dims.1
+                        pos.0,
+                        pos.1,
+                        dims.0,
+                        dims.1
                     );
                 }
                 (pos, dims)
@@ -181,8 +184,7 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
                         "SubplotIterator: channel={} inner_channel={:?} - NOT FOR US, using default",
-                        current_channel,
-                        coord_ctx.inner_channel
+                        current_channel, coord_ctx.inner_channel
                     );
                 }
                 (

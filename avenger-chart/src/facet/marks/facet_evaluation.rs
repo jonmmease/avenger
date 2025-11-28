@@ -70,17 +70,28 @@ struct FacetPass1Result {
     /// Fallback scale builder for empty cells (built from full dataset)
     fallback_builder: Option<ScaleBuilder>,
     /// Shared data extents from coordination context for nested facets (ScaleSharing::Shared)
-    shared_data_extents: Option<HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
+    shared_data_extents:
+        Option<HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
     /// Per-row shared data extents from coordination context for nested facets (ScaleSharing::SharedInRow)
-    shared_data_extents_by_row: Option<HashMap<String, HashMap<String, crate::facet::coordination::SerializableDataExtents>>>,
+    shared_data_extents_by_row: Option<
+        HashMap<String, HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
+    >,
     /// Per-column shared data extents from coordination context for nested facets (ScaleSharing::SharedInColumn)
-    shared_data_extents_for_column: Option<HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
+    shared_data_extents_for_column:
+        Option<HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
     /// Measured row gap from 2D overflow analysis (for FacetColumn with nested FacetRow)
     ///
     /// When the outer facet is a FacetColumn and contains a nested FacetRow, this field
     /// contains the computed row gap using GridFacet's 2D algorithm. This ensures the inner
     /// FacetRow uses a row gap that accounts for overflow from ALL columns, not just its own.
     measured_row_gap: Option<f32>,
+
+    /// Measured column gap from 2D overflow analysis (for FacetRow with nested FacetColumn)
+    ///
+    /// When the outer facet is a FacetRow and contains a nested FacetColumn, this field
+    /// contains the computed column gap using GridFacet's 2D algorithm. This ensures the inner
+    /// FacetColumn uses a column gap that accounts for overflow from ALL rows, not just its own.
+    measured_col_gap: Option<f32>,
 }
 
 /// Measure facet layout and overflow (Pass 1) while keeping the outer future small
@@ -238,11 +249,9 @@ where
         // Build a new domain array from the coordination domain values
         use datafusion::arrow::array::StringArray;
         use std::sync::Arc as StdArc;
-        let domain_strings: Vec<String> = domain_vals
-            .iter()
-            .map(|v| v.to_string())
-            .collect();
-        let domain_array = StdArc::new(StringArray::from(domain_strings)) as datafusion::arrow::array::ArrayRef;
+        let domain_strings: Vec<String> = domain_vals.iter().map(|v| v.to_string()).collect();
+        let domain_array =
+            StdArc::new(StringArray::from(domain_strings)) as datafusion::arrow::array::ArrayRef;
 
         // Create a new configured scale with the coordination domain
         let updated = configured.clone().with_domain(domain_array);
@@ -349,8 +358,11 @@ where
             // Merge iteration params (these take precedence for iteration-specific values)
             params_base.extend(iteration.params.clone());
             // Update coordination context with outer position for this iteration
-            let params_base =
-                FacetCoordinationContext::update_outer_position_in_params(&params_base, idx, outer_count);
+            let params_base = FacetCoordinationContext::update_outer_position_in_params(
+                &params_base,
+                idx,
+                outer_count,
+            );
             let scale_sharing_by_channel = scale_sharing_by_channel.clone();
             let initial_shared_scales = initial_shared_scales.clone();
             let fallback_builder = fallback_builder.clone();
@@ -447,8 +459,19 @@ where
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "measure_pass gap[{}->{}]: gap={:.3} overflow[{}]={{top={:.3},bottom={:.3},left={:.3},right={:.3}}} overflow[{}]={{top={:.3},bottom={:.3},left={:.3},right={:.3}}}",
-                i, i+1, gap, i, overflow_measurements[i].top, overflow_measurements[i].bottom, overflow_measurements[i].left, overflow_measurements[i].right,
-                i+1, overflow_measurements[i+1].top, overflow_measurements[i+1].bottom, overflow_measurements[i+1].left, overflow_measurements[i+1].right
+                i,
+                i + 1,
+                gap,
+                i,
+                overflow_measurements[i].top,
+                overflow_measurements[i].bottom,
+                overflow_measurements[i].left,
+                overflow_measurements[i].right,
+                i + 1,
+                overflow_measurements[i + 1].top,
+                overflow_measurements[i + 1].bottom,
+                overflow_measurements[i + 1].left,
+                overflow_measurements[i + 1].right
             );
         }
         max_required_gap = max_required_gap.max(gap);
@@ -456,21 +479,38 @@ where
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
             "measure_pass final: channel={} max_required_gap={:.3} num_subplots={}",
-            DimConfig::channel_name(), max_required_gap, overflow_measurements.len()
+            DimConfig::channel_name(),
+            max_required_gap,
+            overflow_measurements.len()
         );
     }
 
-    // Check if outer facet provided a pre-computed row gap via coordination context
-    // This happens when FacetColumn measures all columns and computes 2D row gap
-    let rounded_gap = if let Some(measured_gap) = coordination_context
-        .as_ref()
-        .and_then(|ctx| ctx.measured_row_gap)
-    {
+    // Check if outer facet provided a pre-computed gap via coordination context
+    // For FacetRow: check measured_row_gap (computed by outer FacetColumn)
+    // For FacetColumn: check measured_col_gap (computed by outer FacetRow)
+    let measured_gap_from_outer = if DimConfig::is_row_facet() {
+        // FacetRow: use measured_row_gap from outer FacetColumn
+        coordination_context
+            .as_ref()
+            .and_then(|ctx| ctx.measured_row_gap)
+    } else {
+        // FacetColumn: use measured_col_gap from outer FacetRow
+        coordination_context
+            .as_ref()
+            .and_then(|ctx| ctx.measured_col_gap)
+    };
+
+    let rounded_gap = if let Some(measured_gap) = measured_gap_from_outer {
         // Use the pre-computed gap from outer facet's 2D overflow analysis
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            let gap_type = if DimConfig::is_row_facet() {
+                "measured_row_gap"
+            } else {
+                "measured_col_gap"
+            };
             eprintln!(
-                "  Using measured_row_gap from coordination context: {:.1} (own computed: {:.1})",
-                measured_gap, max_required_gap
+                "  Using {} from coordination context: {:.1} (own computed: {:.1})",
+                gap_type, measured_gap, max_required_gap
             );
         }
         measured_gap
@@ -616,7 +656,9 @@ where
 
         if already_computed {
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!("  measure_pass for FacetColumn: skipping measured_row_gap computation (already in context)");
+                eprintln!(
+                    "  measure_pass for FacetColumn: skipping measured_row_gap computation (already in context)"
+                );
             }
             None
         } else {
@@ -628,7 +670,9 @@ where
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
                     "  measure_pass for FacetColumn: has_nested_row_facet={} overflow_measurements.len()={} coord_ctx={:?}",
-                    has_nested_row_facet, overflow_measurements.len(), coord_ctx.as_ref().map(|c| c.inner_channel.as_deref())
+                    has_nested_row_facet,
+                    overflow_measurements.len(),
+                    coord_ctx.as_ref().map(|c| c.inner_channel.as_deref())
                 );
             }
 
@@ -655,8 +699,9 @@ where
                         .as_ref()
                         .and_then(|ctx| ctx.inner_facet_spacing)
                         .unwrap_or_else(|| {
-                            let facet_ctx =
-                                context.theme.facet_context_with_params(context.params.clone());
+                            let facet_ctx = context
+                                .theme
+                                .facet_context_with_params(context.params.clone());
                             context
                                 .theme
                                 .query(&facet_ctx, "spacing")
@@ -696,6 +741,76 @@ where
         None
     };
 
+    // Compute measured_col_gap for FacetRow with nested FacetColumn (symmetric with measured_row_gap)
+    let measured_col_gap = if DimConfig::is_row_facet() {
+        let coord_ctx = FacetCoordinationContext::from_params(&context.params);
+
+        // If measured_col_gap is already set, we're in the second pass - don't recompute
+        let already_computed = coord_ctx
+            .as_ref()
+            .map(|ctx| ctx.measured_col_gap.is_some())
+            .unwrap_or(false);
+
+        if already_computed {
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  measure_pass for FacetRow: skipping measured_col_gap computation (already in context)"
+                );
+            }
+            None
+        } else {
+            let has_nested_col_facet = coord_ctx
+                .as_ref()
+                .map(|ctx| ctx.inner_channel.as_deref() == Some("column"))
+                .unwrap_or(false);
+
+            if has_nested_col_facet && !overflow_measurements.is_empty() {
+                let inner_domain_count = coord_ctx
+                    .as_ref()
+                    .map(|ctx| ctx.inner_domain_count)
+                    .unwrap_or(0);
+
+                if inner_domain_count > 1 {
+                    let spacing = coord_ctx
+                        .as_ref()
+                        .and_then(|ctx| ctx.inner_facet_spacing)
+                        .unwrap_or_else(|| {
+                            let facet_ctx = context
+                                .theme
+                                .facet_context_with_params(context.params.clone());
+                            context
+                                .theme
+                                .query(&facet_ctx, "spacing")
+                                .and_then(|v| v.as_number())
+                                .map(|n| n as f32)
+                                .unwrap_or(DEFAULT_FACET_SPACING)
+                        });
+
+                    // For column gap: use maximum right overflow across rows
+                    let max_right = overflow_measurements
+                        .iter()
+                        .map(|o| o.right)
+                        .fold(0.0f32, f32::max);
+
+                    let gap = (max_right + spacing).ceil();
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "  Computed measured_col_gap: {:.1} (max_right={:.1}, spacing={:.1}, inner_domain_count={})",
+                            gap, max_right, spacing, inner_domain_count
+                        );
+                    }
+                    Some(gap)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(FacetPass1Result {
         overflow_measurements,
         final_dimension_scale,
@@ -708,6 +823,7 @@ where
         shared_data_extents_by_row,
         shared_data_extents_for_column,
         measured_row_gap,
+        measured_col_gap,
     })
 }
 
@@ -791,12 +907,22 @@ where
     // Wrap shared_data_extents_by_row in Arc to avoid cloning the large HashMap for each work item
     // This reduces async future size and prevents stack overflow
     let shared_data_extents_by_row: Arc<
-        Option<std::collections::HashMap<String, std::collections::HashMap<String, crate::facet::coordination::SerializableDataExtents>>>,
+        Option<
+            std::collections::HashMap<
+                String,
+                std::collections::HashMap<
+                    String,
+                    crate::facet::coordination::SerializableDataExtents,
+                >,
+            >,
+        >,
     > = Arc::new(pass1.shared_data_extents_by_row.clone());
 
     // Wrap shared_data_extents_for_column in Arc for same reasons
     let shared_data_extents_for_column: Arc<
-        Option<std::collections::HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
+        Option<
+            std::collections::HashMap<String, crate::facet::coordination::SerializableDataExtents>,
+        >,
     > = Arc::new(pass1.shared_data_extents_for_column.clone());
 
     let results: Vec<_> = stream::iter(work_items)
@@ -1341,7 +1467,9 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         if let Some(ref axis_sharing) = incoming_coord_ctx.axis_scale_sharing {
             for (channel, mode) in axis_sharing {
                 // Only add if not already present (don't override explicit channel settings)
-                scale_sharing_by_channel.entry(channel.clone()).or_insert(*mode);
+                scale_sharing_by_channel
+                    .entry(channel.clone())
+                    .or_insert(*mode);
             }
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
@@ -1404,22 +1532,37 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     )
     .await?;
 
-    // Phase 2: If measured_row_gap was computed, re-run measure_pass with updated context
-    // This allows inner FacetRow to use the correct row gap from 2D overflow analysis
-    let (final_pass, final_context) = if let Some(measured_gap) = pass1.measured_row_gap {
+    // Phase 2: If measured_row_gap or measured_col_gap was computed, re-run measure_pass with updated context
+    // This allows inner facets to use the correct gap from 2D overflow analysis
+    let has_measured_gap = pass1.measured_row_gap.is_some() || pass1.measured_col_gap.is_some();
+    let (final_pass, final_context) = if has_measured_gap {
         if let Some(mut coord_ctx) =
             FacetCoordinationContext::from_params(&effective_context.params)
         {
-            coord_ctx = coord_ctx.with_measured_row_gap(measured_gap);
+            // Apply measured_row_gap if computed (for FacetColumn with nested FacetRow)
+            if let Some(row_gap) = pass1.measured_row_gap {
+                coord_ctx = coord_ctx.with_measured_row_gap(row_gap);
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "  Re-running measure_pass with measured_row_gap={:.1} in coordination context",
+                        row_gap
+                    );
+                }
+            }
+
+            // Apply measured_col_gap if computed (for FacetRow with nested FacetColumn)
+            if let Some(col_gap) = pass1.measured_col_gap {
+                coord_ctx = coord_ctx.with_measured_col_gap(col_gap);
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "  Re-running measure_pass with measured_col_gap={:.1} in coordination context",
+                        col_gap
+                    );
+                }
+            }
+
             let mut new_params = context.params.clone();
             new_params.extend(coord_ctx.to_params());
-
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "  Re-running measure_pass with measured_row_gap={:.1} in coordination context",
-                    measured_gap
-                );
-            }
 
             let updated_ctx = RenderContext::new(
                 context.theme.clone(),
@@ -1430,7 +1573,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 context.scales.clone(),
             );
 
-            // Re-run measure_pass with updated context so inner FacetRow uses correct gap
+            // Re-run measure_pass with updated context so inner facets use correct gap
             let pass2 = measure_pass::<DimConfig, _>(
                 facet_coord,
                 compiled_subplot,
@@ -1550,7 +1693,7 @@ async fn detect_nested_facet_and_compute_coordination(
     let should_share_domain = match configured_scale_sharing {
         ScaleSharing::Shared => true,
         ScaleSharing::Free => false,
-        ScaleSharing::SharedInRow => inner_is_row_facet,      // Share rows across columns
+        ScaleSharing::SharedInRow => inner_is_row_facet, // Share rows across columns
         ScaleSharing::SharedInColumn => !inner_is_row_facet, // Share columns across rows
     };
 
@@ -1598,14 +1741,9 @@ async fn detect_nested_facet_and_compute_coordination(
                 let channels = mark.data_context().channels();
                 if let Some(channel_value) = channels.get(channel_name) {
                     if let Some(channel_expr) = channel_value.expr(ctx) {
-                        let share_mode = channel_value
-                            .get_share_mode()
-                            .unwrap_or(ScaleSharing::Free);
-                        channel_info.push((
-                            channel_name.to_string(),
-                            channel_expr,
-                            share_mode,
-                        ));
+                        let share_mode =
+                            channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
+                        channel_info.push((channel_name.to_string(), channel_expr, share_mode));
                         break;
                     }
                 }
@@ -1617,9 +1755,7 @@ async fn detect_nested_facet_and_compute_coordination(
             match share_mode {
                 ScaleSharing::Shared => {
                     // Compute from full dataset
-                    if let Ok(extents) =
-                        compute_numeric_extents(df, channel_expr, ctx).await
-                    {
+                    if let Ok(extents) = compute_numeric_extents(df, channel_expr, ctx).await {
                         shared_data_extents.insert(channel_name.clone(), extents);
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             eprintln!(
@@ -1638,7 +1774,10 @@ async fn detect_nested_facet_and_compute_coordination(
                         for row_val in &domain_vals {
                             // Filter dataframe to this row value
                             let row_key = scalar_to_string_key(row_val);
-                            let filter_df = df.clone().filter(expr.clone().eq(datafusion::logical_expr::lit(row_val.clone())));
+                            let filter_df = df.clone().filter(
+                                expr.clone()
+                                    .eq(datafusion::logical_expr::lit(row_val.clone())),
+                            );
                             if let Ok(filter_df) = filter_df {
                                 if let Ok(extents) =
                                     compute_numeric_extents(&filter_df, channel_expr, ctx).await
@@ -1693,9 +1832,7 @@ async fn detect_nested_facet_and_compute_coordination(
             );
         }
     } else if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "  Nested facet domain sharing DISABLED: each cell will compute own domain"
-        );
+        eprintln!("  Nested facet domain sharing DISABLED: each cell will compute own domain");
     }
 
     // Add shared data extents if we computed any
@@ -1742,8 +1879,7 @@ async fn detect_nested_facet_and_compute_coordination(
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "  Added inner_facet_spacing to coord context: {} (inner_domain_count={})",
-                spacing,
-                coord_ctx.inner_domain_count
+                spacing, coord_ctx.inner_domain_count
             );
         }
     }

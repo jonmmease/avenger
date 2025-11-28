@@ -66,40 +66,44 @@ fn compute_scale_sharing_for_nested_facet(
 
     // Check if any mark is a nested facet and extract x/y sharing from its subplot
     for m in marks {
+        let mark_type = m.mark_type();
+
         // Check for nested FacetRow (inside FacetCol)
-        if let Some(facet_row) = m.as_any().downcast_ref::<CompiledFacetRow>() {
-            // Found a nested FacetRow - extract x/y sharing from its subplot's marks
-            let inner_marks = &facet_row.compiled_subplot.marks;
-            for inner_mark in inner_marks {
-                let channels = inner_mark.data_context().channels();
-                for channel_name in ["x", "y"] {
-                    if let Some(channel_value) = channels.get(channel_name) {
-                        let share_mode = channel_value
-                            .get_share_mode()
-                            .unwrap_or(ScaleSharing::Free);
-                        scale_sharing.insert(channel_name.to_string(), share_mode);
+        if mark_type == "facet_row" {
+            if let Some(facet_row) = m.as_any().downcast_ref::<CompiledFacetRow>() {
+                // Found a nested FacetRow - extract x/y sharing from its subplot's marks
+                let inner_marks = &facet_row.compiled_subplot.marks;
+                for inner_mark in inner_marks {
+                    let channels = inner_mark.data_context().channels();
+                    for channel_name in ["x", "y"] {
+                        if let Some(channel_value) = channels.get(channel_name) {
+                            let share_mode =
+                                channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
+                            scale_sharing.insert(channel_name.to_string(), share_mode);
+                        }
                     }
                 }
+                break;
             }
-            break;
         }
 
         // Check for nested FacetCol (inside FacetRow)
-        if let Some(facet_col) = m.as_any().downcast_ref::<CompiledFacetCol>() {
-            // Found a nested FacetCol - extract x/y sharing from its subplot's marks
-            let inner_marks = &facet_col.compiled_subplot.marks;
-            for inner_mark in inner_marks {
-                let channels = inner_mark.data_context().channels();
-                for channel_name in ["x", "y"] {
-                    if let Some(channel_value) = channels.get(channel_name) {
-                        let share_mode = channel_value
-                            .get_share_mode()
-                            .unwrap_or(ScaleSharing::Free);
-                        scale_sharing.insert(channel_name.to_string(), share_mode);
+        if mark_type == "facet_col" {
+            if let Some(facet_col) = m.as_any().downcast_ref::<CompiledFacetCol>() {
+                // Found a nested FacetCol - extract x/y sharing from its subplot's marks
+                let inner_marks = &facet_col.compiled_subplot.marks;
+                for inner_mark in inner_marks {
+                    let channels = inner_mark.data_context().channels();
+                    for channel_name in ["x", "y"] {
+                        if let Some(channel_value) = channels.get(channel_name) {
+                            let share_mode =
+                                channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
+                            scale_sharing.insert(channel_name.to_string(), share_mode);
+                        }
                     }
                 }
+                break;
             }
-            break;
         }
     }
 
@@ -167,7 +171,11 @@ impl FacetRowGuide {
                 // This is the nested facet case where the inner facet needs to measure its Cartesian subplots
 
                 // Get the facet expression from the channel
-                let facet_expr = if let Some(cv) = source.data.channels().get(RowDimensionConfig::channel_name()) {
+                let facet_expr = if let Some(cv) = source
+                    .data
+                    .channels()
+                    .get(RowDimensionConfig::channel_name())
+                {
                     cv.expr(ctx)
                 } else {
                     None
@@ -180,7 +188,9 @@ impl FacetRowGuide {
                     let mut filtered_domain_vals = Vec::new();
                     for domain_val in &domain_vals {
                         use datafusion::logical_expr::lit;
-                        let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
+                        let filter_df = df
+                            .clone()
+                            .filter(expr.clone().eq(lit(domain_val.clone())))?;
                         // Check if there's any data for this domain value
                         let count = filter_df.clone().count().await?;
                         if count > 0 {
@@ -219,7 +229,9 @@ impl FacetRowGuide {
                         use crate::facet::context::FacetContext;
                         use crate::facet::coordination::FacetCoordinationContext;
                         use datafusion::logical_expr::lit;
-                        let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
+                        let filter_df = df
+                            .clone()
+                            .filter(expr.clone().eq(lit(domain_val.clone())))?;
 
                         // Create FacetContext with correct position for THIS row
                         let measure_params = {
@@ -246,7 +258,9 @@ impl FacetRowGuide {
                             // from channel configs, ensuring measurement uses same visibility
                             // decisions as rendering.
                             // Also extract inner_domain_count for proper grid dimensions.
-                            let grid_num_rows = if let Some(coord_ctx) = FacetCoordinationContext::from_params(params) {
+                            let grid_num_rows = if let Some(coord_ctx) =
+                                FacetCoordinationContext::from_params(params)
+                            {
                                 if let Some(ref axis_sharing) = coord_ctx.axis_scale_sharing {
                                     for (channel, mode) in axis_sharing {
                                         merged_scale_sharing.insert(channel.clone(), *mode);
@@ -350,7 +364,11 @@ impl FacetRowGuide {
                 }
 
                 // Get the facet expression from the channel
-                let facet_expr = if let Some(cv) = source.data.channels().get(RowDimensionConfig::channel_name()) {
+                let facet_expr = if let Some(cv) = source
+                    .data
+                    .channels()
+                    .get(RowDimensionConfig::channel_name())
+                {
                     cv.expr(ctx)
                 } else {
                     None
@@ -377,7 +395,8 @@ impl FacetRowGuide {
 
                     // Compute scale sharing from marks so subplots know which axes to measure
                     // Use nested facet version to correctly handle FacetCol inside FacetRow
-                    let mut scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
+                    let mut scale_sharing =
+                        compute_scale_sharing_for_nested_facet(&source.subplot.marks);
 
                     // Merge axis_scale_sharing from FacetCoordinationContext
                     // This contains the per-channel scale sharing modes (x, y) computed
@@ -394,7 +413,9 @@ impl FacetRowGuide {
 
                     for (row_idx, domain_val) in domain_vals.iter().enumerate() {
                         use datafusion::logical_expr::lit;
-                        let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
+                        let filter_df = df
+                            .clone()
+                            .filter(expr.clone().eq(lit(domain_val.clone())))?;
 
                         // Create FacetContext with correct position for this subplot
                         // so that should_show_title/should_show_labels work correctly
@@ -402,7 +423,7 @@ impl FacetRowGuide {
                             use crate::facet::context::FacetContext;
                             let mut updated_params = params.clone();
                             let facet_ctx = FacetContext {
-                                position: (row_idx, 0),  // Correct row position
+                                position: (row_idx, 0), // Correct row position
                                 grid_dimensions: (num_rows, 1),
                                 unified_channels: RowDimensionConfig::unified_channels(),
                                 scale_sharing: scale_sharing.clone(),
@@ -676,25 +697,25 @@ impl CompiledGuide for FacetRowGuide {
         // Measure unified y title height (rotated width) - but only if parent hasn't unified y
         let unified_y_height = if !parent_unified_y {
             if let Some(y_title) = &self.unified_y_title {
-            let y_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("title");
-            let y_font_px = theme.font_size(&y_ctx).unwrap_or(12.0_f32);
-            let y_family_owned = theme
-                .font_family(&y_ctx)
-                .unwrap_or_else(|| "sans-serif".to_string());
-            let cfg_y = avenger_text::measurement::TextMeasurementConfig {
-                text: y_title,
-                font: y_family_owned.as_str(),
-                font_size: y_font_px,
-                font_weight: &avenger_text::types::FontWeight::Name(
-                    avenger_text::types::FontWeightNameSpec::Normal,
-                ),
-                font_style: &avenger_text::types::FontStyle::Normal,
-            };
-            let b_y =
-                avenger_text::measurement::default_text_measurer().measure_text_bounds(&cfg_y);
-            b_y.height + 1.0
+                let y_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                    .child("facet")
+                    .child("title");
+                let y_font_px = theme.font_size(&y_ctx).unwrap_or(12.0_f32);
+                let y_family_owned = theme
+                    .font_family(&y_ctx)
+                    .unwrap_or_else(|| "sans-serif".to_string());
+                let cfg_y = avenger_text::measurement::TextMeasurementConfig {
+                    text: y_title,
+                    font: y_family_owned.as_str(),
+                    font_size: y_font_px,
+                    font_weight: &avenger_text::types::FontWeight::Name(
+                        avenger_text::types::FontWeightNameSpec::Normal,
+                    ),
+                    font_style: &avenger_text::types::FontStyle::Normal,
+                };
+                let b_y =
+                    avenger_text::measurement::default_text_measurer().measure_text_bounds(&cfg_y);
+                b_y.height + 1.0
             } else {
                 0.0
             }
@@ -748,7 +769,19 @@ impl CompiledGuide for FacetRowGuide {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "FacetRowGuide measure_overflow: left_final={:.3} right_final={:.3} (max_left={:.3} adj_max_left={:.3} max_right={:.3} adj_max_right={:.3} estimated_right={:.3} adj_estimated_right={:.3} unified_y_height={:.3} gap_axis={:.3} axis_on_right={} is_left_edge={} is_right_edge={})",
-                left_final, right_final, max_left, adjusted_max_left, max_right, adjusted_max_right, estimated_right, adjusted_estimated_right, unified_y_height, gap_axis, axis_on_right, is_left_edge, is_right_edge
+                left_final,
+                right_final,
+                max_left,
+                adjusted_max_left,
+                max_right,
+                adjusted_max_right,
+                estimated_right,
+                adjusted_estimated_right,
+                unified_y_height,
+                gap_axis,
+                axis_on_right,
+                is_left_edge,
+                is_right_edge
             );
         }
         Ok(OverflowSpaceRequirement {
@@ -1002,62 +1035,68 @@ impl CompiledGuide for FacetRowGuide {
                     );
                 }
             } else {
-            let y_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("title");
-            let y_font_px = theme.font_size(&y_ctx).unwrap_or(12.0_f32);
-            let y_color = theme.text_color(&y_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
-            let y_family_owned = theme
-                .font_family(&y_ctx)
-                .unwrap_or_else(|| "sans-serif".to_string());
-            // Check actual y-axis position from subplot guide (not inferred from label position)
-            let axis_on_right = if let Some(source) = self.facet_sources.first() {
-                if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                    match guide.axis_position("y") {
-                        Some(crate::cartesian::axis::AxisPosition::Right) => true,
-                        Some(crate::cartesian::axis::AxisPosition::Left) => false,
-                        // Default to left (standard y-axis position) when not specified
-                        None | _ => false,
+                let y_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                    .child("facet")
+                    .child("title");
+                let y_font_px = theme.font_size(&y_ctx).unwrap_or(12.0_f32);
+                let y_color = theme.text_color(&y_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                let y_family_owned = theme
+                    .font_family(&y_ctx)
+                    .unwrap_or_else(|| "sans-serif".to_string());
+                // Check actual y-axis position from subplot guide (not inferred from label position)
+                let axis_on_right = if let Some(source) = self.facet_sources.first() {
+                    if let Some(guide) = source.subplot.compiled_guide.as_ref() {
+                        match guide.axis_position("y") {
+                            Some(crate::cartesian::axis::AxisPosition::Right) => true,
+                            Some(crate::cartesian::axis::AxisPosition::Left) => false,
+                            // Default to left (standard y-axis position) when not specified
+                            None | _ => false,
+                        }
+                    } else {
+                        false
                     }
                 } else {
                     false
-                }
-            } else {
-                false
-            };
-            let gap = 6.0_f32;
-            // Position title adjacent to subplot axis labels (max_left/right_child is just label space)
-            // Center the title in the gap between labels and plot edge
-            let x_bottom = if axis_on_right {
-                plot_bounds.x + plot_width + max_right_child + gap
-            } else {
-                plot_bounds.x - max_left_child - gap
-            };
-            let y_center = plot_bounds.y + 0.5 * plot_height;
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "FacetRowGuide RENDER unified_y_title='{}' at x={:.3} y={:.3} (plot_bounds.x={:.3} max_left_child={:.3} gap={:.3} axis_on_right={})",
-                    y_title, x_bottom, y_center, plot_bounds.x, max_left_child, gap, axis_on_right
-                );
-            }
-            let y_mark = SceneTextMark {
-                text: y_title.clone().into(),
-                x: x_bottom.into(),
-                y: y_center.into(),
-                align: TextAlign::Center.into(),
-                baseline: TextBaseline::Bottom.into(),
-                font: y_family_owned.clone().into(),
-                font_size: y_font_px.into(),
-                angle: if axis_on_right {
-                    90.0_f32.into()
+                };
+                let gap = 6.0_f32;
+                // Position title adjacent to subplot axis labels (max_left/right_child is just label space)
+                // Center the title in the gap between labels and plot edge
+                let x_bottom = if axis_on_right {
+                    plot_bounds.x + plot_width + max_right_child + gap
                 } else {
-                    (-90.0_f32).into()
-                },
-                color: avenger_common::types::ColorOrGradient::Color(y_color).into(),
-                zindex: Some(6),
-                ..Default::default()
-            };
-            marks.push(SceneMark::Text(StdArc::new(y_mark)));
+                    plot_bounds.x - max_left_child - gap
+                };
+                let y_center = plot_bounds.y + 0.5 * plot_height;
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetRowGuide RENDER unified_y_title='{}' at x={:.3} y={:.3} (plot_bounds.x={:.3} max_left_child={:.3} gap={:.3} axis_on_right={})",
+                        y_title,
+                        x_bottom,
+                        y_center,
+                        plot_bounds.x,
+                        max_left_child,
+                        gap,
+                        axis_on_right
+                    );
+                }
+                let y_mark = SceneTextMark {
+                    text: y_title.clone().into(),
+                    x: x_bottom.into(),
+                    y: y_center.into(),
+                    align: TextAlign::Center.into(),
+                    baseline: TextBaseline::Bottom.into(),
+                    font: y_family_owned.clone().into(),
+                    font_size: y_font_px.into(),
+                    angle: if axis_on_right {
+                        90.0_f32.into()
+                    } else {
+                        (-90.0_f32).into()
+                    },
+                    color: avenger_common::types::ColorOrGradient::Color(y_color).into(),
+                    zindex: Some(6),
+                    ..Default::default()
+                };
+                marks.push(SceneMark::Text(StdArc::new(y_mark)));
             }
         }
 
@@ -1211,7 +1250,11 @@ impl FacetColGuide {
                 }
 
                 // Get the facet expression from the channel
-                let facet_expr = if let Some(cv) = source.data.channels().get(ColumnDimensionConfig::channel_name()) {
+                let facet_expr = if let Some(cv) = source
+                    .data
+                    .channels()
+                    .get(ColumnDimensionConfig::channel_name())
+                {
                     cv.expr(ctx)
                 } else {
                     None
@@ -1239,11 +1282,14 @@ impl FacetColGuide {
 
                     // Compute scale sharing from marks so subplots know which axes to measure
                     // Use nested facet version to correctly handle FacetRow inside FacetCol
-                    let computed_scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
+                    let computed_scale_sharing =
+                        compute_scale_sharing_for_nested_facet(&source.subplot.marks);
 
                     for (col_idx, domain_val) in domain_vals.iter().enumerate() {
                         use datafusion::logical_expr::lit;
-                        let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
+                        let filter_df = df
+                            .clone()
+                            .filter(expr.clone().eq(lit(domain_val.clone())))?;
 
                         // Create FacetContext with correct position for this subplot
                         // so that should_show_title/should_show_labels work correctly
@@ -1276,7 +1322,7 @@ impl FacetColGuide {
                                 unified_channels.insert("y".to_string());
                             }
                             let facet_ctx = FacetContext {
-                                position: (parent_row, col_idx),  // Correct row and column position
+                                position: (parent_row, col_idx), // Correct row and column position
                                 grid_dimensions: (parent_num_rows, num_cols),
                                 unified_channels,
                                 scale_sharing: merged_scale_sharing,
@@ -1335,7 +1381,11 @@ impl FacetColGuide {
                 }
 
                 // Get the facet expression from the channel
-                let facet_expr = if let Some(cv) = source.data.channels().get(ColumnDimensionConfig::channel_name()) {
+                let facet_expr = if let Some(cv) = source
+                    .data
+                    .channels()
+                    .get(ColumnDimensionConfig::channel_name())
+                {
                     cv.expr(ctx)
                 } else {
                     None
@@ -1363,11 +1413,14 @@ impl FacetColGuide {
 
                     // Compute scale sharing from marks so subplots know which axes to measure
                     // Use nested facet version to correctly handle FacetRow inside FacetCol
-                    let scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
+                    let scale_sharing =
+                        compute_scale_sharing_for_nested_facet(&source.subplot.marks);
 
                     for (col_idx, domain_val) in domain_vals.iter().enumerate() {
                         use datafusion::logical_expr::lit;
-                        let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
+                        let filter_df = df
+                            .clone()
+                            .filter(expr.clone().eq(lit(domain_val.clone())))?;
 
                         // Create FacetContext with correct position for this subplot
                         // so that should_show_title/should_show_labels work correctly
@@ -1413,7 +1466,7 @@ impl FacetColGuide {
                                 unified_channels.insert("y".to_string());
                             }
                             let facet_ctx = FacetContext {
-                                position: (parent_row, col_idx),  // Correct row and column position
+                                position: (parent_row, col_idx), // Correct row and column position
                                 grid_dimensions: (parent_num_rows, num_cols),
                                 unified_channels,
                                 scale_sharing: merged_scale_sharing,
@@ -1787,7 +1840,12 @@ impl CompiledGuide for FacetColGuide {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "FACET_COL (edge-measured): place_below={} top_max={:.3} bottom_max={:.3} facet_label_space={:.3} x_axis_title_space={:.3} y_axis_title_space={:.3}",
-                place_below, top_max, bottom_max, facet_label_space, x_axis_title_space, y_axis_title_space
+                place_below,
+                top_max,
+                bottom_max,
+                facet_label_space,
+                x_axis_title_space,
+                y_axis_title_space
             );
             eprintln!(
                 "FACET_COL (edge-measured) result: left={:.3} right={:.3} top={:.3} bottom={:.3}",
@@ -2886,177 +2944,181 @@ impl CompiledGuide for GridFacetGuide {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "GridFacetGuide evaluate: has_precomputed_overflow={} subplot_max(T={:.3} B={:.3} L={:.3} R={:.3})",
-                has_precomputed_overflow, subplot_max_top, subplot_max_bottom, subplot_max_left, subplot_max_right
+                has_precomputed_overflow,
+                subplot_max_top,
+                subplot_max_bottom,
+                subplot_max_left,
+                subplot_max_right
             );
         }
 
         // If no pre-computed overflow, fall back to measuring (won't include legend dimensions)
         if !has_precomputed_overflow {
-        if let Some(source) = self.facet_sources.first() {
-            let row_expr = source
-                .data
-                .channels()
-                .get("row")
-                .and_then(|cv| cv.expr(ctx))
-                .ok_or_else(|| {
+            if let Some(source) = self.facet_sources.first() {
+                let row_expr = source
+                    .data
+                    .channels()
+                    .get("row")
+                    .and_then(|cv| cv.expr(ctx))
+                    .ok_or_else(|| {
+                        crate::error::AvengerChartError::InternalError(
+                            "Facet 'row' channel not found".into(),
+                        )
+                    })?;
+                let col_expr = source
+                    .data
+                    .channels()
+                    .get("column")
+                    .and_then(|cv| cv.expr(ctx))
+                    .ok_or_else(|| {
+                        crate::error::AvengerChartError::InternalError(
+                            "Facet 'col' channel not found".into(),
+                        )
+                    })?;
+
+                let df = source.data.dataframe_with_context(ctx).ok_or_else(|| {
                     crate::error::AvengerChartError::InternalError(
-                        "Facet 'row' channel not found".into(),
+                        "Facet guide could not access data".into(),
                     )
                 })?;
-            let col_expr = source
-                .data
-                .channels()
-                .get("column")
-                .and_then(|cv| cv.expr(ctx))
-                .ok_or_else(|| {
-                    crate::error::AvengerChartError::InternalError(
-                        "Facet 'col' channel not found".into(),
-                    )
-                })?;
 
-            let df = source.data.dataframe_with_context(ctx).ok_or_else(|| {
-                crate::error::AvengerChartError::InternalError(
-                    "Facet guide could not access data".into(),
-                )
-            })?;
+                // Compute scale sharing for ALL channels used by marks (not just coord channels)
+                // This ensures non-coordinate channels like fill, color, size also get per-subplot scales
+                let mut scale_sharing_by_channel = std::collections::HashMap::new();
 
-            // Compute scale sharing for ALL channels used by marks (not just coord channels)
-            // This ensures non-coordinate channels like fill, color, size also get per-subplot scales
-            let mut scale_sharing_by_channel = std::collections::HashMap::new();
-
-            // Collect all unique channel names from all marks
-            let mut all_channels = std::collections::HashSet::new();
-            for m in &source.subplot.marks {
-                for ch in m.data_context().channels().keys() {
-                    all_channels.insert(ch.as_str());
-                }
-            }
-
-            // Determine sharing mode for each channel
-            for ch in all_channels {
-                let mut mode = ScaleSharing::Free;
+                // Collect all unique channel names from all marks
+                let mut all_channels = std::collections::HashSet::new();
                 for m in &source.subplot.marks {
-                    if let Some(cv) = m.data_context().channels().get(ch) {
-                        if let Some(share_mode) = cv.get_share_mode() {
-                            mode = match (mode, share_mode) {
-                                (ScaleSharing::Free, new_mode) => new_mode,
-                                (ScaleSharing::Shared, _) => ScaleSharing::Shared,
-                                (_, ScaleSharing::Shared) => ScaleSharing::Shared,
-                                (existing, _) => existing,
-                            };
-                        }
+                    for ch in m.data_context().channels().keys() {
+                        all_channels.insert(ch.as_str());
                     }
                 }
-                scale_sharing_by_channel.insert(ch.to_string(), mode);
-            }
 
-            use crate::facet::dimension_config::{ColumnDimensionConfig, RowDimensionConfig};
-            use crate::facet::subplot_iterator::SubplotIterator;
+                // Determine sharing mode for each channel
+                for ch in all_channels {
+                    let mut mode = ScaleSharing::Free;
+                    for m in &source.subplot.marks {
+                        if let Some(cv) = m.data_context().channels().get(ch) {
+                            if let Some(share_mode) = cv.get_share_mode() {
+                                mode = match (mode, share_mode) {
+                                    (ScaleSharing::Free, new_mode) => new_mode,
+                                    (ScaleSharing::Shared, _) => ScaleSharing::Shared,
+                                    (_, ScaleSharing::Shared) => ScaleSharing::Shared,
+                                    (existing, _) => existing,
+                                };
+                            }
+                        }
+                    }
+                    scale_sharing_by_channel.insert(ch.to_string(), mode);
+                }
 
-            let num_rows = row_domain_vals.len();
-            let num_cols = col_domain_vals.len();
-            let band_w = plot_width / num_cols.max(1) as f32;
-            let band_h = plot_height / num_rows.max(1) as f32;
+                use crate::facet::dimension_config::{ColumnDimensionConfig, RowDimensionConfig};
+                use crate::facet::subplot_iterator::SubplotIterator;
 
-            // Build base scales from full DataFrame (used as fallback for empty cells)
-            let base_scales = source
-                .subplot
-                .build_scales_for_dataframe(&df, band_w, band_h, ctx, params)
-                .await?;
+                let num_rows = row_domain_vals.len();
+                let num_cols = col_domain_vals.len();
+                let band_w = plot_width / num_cols.max(1) as f32;
+                let band_h = plot_height / num_rows.max(1) as f32;
 
-            // Use nested SubplotIterators to iterate over grid cells
-            let row_iter = SubplotIterator::<RowDimensionConfig>::new(
-                row_domain_vals.clone(),
-                params.clone(),
-                scale_sharing_by_channel.clone(),
-            );
+                // Build base scales from full DataFrame (used as fallback for empty cells)
+                let base_scales = source
+                    .subplot
+                    .build_scales_for_dataframe(&df, band_w, band_h, ctx, params)
+                    .await?;
 
-            for row_iteration in row_iter {
-                let col_iter = SubplotIterator::<ColumnDimensionConfig>::new(
-                    col_domain_vals.clone(),
+                // Use nested SubplotIterators to iterate over grid cells
+                let row_iter = SubplotIterator::<RowDimensionConfig>::new(
+                    row_domain_vals.clone(),
                     params.clone(),
                     scale_sharing_by_channel.clone(),
                 );
 
-                for col_iteration in col_iter {
-                    // Merge row and col contexts into unified GridFacet context
-                    let merged_params = crate::facet::marks::facet::merge_grid_facet_contexts(
-                        &row_iteration,
-                        &col_iteration,
-                        num_rows,
-                        num_cols,
+                for row_iteration in row_iter {
+                    let col_iter = SubplotIterator::<ColumnDimensionConfig>::new(
+                        col_domain_vals.clone(),
+                        params.clone(),
+                        scale_sharing_by_channel.clone(),
                     );
 
-                    let filter_df = df
-                        .clone()
-                        .filter(row_expr.clone().eq(datafusion::logical_expr::lit(
-                            row_iteration.facet_value.clone(),
-                        )))?
-                        .filter(col_expr.clone().eq(datafusion::logical_expr::lit(
-                            col_iteration.facet_value.clone(),
-                        )))?;
+                    for col_iteration in col_iter {
+                        // Merge row and col contexts into unified GridFacet context
+                        let merged_params = crate::facet::marks::facet::merge_grid_facet_contexts(
+                            &row_iteration,
+                            &col_iteration,
+                            num_rows,
+                            num_cols,
+                        );
 
-                    // Check if this cell has any data
-                    let cell_count = filter_df.clone().count().await?;
-                    let cell_is_empty = cell_count == 0;
+                        let filter_df = df
+                            .clone()
+                            .filter(row_expr.clone().eq(datafusion::logical_expr::lit(
+                                row_iteration.facet_value.clone(),
+                            )))?
+                            .filter(col_expr.clone().eq(datafusion::logical_expr::lit(
+                                col_iteration.facet_value.clone(),
+                            )))?;
 
-                    // Build scales for this subplot
-                    let mut inner_scales = base_scales.clone();
+                        // Check if this cell has any data
+                        let cell_count = filter_df.clone().count().await?;
+                        let cell_is_empty = cell_count == 0;
 
-                    // For independent (free) channels, rebuild from cell data if cell is non-empty
-                    if !cell_is_empty {
-                        for (ch, sharing_mode) in &scale_sharing_by_channel {
-                            if *sharing_mode != ScaleSharing::Shared {
-                                // This channel is independent - rebuild from filtered data
-                                let facet_scales = source
-                                    .subplot
-                                    .build_scales_for_dataframe(
-                                        &filter_df,
-                                        band_w,
-                                        band_h,
-                                        ctx,
-                                        &merged_params,
-                                    )
-                                    .await?;
+                        // Build scales for this subplot
+                        let mut inner_scales = base_scales.clone();
 
-                                if let Some(s) = facet_scales.get(ch) {
-                                    inner_scales.insert(ch.clone(), s.clone());
+                        // For independent (free) channels, rebuild from cell data if cell is non-empty
+                        if !cell_is_empty {
+                            for (ch, sharing_mode) in &scale_sharing_by_channel {
+                                if *sharing_mode != ScaleSharing::Shared {
+                                    // This channel is independent - rebuild from filtered data
+                                    let facet_scales = source
+                                        .subplot
+                                        .build_scales_for_dataframe(
+                                            &filter_df,
+                                            band_w,
+                                            band_h,
+                                            ctx,
+                                            &merged_params,
+                                        )
+                                        .await?;
+
+                                    if let Some(s) = facet_scales.get(ch) {
+                                        inner_scales.insert(ch.clone(), s.clone());
+                                    }
                                 }
                             }
                         }
+
+                        // Use build_plot_components to get accurate overflow including legends
+                        use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
+
+                        let provider = PrebuiltScaleProvider {
+                            scales: inner_scales.clone(),
+                        };
+
+                        let components = source
+                            .subplot
+                            .build_plot_components(
+                                band_w,
+                                band_h,
+                                ctx,
+                                &merged_params,
+                                &provider,
+                                crate::plot::compiled::EvaluationMode::Measure,
+                                Some(&filter_df),
+                                true, // dimensions_are_plot_area
+                            )
+                            .await?;
+
+                        let overflow = components.overflow.unwrap_or_default();
+
+                        subplot_max_top = subplot_max_top.max(overflow.top);
+                        subplot_max_bottom = subplot_max_bottom.max(overflow.bottom);
+                        // Track left/right overflow across ALL columns (legends can vary)
+                        subplot_max_left = subplot_max_left.max(overflow.left);
+                        subplot_max_right = subplot_max_right.max(overflow.right);
                     }
-
-                    // Use build_plot_components to get accurate overflow including legends
-                    use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
-
-                    let provider = PrebuiltScaleProvider {
-                        scales: inner_scales.clone(),
-                    };
-
-                    let components = source
-                        .subplot
-                        .build_plot_components(
-                            band_w,
-                            band_h,
-                            ctx,
-                            &merged_params,
-                            &provider,
-                            crate::plot::compiled::EvaluationMode::Measure,
-                            Some(&filter_df),
-                            true, // dimensions_are_plot_area
-                        )
-                        .await?;
-
-                    let overflow = components.overflow.unwrap_or_default();
-
-                    subplot_max_top = subplot_max_top.max(overflow.top);
-                    subplot_max_bottom = subplot_max_bottom.max(overflow.bottom);
-                    // Track left/right overflow across ALL columns (legends can vary)
-                    subplot_max_left = subplot_max_left.max(overflow.left);
-                    subplot_max_right = subplot_max_right.max(overflow.right);
                 }
             }
-        }
         } // end if !has_precomputed_overflow
 
         // Determine row label placement (opposite side of y-axis, like FacetRow)

@@ -703,16 +703,17 @@ async fn measure_grid_overflow(
             .await?;
 
         // Measure both guide-only overflow (for alignment) and total overflow (for spacing)
-        let (guide_only_overflow, total_overflow, _legend_info, legend_positions) = compiled_subplot
-            .measure_with_scales(
-                rect.width,
-                rect.height,
-                session_context,
-                &cell_params,
-                &inner_scales,
-                Some(&filter_df),
-            )
-            .await?;
+        let (guide_only_overflow, total_overflow, _legend_info, legend_positions) =
+            compiled_subplot
+                .measure_with_scales(
+                    rect.width,
+                    rect.height,
+                    session_context,
+                    &cell_params,
+                    &inner_scales,
+                    Some(&filter_df),
+                )
+                .await?;
 
         guide_only_grid[row_idx][col_idx] = guide_only_overflow;
         total_overflow_grid[row_idx][col_idx] = total_overflow;
@@ -723,7 +724,14 @@ async fn measure_grid_overflow(
 }
 
 /// Calculate row padding from 2D overflow grid
-fn calculate_row_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> f32 {
+///
+/// For each row boundary (i, i+1), computes the maximum gap needed:
+/// `gap[i] = max(bottom[row_i][col] + top[row_i+1][col])` across all columns
+///
+/// This ensures consistent row spacing that accounts for overflow from all columns.
+pub(crate) fn calculate_row_padding(
+    overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>],
+) -> f32 {
     let num_rows = overflow_grid.len();
     if num_rows <= 1 {
         return 0.0;
@@ -750,7 +758,14 @@ fn calculate_row_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequire
 }
 
 /// Calculate column padding from 2D overflow grid
-fn calculate_col_padding(overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>]) -> f32 {
+///
+/// For each column boundary (j, j+1), computes the maximum gap needed:
+/// `gap[j] = max(right[row][col_j] + left[row][col_j+1])` across all rows
+///
+/// This ensures consistent column spacing that accounts for overflow from all rows.
+pub(crate) fn calculate_col_padding(
+    overflow_grid: &[Vec<crate::guide::OverflowSpaceRequirement>],
+) -> f32 {
     let num_cols = overflow_grid.first().map(|row| row.len()).unwrap_or(0);
     if num_cols <= 1 {
         return 0.0;
@@ -1349,8 +1364,8 @@ impl CompiledMark for CompiledFacetGrid {
             // The spacing calculation (calculate_grid_padding) uses actual per-subplot overflow,
             // so rendering must also use actual overflow for consistency - except for
             // legend sides where alignment is needed.
-            use datafusion::common::ScalarValue;
             use crate::legend::LegendPosition;
+            use datafusion::common::ScalarValue;
             if legend_positions.contains(&LegendPosition::Right) {
                 merged_params.insert(
                     "__unified_overflow_right".to_string(),
