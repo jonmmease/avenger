@@ -73,6 +73,13 @@ fn compute_band_layout(positions: &[f32], extent: f32, padding_px: Option<f32>) 
 
     let effective_bandwidth = (base_bandwidth - padding_px.unwrap_or(0.0)).max(0.0);
 
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "compute_band_layout: positions={:?} base_bandwidth={:.3} padding_px={:?} effective_bandwidth={:.3}",
+            positions, base_bandwidth, padding_px, effective_bandwidth
+        );
+    }
+
     // Input positions are already starts (not centers), so use them directly
     let starts: Vec<f32> = positions.to_vec();
 

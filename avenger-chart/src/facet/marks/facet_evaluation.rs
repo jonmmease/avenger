@@ -111,6 +111,14 @@ where
     let configured = dimension_scale.configured();
     let initial_bandwidth = band::bandwidth(&configured.config)?;
 
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "measure_pass initial: channel={} initial_bandwidth={:.3}",
+            DimConfig::channel_name(),
+            initial_bandwidth
+        );
+    }
+
     // ========== COORDINATION CONTEXT EXTRACTION ==========
     // Extract coordination context early since we need shared_data_extents for scale building
     let coordination_context = FacetCoordinationContext::from_params(&context.params);
@@ -571,6 +579,14 @@ where
 
     let final_dimension_scale = ConfiguredScaleWithSpec::new(updated_spec, updated_configured);
 
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "measure_pass building final_dimension_scale: channel={} rounded_gap={:.3}",
+            DimConfig::channel_name(),
+            rounded_gap
+        );
+    }
+
     let mut updated_scales = HashMap::with_capacity(1);
     updated_scales.insert(
         DimConfig::channel_name().to_string(),
@@ -579,6 +595,14 @@ where
 
     let final_configured = final_dimension_scale.configured();
     let final_positions = final_configured.scale_scalars_to_numeric(&domain_vals)?;
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "measure_pass final_positions: channel={} positions={:?}",
+            DimConfig::channel_name(),
+            final_positions
+        );
+    }
 
     let mut temp_position_channels = HashMap::new();
     temp_position_channels.insert(
@@ -1559,10 +1583,29 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         );
 
         // Re-run measure_pass with updated context so inner facets use correct gap
+        // IMPORTANT: Use pass1.final_dimension_scale which has padding_inner_px applied,
+        // so subplot widths will be correct (e.g., 163px instead of 165px with 3px gap)
+        //
+        // Also create an updated facet_coord with padding_px so that compute_band_layout
+        // correctly subtracts the gap from the step size to get the actual bandwidth.
+        let padding_inner_px = pass1
+            .final_dimension_scale
+            .configured()
+            .config
+            .options
+            .get("padding_inner_px")
+            .and_then(|v| v.as_f32().ok())
+            .unwrap_or(0.0);
+        let updated_padding_spec = crate::coords::PaddingSpec::Single {
+            padding_px: padding_inner_px,
+            overflow: pass1.overflow_measurements.clone(),
+        };
+        let updated_facet_coord = facet_coord.with_measured_padding(&updated_padding_spec);
+
         let pass2 = measure_pass::<DimConfig, _>(
-            facet_coord,
+            updated_facet_coord.as_ref(),
             compiled_subplot,
-            dimension_scale,
+            &pass1.final_dimension_scale,
             &scale_sharing_by_channel,
             &df,
             &facet_expr,
