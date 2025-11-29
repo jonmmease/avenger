@@ -32,14 +32,26 @@ async fn iris_with_binned_petal_width() -> datafusion::dataframe::DataFrame {
     .unwrap()
 }
 
-/// Build a runtime with larger stack for nested facet tests
-fn build_test_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(1)
-        .thread_stack_size(64 * 1024 * 1024) // 64 MB
-        .enable_all()
-        .build()
-        .expect("build runtime")
+/// Run an async block on a thread with larger stack for nested facet tests.
+/// The current_thread runtime runs everything on its own thread, which we create
+/// with a large stack using std::thread::Builder.
+fn run_with_large_stack<F, Fut>(f: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + 'static,
+{
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024) // 64 MB
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build runtime");
+            rt.block_on(f());
+        })
+        .expect("failed to spawn thread")
+        .join()
+        .expect("thread panicked");
 }
 
 // =============================================================================
@@ -52,9 +64,7 @@ fn build_test_runtime() -> tokio::runtime::Runtime {
 /// With Free scale sharing, each subplot computes its own scale domain.
 #[test]
 fn test_nested_free_row_free_scales() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -103,9 +113,7 @@ fn test_nested_free_row_free_scales() {
 /// Tests that nested facets work correctly with Line marks.
 #[test]
 fn test_nested_free_row_with_line_mark() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -148,9 +156,7 @@ fn test_nested_free_row_with_line_mark() {
 /// Tests that custom spacing is respected in nested facets.
 #[test]
 fn test_nested_free_row_custom_spacing() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -199,9 +205,7 @@ fn test_nested_free_row_custom_spacing() {
 /// Tests shared scale domains for both x and y channels across all subplots.
 #[test]
 fn test_nested_free_row_shared_both() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -248,9 +252,7 @@ fn test_nested_free_row_shared_both() {
 /// Tests shared scale domain for x channel only, free y scales.
 #[test]
 fn test_nested_free_row_shared_x() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -294,9 +296,7 @@ fn test_nested_free_row_shared_x() {
 /// Tests shared scale domain for y channel only, free x scales.
 #[test]
 fn test_nested_free_row_shared_y() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -344,9 +344,7 @@ fn test_nested_free_row_shared_y() {
 /// Basic nested facet test without explicit scale sharing (default behavior).
 #[test]
 fn test_nested_free_row_basic() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
         let iris = ctx
@@ -401,9 +399,7 @@ fn test_nested_free_row_basic() {
 /// Tests facet titles on nested facets.
 #[test]
 fn test_nested_free_row_with_titles() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -452,9 +448,7 @@ fn test_nested_free_row_with_titles() {
 /// Tests unified axis titles with shared scales in nested facets.
 #[test]
 fn test_nested_free_row_with_unified_titles() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -513,9 +507,7 @@ fn test_nested_free_row_with_unified_titles() {
 /// Tests x axis positioned at top in nested facets.
 #[test]
 fn test_nested_free_row_x_axis_top() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -558,9 +550,7 @@ fn test_nested_free_row_x_axis_top() {
 /// Tests y axis positioned at right in nested facets.
 #[test]
 fn test_nested_free_row_y_axis_right() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -603,9 +593,7 @@ fn test_nested_free_row_y_axis_right() {
 /// Tests hybrid scale sharing: x shared, y free.
 #[test]
 fn test_nested_free_row_hybrid_sharing() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -662,9 +650,7 @@ fn test_nested_free_row_hybrid_sharing() {
 /// This is useful when you want to compare values across columns within each row.
 #[test]
 fn test_nested_free_row_shared_in_row_both() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -714,9 +700,7 @@ fn test_nested_free_row_shared_in_row_both() {
 /// Each row shares x domain across columns, but y is free per cell.
 #[test]
 fn test_nested_free_row_shared_in_row_x() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -763,9 +747,7 @@ fn test_nested_free_row_shared_in_row_x() {
 /// Each row shares y domain across columns, but x is free per cell.
 #[test]
 fn test_nested_free_row_shared_in_row_y() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -812,9 +794,7 @@ fn test_nested_free_row_shared_in_row_y() {
 /// This tests combining different sharing modes on different channels.
 #[test]
 fn test_nested_free_row_mixed_shared_and_shared_in_row() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -871,9 +851,7 @@ fn test_nested_free_row_mixed_shared_and_shared_in_row() {
 /// This is useful when you want to compare values across rows within each column.
 #[test]
 fn test_nested_free_row_shared_in_column_both() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -923,9 +901,7 @@ fn test_nested_free_row_shared_in_column_both() {
 /// Each column shares x domain across rows, but y is free per cell.
 #[test]
 fn test_nested_free_row_shared_in_column_x() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -972,9 +948,7 @@ fn test_nested_free_row_shared_in_column_x() {
 /// Each column shares y domain across rows, but x is free per cell.
 #[test]
 fn test_nested_free_row_shared_in_column_y() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1021,9 +995,7 @@ fn test_nested_free_row_shared_in_column_y() {
 /// This tests combining SharedInColumn and SharedInRow on different channels.
 #[test]
 fn test_nested_free_row_mixed_shared_in_column_and_shared_in_row() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1101,9 +1073,7 @@ async fn iris_with_length_bin() -> datafusion::dataframe::DataFrame {
 /// - Cells with no data show empty plots with axes
 #[test]
 fn test_nested_shared_row_basic() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_length_bin().await;
 
@@ -1149,9 +1119,7 @@ fn test_nested_shared_row_basic() {
 /// Port of test_grid_facet_with_titles with shared row domain
 #[test]
 fn test_nested_shared_row_with_titles() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1200,9 +1168,7 @@ fn test_nested_shared_row_with_titles() {
 /// Port of test_grid_facet_shared_both with shared row domain
 #[test]
 fn test_nested_shared_row_shared_both() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1249,9 +1215,7 @@ fn test_nested_shared_row_shared_both() {
 /// Port of test_grid_facet_free_scales with shared row domain
 #[test]
 fn test_nested_shared_row_free_scales() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1298,9 +1262,7 @@ fn test_nested_shared_row_free_scales() {
 /// Port of test_grid_facet_shared_x with shared row domain
 #[test]
 fn test_nested_shared_row_shared_x() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1347,9 +1309,7 @@ fn test_nested_shared_row_shared_x() {
 /// Port of test_grid_facet_shared_y with shared row domain
 #[test]
 fn test_nested_shared_row_shared_y() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1396,9 +1356,7 @@ fn test_nested_shared_row_shared_y() {
 /// Port of test_grid_facet_with_unified_titles with shared row domain
 #[test]
 fn test_nested_shared_row_with_unified_titles() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1453,9 +1411,7 @@ fn test_nested_shared_row_with_unified_titles() {
 /// Port of test_grid_facet_x_axis_top with shared row domain
 #[test]
 fn test_nested_shared_row_x_axis_top() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1500,9 +1456,7 @@ fn test_nested_shared_row_x_axis_top() {
 /// Port of test_grid_facet_y_axis_right with shared row domain
 #[test]
 fn test_nested_shared_row_y_axis_right() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1547,9 +1501,7 @@ fn test_nested_shared_row_y_axis_right() {
 /// Port of test_grid_facet_with_line_mark with shared row domain
 #[test]
 fn test_nested_shared_row_with_line_mark() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1592,9 +1544,7 @@ fn test_nested_shared_row_with_line_mark() {
 /// Port of test_grid_facet_custom_spacing with shared row domain
 #[test]
 fn test_nested_shared_row_custom_spacing() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1639,9 +1589,7 @@ fn test_nested_shared_row_custom_spacing() {
 /// Port of test_grid_facet_hybrid_sharing with shared row domain
 #[test]
 fn test_nested_shared_row_hybrid_sharing() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
@@ -1703,9 +1651,7 @@ fn test_nested_shared_row_hybrid_sharing() {
 /// The columns should align vertically across rows.
 #[test]
 fn test_nested_shared_col_shared_both() {
-    let rt = build_test_runtime();
-
-    rt.block_on(async {
+    run_with_large_stack(|| async {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 

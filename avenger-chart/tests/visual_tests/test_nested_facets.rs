@@ -15,63 +15,70 @@ use datafusion::prelude::*;
 #[test]
 fn test_col_with_nested_row() {
     // Build a runtime with a larger worker stack to avoid stack overflow in nested renders.
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(1)
-        .thread_stack_size(64 * 1024 * 1024) // 64 MB
-        .enable_all()
-        .build()
-        .expect("build runtime");
+    // The current_thread runtime runs everything on its own thread, which we create
+    // with a large stack using std::thread::Builder.
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024) // 64 MB
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build runtime");
 
-    rt.block_on(async {
-        let ctx = SessionContext::new();
-        let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
-        let iris = ctx
-            .read_parquet(iris_path, ParquetReadOptions::default())
-            .await
-            .expect("load iris dataset");
+            rt.block_on(async {
+                let ctx = SessionContext::new();
+                let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+                let iris = ctx
+                    .read_parquet(iris_path, ParquetReadOptions::default())
+                    .await
+                    .expect("load iris dataset");
 
-        // Add binned petal_width column
-        let df = iris
-            .with_column(
-                "petal_width_bin",
-                when(col("petal_width").lt_eq(lit(0.8)), lit("narrow"))
-                    .when(col("petal_width").lt_eq(lit(1.7)), lit("medium"))
-                    .otherwise(lit("wide"))
-                    .unwrap(),
-            )
-            .unwrap();
+                // Add binned petal_width column
+                let df = iris
+                    .with_column(
+                        "petal_width_bin",
+                        when(col("petal_width").lt_eq(lit(0.8)), lit("narrow"))
+                            .when(col("petal_width").lt_eq(lit(1.7)), lit("medium"))
+                            .otherwise(lit("wide"))
+                            .unwrap(),
+                    )
+                    .unwrap();
 
-        // Outer facet: Column by species (3 columns)
-        // Inner facet: Row by petal_width_bin (variable rows per column)
-        // Innermost: Scatter plot of sepal dimensions
-        let outer = Plot::<FacetColumn>::new()
-            .data(df.clone())
-            .canvas_size(800, 600)
-            .mark(
-                Facet::new()
-                    .col_with(col("species"), |c| c.facet(|f| f.title("Species")))
-                    .subplot(
-                        // Middle layer: FacetRow (data flows from parent via data_override)
-                        Plot::<FacetRow>::new().mark(
-                            Facet::new()
-                                .row_with(col("petal_width_bin"), |c| {
-                                    c.facet(|f| f.title("Petal Width"))
-                                })
-                                .subplot(
-                                    // Innermost: Cartesian plot (receives doubly-filtered data)
-                                    Plot::<Cartesian>::new().mark(
-                                        Symbol::new()
-                                            .x(col("sepal_length"))
-                                            .y(col("sepal_width"))
-                                            .size(25.0)
-                                            .fill("#4682b4"),
-                                    ),
+                // Outer facet: Column by species (3 columns)
+                // Inner facet: Row by petal_width_bin (variable rows per column)
+                // Innermost: Scatter plot of sepal dimensions
+                let outer = Plot::<FacetColumn>::new()
+                    .data(df.clone())
+                    .canvas_size(800, 600)
+                    .mark(
+                        Facet::new()
+                            .col_with(col("species"), |c| c.facet(|f| f.title("Species")))
+                            .subplot(
+                                // Middle layer: FacetRow (data flows from parent via data_override)
+                                Plot::<FacetRow>::new().mark(
+                                    Facet::new()
+                                        .row_with(col("petal_width_bin"), |c| {
+                                            c.facet(|f| f.title("Petal Width"))
+                                        })
+                                        .subplot(
+                                            // Innermost: Cartesian plot (receives doubly-filtered data)
+                                            Plot::<Cartesian>::new().mark(
+                                                Symbol::new()
+                                                    .x(col("sepal_length"))
+                                                    .y(col("sepal_width"))
+                                                    .size(25.0)
+                                                    .fill("#4682b4"),
+                                            ),
+                                        ),
                                 ),
-                        ),
-                    ),
-            );
+                            ),
+                    );
 
-        let compiled = outer.compile(&ctx).await.expect("compile nested facets");
-        assert_visual_match_default(&compiled, &ctx, None, "facet", "nested_col_row").await;
-    });
+                let compiled = outer.compile(&ctx).await.expect("compile nested facets");
+                assert_visual_match_default(&compiled, &ctx, None, "facet", "nested_col_row").await;
+            });
+        })
+        .expect("failed to spawn thread")
+        .join()
+        .expect("thread panicked");
 }

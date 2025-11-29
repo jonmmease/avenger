@@ -25,6 +25,7 @@ pub mod test_eight_types_symbol;
 pub mod test_facet_column;
 pub mod test_facet_grid;
 pub mod test_facet_legends;
+pub mod test_facet_overflow_overlap;
 pub mod test_facet_partial_sharing;
 pub mod test_facet_row;
 pub mod test_facet_row_free;

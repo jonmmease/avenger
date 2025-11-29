@@ -10,7 +10,7 @@ mod overflow;
 
 pub use coordinate_guide::{CompiledGuide, CoordinateGuide, FacetDirection, UnifiableChannelInfo};
 pub use no_guide::NoGuide;
-pub use overflow::OverflowSpaceRequirement;
+pub use overflow::{spacing_keys, MeasurementResult, OverflowSpaceRequirement};
 
 use std::collections::HashSet;
 

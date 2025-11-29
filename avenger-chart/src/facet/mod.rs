@@ -4,6 +4,7 @@ pub mod coord;
 pub mod coordination;
 pub mod dimension_config;
 pub mod guide;
+pub mod guide_measurement;
 pub mod guide_utils;
 pub mod keys;
 pub mod marks;

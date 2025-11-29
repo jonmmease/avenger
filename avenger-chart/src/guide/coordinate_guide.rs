@@ -3,7 +3,7 @@ use crate::theme::Theme;
 
 use crate::axis::Axis;
 use crate::error::AvengerChartError;
-use crate::guide::OverflowSpaceRequirement;
+use crate::guide::{MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
@@ -115,6 +115,54 @@ pub trait CompiledGuide: Send + Sync + 'static {
             ctx,
         )
         .await
+    }
+
+    /// Measure overflow with internal self-coordination
+    ///
+    /// This method enables facet guides to perform their own internal two-pass measurement,
+    /// computing both overflow AND spacing needs (e.g., inter-row/col gaps).
+    ///
+    /// # Default Implementation
+    /// Delegates to `measure_overflow()` and wraps the result in a `MeasurementResult`
+    /// with empty `spacing_needs`. Non-facet guides (Cartesian, Polar) use this default.
+    ///
+    /// # Override Pattern
+    /// Facet guides (FacetRowGuide, FacetColGuide) override this to:
+    /// 1. Check for recursion guard (coordinated_spacing already set)
+    /// 2. Perform Pass 1 measurement with zero gap
+    /// 3. Compute required gap from Pass 1 overflow
+    /// 4. Perform Pass 2 measurement with computed gap
+    /// 5. Return MeasurementResult with overflow + spacing_needs
+    ///
+    /// # Arguments
+    /// Same as `measure_overflow()`
+    async fn measure_with_coordination(
+        &self,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &Theme,
+        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> Result<MeasurementResult, AvengerChartError> {
+        // Default: measure once, return with empty spacing_needs
+        let overflow = self
+            .measure_overflow(
+                scales,
+                row_overflow,
+                col_overflow,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+            )
+            .await?;
+        Ok(MeasurementResult::new(overflow))
     }
 
     /// Evaluate this guide to scene marks
