@@ -684,69 +684,32 @@ impl CompiledGuide for FacetRowGuide {
         };
         let estimated_right = measure_facet_label_slab(&measurement_config);
 
-        // Determine y-axis position from subplot guide (default is left)
-        let axis_on_right = if let Some(source) = self.facet_sources.first() {
-            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                match guide.axis_position("y") {
-                    Some(crate::cartesian::axis::AxisPosition::Right) => true,
-                    Some(crate::cartesian::axis::AxisPosition::Left) => false,
-                    None => {
-                        // axis_position returns None when position is explicit expression
-                        // Infer from overflow: if right > left, y-axis is likely at right
-                        max_right > max_left
-                    }
-                    _ => false, // fallback: left
-                }
-            } else {
-                false // no guide → assume left
-            }
-        } else {
-            false // no subplots → assume left
+        // Extract y-axis position from subplot guide for visibility resolution
+        let y_axis_position = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.subplot.compiled_guide.as_ref())
+            .and_then(|guide| guide.axis_position("y"));
+
+        // Resolve visibility decisions using single source of truth
+        use crate::facet::visibility::{FacetRowVisibility, FacetRowVisibilityInput};
+        let visibility_input = FacetRowVisibilityInput {
+            y_axis_position,
+            max_left,
+            max_right,
+            has_unified_y_title: self.unified_y_title.is_some(),
         };
+        let visibility = FacetRowVisibility::resolve(&visibility_input, params);
 
-        // Check parent FacetContext for unified y and grid position
-        let parent_ctx = crate::facet::context::FacetContext::from_params(params);
-        let parent_unified_y = parent_ctx
-            .as_ref()
-            .map(|ctx| ctx.is_channel_unified("y"))
-            .unwrap_or(false);
-
-        // Determine if we're on left/right edge of parent grid
-        // (only edge columns should include axis overflow)
-        let (is_left_edge, is_right_edge) = if let Some(ctx) = &parent_ctx {
-            let col = ctx.position.1;
-            let num_cols = ctx.grid_dimensions.1;
-            (col == 0, col == num_cols - 1)
-        } else {
-            (true, true) // No parent = standalone FacetRowGuide, both edges
-        };
-
-        // Check if y-axis scale is shared across columns
-        // Only suppress left/right overflow when y IS shared
-        let y_sharing_mode = parent_ctx
-            .as_ref()
-            .and_then(|ctx| ctx.scale_sharing.get("y"))
-            .copied()
-            .unwrap_or(crate::channel::config_traits::ScaleSharing::Free);
-
-        let y_is_shared_across_cols = matches!(
-            y_sharing_mode,
-            crate::channel::config_traits::ScaleSharing::Shared
-                | crate::channel::config_traits::ScaleSharing::SharedInRow
-        );
+        // Use visibility struct for all derived values
+        let axis_on_right = visibility.axis_on_right;
+        let is_left_edge = visibility.is_left_edge;
+        let is_right_edge = visibility.is_right_edge;
+        let parent_unified_y = visibility.parent_unified_y;
 
         // Adjust max_left/max_right based on edge position AND scale sharing
-        // Only suppress overflow when y IS shared across columns
-        let adjusted_max_left = if is_left_edge || axis_on_right || !y_is_shared_across_cols {
-            max_left // Keep: on left edge, or axis on right, or y NOT shared
-        } else {
-            0.0 // Only suppress when y IS shared and not on left edge
-        };
-        let adjusted_max_right = if is_right_edge || !axis_on_right || !y_is_shared_across_cols {
-            max_right // Keep: on right edge, or axis on left, or y NOT shared
-        } else {
-            0.0 // Only suppress when y IS shared and not on right edge
-        };
+        let (adjusted_max_left, adjusted_max_right) =
+            visibility.adjusted_subplot_overflow(max_left, max_right);
 
         // Measure unified y title height (rotated width) - but only if parent hasn't unified y
         let unified_y_height = if !parent_unified_y {
@@ -783,14 +746,9 @@ impl CompiledGuide for FacetRowGuide {
         };
         // Unified y-title goes on the SAME side as the y-axis (it labels all rows together)
         // Facet labels go on the OPPOSITE side from the y-axis
-        // Note: Also consider whether this column needs facet labels at all
-        // (only rightmost column should have facet labels when axis is on left)
-        let should_show_facet_labels = if axis_on_right {
-            is_left_edge // Facet labels on left when axis is right
-        } else {
-            is_right_edge // Facet labels on right when axis is left
-        };
-        let adjusted_estimated_right = if should_show_facet_labels {
+        // Only include facet label space when labels will actually be rendered
+        // (This is the key fix: measurement now matches rendering visibility)
+        let adjusted_estimated_right = if visibility.render_facet_labels {
             estimated_right
         } else {
             0.0
@@ -822,7 +780,7 @@ impl CompiledGuide for FacetRowGuide {
         };
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FacetRowGuide measure_overflow: left_final={:.3} right_final={:.3} (max_left={:.3} adj_max_left={:.3} max_right={:.3} adj_max_right={:.3} estimated_right={:.3} adj_estimated_right={:.3} unified_y_height={:.3} gap_axis={:.3} axis_on_right={} is_left_edge={} is_right_edge={})",
+                "FacetRowGuide measure_overflow: left_final={:.3} right_final={:.3} (max_left={:.3} adj_max_left={:.3} max_right={:.3} adj_max_right={:.3} estimated_right={:.3} adj_estimated_right={:.3} unified_y_height={:.3} gap_axis={:.3} axis_on_right={} is_left_edge={} is_right_edge={} render_facet_labels={})",
                 left_final,
                 right_final,
                 max_left,
@@ -835,7 +793,8 @@ impl CompiledGuide for FacetRowGuide {
                 gap_axis,
                 axis_on_right,
                 is_left_edge,
-                is_right_edge
+                is_right_edge,
+                visibility.render_facet_labels
             );
         }
         Ok(OverflowSpaceRequirement {
@@ -1364,42 +1323,26 @@ impl CompiledGuide for FacetRowGuide {
             )
             .await?;
 
-        // Determine y-axis position from subplot guide (default is left)
-        let axis_on_right = if let Some(source) = self.facet_sources.first() {
-            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                match guide.axis_position("y") {
-                    Some(crate::cartesian::axis::AxisPosition::Right) => true,
-                    Some(crate::cartesian::axis::AxisPosition::Left) => false,
-                    None => {
-                        // For explicit position expressions, infer from computed overflow
-                        max_right_child > max_left_child
-                    }
-                    _ => false, // fallback: left
-                }
-            } else {
-                false // no guide → assume left
-            }
-        } else {
-            false // no subplots → assume left
-        };
+        // Extract y-axis position from subplot guide for visibility resolution
+        let y_axis_position = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.subplot.compiled_guide.as_ref())
+            .and_then(|guide| guide.axis_position("y"));
 
-        // Facet labels go on the opposite side from the y-axis
-        let place_on_left = axis_on_right;
-
-        // Check if we should render facet labels at all based on column position
-        // Only render on the edge column where facet labels are placed
-        let facet_ctx_render = crate::facet::context::FacetContext::from_params(params);
-        let should_render_facet_labels = if let Some(ctx) = &facet_ctx_render {
-            let col = ctx.position.1;
-            let num_cols = ctx.grid_dimensions.1;
-            if place_on_left {
-                col == 0 // Facet labels on left: only render for leftmost column
-            } else {
-                col == num_cols - 1 // Facet labels on right: only render for rightmost column
-            }
-        } else {
-            true // No parent context = standalone FacetRowGuide, always render
+        // Resolve visibility decisions using single source of truth (same as measure_overflow)
+        use crate::facet::visibility::{FacetRowVisibility, FacetRowVisibilityInput};
+        let visibility_input = FacetRowVisibilityInput {
+            y_axis_position,
+            max_left: max_left_child,
+            max_right: max_right_child,
+            has_unified_y_title: self.unified_y_title.is_some(),
         };
+        let visibility = FacetRowVisibility::resolve(&visibility_input, params);
+
+        // Use visibility struct for rendering decisions
+        let place_on_left = visibility.facet_labels_on_left;
+        let should_render_facet_labels = visibility.render_facet_labels;
 
         // Resolve title font properties for rendering
         let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
@@ -1451,27 +1394,13 @@ impl CompiledGuide for FacetRowGuide {
             marks.extend(render_facet_label_slab(&render_config, theme, params));
         }
 
-        // Render unified y-axis title if available, but ONLY if:
-        // 1. Parent facet hasn't unified "y" (via unified_channels), OR
-        // 2. We're not nested inside a column facet (grid_dimensions.columns > 1 means we're nested)
-        // The second check handles the case where unified_channels isn't properly propagated during rendering
-        let facet_ctx = crate::facet::context::FacetContext::from_params(params);
-        let parent_unified_y = facet_ctx
-            .as_ref()
-            .map(|ctx| ctx.is_channel_unified("y"))
-            .unwrap_or(false);
-        let nested_in_col_facet = facet_ctx
-            .as_ref()
-            .map(|ctx| ctx.grid_dimensions.1 > 1) // num_cols > 1 means we're inside a column facet
-            .unwrap_or(false);
-
+        // Render unified y-axis title if visibility allows
+        // (visibility struct already checked parent_unified_y and nested_in_col_facet)
         if let Some(y_title) = &self.unified_y_title {
-            // Skip rendering if parent (FacetColGuide) has already unified y
-            // OR if we're nested inside a column facet (which will handle unified y title)
-            if parent_unified_y || nested_in_col_facet {
+            if !visibility.render_unified_y_title {
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetRowGuide SKIP unified_y_title='{}' (parent already unified y)",
+                        "FacetRowGuide SKIP unified_y_title='{}' (parent already unified y or nested in col facet)",
                         y_title
                     );
                 }
@@ -1484,21 +1413,8 @@ impl CompiledGuide for FacetRowGuide {
                 let y_family_owned = theme
                     .font_family(&y_ctx)
                     .unwrap_or_else(|| "sans-serif".to_string());
-                // Check actual y-axis position from subplot guide (not inferred from label position)
-                let axis_on_right = if let Some(source) = self.facet_sources.first() {
-                    if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                        match guide.axis_position("y") {
-                            Some(crate::cartesian::axis::AxisPosition::Right) => true,
-                            Some(crate::cartesian::axis::AxisPosition::Left) => false,
-                            // Default to left (standard y-axis position) when not specified
-                            None | _ => false,
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
+                // Use axis_on_right from visibility struct
+                let axis_on_right = visibility.axis_on_right;
                 let gap = 6.0_f32;
                 // Position title adjacent to subplot axis labels (max_left/right_child is just label space)
                 // Center the title in the gap between labels and plot edge
@@ -2301,37 +2217,54 @@ impl CompiledGuide for FacetColGuide {
             0.0
         };
 
-        // Decide placement: if x-axis is top, labels go below; else labels above
-        // Use overflow to infer axis position: larger overflow indicates where axis is located
-        let place_below = top_max > bottom_max;
+        // ====================================================================
+        // Resolve visibility using centralized FacetColVisibility
+        // ====================================================================
+        use crate::facet::visibility::{FacetColVisibility, FacetColVisibilityInput};
+
+        // Extract axis positions from subplot guide
+        let x_axis_position = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.subplot.compiled_guide.as_ref())
+            .and_then(|guide| guide.axis_position("x"));
+
+        let y_axis_position = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.subplot.compiled_guide.as_ref())
+            .and_then(|guide| guide.axis_position("y"));
+
+        let visibility_input = FacetColVisibilityInput {
+            x_axis_position,
+            y_axis_position,
+            max_top: top_max,
+            max_bottom: bottom_max,
+            has_unified_x_title: self.unified_x_title.is_some(),
+            has_unified_y_title: self.unified_y_title.is_some(),
+        };
+        let visibility = FacetColVisibility::resolve(&visibility_input, params);
+
+        // Use visibility struct for placement decisions
+        let place_below = visibility.place_below;
+        let y_axis_on_right = visibility.y_axis_on_right;
+
+        // Conditionally include facet_label_space based on visibility
+        let adjusted_facet_label_space = if visibility.render_facet_labels {
+            facet_label_space
+        } else {
+            0.0
+        };
 
         let mut top_final = top_max;
         let mut bottom_final = bottom_max;
         if place_below {
             top_final += x_axis_title_space;
-            bottom_final += facet_label_space;
+            bottom_final += adjusted_facet_label_space;
         } else {
-            top_final += facet_label_space;
+            top_final += adjusted_facet_label_space;
             bottom_final += x_axis_title_space;
         }
-
-        // Determine y-axis position for unified y-title placement
-        // For nested facets, the inner subplot guide may not implement axis_position
-        // In that case, default to left (standard y-axis position)
-        let y_axis_on_right = if let Some(source) = self.facet_sources.first() {
-            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                match guide.axis_position("y") {
-                    Some(crate::cartesian::axis::AxisPosition::Right) => true,
-                    Some(crate::cartesian::axis::AxisPosition::Left) => false,
-                    // Default to left (standard y-axis position) when not specified
-                    None | _ => false,
-                }
-            } else {
-                false
-            }
-        } else {
-            false
-        };
 
         let mut left_final = left_max;
         let mut right_final = right_max;
@@ -2349,13 +2282,17 @@ impl CompiledGuide for FacetColGuide {
         };
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FACET_COL (edge-measured): place_below={} top_max={:.3} bottom_max={:.3} facet_label_space={:.3} x_axis_title_space={:.3} y_axis_title_space={:.3}",
+                "FACET_COL (edge-measured): place_below={} top_max={:.3} bottom_max={:.3} facet_label_space={:.3} adj_facet_label_space={:.3} x_axis_title_space={:.3} y_axis_title_space={:.3} render_facet_labels={} is_top={} is_bottom={}",
                 place_below,
                 top_max,
                 bottom_max,
                 facet_label_space,
+                adjusted_facet_label_space,
                 x_axis_title_space,
-                y_axis_title_space
+                y_axis_title_space,
+                visibility.render_facet_labels,
+                visibility.is_top_edge,
+                visibility.is_bottom_edge,
             );
             eprintln!(
                 "FACET_COL (edge-measured) result: left={:.3} right={:.3} top={:.3} bottom={:.3}",
@@ -2856,29 +2793,36 @@ impl CompiledGuide for FacetColGuide {
             .unwrap_or_else(|| "sans-serif".to_string());
         let label_font_family = label_font_family_owned.as_str();
 
-        // Determine label placement based on x-axis position
-        // If x-axis is at bottom (default), place facet labels above to avoid collision
-        // If x-axis is at top, place facet labels below
-        // If axis_position returns None (explicit position expression), use overflow to infer
-        let place_below = if let Some(source) = self.facet_sources.first() {
-            if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                // Check x-axis position
-                match guide.axis_position("x") {
-                    Some(crate::cartesian::axis::AxisPosition::Top) => true, // x at top → labels below
-                    Some(crate::cartesian::axis::AxisPosition::Bottom) => false, // x at bottom → labels above
-                    None => {
-                        // axis_position returns None when position is explicit expression
-                        // Infer from overflow: if top > bottom, x-axis is likely at top
-                        subplot_max_top > subplot_max_bottom
-                    }
-                    _ => false, // fallback: labels above
-                }
-            } else {
-                false // no guide → assume bottom x-axis, labels above
-            }
-        } else {
-            false // no subplots → labels above
+        // ====================================================================
+        // Resolve visibility using centralized FacetColVisibility
+        // ====================================================================
+        use crate::facet::visibility::{FacetColVisibility, FacetColVisibilityInput};
+
+        // Extract axis positions from subplot guide
+        let x_axis_position = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.subplot.compiled_guide.as_ref())
+            .and_then(|guide| guide.axis_position("x"));
+
+        let y_axis_position = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.subplot.compiled_guide.as_ref())
+            .and_then(|guide| guide.axis_position("y"));
+
+        let visibility_input = FacetColVisibilityInput {
+            x_axis_position,
+            y_axis_position,
+            max_top: subplot_max_top,
+            max_bottom: subplot_max_bottom,
+            has_unified_x_title: self.unified_x_title.is_some(),
+            has_unified_y_title: self.unified_y_title.is_some(),
         };
+        let visibility = FacetColVisibility::resolve(&visibility_input, params);
+
+        // Use visibility struct for placement and rendering decisions
+        let place_below = visibility.place_below;
 
         // Resolve title font properties for rendering
         let title_ctx = crate::theme::ThemeContext::new("guide", params.clone())
@@ -2925,7 +2869,10 @@ impl CompiledGuide for FacetColGuide {
             title_font_size_px: title_font_px,
         };
 
-        marks.extend(render_facet_label_slab(&render_config, theme, params));
+        // Only render facet labels when visibility allows (edge row only when nested)
+        if visibility.render_facet_labels {
+            marks.extend(render_facet_label_slab(&render_config, theme, params));
+        }
 
         // Render unified x-axis title (use facet title theme context matching RowFacet)
         // The unified x-axis title should always be positioned near the x-axes,
@@ -2942,25 +2889,8 @@ impl CompiledGuide for FacetColGuide {
                 .unwrap_or_else(|| "sans-serif".to_string());
             let unified_font_family = unified_font_family_owned.as_str();
 
-            // Check x-axis position to determine where unified title should go
-            // Use same logic as place_below to handle explicit position expressions
-            let x_axis_at_top = if let Some(source) = self.facet_sources.first() {
-                if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                    match guide.axis_position("x") {
-                        Some(crate::cartesian::axis::AxisPosition::Top) => true,
-                        Some(crate::cartesian::axis::AxisPosition::Bottom) => false,
-                        None => {
-                            // Infer from overflow: if top > bottom, x-axis is likely at top
-                            subplot_max_top > subplot_max_bottom
-                        }
-                        _ => false,
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
+            // Use visibility struct for x-axis position (already computed)
+            let x_axis_at_top = visibility.x_axis_at_top;
 
             // Configurable gap (matching measure_overflow and FacetRowGuide)
             let gap_axis = 6.0_f32;
@@ -3012,23 +2942,8 @@ impl CompiledGuide for FacetColGuide {
                 .or_else(|| theme.font_family(&root_ctx))
                 .unwrap_or_else(|| "sans-serif".to_string());
 
-            // Check y-axis position to determine where unified title should go
-            // For nested facets, the inner subplot guide may not implement axis_position
-            // In that case, default to left (standard y-axis position)
-            let y_axis_on_right = if let Some(source) = self.facet_sources.first() {
-                if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                    match guide.axis_position("y") {
-                        Some(crate::cartesian::axis::AxisPosition::Right) => true,
-                        Some(crate::cartesian::axis::AxisPosition::Left) => false,
-                        // Default to left (standard y-axis position) when not specified
-                        None | _ => false,
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
+            // Use visibility struct for y-axis position (already computed)
+            let y_axis_on_right = visibility.y_axis_on_right;
 
             // Gap between subplot axis labels and unified title
             let gap_y_axis = 6.0_f32;

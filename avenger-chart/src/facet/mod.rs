@@ -11,3 +11,4 @@ pub mod marks;
 pub mod scale_grouping;
 pub mod scale_helpers;
 pub mod subplot_iterator;
+pub mod visibility;
