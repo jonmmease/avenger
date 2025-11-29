@@ -304,7 +304,7 @@ where
     let mut all_legend_positions: HashSet<crate::legend::LegendPosition> = HashSet::new();
 
     // Small helper to measure one subplot to keep the parent future small
-    // Returns (guide_only_overflow, total_overflow, legend_positions)
+    // Returns (guide_only_overflow, total_overflow, legend_positions, spacing_needs)
     async fn measure_subplot(
         compiled_subplot: &Arc<CompiledPlot>,
         width: f32,
@@ -318,14 +318,19 @@ where
             crate::guide::OverflowSpaceRequirement,
             crate::guide::OverflowSpaceRequirement,
             HashSet<crate::legend::LegendPosition>,
+            std::collections::HashMap<String, f32>, // spacing_needs from inner guide
         ),
         AvengerChartError,
     > {
         let (guide_only, total_overflow, _legend_info, legend_positions) = compiled_subplot
             .measure_with_scales(width, height, ctx, params, scales, Some(filter_df))
             .await?;
-        // Return both overflows: guide_only for alignment, total for spacing
-        Ok((guide_only, total_overflow, legend_positions))
+        // Also get spacing_needs from inner guide's measure_with_coordination
+        let spacing_needs = compiled_subplot
+            .get_guide_spacing_needs(width, height, ctx, params, scales, Some(filter_df))
+            .await?;
+        // Return both overflows: guide_only for alignment, total for spacing, plus spacing_needs
+        Ok((guide_only, total_overflow, legend_positions, spacing_needs))
     }
 
     // Bound concurrency to avoid overwhelming DataFusion while still flattening stack growth.
@@ -404,7 +409,7 @@ where
                 )
                 .await?;
 
-                let (guide_only, total_overflow, legend_positions) = measure_subplot(
+                let (guide_only, total_overflow, legend_positions, spacing_needs) = measure_subplot(
                     &compiled_subplot,
                     width,
                     height,
@@ -415,7 +420,7 @@ where
                 )
                 .await?;
 
-                Ok::<_, AvengerChartError>((idx, guide_only, total_overflow, legend_positions))
+                Ok::<_, AvengerChartError>((idx, guide_only, total_overflow, legend_positions, spacing_needs))
             }
         })
         .buffer_unordered(MAX_CONCURRENT_MEASURE)
@@ -426,11 +431,24 @@ where
     let mut sorted = results
         .into_iter()
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
-    sorted.sort_by_key(|(idx, _, _, _)| *idx);
-    for (_, guide_only, total_overflow, legend_positions) in sorted {
+    sorted.sort_by_key(|(idx, _, _, _, _)| *idx);
+
+    // Aggregate spacing_needs from all subplots using max per key
+    let mut aggregated_spacing_needs: std::collections::HashMap<String, f32> =
+        std::collections::HashMap::new();
+
+    for (_, guide_only, total_overflow, legend_positions, spacing_needs) in sorted {
         guide_only_measurements.push(guide_only);
         overflow_measurements.push(total_overflow);
         all_legend_positions.extend(legend_positions);
+
+        // Aggregate spacing_needs: use max for each key
+        for (key, value) in spacing_needs {
+            aggregated_spacing_needs
+                .entry(key)
+                .and_modify(|existing| *existing = existing.max(value))
+                .or_insert(value);
+        }
     }
 
     // Compute global maximum guide-only overflow for unified alignment
@@ -671,52 +689,28 @@ where
                     .unwrap_or(0);
 
                 if inner_domain_count > 1 {
-                    // We have a 2D grid: overflow_measurements.len() columns x inner_domain_count rows
-                    //
-                    // The challenge: overflow_measurements contains per-COLUMN aggregate overflow,
-                    // not per-ROW breakdown. For accurate row gaps, we need row-level overflow.
-                    //
-                    // Heuristic: For nested facets with shared X scales:
-                    // - Each row has x-axis at bottom with overflow ~= max column bottom overflow
-                    // - Middle rows have top overflow ~0 (only first row has title)
-                    // - Row gap = max_bottom (x-axis) + spacing
-                    //
-                    // This is conservative but ensures no overlap for typical cases.
-                    let spacing = coord_ctx
-                        .as_ref()
-                        .and_then(|ctx| ctx.inner_facet_spacing)
-                        .unwrap_or_else(|| {
-                            let facet_ctx = context
-                                .theme
-                                .facet_context_with_params(context.params.clone());
-                            context
-                                .theme
-                                .query(&facet_ctx, "spacing")
-                                .and_then(|v| v.as_number())
-                                .map(|n| n as f32)
-                                .unwrap_or(DEFAULT_FACET_SPACING)
-                        });
-
-                    // For row gap: use maximum bottom overflow across columns
-                    // This represents the x-axis tick labels that appear at bottom of each row
-                    let max_bottom = overflow_measurements
-                        .iter()
-                        .map(|o| o.bottom)
-                        .fold(0.0f32, f32::max);
-
-                    // The row gap needs to accommodate:
-                    // - Row i's bottom overflow (x-axis ticks)
-                    // - Row i+1's top overflow (typically 1.0 for middle rows)
-                    // GridFacet formula: gap = max(bottom[row_i] + top[row_i+1]) + spacing
-                    // Since we don't have per-row breakdown, use max_bottom + spacing
-                    let gap = (max_bottom + spacing).ceil();
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "  Computed measured_row_gap: {:.1} (max_bottom={:.1}, spacing={:.1}, inner_domain_count={})",
-                            gap, max_bottom, spacing, inner_domain_count
-                        );
+                    // Extract inter_row_gap from aggregated spacing_needs (computed by inner FacetRowGuide)
+                    // This is the correct gap computed using calculate_inter_row_gap which does:
+                    // max(bottom[row_i] + top[row_i+1]) + spacing
+                    if let Some(&gap) = aggregated_spacing_needs
+                        .get(crate::guide::spacing_keys::INTER_ROW_GAP)
+                    {
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "  Extracted measured_row_gap from inner guide: {:.1} (inner_domain_count={})",
+                                gap, inner_domain_count
+                            );
+                        }
+                        Some(gap)
+                    } else {
+                        // Fallback: no spacing_needs from inner guide (shouldn't happen for properly nested facets)
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "  No inter_row_gap in aggregated_spacing_needs, using None"
+                            );
+                        }
+                        None
                     }
-                    Some(gap)
                 } else {
                     None
                 }
@@ -758,35 +752,28 @@ where
                     .unwrap_or(0);
 
                 if inner_domain_count > 1 {
-                    let spacing = coord_ctx
-                        .as_ref()
-                        .and_then(|ctx| ctx.inner_facet_spacing)
-                        .unwrap_or_else(|| {
-                            let facet_ctx = context
-                                .theme
-                                .facet_context_with_params(context.params.clone());
-                            context
-                                .theme
-                                .query(&facet_ctx, "spacing")
-                                .and_then(|v| v.as_number())
-                                .map(|n| n as f32)
-                                .unwrap_or(DEFAULT_FACET_SPACING)
-                        });
-
-                    // For column gap: use maximum right overflow across rows
-                    let max_right = overflow_measurements
-                        .iter()
-                        .map(|o| o.right)
-                        .fold(0.0f32, f32::max);
-
-                    let gap = (max_right + spacing).ceil();
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "  Computed measured_col_gap: {:.1} (max_right={:.1}, spacing={:.1}, inner_domain_count={})",
-                            gap, max_right, spacing, inner_domain_count
-                        );
+                    // Extract inter_col_gap from aggregated spacing_needs (computed by inner FacetColGuide)
+                    // This is the correct gap computed using calculate_inter_col_gap which does:
+                    // max(right[col_i] + left[col_i+1]) + spacing
+                    if let Some(&gap) = aggregated_spacing_needs
+                        .get(crate::guide::spacing_keys::INTER_COL_GAP)
+                    {
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "  Extracted measured_col_gap from inner guide: {:.1} (inner_domain_count={})",
+                                gap, inner_domain_count
+                            );
+                        }
+                        Some(gap)
+                    } else {
+                        // Fallback: no spacing_needs from inner guide (shouldn't happen for properly nested facets)
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "  No inter_col_gap in aggregated_spacing_needs, using None"
+                            );
+                        }
+                        None
                     }
-                    Some(gap)
                 } else {
                     None
                 }

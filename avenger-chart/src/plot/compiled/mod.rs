@@ -593,6 +593,55 @@ impl CompiledPlot {
             })
         }
     }
+
+    /// Get spacing needs from the guide's self-coordinating measurement
+    ///
+    /// This calls the guide's `measure_with_coordination()` method and extracts
+    /// the `spacing_needs` from the `MeasurementResult`. This is used by outer
+    /// facets to extract spacing needs computed by inner guides (e.g., inter_row_gap,
+    /// inter_col_gap) so they can be aggregated and used for layout coordination.
+    ///
+    /// # Returns
+    /// A HashMap of spacing keys to values (e.g., "inter_row_gap" -> 45.0).
+    /// Returns empty HashMap if no guide or no spacing needs.
+    pub async fn get_guide_spacing_needs(
+        &self,
+        width: f32,
+        height: f32,
+        ctx: &datafusion::prelude::SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+    ) -> Result<HashMap<String, f32>, crate::error::AvengerChartError> {
+        if let Some(ref compiled_guide) = self.compiled_guide {
+            // Convert ConfiguredScaleWithSpec -> ConfiguredScale for guide API
+            let configured_scales: HashMap<String, avenger_scales::scales::ConfiguredScale> =
+                scales
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.configured().clone()))
+                    .collect();
+
+            let theme = self.get_theme();
+            let result = compiled_guide
+                .measure_with_coordination(
+                    &configured_scales,
+                    None, // row_overflow
+                    None, // col_overflow
+                    width,
+                    height,
+                    &theme,
+                    params,
+                    data_override,
+                    ctx,
+                )
+                .await?;
+
+            Ok(result.spacing_needs)
+        } else {
+            // No guide - return empty spacing needs
+            Ok(HashMap::new())
+        }
+    }
 }
 
 /// Evaluation mode for two-pass rendering
