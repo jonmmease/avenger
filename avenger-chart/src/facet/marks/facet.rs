@@ -254,8 +254,8 @@ impl CompiledMark for CompiledFacetRow {
                 let rounded = band_height.round();
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetRow subplot_dims: band_height={:.3} -> rounded={:.3}",
-                        band_height, rounded
+                        "FacetRow subplot_dims: band_height={:.3} -> rounded={:.3} ctx.plot_width={:.3}",
+                        band_height, rounded, ctx.plot_width
                     );
                 }
                 (ctx.plot_width, rounded)

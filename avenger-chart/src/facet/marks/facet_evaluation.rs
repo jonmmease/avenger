@@ -846,6 +846,14 @@ where
         spacing_needs.insert("legend_bottom".to_string(), global_max_overflow.bottom);
     }
 
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "measure_pass returning final_rects: channel={} rects={:?}",
+            DimConfig::channel_name(),
+            final_rects.iter().map(|r| (r.x, r.width)).collect::<Vec<_>>()
+        );
+    }
+
     Ok(FacetPass1Result {
         overflow_measurements,
         final_dimension_scale,
@@ -902,6 +910,9 @@ where
         scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
         filter_df: &DataFrame,
     ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
+        // For faceted subplots, use build_plot_components directly.
+        // The dimensions are already final from facet layout, and scales are pre-coordinated.
+        // The measure_for_render pattern is designed for top-level plots, not subplots.
         compiled_subplot
             .build_plot_components(
                 width,
@@ -998,6 +1009,13 @@ where
                     // Column faceting: height is fixed, width varies with band
                     (rect.width.round(), context.plot_height)
                 };
+
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "render_pass subplot: idx={} rect.x={:.1} rect.width={:.1} -> width={:.1}",
+                        idx, rect.x, rect.width, width
+                    );
+                }
 
                 let mut free_scale_builder = compiled_subplot
                     .build_scale_builder_from_dataframe(&ctx, &params_base, &filter_df)

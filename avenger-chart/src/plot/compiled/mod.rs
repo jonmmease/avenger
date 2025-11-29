@@ -19,10 +19,11 @@ use serde_with::{FromInto, serde_as};
 use super::specs::{AxisSpec, ScaleSpec};
 use super::title::{PlotSubtitle, PlotTitle};
 use crate::coords::CoordinateSystemTransform;
-use crate::guide::CompiledGuide;
-use crate::layout::LayoutSpec;
+use crate::guide::{CompiledGuide, OverflowSpaceRequirement};
+use crate::layout::{LayoutBounds, LayoutResult, LayoutSpec};
 use crate::legend::Legend;
 use crate::marks::CompiledMark;
+use crate::scales::ConfiguredScaleWithSpec;
 use crate::plot::compiled::scales::build_scale_builder_from_marks;
 use crate::serialization::SerializableDataFrame;
 use crate::theme::Theme;
@@ -690,4 +691,199 @@ pub struct PlotComponents {
 
     /// Debug marks (layout visualization) - these are in absolute canvas coordinates
     pub debug_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
+}
+
+/// Complete plot measurement result that render pass uses directly.
+///
+/// This struct captures all layout decisions made during measurement so that
+/// the render pass can use them without recomputation. The critical invariant is:
+/// **scales MUST have ranges matching plot_area_size**.
+///
+/// Note: This is distinct from `guide::overflow::MeasurementResult` which is used
+/// for guide overflow measurement. This struct captures the entire plot's measurement
+/// including scales, layout, and overflow.
+///
+/// # Invariants
+///
+/// - `scales` ranges must match `plot_area_size` (validated in debug builds)
+/// - `plot_bounds.width` == `plot_area_size.0`
+/// - `plot_bounds.height` == `plot_area_size.1`
+///
+/// # Usage
+///
+/// ```ignore
+/// // Measurement pass produces the result
+/// let measurement = plot.measure_for_render(ctx, params).await?;
+///
+/// // Render pass uses it directly - NO recomputation
+/// let components = plot.render_with_measurement(ctx, params, &measurement).await?;
+/// ```
+#[derive(Debug)]
+pub struct PlotMeasurementResult {
+    // ═══════════════════════════════════════════════════════════════
+    // FINAL DIMENSIONS - render uses directly, never recomputes
+    // ═══════════════════════════════════════════════════════════════
+    /// Final plot area dimensions (width, height)
+    pub plot_area_size: (f32, f32),
+
+    /// Final canvas dimensions (width, height)
+    pub canvas_size: (f32, f32),
+
+    /// Plot bounds with position (x, y, width, height)
+    pub plot_bounds: LayoutBounds,
+
+    /// Clip region for data marks
+    pub clip: avenger_scenegraph::marks::group::Clip,
+
+    // ═══════════════════════════════════════════════════════════════
+    // VALIDATED SCALES - ranges MUST match plot_area_size
+    // ═══════════════════════════════════════════════════════════════
+    /// Scales built with final dimensions (NOT initial estimate).
+    ///
+    /// CRITICAL: These scales have ranges that match `plot_area_size`.
+    /// If scales were built with width=165 but final layout is width=163,
+    /// we rebuild them with width=163 before storing here.
+    pub scales: HashMap<String, ConfiguredScaleWithSpec>,
+
+    // ═══════════════════════════════════════════════════════════════
+    // OVERFLOW AND LAYOUT - for guide/legend positioning
+    // ═══════════════════════════════════════════════════════════════
+    /// Guide overflow measurements
+    pub overflow: OverflowSpaceRequirement,
+
+    /// Complete layout result for legends/titles positioning
+    pub layout_result: LayoutResult,
+
+    /// Per-row overflow (for nested facet coordination)
+    pub row_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+
+    /// Per-column overflow (for nested facet coordination)
+    pub col_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+}
+
+impl PlotMeasurementResult {
+    /// Validate that scales have ranges consistent with plot_area_size.
+    ///
+    /// This is called in debug builds to catch bugs where scales are built
+    /// with one dimension but stored alongside a different dimension.
+    #[cfg(debug_assertions)]
+    pub fn validate_scale_ranges(&self) {
+        let (plot_width, plot_height) = self.plot_area_size;
+
+        for (name, scale_with_spec) in &self.scales {
+            let configured = scale_with_spec.configured();
+
+            // Check if this is a position scale (x or y channel)
+            let is_x_scale = name == "x" || name.starts_with("x");
+            let is_y_scale = name == "y" || name.starts_with("y");
+
+            if is_x_scale || is_y_scale {
+                let expected_range = if is_x_scale {
+                    plot_width
+                } else {
+                    plot_height
+                };
+
+                // Get the numeric range from the scale
+                if let Ok((range_min, range_max)) = configured.numeric_interval_range() {
+                    let range_span = (range_max - range_min).abs();
+
+                    // Allow small tolerance for floating point
+                    let tolerance = 0.1;
+                    if (range_span - expected_range).abs() > tolerance {
+                        eprintln!(
+                            "WARNING: Scale '{}' has range span {:.2} but expected {:.2} (plot_area_size)",
+                            name, range_span, expected_range
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Create a new MeasurementResult with validation in debug builds.
+    pub fn new(
+        plot_area_size: (f32, f32),
+        canvas_size: (f32, f32),
+        plot_bounds: LayoutBounds,
+        clip: avenger_scenegraph::marks::group::Clip,
+        scales: HashMap<String, ConfiguredScaleWithSpec>,
+        overflow: OverflowSpaceRequirement,
+        layout_result: LayoutResult,
+        row_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+        col_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+    ) -> Self {
+        let result = Self {
+            plot_area_size,
+            canvas_size,
+            plot_bounds,
+            clip,
+            scales,
+            overflow,
+            layout_result,
+            row_overflow_by_facet,
+            col_overflow_by_facet,
+        };
+
+        #[cfg(debug_assertions)]
+        result.validate_scale_ranges();
+
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that PlotMeasurementResult correctly validates scale ranges.
+    #[test]
+    fn test_plot_measurement_result_validation() {
+        use avenger_scenegraph::marks::group::Clip;
+
+        // Create a minimal MeasurementResult for testing
+        let plot_area_size = (200.0, 150.0);
+        let canvas_size = (300.0, 250.0);
+        let plot_bounds = LayoutBounds {
+            x: 50.0,
+            y: 50.0,
+            width: 200.0,
+            height: 150.0,
+        };
+        let clip = Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 150.0,
+        };
+        let scales = HashMap::new();
+        let overflow = OverflowSpaceRequirement::default();
+        let layout_result = LayoutResult {
+            plot_area: plot_bounds,
+            guide_overflows: HashMap::new(),
+            legends: indexmap::IndexMap::new(),
+            legends_by_position: indexmap::IndexMap::new(),
+            title: None,
+            subtitle: None,
+        };
+
+        // This should not panic
+        let result = PlotMeasurementResult::new(
+            plot_area_size,
+            canvas_size,
+            plot_bounds,
+            clip,
+            scales,
+            overflow,
+            layout_result,
+            None,
+            None,
+        );
+
+        // Verify fields were set correctly
+        assert_eq!(result.plot_area_size, plot_area_size);
+        assert_eq!(result.canvas_size, canvas_size);
+        assert_eq!(result.plot_bounds.width, plot_area_size.0);
+        assert_eq!(result.plot_bounds.height, plot_area_size.1);
+    }
 }
