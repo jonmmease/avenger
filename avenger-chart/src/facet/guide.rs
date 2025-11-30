@@ -170,10 +170,38 @@ impl FacetRowGuide {
             );
         }
         for (source_idx, source) in self.facet_sources.iter().enumerate() {
-            // Priority: data_override takes precedence over overflow parameter
-            // When data_override is provided (nested facet case), we must compute overflow
-            // from the filtered data, not use the outer facet's pre-computed overflow.
-            if let Some(df) = data_override {
+            // Priority: overflow parameter takes precedence over data_override
+            // When overflow parameter is provided (from measurement phase), use it for
+            // consistent unified title positioning. This ensures rendering uses the same
+            // global overflow values as measurement, preventing title/label overlap.
+            if let Some(per_facet_overflow) = overflow {
+                // Use overflow parameter if provided (passed from rendering pipeline)
+                // This ensures unified titles are positioned based on global measurement,
+                // not local column-specific overflow.
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetRowGuide [source {}]: Using per-facet overflow ({} subplots) - takes priority over data_override",
+                        source_idx,
+                        per_facet_overflow.len()
+                    );
+                }
+
+                // Aggregate top/bottom across all subplots
+                for overflow_item in per_facet_overflow {
+                    top = top.max(overflow_item.top);
+                    bottom = bottom.max(overflow_item.bottom);
+                }
+
+                // Use first subplot's left overflow
+                if let Some(first) = per_facet_overflow.first() {
+                    max_left = max_left.max(first.left);
+                }
+
+                // Use last subplot's right overflow
+                if let Some(last) = per_facet_overflow.last() {
+                    max_right = max_right.max(last.right);
+                }
+            } else if let Some(df) = data_override {
                 // No cached overflow but we have data - compute overflow by measuring subplots
                 // This is the nested facet case where the inner facet needs to measure its Cartesian subplots
 
@@ -221,7 +249,7 @@ impl FacetRowGuide {
                     // Determine which domain values to iterate over
                     // When scales are shared, use full domain (with empty cells for missing data)
                     // When scales are free, only use values present in this column's data
-                    let iteration_domain: Vec<(ScalarValue, bool)> = if use_full_domain {
+                    let mut iteration_domain: Vec<(ScalarValue, bool)> = if use_full_domain {
                         // Shared: use all domain values, track which have data
                         domain_with_data.clone()
                     } else {
@@ -233,6 +261,31 @@ impl FacetRowGuide {
                     };
 
                     let num_present = iteration_domain.iter().filter(|(_, has)| *has).count();
+
+                    // IMPORTANT: For nested facets with shared scales, the row scale may be built
+                    // from column-filtered data, causing domain_vals to have fewer values than the
+                    // actual shared domain. Use inner_domain_count to ensure we iterate over all
+                    // positions for correct edge detection (bottom subplot shows x-axis labels).
+                    if let Some(ctx) = coord_ctx.as_ref() {
+                        if ctx.inner_domain_count > 0
+                            && iteration_domain.len() < ctx.inner_domain_count
+                            && use_full_domain
+                        {
+                            // Expand iteration_domain to include all positions with placeholder values
+                            // Mark extra positions as has_data=false (empty cells)
+                            let current_len = iteration_domain.len();
+                            for _i in current_len..ctx.inner_domain_count {
+                                // Use Null placeholder for missing domain values
+                                iteration_domain.push((ScalarValue::Null, false));
+                            }
+                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                eprintln!(
+                                    "FacetRowGuide [source {}]: Expanded iteration_domain from {} to {} using inner_domain_count",
+                                    source_idx, current_len, ctx.inner_domain_count
+                                );
+                            }
+                        }
+                    }
 
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                         eprintln!(
@@ -370,32 +423,6 @@ impl FacetRowGuide {
                         );
                     }
                     return Ok((30.0, 30.0, 40.0, 20.0));
-                }
-            } else if let Some(per_facet_overflow) = overflow {
-                // Use overflow parameter if provided (passed from rendering pipeline)
-                // This is used when we're at top level (no data_override) and have pre-computed overflow
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "FacetRowGuide [source {}]: Using per-facet overflow ({} subplots)",
-                        source_idx,
-                        per_facet_overflow.len()
-                    );
-                }
-
-                // Aggregate top/bottom across all subplots
-                for overflow_item in per_facet_overflow {
-                    top = top.max(overflow_item.top);
-                    bottom = bottom.max(overflow_item.bottom);
-                }
-
-                // Use first subplot's left overflow
-                if let Some(first) = per_facet_overflow.first() {
-                    max_left = max_left.max(first.left);
-                }
-
-                // Use last subplot's right overflow
-                if let Some(last) = per_facet_overflow.last() {
-                    max_right = max_right.max(last.right);
                 }
             } else if let Some(df) = source.data.dataframe_with_context(ctx) {
                 // No cached overflow and no data_override but we have source data - compute overflow
@@ -1576,24 +1603,35 @@ impl FacetColGuide {
         for (source_idx, source) in self.facet_sources.iter().enumerate() {
             // Use overflow parameter if provided (passed from rendering pipeline)
             if let Some(per_facet_overflow) = overflow {
-                // Use per-facet overflow: first subplot's top, last subplot's bottom
+                // Aggregate top/bottom across ALL subplots for unified title positioning
+                // (matching FacetRowGuide's pattern)
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetColGuide: Using per-facet overflow ({} subplots)",
+                        "FacetColGuide: Using per-facet overflow ({} subplots) - aggregating top/bottom across all",
                         per_facet_overflow.len()
                     );
+                    for (idx, ov) in per_facet_overflow.iter().enumerate() {
+                        eprintln!(
+                            "  per_facet_overflow[{}]: top={:.3} bottom={:.3} left={:.3} right={:.3}",
+                            idx, ov.top, ov.bottom, ov.left, ov.right
+                        );
+                    }
                 }
 
-                // Use FIRST subplot's left overflow (only leftmost column matters)
+                // Aggregate top/bottom across all subplots for proper unified title positioning
+                for overflow_item in per_facet_overflow {
+                    top_max = top_max.max(overflow_item.top);
+                    bottom_max = bottom_max.max(overflow_item.bottom);
+                }
+
+                // Use first subplot's left overflow (leftmost column edge)
                 if let Some(first) = per_facet_overflow.first() {
                     left_max = left_max.max(first.left);
-                    top_max = top_max.max(first.top);
                 }
 
-                // Use LAST subplot's right and bottom overflow (only rightmost column matters)
+                // Use last subplot's right overflow (rightmost column edge)
                 if let Some(last) = per_facet_overflow.last() {
                     right_max = right_max.max(last.right);
-                    bottom_max = bottom_max.max(last.bottom);
                 }
             } else if let Some(df) = data_override {
                 // No cached overflow but we have data - compute overflow by measuring subplots
@@ -2904,6 +2942,13 @@ impl CompiledGuide for FacetColGuide {
                 // subplot_max_bottom tells us where the x-axis labels end
                 plot_bounds.y + plot_height + subplot_max_bottom + gap_axis
             };
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "FacetColGuide RENDER unified_x_title='{}' at y={:.3} (plot_y={:.3} plot_height={:.3} subplot_max_bottom={:.3} gap_axis={:.3})",
+                    unified_title, y_unified, plot_bounds.y, plot_height, subplot_max_bottom, gap_axis
+                );
+            }
 
             let unified_mark = SceneTextMark {
                 text: unified_title.clone().into(),
