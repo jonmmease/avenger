@@ -153,27 +153,21 @@ impl FacetRowVisibility {
 
     /// Compute adjusted subplot overflow based on edge position and scale sharing.
     ///
-    /// This suppresses left/right subplot overflow for non-edge columns when
-    /// y-axis scale is shared, since only edge columns need axis space.
+    /// Previously, this function suppressed overflow for non-edge columns when y-axis
+    /// was shared, returning 0.0. However, FacetContext now correctly propagates
+    /// position information, so subplots in non-edge columns already measure smaller
+    /// overflow (tick marks only, no y-axis labels). The measured values are correct
+    /// and should be returned directly for proper gap computation.
     ///
-    /// Returns (adjusted_max_left, adjusted_max_right).
+    /// Returns (adjusted_max_left, adjusted_max_right) - now always returns the
+    /// measured values since FacetContext handles visibility correctly.
     pub fn adjusted_subplot_overflow(&self, max_left: f32, max_right: f32) -> (f32, f32) {
-        // Only suppress overflow when y IS shared across columns
-        let adjusted_max_left =
-            if self.is_left_edge || self.axis_on_right || !self.y_is_shared_across_cols {
-                max_left // Keep: on left edge, or axis on right, or y NOT shared
-            } else {
-                0.0 // Only suppress when y IS shared and not on left edge
-            };
-
-        let adjusted_max_right =
-            if self.is_right_edge || !self.axis_on_right || !self.y_is_shared_across_cols {
-                max_right // Keep: on right edge, or axis on left, or y NOT shared
-            } else {
-                0.0 // Only suppress when y IS shared and not on right edge
-            };
-
-        (adjusted_max_left, adjusted_max_right)
+        // FacetContext now correctly propagates position to subplots, so they
+        // already produce correct overflow values:
+        // - Edge columns: include y-axis label space
+        // - Interior columns: include only tick overflow
+        // Simply return the measured values for proper gap computation.
+        (max_left, max_right)
     }
 }
 
@@ -357,27 +351,21 @@ impl FacetColVisibility {
 
     /// Compute adjusted subplot overflow based on edge position and scale sharing.
     ///
-    /// This suppresses top/bottom subplot overflow for non-edge rows when
-    /// x-axis scale is shared, since only edge rows need axis space.
+    /// Previously, this function suppressed overflow for non-edge rows when x-axis
+    /// was shared, returning 0.0. However, FacetContext now correctly propagates
+    /// position information, so subplots in non-edge rows already measure smaller
+    /// overflow (tick marks only, no x-axis labels). The measured values are correct
+    /// and should be returned directly for proper gap computation.
     ///
-    /// Returns (adjusted_max_top, adjusted_max_bottom).
+    /// Returns (adjusted_max_top, adjusted_max_bottom) - now always returns the
+    /// measured values since FacetContext handles visibility correctly.
     pub fn adjusted_subplot_overflow(&self, max_top: f32, max_bottom: f32) -> (f32, f32) {
-        // Only suppress overflow when x IS shared across rows
-        let adjusted_max_top =
-            if self.is_top_edge || self.x_axis_at_top || !self.x_is_shared_across_rows {
-                max_top // Keep: on top edge, or axis at top, or x NOT shared
-            } else {
-                0.0 // Only suppress when x IS shared and not on top edge
-            };
-
-        let adjusted_max_bottom =
-            if self.is_bottom_edge || !self.x_axis_at_top || !self.x_is_shared_across_rows {
-                max_bottom // Keep: on bottom edge, or axis at bottom, or x NOT shared
-            } else {
-                0.0 // Only suppress when x IS shared and not on bottom edge
-            };
-
-        (adjusted_max_top, adjusted_max_bottom)
+        // FacetContext now correctly propagates position to subplots, so they
+        // already produce correct overflow values:
+        // - Edge rows: include x-axis label space
+        // - Interior rows: include only tick overflow
+        // Simply return the measured values for proper gap computation.
+        (max_top, max_bottom)
     }
 }
 
@@ -473,9 +461,10 @@ mod tests {
         };
 
         let (left, right) = vis.adjusted_subplot_overflow(50.0, 10.0);
-        // Middle column, y shared, axis on left → suppress left
-        assert_eq!(left, 0.0);
-        // Axis on left (not right), not right edge, but axis_on_right=false → keep right
+        // Now that FacetContext correctly propagates position info, subplots
+        // already measure correct overflow (smaller for non-edge columns).
+        // adjusted_subplot_overflow simply returns the measured values.
+        assert_eq!(left, 50.0);
         assert_eq!(right, 10.0);
     }
 
@@ -607,9 +596,10 @@ mod tests {
         };
 
         let (top, bottom) = vis.adjusted_subplot_overflow(10.0, 50.0);
-        // Middle row, x shared, axis at bottom → suppress top
-        assert_eq!(top, 0.0);
-        // Axis at bottom, not bottom edge, but axis_at_top=false → keep bottom
+        // Now that FacetContext correctly propagates position info, subplots
+        // already measure correct overflow (smaller for non-edge rows).
+        // adjusted_subplot_overflow simply returns the measured values.
+        assert_eq!(top, 10.0);
         assert_eq!(bottom, 50.0);
     }
 
