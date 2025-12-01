@@ -66,6 +66,11 @@ pub struct FacetRowVisibilityInput {
 
     /// Whether a unified y-axis title is configured
     pub has_unified_y_title: bool,
+
+    /// Scale sharing mode for this row facet variable (not the data y-scale).
+    /// This determines whether the facet arrangement is shared (same rows in all columns)
+    /// or free (different rows per column based on filtered data).
+    pub facet_scale_sharing: Option<ScaleSharing>,
 }
 
 impl FacetRowVisibility {
@@ -112,7 +117,7 @@ impl FacetRowVisibility {
             (true, true) // No parent = standalone FacetRowGuide, both edges
         };
 
-        // Check if y-axis scale is shared across columns
+        // Check if y-axis scale is shared across columns (for axis visibility, not facet labels)
         let y_sharing_mode = parent_ctx
             .as_ref()
             .and_then(|ctx| ctx.scale_sharing.get("y"))
@@ -136,13 +141,23 @@ impl FacetRowVisibility {
             is_right_edge
         };
 
-        // Facet LABELS (e.g., "setosa", "versicolor") behavior depends on nesting:
-        // - When nested in col facet: always render (inner domains can differ per outer col)
+        // Facet LABELS (e.g., "setosa", "versicolor") behavior depends on nesting AND FACET scale sharing:
+        // - When nested AND facet arrangement is FREE: labels repeat (each outer cell may have different rows)
+        // - When nested AND facet arrangement is SHARED: labels only on outer edge (same rows everywhere)
         // - When not nested: only on outer edge (same as title)
-        let render_facet_labels = if nested_in_col_facet {
-            true // Inner facet labels repeat because domains can differ per outer column
+        //
+        // IMPORTANT: This checks the FACET VARIABLE's scale_sharing (from `.row_with(..., |c| c.facet(|f| f.share_scale()))`),
+        // NOT the data y-axis scale sharing. These are different concepts:
+        // - Facet arrangement sharing: Whether the row structure is the same across all columns
+        // - Data scale sharing: Whether the y-axis domain is the same across all columns
+        let facet_is_shared = matches!(
+            input.facet_scale_sharing,
+            Some(ScaleSharing::Shared)
+        );
+        let render_facet_labels = if nested_in_col_facet && !facet_is_shared {
+            true // Inner facet labels repeat because row arrangement can differ per outer column
         } else {
-            render_facet_title // Same as title when not nested
+            render_facet_title // Same as title when not nested or when facet is shared
         };
 
         // Unified y title is rendered only if:
@@ -258,6 +273,11 @@ pub struct FacetColVisibilityInput {
 
     /// Whether a unified y-axis title is configured
     pub has_unified_y_title: bool,
+
+    /// Scale sharing mode for this column facet variable (not the data x-scale).
+    /// This determines whether the facet arrangement is shared (same columns in all rows)
+    /// or free (different columns per row based on filtered data).
+    pub facet_scale_sharing: Option<ScaleSharing>,
 }
 
 impl FacetColVisibility {
@@ -320,7 +340,7 @@ impl FacetColVisibility {
             (true, true) // No parent = standalone FacetColGuide, both edges
         };
 
-        // Check if x-axis scale is shared across rows
+        // Check if x-axis scale is shared across rows (for axis visibility, not facet labels)
         let x_sharing_mode = parent_ctx
             .as_ref()
             .and_then(|ctx| ctx.scale_sharing.get("x"))
@@ -341,13 +361,23 @@ impl FacetColVisibility {
             is_top_edge
         };
 
-        // Facet LABELS (e.g., "narrow", "medium") behavior depends on nesting:
-        // - When nested in row facet: always render (inner domains can differ per outer row)
+        // Facet LABELS (e.g., "narrow", "medium") behavior depends on nesting AND FACET scale sharing:
+        // - When nested AND facet arrangement is FREE: labels repeat (each outer cell may have different columns)
+        // - When nested AND facet arrangement is SHARED: labels only on outer edge (same columns everywhere)
         // - When not nested: only on outer edge (same as title)
-        let render_facet_labels = if nested_in_row_facet {
-            true // Inner facet labels repeat because domains can differ per outer row
+        //
+        // IMPORTANT: This checks the FACET VARIABLE's scale_sharing (from `.col_with(..., |c| c.facet(|f| f.share_scale()))`),
+        // NOT the data x-axis scale sharing. These are different concepts:
+        // - Facet arrangement sharing: Whether the column structure is the same across all rows
+        // - Data scale sharing: Whether the x-axis domain is the same across all rows
+        let facet_is_shared = matches!(
+            input.facet_scale_sharing,
+            Some(ScaleSharing::Shared)
+        );
+        let render_facet_labels = if nested_in_row_facet && !facet_is_shared {
+            true // Inner facet labels repeat because column arrangement can differ per outer row
         } else {
-            render_facet_title // Same as title when not nested
+            render_facet_title // Same as title when not nested or when facet is shared
         };
 
         // Unified x title is rendered only if:
@@ -411,6 +441,7 @@ mod tests {
             max_left: 50.0,
             max_right: 10.0,
             has_unified_y_title: true,
+            facet_scale_sharing: None,
         };
         let params = IndexMap::new();
 
@@ -437,6 +468,7 @@ mod tests {
             max_left: 10.0,
             max_right: 50.0, // Right overflow larger = axis likely on right
             has_unified_y_title: false,
+            facet_scale_sharing: None,
         };
         let params = IndexMap::new();
 
@@ -449,6 +481,7 @@ mod tests {
             max_left: 10.0,
             max_right: 50.0, // Even though right is larger, explicit position wins
             has_unified_y_title: false,
+            facet_scale_sharing: None,
         };
 
         let vis = FacetRowVisibility::resolve(&input_left, &params);
@@ -509,6 +542,7 @@ mod tests {
             max_left: 10.0,
             max_right: 50.0,
             has_unified_y_title: false,
+            facet_scale_sharing: None,
         };
 
         // Simulate left edge column
@@ -534,6 +568,7 @@ mod tests {
             max_bottom: 50.0, // Bottom overflow larger = x-axis at bottom
             has_unified_x_title: true,
             has_unified_y_title: false,
+            facet_scale_sharing: None,
         };
         let params = IndexMap::new();
 
@@ -564,6 +599,7 @@ mod tests {
             max_bottom: 10.0,
             has_unified_x_title: false,
             has_unified_y_title: false,
+            facet_scale_sharing: None,
         };
         let params = IndexMap::new();
 
@@ -579,6 +615,7 @@ mod tests {
             max_bottom: 10.0,
             has_unified_x_title: false,
             has_unified_y_title: false,
+            facet_scale_sharing: None,
         };
 
         let vis = FacetColVisibility::resolve(&input_bottom, &params);
@@ -648,6 +685,7 @@ mod tests {
             max_bottom: 10.0,
             has_unified_x_title: false,
             has_unified_y_title: false,
+            facet_scale_sharing: None,
         };
 
         let params = IndexMap::new();

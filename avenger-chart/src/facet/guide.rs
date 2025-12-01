@@ -707,11 +707,16 @@ impl CompiledGuide for FacetRowGuide {
         // Resolve visibility decisions using single source of truth
         // (moved before measurement so we can use render_facet_title)
         use crate::facet::visibility::{FacetRowVisibility, FacetRowVisibilityInput};
+        let facet_scale_sharing = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.facet_scale_sharing);
         let visibility_input = FacetRowVisibilityInput {
             y_axis_position,
             max_left,
             max_right,
             has_unified_y_title: self.unified_y_title.is_some(),
+            facet_scale_sharing,
         };
         let visibility = FacetRowVisibility::resolve(&visibility_input, params);
 
@@ -1361,11 +1366,16 @@ impl CompiledGuide for FacetRowGuide {
 
         // Resolve visibility decisions using single source of truth (same as measure_overflow)
         use crate::facet::visibility::{FacetRowVisibility, FacetRowVisibilityInput};
+        let facet_scale_sharing = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.facet_scale_sharing);
         let visibility_input = FacetRowVisibilityInput {
             y_axis_position,
             max_left: max_left_child,
             max_right: max_right_child,
             has_unified_y_title: self.unified_y_title.is_some(),
+            facet_scale_sharing,
         };
         let visibility = FacetRowVisibility::resolve(&visibility_input, params);
 
@@ -2287,6 +2297,10 @@ impl CompiledGuide for FacetColGuide {
             .and_then(|source| source.subplot.compiled_guide.as_ref())
             .and_then(|guide| guide.axis_position("y"));
 
+        let facet_scale_sharing = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.facet_scale_sharing);
         let visibility_input = FacetColVisibilityInput {
             x_axis_position,
             y_axis_position,
@@ -2294,6 +2308,7 @@ impl CompiledGuide for FacetColGuide {
             max_bottom: bottom_max,
             has_unified_x_title: self.unified_x_title.is_some(),
             has_unified_y_title: self.unified_y_title.is_some(),
+            facet_scale_sharing,
         };
         let visibility = FacetColVisibility::resolve(&visibility_input, params);
 
@@ -2879,6 +2894,10 @@ impl CompiledGuide for FacetColGuide {
             .and_then(|source| source.subplot.compiled_guide.as_ref())
             .and_then(|guide| guide.axis_position("y"));
 
+        let facet_scale_sharing = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.facet_scale_sharing);
         let visibility_input = FacetColVisibilityInput {
             x_axis_position,
             y_axis_position,
@@ -2886,6 +2905,7 @@ impl CompiledGuide for FacetColGuide {
             max_bottom: subplot_max_bottom,
             has_unified_x_title: self.unified_x_title.is_some(),
             has_unified_y_title: self.unified_y_title.is_some(),
+            facet_scale_sharing,
         };
         let visibility = FacetColVisibility::resolve(&visibility_input, params);
 
