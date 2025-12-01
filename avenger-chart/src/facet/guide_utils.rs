@@ -37,6 +37,8 @@ pub struct FacetLabelMeasurementConfig {
     pub title_font_family: String,
     /// Font size in pixels for title
     pub title_font_size_px: f32,
+    /// Whether to render/measure the title (false when nested and title should be edge-only)
+    pub render_title: bool,
 }
 
 /// Configuration for rendering facet label slab
@@ -65,6 +67,8 @@ pub struct FacetLabelRenderConfig {
     pub title_font_family: String,
     /// Font size in pixels for title
     pub title_font_size_px: f32,
+    /// Whether to render the title (false when nested and title should be edge-only)
+    pub render_title: bool,
 }
 
 /// Measure space required for facet label slab (labels + optional title + rule + ticks)
@@ -99,25 +103,38 @@ pub fn measure_facet_label_slab(config: &FacetLabelMeasurementConfig) -> f32 {
     // Start with label space
     let mut total_space = max_label_dimension;
 
-    // Measure title if present
-    if let Some(title_text) = &config.title {
-        let title_config = TextMeasurementConfig {
-            text: title_text,
-            font: &config.title_font_family,
-            font_size: config.title_font_size_px,
-            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-            font_style: &FontStyle::Normal,
-        };
-        let title_bounds = measurer.measure_text_bounds(&title_config);
-        let title_dimension = if config.is_rotated {
-            title_bounds.height
-        } else {
-            title_bounds.height
-        };
-
-        // Add gap + title + rule stroke
+    // Add space for rule + ticks ONLY when there are multiple labels AND no title
+    // When title is present, the gap between labels and title already includes space for rule/ticks
+    if config.labels.len() > 1 && !config.render_title {
+        // Space from labels to rule (gap/2) + rule stroke + tick size
         let gap = 10.0_f32;
-        total_space += gap + title_dimension + 1.0;
+        let rule_stroke = 1.0_f32;
+        let tick_size = 4.0_f32;
+        total_space += gap / 2.0 + rule_stroke + tick_size;
+    }
+
+    // Measure title if present AND render_title is true
+    // When nested, render_title=false so we don't include title space
+    if config.render_title {
+        if let Some(title_text) = &config.title {
+            let title_config = TextMeasurementConfig {
+                text: title_text,
+                font: &config.title_font_family,
+                font_size: config.title_font_size_px,
+                font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
+                font_style: &FontStyle::Normal,
+            };
+            let title_bounds = measurer.measure_text_bounds(&title_config);
+            let title_dimension = if config.is_rotated {
+                title_bounds.height
+            } else {
+                title_bounds.height
+            };
+
+            // Add gap + title + rule stroke (original logic - gap includes rule/tick space)
+            let gap = 10.0_f32;
+            total_space += gap + title_dimension + 1.0;
+        }
     }
 
     total_space + 1.0 // Extra pixel for safety
@@ -163,15 +180,19 @@ pub fn render_facet_label_slab(
         marks.push(SceneMark::Text(StdArc::new(label_mark)));
     }
 
-    // Render horizontal rule with ticks if title present and multiple labels
-    if config.title.is_some() && config.labels.len() > 1 {
+    // Render rule with ticks when there are multiple labels
+    // This provides visual structure connecting labels together, independent of title visibility
+    if config.labels.len() > 1 {
         marks.extend(render_rule_with_ticks(config, theme, theme_params));
     }
 
-    // Render title if present
-    if let Some(title_text) = &config.title {
-        let title_mark = render_facet_title(title_text, config, theme, theme_params);
-        marks.push(SceneMark::Text(StdArc::new(title_mark)));
+    // Render title if present AND render_title is true
+    // When nested, render_title=false so title appears only at outer edge
+    if config.render_title {
+        if let Some(title_text) = &config.title {
+            let title_mark = render_facet_title(title_text, config, theme, theme_params);
+            marks.push(SceneMark::Text(StdArc::new(title_mark)));
+        }
     }
 
     marks

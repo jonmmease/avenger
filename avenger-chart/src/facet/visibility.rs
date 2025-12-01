@@ -28,7 +28,12 @@ pub struct FacetRowVisibility {
     /// Whether the y-axis scale is shared across columns
     pub y_is_shared_across_cols: bool,
 
-    /// Whether facet labels should be rendered for this column position
+    /// Whether the facet title (e.g., "species") should be rendered
+    /// Title is only rendered on outer edge, unified across the grid
+    pub render_facet_title: bool,
+
+    /// Whether facet labels (e.g., "setosa", "versicolor") should be rendered
+    /// Labels repeat when nested because inner domains can differ per outer cell
     pub render_facet_labels: bool,
 
     /// Whether facet labels are placed on the left side (opposite of y-axis)
@@ -122,13 +127,22 @@ impl FacetRowVisibility {
         // Facet labels go on the opposite side from the y-axis
         let facet_labels_on_left = axis_on_right;
 
-        // Facet labels are only rendered on the edge column where they're placed
+        // Facet TITLE (e.g., "species") is only rendered on outer edge
         // Left labels: only on leftmost column (col == 0)
         // Right labels: only on rightmost column (col == num_cols - 1)
-        let render_facet_labels = if facet_labels_on_left {
+        let render_facet_title = if facet_labels_on_left {
             is_left_edge
         } else {
             is_right_edge
+        };
+
+        // Facet LABELS (e.g., "setosa", "versicolor") behavior depends on nesting:
+        // - When nested in col facet: always render (inner domains can differ per outer col)
+        // - When not nested: only on outer edge (same as title)
+        let render_facet_labels = if nested_in_col_facet {
+            true // Inner facet labels repeat because domains can differ per outer column
+        } else {
+            render_facet_title // Same as title when not nested
         };
 
         // Unified y title is rendered only if:
@@ -143,6 +157,7 @@ impl FacetRowVisibility {
             is_left_edge,
             is_right_edge,
             y_is_shared_across_cols,
+            render_facet_title,
             render_facet_labels,
             facet_labels_on_left,
             render_unified_y_title,
@@ -196,7 +211,12 @@ pub struct FacetColVisibility {
     /// Whether the x-axis scale is shared across rows
     pub x_is_shared_across_rows: bool,
 
-    /// Whether facet labels should be rendered for this row position
+    /// Whether the facet title (e.g., "petal_width_bin") should be rendered
+    /// Title is only rendered on outer edge, unified across the grid
+    pub render_facet_title: bool,
+
+    /// Whether facet labels (e.g., "narrow", "medium") should be rendered
+    /// Labels repeat when nested because inner domains can differ per outer cell
     pub render_facet_labels: bool,
 
     /// Whether unified x-axis title should be rendered
@@ -312,13 +332,22 @@ impl FacetColVisibility {
             ScaleSharing::Shared | ScaleSharing::SharedInColumn | ScaleSharing::Level(1..)
         );
 
-        // Facet labels are only rendered on the edge row where they're placed
-        // Labels above (place_below=false): only on topmost row (row == 0)
-        // Labels below (place_below=true): only on bottommost row (row == num_rows - 1)
-        let render_facet_labels = if place_below {
+        // Facet TITLE (e.g., "petal_width_bin") is only rendered on outer edge
+        // Title above (place_below=false): only on topmost row (row == 0)
+        // Title below (place_below=true): only on bottommost row (row == num_rows - 1)
+        let render_facet_title = if place_below {
             is_bottom_edge
         } else {
             is_top_edge
+        };
+
+        // Facet LABELS (e.g., "narrow", "medium") behavior depends on nesting:
+        // - When nested in row facet: always render (inner domains can differ per outer row)
+        // - When not nested: only on outer edge (same as title)
+        let render_facet_labels = if nested_in_row_facet {
+            true // Inner facet labels repeat because domains can differ per outer row
+        } else {
+            render_facet_title // Same as title when not nested
         };
 
         // Unified x title is rendered only if:
@@ -340,6 +369,7 @@ impl FacetColVisibility {
             is_top_edge,
             is_bottom_edge,
             x_is_shared_across_rows,
+            render_facet_title,
             render_facet_labels,
             render_unified_x_title,
             render_unified_y_title,
@@ -432,6 +462,7 @@ mod tests {
             is_left_edge: true,
             is_right_edge: false,
             y_is_shared_across_cols: true,
+            render_facet_title: true,
             render_facet_labels: false,
             facet_labels_on_left: false,
             render_unified_y_title: false,
@@ -453,6 +484,7 @@ mod tests {
             is_left_edge: false,
             is_right_edge: false,
             y_is_shared_across_cols: true,
+            render_facet_title: false,
             render_facet_labels: false,
             facet_labels_on_left: false,
             render_unified_y_title: false,
@@ -563,6 +595,7 @@ mod tests {
             is_top_edge: true,
             is_bottom_edge: false,
             x_is_shared_across_rows: true,
+            render_facet_title: true,
             render_facet_labels: true,
             render_unified_x_title: false,
             render_unified_y_title: false,
@@ -587,6 +620,7 @@ mod tests {
             is_top_edge: false,
             is_bottom_edge: false,
             x_is_shared_across_rows: true,
+            render_facet_title: false,
             render_facet_labels: false,
             render_unified_x_title: false,
             render_unified_y_title: false,

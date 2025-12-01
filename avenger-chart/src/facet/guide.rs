@@ -697,6 +697,24 @@ impl CompiledGuide for FacetRowGuide {
             .font_family(&title_ctx)
             .unwrap_or_else(|| "sans-serif".to_string());
 
+        // Extract y-axis position from subplot guide for visibility resolution
+        let y_axis_position = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.subplot.compiled_guide.as_ref())
+            .and_then(|guide| guide.axis_position("y"));
+
+        // Resolve visibility decisions using single source of truth
+        // (moved before measurement so we can use render_facet_title)
+        use crate::facet::visibility::{FacetRowVisibility, FacetRowVisibilityInput};
+        let visibility_input = FacetRowVisibilityInput {
+            y_axis_position,
+            max_left,
+            max_right,
+            has_unified_y_title: self.unified_y_title.is_some(),
+        };
+        let visibility = FacetRowVisibility::resolve(&visibility_input, params);
+
         // Use guide_utils to measure facet label slab
         use crate::facet::guide_utils::{FacetLabelMeasurementConfig, measure_facet_label_slab};
 
@@ -708,25 +726,9 @@ impl CompiledGuide for FacetRowGuide {
             title: self.facet_title.clone(),
             title_font_family: title_font_family.clone(),
             title_font_size_px: title_font_px,
+            render_title: visibility.render_facet_title,
         };
         let estimated_right = measure_facet_label_slab(&measurement_config);
-
-        // Extract y-axis position from subplot guide for visibility resolution
-        let y_axis_position = self
-            .facet_sources
-            .first()
-            .and_then(|source| source.subplot.compiled_guide.as_ref())
-            .and_then(|guide| guide.axis_position("y"));
-
-        // Resolve visibility decisions using single source of truth
-        use crate::facet::visibility::{FacetRowVisibility, FacetRowVisibilityInput};
-        let visibility_input = FacetRowVisibilityInput {
-            y_axis_position,
-            max_left,
-            max_right,
-            has_unified_y_title: self.unified_y_title.is_some(),
-        };
-        let visibility = FacetRowVisibility::resolve(&visibility_input, params);
 
         // Use visibility struct for all derived values
         let axis_on_right = visibility.axis_on_right;
@@ -1416,6 +1418,7 @@ impl CompiledGuide for FacetRowGuide {
                 title: self.facet_title.clone(),
                 title_font_family: title_font_family.clone(),
                 title_font_size_px: title_font_px,
+                render_title: visibility.render_facet_title,
             };
 
             marks.extend(render_facet_label_slab(&render_config, theme, params));
@@ -2205,10 +2208,21 @@ impl CompiledGuide for FacetColGuide {
         } else {
             0.0
         };
-        let facet_label_space = if self.facet_title.is_some() {
-            max_label_height + gap_title + title_height + 1.0
+        // Space for rule + ticks when there are multiple labels (used in labels-only case)
+        let rule_tick_space = if labels.len() > 1 {
+            let gap = 10.0_f32;
+            let rule_stroke = 1.0_f32;
+            let tick_size = 4.0_f32;
+            gap / 2.0 + rule_stroke + tick_size // = 10.0
         } else {
-            max_label_height + 1.0
+            0.0
+        };
+        // When title IS present, gap_title already accounts for rule/tick spacing
+        // rule_tick_space is only used in the nested case (labels without title)
+        let facet_label_space = if self.facet_title.is_some() {
+            max_label_height + gap_title + title_height + 1.0  // Original - gap_title handles spacing
+        } else {
+            max_label_height + rule_tick_space + 1.0  // Add rule_tick_space when no title
         };
         let gap_axis = if self.unified_x_title.is_some() {
             6.0
@@ -2288,8 +2302,22 @@ impl CompiledGuide for FacetColGuide {
         let y_axis_on_right = visibility.y_axis_on_right;
 
         // Conditionally include facet_label_space based on visibility
+        // When render_facet_labels=true but render_facet_title=false (nested case),
+        // only include label space + rule/ticks, not title space
         let adjusted_facet_label_space = if visibility.render_facet_labels {
-            facet_label_space
+            if visibility.render_facet_title {
+                facet_label_space // includes labels + rule/ticks + title
+            } else {
+                // Nested: include label space + rule/ticks, not title
+                max_label_height + rule_tick_space + 1.0
+            }
+        } else {
+            0.0
+        };
+
+        // Only include x_axis_title_space when visibility allows rendering unified x title
+        let adjusted_x_axis_title_space = if visibility.render_unified_x_title {
+            x_axis_title_space
         } else {
             0.0
         };
@@ -2297,11 +2325,11 @@ impl CompiledGuide for FacetColGuide {
         let mut top_final = top_max;
         let mut bottom_final = bottom_max;
         if place_below {
-            top_final += x_axis_title_space;
+            top_final += adjusted_x_axis_title_space;
             bottom_final += adjusted_facet_label_space;
         } else {
             top_final += adjusted_facet_label_space;
-            bottom_final += x_axis_title_space;
+            bottom_final += adjusted_x_axis_title_space;
         }
 
         let mut left_final = left_max;
@@ -2320,15 +2348,17 @@ impl CompiledGuide for FacetColGuide {
         };
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FACET_COL (edge-measured): place_below={} top_max={:.3} bottom_max={:.3} facet_label_space={:.3} adj_facet_label_space={:.3} x_axis_title_space={:.3} y_axis_title_space={:.3} render_facet_labels={} is_top={} is_bottom={}",
+                "FACET_COL (edge-measured): place_below={} top_max={:.3} bottom_max={:.3} facet_label_space={:.3} adj_facet_label_space={:.3} x_axis_title_space={:.3} adj_x_axis_title_space={:.3} y_axis_title_space={:.3} render_facet_labels={} render_unified_x_title={} is_top={} is_bottom={}",
                 place_below,
                 top_max,
                 bottom_max,
                 facet_label_space,
                 adjusted_facet_label_space,
                 x_axis_title_space,
+                adjusted_x_axis_title_space,
                 y_axis_title_space,
                 visibility.render_facet_labels,
+                visibility.render_unified_x_title,
                 visibility.is_top_edge,
                 visibility.is_bottom_edge,
             );
@@ -2905,6 +2935,7 @@ impl CompiledGuide for FacetColGuide {
             title: self.facet_title.clone(),
             title_font_family: title_font_family.clone(),
             title_font_size_px: title_font_px,
+            render_title: visibility.render_facet_title,
         };
 
         // Only render facet labels when visibility allows (edge row only when nested)
@@ -2916,64 +2947,74 @@ impl CompiledGuide for FacetColGuide {
         // The unified x-axis title should always be positioned near the x-axes,
         // not move with facet labels. It goes below plot when x-axis is at bottom,
         // above plot when x-axis is at top.
+        // Only render when visibility allows (not nested in row facet, parent hasn't unified)
         if let Some(unified_title) = &self.unified_x_title {
-            let unified_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("title");
-            let unified_font_px = theme.font_size(&unified_ctx).unwrap_or(12.0_f32);
-            let unified_font_family_owned = theme
-                .font_family(&unified_ctx)
-                .or_else(|| theme.font_family(&root_ctx))
-                .unwrap_or_else(|| "sans-serif".to_string());
-            let unified_font_family = unified_font_family_owned.as_str();
-
-            // Use visibility struct for x-axis position (already computed)
-            let x_axis_at_top = visibility.x_axis_at_top;
-
-            // Configurable gap (matching measure_overflow and FacetRowGuide)
-            let gap_axis = 6.0_f32;
-
-            let y_unified = if x_axis_at_top {
-                // X-axis at top: unified title goes above plot, positioned above subplot guides
-                // subplot_max_top tells us where the x-axis labels end above the plot
-                plot_bounds.y - subplot_max_top - gap_axis
-            } else {
-                // X-axis at bottom (default): unified title goes just below x-axis labels
-                // subplot_max_bottom tells us where the x-axis labels end
-                plot_bounds.y + plot_height + subplot_max_bottom + gap_axis
-            };
-
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "FacetColGuide RENDER unified_x_title='{}' at y={:.3} (plot_y={:.3} plot_height={:.3} subplot_max_bottom={:.3} gap_axis={:.3})",
-                    unified_title, y_unified, plot_bounds.y, plot_height, subplot_max_bottom, gap_axis
-                );
-            }
-
-            let unified_mark = SceneTextMark {
-                text: unified_title.clone().into(),
-                x: (plot_bounds.x + plot_width / 2.0).into(),
-                y: y_unified.into(),
-                align: TextAlign::Center.into(),
-                baseline: if x_axis_at_top {
-                    TextBaseline::Bottom
-                } else {
-                    TextBaseline::Top
+            if !visibility.render_unified_x_title {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetColGuide SKIP unified_x_title='{}' (parent already unified x or nested in row facet)",
+                        unified_title
+                    );
                 }
-                .into(),
-                angle: 0.0_f32.into(),
-                font: unified_font_family.to_string().into(),
-                font_size: unified_font_px.into(),
-                color: avenger_common::types::ColorOrGradient::Color(
-                    theme
-                        .text_color(&unified_ctx)
-                        .unwrap_or([0.0, 0.0, 0.0, 1.0]),
-                )
-                .into(),
-                zindex: Some(6),
-                ..Default::default()
-            };
-            marks.push(SceneMark::Text(StdArc::new(unified_mark)));
+            } else {
+                let unified_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                    .child("facet")
+                    .child("title");
+                let unified_font_px = theme.font_size(&unified_ctx).unwrap_or(12.0_f32);
+                let unified_font_family_owned = theme
+                    .font_family(&unified_ctx)
+                    .or_else(|| theme.font_family(&root_ctx))
+                    .unwrap_or_else(|| "sans-serif".to_string());
+                let unified_font_family = unified_font_family_owned.as_str();
+
+                // Use visibility struct for x-axis position (already computed)
+                let x_axis_at_top = visibility.x_axis_at_top;
+
+                // Configurable gap (matching measure_overflow and FacetRowGuide)
+                let gap_axis = 6.0_f32;
+
+                let y_unified = if x_axis_at_top {
+                    // X-axis at top: unified title goes above plot, positioned above subplot guides
+                    // subplot_max_top tells us where the x-axis labels end above the plot
+                    plot_bounds.y - subplot_max_top - gap_axis
+                } else {
+                    // X-axis at bottom (default): unified title goes just below x-axis labels
+                    // subplot_max_bottom tells us where the x-axis labels end
+                    plot_bounds.y + plot_height + subplot_max_bottom + gap_axis
+                };
+
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetColGuide RENDER unified_x_title='{}' at y={:.3} (plot_y={:.3} plot_height={:.3} subplot_max_bottom={:.3} gap_axis={:.3})",
+                        unified_title, y_unified, plot_bounds.y, plot_height, subplot_max_bottom, gap_axis
+                    );
+                }
+
+                let unified_mark = SceneTextMark {
+                    text: unified_title.clone().into(),
+                    x: (plot_bounds.x + plot_width / 2.0).into(),
+                    y: y_unified.into(),
+                    align: TextAlign::Center.into(),
+                    baseline: if x_axis_at_top {
+                        TextBaseline::Bottom
+                    } else {
+                        TextBaseline::Top
+                    }
+                    .into(),
+                    angle: 0.0_f32.into(),
+                    font: unified_font_family.to_string().into(),
+                    font_size: unified_font_px.into(),
+                    color: avenger_common::types::ColorOrGradient::Color(
+                        theme
+                            .text_color(&unified_ctx)
+                            .unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                    )
+                    .into(),
+                    zindex: Some(6),
+                    ..Default::default()
+                };
+                marks.push(SceneMark::Text(StdArc::new(unified_mark)));
+            }
         }
 
         // Render unified y-axis title if available (rotated 90 degrees, on the left side)
@@ -3466,6 +3507,7 @@ impl CompiledGuide for GridFacetGuide {
                 title: self.row_title.clone(),
                 title_font_family,
                 title_font_size_px: title_font_px,
+                render_title: true, // GridFacetGuide is top-level, always renders title
             };
             measure_facet_label_slab(&measurement_config)
         } else {
@@ -3504,6 +3546,7 @@ impl CompiledGuide for GridFacetGuide {
                 title: self.col_title.clone(),
                 title_font_family,
                 title_font_size_px: title_font_px,
+                render_title: true, // GridFacetGuide is top-level, always renders title
             };
             measure_facet_label_slab(&measurement_config)
         } else {
@@ -4064,6 +4107,7 @@ impl CompiledGuide for GridFacetGuide {
                 title: self.row_title.clone(),
                 title_font_family: title_font_family.clone(),
                 title_font_size_px: title_font_px,
+                render_title: true, // GridFacetGuide is top-level, always renders title
             };
             marks.extend(render_facet_label_slab(&row_config, theme, params));
         }
@@ -4104,6 +4148,7 @@ impl CompiledGuide for GridFacetGuide {
                 title: self.col_title.clone(),
                 title_font_family: title_font_family.clone(),
                 title_font_size_px: title_font_px,
+                render_title: true, // GridFacetGuide is top-level, always renders title
             };
             marks.extend(render_facet_label_slab(&col_config, theme, params));
         }
