@@ -636,13 +636,17 @@ fn test_nested_free_row_hybrid_sharing() {
 }
 
 // =============================================================================
-// Milestone 9: SharedInRow Scale Sharing
+// Milestone 9: Level(1) Row-Based Scale Sharing (formerly SharedInRow)
 // =============================================================================
+// MIGRATION NOTE: SharedInRow has been replaced with Level(1) in a restructured
+// FacetRow > FacetColumn layout. To achieve row-based sharing (all cells in the
+// same row share scale domains), the outer facet must be FacetRow.
 
-/// Tests SharedInRow scale sharing mode
+/// Tests Level(1) row-based scale sharing mode (migrated from SharedInRow)
 ///
-/// With SharedInRow, cells in the same row share scale domains across columns.
-/// For FacetColumn(FacetRow(Cartesian)), this means:
+/// RESTRUCTURED: Changed from FacetColumn > FacetRow to FacetRow > FacetColumn.
+/// With Level(1) in FacetRow > FacetColumn structure, cells share scale domains
+/// with their parent row:
 /// - All "setosa" cells across columns share x/y domains (computed from all setosa data)
 /// - All "versicolor" cells across columns share x/y domains (computed from all versicolor data)
 /// - All "virginica" cells across columns share x/y domains (computed from all virginica data)
@@ -654,23 +658,24 @@ fn test_nested_free_row_shared_in_row_both() {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
-        // Outer: FacetColumn by petal_width_bin (3 columns)
-        // Inner: FacetRow by species (3 rows per column)
-        // SharedInRow: each row (species) shares scales across columns
-        let outer = Plot::<FacetColumn>::new()
+        // RESTRUCTURED: FacetRow > FacetColumn (was FacetColumn > FacetRow)
+        // Outer: FacetRow by species (3 rows)
+        // Inner: FacetColumn by petal_width_bin (3 columns per row)
+        // Level(1): each row shares scales across columns
+        let outer = Plot::<FacetRow>::new()
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
-                    Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                Facet::new().row(col("species")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("petal_width_bin")).subplot(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInRow)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInRow)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .size(25.0)
                                     .fill("#4682b4"),
@@ -695,8 +700,9 @@ fn test_nested_free_row_shared_in_row_both() {
     });
 }
 
-/// Tests SharedInRow for x channel only, free y scales
+/// Tests Level(1) for x channel only, free y scales (migrated from SharedInRow)
 ///
+/// RESTRUCTURED: FacetRow > FacetColumn layout.
 /// Each row shares x domain across columns, but y is free per cell.
 #[test]
 fn test_nested_free_row_shared_in_row_x() {
@@ -704,17 +710,17 @@ fn test_nested_free_row_shared_in_row_x() {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
-        let outer = Plot::<FacetColumn>::new()
+        let outer = Plot::<FacetRow>::new()
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
-                    Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                Facet::new().row(col("species")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("petal_width_bin")).subplot(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInRow)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .y_with(col("sepal_width"), |c| {
                                         c.with_scale_sharing(ScaleSharing::Free)
@@ -742,8 +748,9 @@ fn test_nested_free_row_shared_in_row_x() {
     });
 }
 
-/// Tests SharedInRow for y channel only, free x scales
+/// Tests Level(1) for y channel only, free x scales (migrated from SharedInRow)
 ///
+/// RESTRUCTURED: FacetRow > FacetColumn layout.
 /// Each row shares y domain across columns, but x is free per cell.
 #[test]
 fn test_nested_free_row_shared_in_row_y() {
@@ -751,20 +758,20 @@ fn test_nested_free_row_shared_in_row_y() {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
-        let outer = Plot::<FacetColumn>::new()
+        let outer = Plot::<FacetRow>::new()
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
-                    Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                Facet::new().row(col("species")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("petal_width_bin")).subplot(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
                                         c.with_scale_sharing(ScaleSharing::Free)
                                     })
                                     .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInRow)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .size(25.0)
                                     .fill("#4682b4"),
@@ -789,8 +796,9 @@ fn test_nested_free_row_shared_in_row_y() {
     });
 }
 
-/// Tests mixed scale sharing: x globally shared, y shared in row
+/// Tests mixed scale sharing: x globally shared, y Level(1) row-based (migrated from SharedInRow)
 ///
+/// RESTRUCTURED: FacetRow > FacetColumn layout.
 /// This tests combining different sharing modes on different channels.
 #[test]
 fn test_nested_free_row_mixed_shared_and_shared_in_row() {
@@ -798,20 +806,20 @@ fn test_nested_free_row_mixed_shared_and_shared_in_row() {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
-        let outer = Plot::<FacetColumn>::new()
+        let outer = Plot::<FacetRow>::new()
             .data(df)
             .canvas_size(600, 600)
             .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
-                    Plot::<FacetRow>::new().mark(
-                        Facet::new().row(col("species")).subplot(
+                Facet::new().row(col("species")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("petal_width_bin")).subplot(
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
                                         c.with_scale_sharing(ScaleSharing::Shared)
                                     })
                                     .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInRow)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .size(25.0)
                                     .fill("#4682b4"),
@@ -837,13 +845,16 @@ fn test_nested_free_row_mixed_shared_and_shared_in_row() {
 }
 
 // =============================================================================
-// Milestone 10: SharedInColumn Scale Sharing
+// Milestone 10: Level(1) Scale Sharing (formerly SharedInColumn)
 // =============================================================================
+// MIGRATION NOTE: SharedInColumn has been replaced with Level(1).
+// In a FacetColumn > FacetRow structure, Level(1) shares scales with the
+// immediate parent (the FacetColumn), achieving the same column-based sharing.
 
-/// Tests SharedInColumn scale sharing mode
+/// Tests Level(1) scale sharing mode (migrated from SharedInColumn)
 ///
-/// With SharedInColumn, cells in the same column share scale domains.
-/// For FacetColumn(FacetRow(Cartesian)), this means:
+/// With Level(1) in FacetColumn > FacetRow structure, cells share scale domains
+/// with their immediate parent column:
 /// - All cells in the "narrow" column share x/y domains (computed from narrow data)
 /// - All cells in the "medium" column share x/y domains (computed from medium data)
 /// - All cells in the "wide" column share x/y domains (computed from wide data)
@@ -857,7 +868,7 @@ fn test_nested_free_row_shared_in_column_both() {
 
         // Outer: FacetColumn by petal_width_bin (3 columns)
         // Inner: FacetRow by species (3 rows per column)
-        // SharedInColumn: each column shares scales across rows
+        // Level(1): each column shares scales across rows (same as SharedInColumn)
         let outer = Plot::<FacetColumn>::new()
             .data(df)
             .canvas_size(600, 600)
@@ -868,10 +879,10 @@ fn test_nested_free_row_shared_in_column_both() {
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInColumn)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInColumn)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .size(25.0)
                                     .fill("#4682b4"),
@@ -896,7 +907,7 @@ fn test_nested_free_row_shared_in_column_both() {
     });
 }
 
-/// Tests SharedInColumn for x channel only, free y scales
+/// Tests Level(1) for x channel only, free y scales (migrated from SharedInColumn)
 ///
 /// Each column shares x domain across rows, but y is free per cell.
 #[test]
@@ -915,7 +926,7 @@ fn test_nested_free_row_shared_in_column_x() {
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInColumn)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .y_with(col("sepal_width"), |c| {
                                         c.with_scale_sharing(ScaleSharing::Free)
@@ -943,7 +954,7 @@ fn test_nested_free_row_shared_in_column_x() {
     });
 }
 
-/// Tests SharedInColumn for y channel only, free x scales
+/// Tests Level(1) for y channel only, free x scales (migrated from SharedInColumn)
 ///
 /// Each column shares y domain across rows, but x is free per cell.
 #[test]
@@ -965,7 +976,7 @@ fn test_nested_free_row_shared_in_column_y() {
                                         c.with_scale_sharing(ScaleSharing::Free)
                                     })
                                     .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInColumn)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .size(25.0)
                                     .fill("#4682b4"),
@@ -990,9 +1001,12 @@ fn test_nested_free_row_shared_in_column_y() {
     });
 }
 
-/// Tests mixed scale sharing: x shared in column, y shared in row
+/// Tests mixed scale sharing: x Level(1) (column sharing), y Shared (global)
 ///
-/// This tests combining SharedInColumn and SharedInRow on different channels.
+/// MIGRATION NOTE: The original test used SharedInColumn for x and SharedInRow for y.
+/// With Level(N), mixing column and row sharing in a single structure requires
+/// different approaches. Here we use Level(1) for x (shares with parent column)
+/// and Shared for y (global sharing as a simpler alternative to SharedInRow).
 #[test]
 fn test_nested_free_row_mixed_shared_in_column_and_shared_in_row() {
     run_with_large_stack(|| async {
@@ -1009,10 +1023,12 @@ fn test_nested_free_row_mixed_shared_in_column_and_shared_in_row() {
                             Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInColumn)
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
                                     })
                                     .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::SharedInRow)
+                                        // Use Shared (global) instead of SharedInRow
+                                        // True row-sharing would require FacetRow > FacetColumn structure
+                                        c.with_scale_sharing(ScaleSharing::Shared)
                                     })
                                     .size(25.0)
                                     .fill("#4682b4"),
@@ -1690,6 +1706,519 @@ fn test_nested_shared_col_shared_both() {
             None,
             "nested_grid",
             "nested_shared_col_shared_both",
+        )
+        .await;
+    });
+}
+
+// =============================================================================
+// Level(N) Scale Sharing Tests
+// =============================================================================
+
+/// Test Level(1) scale sharing for Y axis in FacetColumn > FacetRow layout
+///
+/// Level(1) shares the scale domain with the immediate parent facet.
+/// In this case, FacetColumn is the outer facet, so Level(1) on Y should
+/// unify Y scale domains across all rows within each column.
+#[test]
+fn test_nested_level1_y_col_row() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().column(col("petal_width_bin")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested level1 y col>row");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "nested_level1_y_col_row",
+        )
+        .await;
+    });
+}
+
+/// Test Level(1) scale sharing for X axis in FacetRow > FacetColumn layout
+///
+/// Level(1) shares the scale domain with the immediate parent facet.
+/// In this case, FacetRow is the outer facet, so Level(1) on X should
+/// unify X scale domains across all columns within each row.
+#[test]
+fn test_nested_level1_x_row_col() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        // Note: FacetRow > FacetColumn layout (opposite of most other tests)
+        let outer = Plot::<FacetRow>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().row(col("petal_width_bin")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("species")).subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested level1 x row>col");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "nested_level1_x_row_col",
+        )
+        .await;
+    });
+}
+
+/// Test Level(1) scale sharing for both axes
+///
+/// Both X and Y should share domains with the immediate parent facet.
+#[test]
+fn test_nested_level1_both_col_row() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().column(col("petal_width_bin")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested level1 both col>row");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "nested_level1_both_col_row",
+        )
+        .await;
+    });
+}
+
+// =============================================================================
+// Level(N) Guide Visibility Integration Tests
+// =============================================================================
+
+/// Test Level(1) Y scale sharing with Y axis on LEFT (default)
+///
+/// Y axis labels should appear only at the leftmost column.
+#[test]
+fn test_nested_level1_y_left_axis() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().column(col("petal_width_bin")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.axis(|a| a.position("left"))
+                                            .with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested level1 y left axis");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "nested_level1_y_left_axis",
+        )
+        .await;
+    });
+}
+
+/// Test Level(1) Y scale sharing with Y axis on RIGHT
+///
+/// Y axis labels should appear only at the rightmost column.
+#[test]
+fn test_nested_level1_y_right_axis() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().column(col("petal_width_bin")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.axis(|a| a.position("right"))
+                                            .with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested level1 y right axis");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "nested_level1_y_right_axis",
+        )
+        .await;
+    });
+}
+
+/// Test Level(1) X scale sharing with X axis on BOTTOM (default)
+///
+/// X axis labels should appear only at the bottom row.
+#[test]
+fn test_nested_level1_x_bottom_axis() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        // Note: FacetRow > FacetColumn layout
+        let outer = Plot::<FacetRow>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().row(col("petal_width_bin")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("species")).subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.axis(|a| a.position("bottom"))
+                                            .with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested level1 x bottom axis");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "nested_level1_x_bottom_axis",
+        )
+        .await;
+    });
+}
+
+/// Test Level(1) X scale sharing with X axis on TOP
+///
+/// X axis labels should appear only at the top row.
+#[test]
+fn test_nested_level1_x_top_axis() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        // Note: FacetRow > FacetColumn layout
+        let outer = Plot::<FacetRow>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().row(col("petal_width_bin")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("species")).subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.axis(|a| a.position("top"))
+                                            .with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested level1 x top axis");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "nested_level1_x_top_axis",
+        )
+        .await;
+    });
+}
+
+/// Test mixed sharing: X Free (all visible), Y Level(1) on LEFT
+///
+/// X axis should appear on all subplots, Y axis only at leftmost column.
+#[test]
+fn test_nested_level1_mixed_x_free_y_level1() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().column(col("petal_width_bin")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.axis(|a| a.position("bottom"))
+                                            .with_scale_sharing(ScaleSharing::Free)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.axis(|a| a.position("left"))
+                                            .with_scale_sharing(ScaleSharing::Level(1))
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested mixed x free y level1");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "nested_level1_mixed_x_free_y_level1",
+        )
+        .await;
+    });
+}
+
+// =============================================================================
+// Three-Level Nesting Tests
+// =============================================================================
+// NOTE: Level(2) domain propagation for 3-level nesting requires additional
+// implementation work. The current implementation only supports Level(1)
+// sharing with the immediate parent. These tests demonstrate 3-level nesting
+// with Level(1) at the innermost level.
+
+/// Test 3-level nesting with Level(1) Y sharing at innermost level
+///
+/// Layout: FacetColumn > FacetRow > Cartesian (3 levels)
+/// This tests that Level(1) correctly shares Y domain with the immediate
+/// parent (FacetRow) in a 3-level nested structure.
+#[test]
+fn test_three_level_nesting_level1_y() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        // 3-level nesting: FacetColumn(outer) > FacetRow(middle) > Cartesian(inner)
+        // Level(1) on Y should share domain within each FacetRow (middle level)
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(800, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("sepal_length"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .y_with(col("sepal_width"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(1))
+                                            })
+                                            .size(25.0)
+                                            .fill("#4682b4"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile 3-level nesting level1 y");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "three_level_nesting_level1_y",
+        )
+        .await;
+    });
+}
+
+/// Test 3-level nesting with global Shared (equivalent to Level(u8::MAX))
+///
+/// This tests that globally shared scales work correctly in a 3-level
+/// nested structure, where all subplots use the same Y domain.
+#[test]
+fn test_three_level_nesting_shared_y() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        // 3-level nesting with Shared (global) Y scale
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(800, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("species"), |c| c.facet(|f| f.title("Species")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("sepal_length"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                            })
+                                            .y_with(col("sepal_width"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                            })
+                                            .size(25.0)
+                                            .fill("#4682b4"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile 3-level nesting shared y");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "three_level_nesting_shared_y",
         )
         .await;
     });

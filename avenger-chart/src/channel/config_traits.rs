@@ -160,15 +160,34 @@ pub trait ChannelConfig: Sized {
 #[serde(rename_all = "snake_case")]
 pub enum ScaleSharing {
     /// Share scales across all facets (one domain for all subplots)
+    /// Equivalent to Level(u8::MAX)
     Shared,
     /// Independent scales per facet (each subplot has its own domain)
+    /// Equivalent to Level(0)
     Free,
     /// Share scales within each row (across columns), independent across rows
+    /// DEPRECATED: Use Level(N) with FacetRow > FacetColumn nesting instead
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use Level(N) with FacetRow > FacetColumn nesting for row-based sharing"
+    )]
     #[serde(alias = "shared_in_row")]
     SharedInRow,
     /// Share scales within each column (across rows), independent across columns
+    /// DEPRECATED: Use Level(N) with FacetColumn > FacetRow nesting instead
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use Level(N) with FacetColumn > FacetRow nesting for column-based sharing"
+    )]
     #[serde(alias = "shared_in_column")]
     SharedInColumn,
+    /// Hierarchical level-based scale sharing for nested facets
+    /// Level(0) = Free (independent per cell)
+    /// Level(1) = Share with immediate parent facet
+    /// Level(N) = Share N levels up in the hierarchy
+    /// Level(u8::MAX) = Shared (global across all facets)
+    #[serde(rename = "level")]
+    Level(u8),
 }
 
 impl From<bool> for ScaleSharing {
@@ -178,6 +197,67 @@ impl From<bool> for ScaleSharing {
         } else {
             ScaleSharing::Free
         }
+    }
+}
+
+impl ScaleSharing {
+    /// Convert this sharing mode to a level value
+    ///
+    /// - Free → 0
+    /// - Level(n) → n
+    /// - Shared → u8::MAX
+    /// - SharedInRow/SharedInColumn → u8::MAX (treated as globally shared)
+    #[allow(deprecated)]
+    pub fn to_level(self) -> u8 {
+        match self {
+            ScaleSharing::Free => 0,
+            ScaleSharing::Level(n) => n,
+            ScaleSharing::Shared | ScaleSharing::SharedInRow | ScaleSharing::SharedInColumn => {
+                u8::MAX
+            }
+        }
+    }
+
+    /// Create a ScaleSharing from a level value
+    ///
+    /// - 0 → Free
+    /// - u8::MAX → Shared
+    /// - n → Level(n)
+    pub fn from_level(level: u8) -> Self {
+        match level {
+            0 => ScaleSharing::Free,
+            u8::MAX => ScaleSharing::Shared,
+            n => ScaleSharing::Level(n),
+        }
+    }
+
+    /// Check if this sharing mode shares with the parent facet
+    ///
+    /// Returns true for Level(1+), Shared, SharedInRow, SharedInColumn
+    /// Returns false for Free, Level(0)
+    pub fn should_share_with_parent(self) -> bool {
+        self.to_level() > 0
+    }
+
+    /// Check if this is fully shared (global across all facets)
+    ///
+    /// Returns true for Shared and Level(u8::MAX)
+    #[allow(deprecated)]
+    pub fn is_fully_shared(self) -> bool {
+        matches!(
+            self,
+            ScaleSharing::Shared
+                | ScaleSharing::SharedInRow
+                | ScaleSharing::SharedInColumn
+                | ScaleSharing::Level(u8::MAX)
+        )
+    }
+
+    /// Check if this is free (independent per facet cell)
+    ///
+    /// Returns true for Free and Level(0)
+    pub fn is_free(self) -> bool {
+        self.to_level() == 0
     }
 }
 

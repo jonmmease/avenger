@@ -145,14 +145,57 @@ where
         .as_ref()
         .and_then(|ctx| ctx.shared_data_extents_for_column.clone());
 
+    // ========== LEVEL-BASED DOMAIN EXTRACTION (Level(N) sharing) ==========
+    // For channels with Level(N) sharing where N >= 1, extract domains from level_domains
+    // This enables hierarchical scale sharing in nested facets using the new Level(N) API.
+    let level_based_extents: HashMap<String, crate::facet::coordination::SerializableDataExtents> =
+        if let Some(ref ctx) = coordination_context {
+            scale_sharing_by_channel
+                .iter()
+                .filter_map(|(channel, mode)| {
+                    // Check if this is a Level(N) mode with N >= 1
+                    if let ScaleSharing::Level(n) = mode {
+                        if *n >= 1 {
+                            // Get the domain for this channel from level_domains
+                            ctx.get_domain_for_channel(channel)
+                                .map(|extents| (channel.clone(), extents.clone()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            HashMap::new()
+        };
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && !level_based_extents.is_empty() {
+        eprintln!(
+            "  Level-based extents extracted for channels: {:?}",
+            level_based_extents.keys().collect::<Vec<_>>()
+        );
+    }
+
     // Determine shared-scale usage
     let any_shared = scale_sharing_by_channel
         .values()
         .any(|v| *v == ScaleSharing::Shared);
 
+    // Check if any channels use Level(N) sharing with N >= 1
+    let any_level_shared = scale_sharing_by_channel.values().any(|v| {
+        if let ScaleSharing::Level(n) = v {
+            *n >= 1
+        } else {
+            false
+        }
+    });
+
     // Build shared scale builder once if needed, extending with shared_data_extents
     // to ensure inner facet scales use the full dataset range for Shared channels
-    let shared_scale_builder = if any_shared {
+    // Also build if there are Level(N) channels to extend with level_based_extents
+    let shared_scale_builder = if any_shared || any_level_shared {
         let mut builder = compiled_subplot
             .build_scale_builder_from_dataframe(&context.session_context, &context.params, df)
             .await?;
@@ -173,6 +216,19 @@ where
                 builder.extend_with_shared_extents(&shared_only_extents);
             }
         }
+
+        // Extend with level-based extents for channels with Level(N) sharing (N >= 1)
+        // These extents come from the parent facet's level_domains
+        if !level_based_extents.is_empty() {
+            builder.extend_with_shared_extents(&level_based_extents);
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  Extended builder with level-based extents: {:?}",
+                    level_based_extents.keys().collect::<Vec<_>>()
+                );
+            }
+        }
+
         Some(builder)
     } else {
         None
@@ -1093,6 +1149,35 @@ where
                     }
                 }
 
+                // Extend with level-based extents for channels with Level(N) sharing (N >= 1)
+                // Extract from coordination context (which was updated per-iteration)
+                if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
+                    let level_extents: std::collections::HashMap<String, _> = scale_sharing_by_channel
+                        .iter()
+                        .filter_map(|(channel, mode)| {
+                            if let ScaleSharing::Level(n) = mode {
+                                if *n >= 1 {
+                                    coord_ctx.get_domain_for_channel(channel)
+                                        .map(|extents| (channel.clone(), extents.clone()))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    if !level_extents.is_empty() {
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "Level(N): applying extents for channels={:?}",
+                                level_extents.keys().collect::<Vec<_>>()
+                            );
+                        }
+                        free_scale_builder.extend_with_shared_extents(&level_extents);
+                    }
+                }
+
                 // Compute SharedInColumn extents to pass to inner facets BEFORE moving free_scale_builder
                 // These are computed from the column's filtered data and apply to all rows in this column
                 let shared_in_column_channels: Vec<&str> = scale_sharing_by_channel
@@ -1702,7 +1787,7 @@ async fn detect_nested_facet_and_compute_coordination(
     ctx: &SessionContext,
     _outer_is_row_facet: bool,
 ) -> Result<Option<FacetCoordinationContext>, AvengerChartError> {
-    use crate::facet::coordination::{GuideOwnership, SerializableDataExtents};
+    use crate::facet::coordination::{GuideOwnership, LevelChannelKey, SerializableDataExtents};
     use crate::facet::keys::FacetKeyExtractor;
     use crate::facet::marks::facet::{CompiledFacetCol, CompiledFacetRow};
     use std::collections::HashMap;
@@ -1756,16 +1841,46 @@ async fn detect_nested_facet_and_compute_coordination(
 
     // Normalize scale sharing mode based on facet orientation
     // For inner FacetRow (row variable inside FacetColumn):
-    //   - Shared/SharedInRow → should_share_domain = true (share rows across columns)
-    //   - Free/SharedInColumn → should_share_domain = false (each column has own rows)
+    //   - Shared/Level(1+) → should_share_domain = true (share rows across columns)
+    //   - Free/Level(0) → should_share_domain = false (each column has own rows)
     // For inner FacetColumn (column variable inside FacetRow):
-    //   - Shared/SharedInColumn → should_share_domain = true (share columns across rows)
-    //   - Free/SharedInRow → should_share_domain = false (each row has own columns)
+    //   - Shared/Level(1+) → should_share_domain = true (share columns across rows)
+    //   - Free/Level(0) → should_share_domain = false (each row has own columns)
+    //
+    // SharedInRow/SharedInColumn are DEPRECATED for nested facets.
+    // These modes are grid-centric and don't map cleanly to nested FacetRow/FacetColumn.
+    // They are treated as Level(1) for backward compatibility.
     let should_share_domain = match configured_scale_sharing {
         ScaleSharing::Shared => true,
         ScaleSharing::Free => false,
-        ScaleSharing::SharedInRow => inner_is_row_facet, // Share rows across columns
-        ScaleSharing::SharedInColumn => !inner_is_row_facet, // Share columns across rows
+        #[allow(deprecated)]
+        ScaleSharing::SharedInRow => {
+            // DEPRECATED: SharedInRow doesn't apply cleanly to nested facets.
+            // Use Level(N) with FacetRow > FacetColumn nesting instead.
+            // Fall back to Level(1) behavior (share with immediate parent).
+            eprintln!(
+                "[DEPRECATION WARNING] SharedInRow scale sharing is deprecated for nested facets. \
+                 Use Level(1) with FacetRow > FacetColumn nesting for row-based sharing."
+            );
+            true // Treat as Level(1)
+        }
+        #[allow(deprecated)]
+        ScaleSharing::SharedInColumn => {
+            // DEPRECATED: SharedInColumn doesn't apply cleanly to nested facets.
+            // Use Level(N) with FacetColumn > FacetRow nesting instead.
+            // Fall back to Level(1) behavior (share with immediate parent).
+            eprintln!(
+                "[DEPRECATION WARNING] SharedInColumn scale sharing is deprecated for nested facets. \
+                 Use Level(1) with FacetColumn > FacetRow nesting for column-based sharing."
+            );
+            true // Treat as Level(1)
+        }
+        ScaleSharing::Level(n) => {
+            // Hierarchical level-based sharing
+            // Level(0) = Free: don't share domain
+            // Level(1+) = Share with parent: share domain
+            n > 0
+        }
     };
 
     // For guide ownership coordination, we still use Shared mode so axis labels
@@ -1934,11 +2049,73 @@ async fn detect_nested_facet_and_compute_coordination(
         sharing
     };
     if !axis_scale_sharing.is_empty() {
-        coord_ctx = coord_ctx.with_axis_scale_sharing(axis_scale_sharing);
+        coord_ctx = coord_ctx.with_axis_scale_sharing(axis_scale_sharing.clone());
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "  Added axis_scale_sharing to coord context: {:?}",
                 coord_ctx.axis_scale_sharing
+            );
+        }
+    }
+
+    // ========== EXTRACT CHANNEL SHARING LEVELS (Level-based scale sharing) ==========
+    // Convert ScaleSharing modes to level values for the new hierarchical system.
+    // This enables get_channel_level() and get_domain_for_channel() lookups.
+    let channel_sharing_levels: HashMap<String, u8> = {
+        let mut levels = HashMap::new();
+        for (channel_name, _, share_mode) in &channel_info {
+            levels.insert(channel_name.clone(), share_mode.to_level());
+        }
+        levels
+    };
+    if !channel_sharing_levels.is_empty() {
+        coord_ctx = coord_ctx.with_channel_sharing_levels(channel_sharing_levels.clone());
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "  Added channel_sharing_levels to coord context: {:?}",
+                coord_ctx.channel_sharing_levels
+            );
+        }
+    }
+
+    // ========== BUILD LEVEL_DOMAINS HashMap (Level-based domain propagation) ==========
+    // For channels with Level(N) where N >= 1, compute domain extents and store
+    // at the appropriate level. Level 1 domains come from the outer's filtered df.
+    // For 2-level nesting (outer > inner), we're at nesting_depth = 1.
+    //
+    // Note: This function is called from the OUTER facet while processing nested facets.
+    // The df parameter is the OUTER facet's full dataset (before per-cell filtering).
+    // Level 1 domains use this full dataset to unify scales across all cells.
+    let mut level_domains: HashMap<LevelChannelKey, SerializableDataExtents> = HashMap::new();
+
+    for (channel_name, channel_expr, share_mode) in &channel_info {
+        let level = share_mode.to_level();
+        if level >= 1 {
+            // For Level(1+) channels, compute domain from the outer's full dataset
+            // This ensures all inner facets share the same scale domain
+            if let Ok(extents) = compute_numeric_extents(df, channel_expr, ctx).await {
+                let key = LevelChannelKey::new(1, channel_name);
+                level_domains.insert(key, extents);
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "  Added level_domain for level=1, channel={}: {:?}",
+                        channel_name,
+                        level_domains.get(&LevelChannelKey::new(1, channel_name))
+                    );
+                }
+            }
+        }
+    }
+
+    if !level_domains.is_empty() {
+        // Set nesting depth to 1 (we're one level deep from the outer facet)
+        coord_ctx = coord_ctx
+            .with_nesting_depth(1)
+            .with_level_domains(level_domains);
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "  Added level_domains to coord context: {} entries, nesting_depth=1",
+                coord_ctx.level_domains.len()
             );
         }
     }

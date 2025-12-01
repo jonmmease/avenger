@@ -219,6 +219,16 @@ impl FacetContext {
                     _ => true, // Unknown combinations show labels
                 }
             }
+            ScaleSharing::Level(n) => {
+                // Hierarchical level-based sharing
+                // Level(0) = Free: always show labels
+                // Level(1+) = Share with parent: use edge logic like Shared
+                if n == 0 {
+                    true
+                } else {
+                    self.is_on_relevant_edge(channel, position)
+                }
+            }
         }
     }
 
@@ -288,6 +298,16 @@ impl FacetContext {
             ScaleSharing::Shared | ScaleSharing::SharedInRow | ScaleSharing::SharedInColumn => {
                 // Shared scales: only show on relevant edge
                 self.is_facet_on_relevant_edge(channel, position)
+            }
+            ScaleSharing::Level(n) => {
+                // Hierarchical level-based sharing
+                // Level(0) = Free: always show labels
+                // Level(1+) = Share with parent: use edge logic
+                if n == 0 {
+                    true
+                } else {
+                    self.is_facet_on_relevant_edge(channel, position)
+                }
             }
         }
     }
@@ -583,5 +603,109 @@ mod tests {
 
         // Free: always show labels
         assert!(ctx_free.should_show_facet_labels("row", AxisPosition::Right));
+    }
+
+    #[test]
+    fn test_should_show_labels_with_level_variant() {
+        // Test Level(0) behaves like Free
+        let mut scale_sharing_level0 = HashMap::new();
+        scale_sharing_level0.insert("x".to_string(), ScaleSharing::Level(0));
+
+        let ctx_level0 = FacetContext {
+            position: (1, 0), // Middle row
+            grid_dimensions: (3, 1),
+            unified_channels: HashSet::new(),
+            scale_sharing: scale_sharing_level0,
+        };
+
+        // Level(0) = Free: always show labels (even on non-edge)
+        assert!(ctx_level0.should_show_labels("x", AxisPosition::Bottom));
+        assert!(ctx_level0.should_show_labels("x", AxisPosition::Top));
+
+        // Test Level(1) behaves like Shared (shows on edge only)
+        let mut scale_sharing_level1 = HashMap::new();
+        scale_sharing_level1.insert("x".to_string(), ScaleSharing::Level(1));
+
+        let ctx_level1_middle = FacetContext {
+            position: (1, 0), // Middle row
+            grid_dimensions: (3, 1),
+            unified_channels: HashSet::new(),
+            scale_sharing: scale_sharing_level1.clone(),
+        };
+
+        // Level(1) = Share with parent: don't show on middle row
+        assert!(!ctx_level1_middle.should_show_labels("x", AxisPosition::Bottom));
+        assert!(!ctx_level1_middle.should_show_labels("x", AxisPosition::Top));
+
+        // Level(1) on edge (bottom row)
+        let ctx_level1_bottom = FacetContext {
+            position: (2, 0), // Bottom row
+            grid_dimensions: (3, 1),
+            unified_channels: HashSet::new(),
+            scale_sharing: scale_sharing_level1,
+        };
+
+        // Level(1) on bottom edge: show bottom labels
+        assert!(ctx_level1_bottom.should_show_labels("x", AxisPosition::Bottom));
+        assert!(!ctx_level1_bottom.should_show_labels("x", AxisPosition::Top));
+
+        // Test Level(u8::MAX) behaves like Shared
+        let mut scale_sharing_max = HashMap::new();
+        scale_sharing_max.insert("x".to_string(), ScaleSharing::Level(u8::MAX));
+
+        let ctx_max_middle = FacetContext {
+            position: (1, 0), // Middle row
+            grid_dimensions: (3, 1),
+            unified_channels: HashSet::new(),
+            scale_sharing: scale_sharing_max,
+        };
+
+        // Level(u8::MAX) = fully shared: don't show on middle row
+        assert!(!ctx_max_middle.should_show_labels("x", AxisPosition::Bottom));
+    }
+
+    #[test]
+    fn test_should_show_facet_labels_with_level_variant() {
+        // Test Level(0) behaves like Free for facet labels
+        let mut scale_sharing_level0 = HashMap::new();
+        scale_sharing_level0.insert("row".to_string(), ScaleSharing::Level(0));
+
+        let ctx_level0 = FacetContext {
+            position: (1, 1), // Middle cell
+            grid_dimensions: (3, 3),
+            unified_channels: HashSet::new(),
+            scale_sharing: scale_sharing_level0,
+        };
+
+        // Level(0) = Free: always show facet labels
+        assert!(ctx_level0.should_show_facet_labels("row", AxisPosition::Right));
+        assert!(ctx_level0.should_show_facet_labels("row", AxisPosition::Left));
+
+        // Test Level(1) behaves like Shared for facet labels
+        let mut scale_sharing_level1 = HashMap::new();
+        scale_sharing_level1.insert("row".to_string(), ScaleSharing::Level(1));
+
+        let ctx_level1_middle = FacetContext {
+            position: (1, 1), // Middle column
+            grid_dimensions: (3, 3),
+            unified_channels: HashSet::new(),
+            scale_sharing: scale_sharing_level1.clone(),
+        };
+
+        // Level(1) on middle column: don't show on edge positions
+        assert!(!ctx_level1_middle.should_show_facet_labels("row", AxisPosition::Right));
+        assert!(!ctx_level1_middle.should_show_facet_labels("row", AxisPosition::Left));
+
+        // Level(1) on leftmost column
+        let ctx_level1_left = FacetContext {
+            position: (1, 0), // Leftmost column
+            grid_dimensions: (3, 3),
+            unified_channels: HashSet::new(),
+            scale_sharing: scale_sharing_level1,
+        };
+
+        // Level(1) on left edge: show left labels
+        assert!(ctx_level1_left.should_show_facet_labels("row", AxisPosition::Left));
+        assert!(!ctx_level1_left.should_show_facet_labels("row", AxisPosition::Right));
     }
 }

@@ -116,7 +116,7 @@ impl FacetRowVisibility {
 
         let y_is_shared_across_cols = matches!(
             y_sharing_mode,
-            ScaleSharing::Shared | ScaleSharing::SharedInRow
+            ScaleSharing::Shared | ScaleSharing::SharedInRow | ScaleSharing::Level(1..)
         );
 
         // Facet labels go on the opposite side from the y-axis
@@ -309,7 +309,7 @@ impl FacetColVisibility {
 
         let x_is_shared_across_rows = matches!(
             x_sharing_mode,
-            ScaleSharing::Shared | ScaleSharing::SharedInColumn
+            ScaleSharing::Shared | ScaleSharing::SharedInColumn | ScaleSharing::Level(1..)
         );
 
         // Facet labels are only rendered on the edge row where they're placed
