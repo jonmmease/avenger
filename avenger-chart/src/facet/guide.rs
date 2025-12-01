@@ -299,7 +299,12 @@ impl FacetRowGuide {
 
                     // Compute band height for subplots based on iteration domain size
                     // Account for inter-row gaps when computing band height
-                    let num_rows = iteration_domain.len().max(1);
+                    // For uniform Free scaling, use max cell count instead of actual domain length
+                    let num_rows = coord_ctx
+                        .as_ref()
+                        .and_then(|ctx| ctx.get_uniform_cell_count())
+                        .unwrap_or(iteration_domain.len())
+                        .max(1);
                     let inter_row_gap = coord_ctx
                         .as_ref()
                         .and_then(|ctx| ctx.get_coordinated_spacing("inter_row_gap"))
@@ -355,7 +360,7 @@ impl FacetRowGuide {
                             // This contains the per-channel scale sharing modes (x, y) computed
                             // from channel configs, ensuring measurement uses same visibility
                             // decisions as rendering.
-                            // Also extract inner_domain_count for proper grid dimensions.
+                            // Also extract inner_domain_count or uniform_cell_count for proper grid dimensions.
                             let grid_num_rows = if let Some(coord_ctx) =
                                 FacetCoordinationContext::from_params(params)
                             {
@@ -364,9 +369,11 @@ impl FacetRowGuide {
                                         merged_scale_sharing.insert(channel.clone(), *mode);
                                     }
                                 }
-                                // Use inner_domain_count from coordination context for grid dimensions
-                                // This ensures correct edge detection for axis visibility
-                                if coord_ctx.inner_domain_count > 0 {
+                                // Use uniform_cell_count (for Free scaling) or inner_domain_count (for Shared) for grid dimensions
+                                // This ensures correct edge detection for axis visibility and uniform band sizing
+                                if let Some(uniform_count) = coord_ctx.get_uniform_cell_count() {
+                                    uniform_count
+                                } else if coord_ctx.inner_domain_count > 0 {
                                     coord_ctx.inner_domain_count
                                 } else {
                                     num_rows
@@ -987,7 +994,11 @@ impl CompiledGuide for FacetRowGuide {
         };
         domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-        let num_rows = domain_vals.len().max(1);
+        // For uniform Free scaling, use max cell count instead of actual domain length
+        let num_rows = coord_ctx
+            .get_uniform_cell_count()
+            .unwrap_or(domain_vals.len())
+            .max(1);
 
         // === PASS 1: Measure with zero gap ===
         let pass1_band_height = plot_height / num_rows as f32;
@@ -1722,7 +1733,12 @@ impl FacetColGuide {
 
                     // Compute band width for subplots based on iteration domain size
                     // Account for inter-column gaps when computing band width
-                    let num_cols = iteration_domain.len().max(1);
+                    // For uniform Free scaling, use max cell count instead of actual domain length
+                    let num_cols = coord_ctx
+                        .as_ref()
+                        .and_then(|ctx| ctx.get_uniform_cell_count())
+                        .unwrap_or(iteration_domain.len())
+                        .max(1);
                     let inter_col_gap = coord_ctx
                         .as_ref()
                         .and_then(|ctx| ctx.get_coordinated_spacing("inter_col_gap"))
@@ -2534,7 +2550,11 @@ impl CompiledGuide for FacetColGuide {
         };
         domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-        let num_cols = domain_vals.len().max(1);
+        // For uniform Free scaling, use max cell count instead of actual domain length
+        let num_cols = coord_ctx
+            .get_uniform_cell_count()
+            .unwrap_or(domain_vals.len())
+            .max(1);
 
         // === PASS 1: Measure with zero gap ===
         let pass1_band_width = plot_width / num_cols as f32;

@@ -136,12 +136,16 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             let current_channel = DimConfig::channel_name();
             if coord_ctx.inner_channel.as_deref() == Some(current_channel) {
                 // This coordination is for us - use outer position to compute true grid position
-                // Use inner_domain_count from coordination context for consistent grid dimensions
-                // across all outer subplots, even if some have fewer actual data values.
-                let inner_count = if coord_ctx.inner_domain_count > 0 {
+                // Use uniform_cell_count (for Free scaling) or inner_domain_count (for Shared) for
+                // consistent grid dimensions across all outer subplots.
+                let inner_count = if let Some(uniform_count) = coord_ctx.get_uniform_cell_count() {
+                    // Uniform Free scaling: use max cell count across all outer cells
+                    uniform_count
+                } else if coord_ctx.inner_domain_count > 0 {
+                    // Shared domain: use coordinated domain count
                     coord_ctx.inner_domain_count
                 } else {
-                    // Fallback to actual domain size if inner_domain_count not set
+                    // Fallback to actual domain size if neither is set
                     self.domain_vals.len()
                 };
 

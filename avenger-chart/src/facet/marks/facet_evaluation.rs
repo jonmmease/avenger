@@ -301,25 +301,74 @@ where
     };
     domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    // If we're using a coordination domain, we need to rebuild the dimension scale
-    // with the coordination domain values. The original scale was built from filtered
-    // data which may have fewer values than the coordination domain.
+    // Check if uniform free scaling is enabled via coordination context
+    // If so, we need to use a virtual domain size for band sizing
+    let uniform_cell_count = FacetCoordinationContext::from_params(&context.params)
+        .and_then(|ctx| ctx.get_uniform_cell_count());
+
+    // If we're using a coordination domain, rebuild the dimension scale with that domain.
+    // NOTE: For uniform free scaling, we do NOT pad the domain with placeholder values because
+    // that would cause placeholder labels to appear in the guides. Instead, we create a separate
+    // temporary scale just for computing positions with correct band sizing.
     let effective_configured = if has_coordination_domain {
-        // Build a new domain array from the coordination domain values
+        // Build a new domain array from the coordination domain values (actual values only)
         use datafusion::arrow::array::StringArray;
         use std::sync::Arc as StdArc;
         let domain_strings: Vec<String> = domain_vals.iter().map(|v| v.to_string()).collect();
         let domain_array =
             StdArc::new(StringArray::from(domain_strings)) as datafusion::arrow::array::ArrayRef;
 
-        // Create a new configured scale with the coordination domain
+        // Create a new configured scale with the updated domain
         let updated = configured.clone().with_domain(domain_array);
         std::borrow::Cow::Owned(updated)
     } else {
         std::borrow::Cow::Borrowed(configured)
     };
 
-    let initial_positions = effective_configured.scale_scalars_to_numeric(&domain_vals)?;
+    // For uniform free scaling, create a separate scale with padded domain just for position computation
+    // This scale is NOT stored - it's only used to compute correct band positions
+    let (all_positions, scale_domain_vals) = if let Some(uniform_count) = uniform_cell_count {
+        if domain_vals.len() < uniform_count {
+            // Create padded domain values for position computation only
+            let mut padded = domain_vals.clone();
+            let placeholder_template = domain_vals.first().cloned().unwrap_or(ScalarValue::Utf8(None));
+            for i in domain_vals.len()..uniform_count {
+                let placeholder = match &placeholder_template {
+                    ScalarValue::Utf8View(_) => ScalarValue::Utf8View(Some(format!("__placeholder_{}", i))),
+                    ScalarValue::Utf8(_) => ScalarValue::Utf8(Some(format!("__placeholder_{}", i))),
+                    _ => ScalarValue::Utf8(Some(format!("__placeholder_{}", i))),
+                };
+                padded.push(placeholder);
+            }
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  Uniform Free scaling: creating temp scale with {} values (actual={}) for band sizing",
+                    uniform_count,
+                    domain_vals.len()
+                );
+            }
+
+            // Create temporary scale with padded domain for position computation
+            use datafusion::arrow::array::StringArray;
+            use std::sync::Arc as StdArc;
+            let padded_strings: Vec<String> = padded.iter().map(|v| v.to_string()).collect();
+            let padded_array =
+                StdArc::new(StringArray::from(padded_strings)) as datafusion::arrow::array::ArrayRef;
+            let temp_scale = configured.clone().with_domain(padded_array);
+
+            // Compute positions using the padded temporary scale
+            let positions = temp_scale.scale_scalars_to_numeric(&padded)?;
+            (positions, padded)
+        } else {
+            // No padding needed, use effective_configured directly
+            let positions = effective_configured.scale_scalars_to_numeric(&domain_vals)?;
+            (positions, domain_vals.clone())
+        }
+    } else {
+        // No uniform sizing, use effective_configured directly
+        let positions = effective_configured.scale_scalars_to_numeric(&domain_vals)?;
+        (positions, domain_vals.clone())
+    };
 
     use crate::facet::subplot_iterator::SubplotIteration;
     use crate::facet::subplot_iterator::SubplotIterator;
@@ -331,13 +380,15 @@ where
 
     let channel_name = DimConfig::channel_name();
     let mut position_channels_pass1 = HashMap::new();
+    // Use ALL positions (including placeholders) so geometry gets correct band count
     position_channels_pass1.insert(
         channel_name,
-        avenger_common::value::ScalarOrArray::new_array(initial_positions.clone()),
+        avenger_common::value::ScalarOrArray::new_array(all_positions.clone()),
     );
 
     let mut position_values_pass1 = HashMap::new();
-    position_values_pass1.insert(channel_name, domain_vals.clone());
+    // Use padded domain values so geometry knows the full domain size
+    position_values_pass1.insert(channel_name, scale_domain_vals.clone());
 
     let initial_geometry = facet_coord.transform(
         &position_channels_pass1,
@@ -346,7 +397,7 @@ where
         context.plot_height,
     )?;
 
-    let initial_rects = initial_geometry
+    let all_initial_rects = initial_geometry
         .as_any()
         .downcast_ref::<SubplotGeometry>()
         .ok_or_else(|| {
@@ -356,6 +407,15 @@ where
         })?
         .rects
         .clone();
+
+    // For uniform free scaling, we passed padded positions to get correct band sizes,
+    // but we only iterate over actual data values. Filter rects to match iteration count.
+    let initial_rects = if uniform_cell_count.is_some() && all_initial_rects.len() > domain_vals.len() {
+        // Take only the first N rects corresponding to actual domain values
+        all_initial_rects.into_iter().take(domain_vals.len()).collect()
+    } else {
+        all_initial_rects
+    };
 
     assert_eq!(
         subplot_iter.len(),
@@ -650,24 +710,55 @@ where
     );
 
     let final_configured = final_dimension_scale.configured();
-    let final_positions = final_configured.scale_scalars_to_numeric(&domain_vals)?;
+
+    // For uniform free scaling, create a temporary scale with padded domain for position computation
+    // This mirrors the approach in Pass 1 - the final_dimension_scale has only actual values,
+    // but we need positions computed as if there were uniform_count bands
+    let (final_all_positions, final_scale_domain_vals) = if let Some(uniform_count) = uniform_cell_count {
+        if domain_vals.len() < uniform_count {
+            // Create temporary scale with padded domain for position computation
+            use datafusion::arrow::array::StringArray;
+            use std::sync::Arc as StdArc;
+            let padded_strings: Vec<String> = scale_domain_vals.iter().map(|v| v.to_string()).collect();
+            let padded_array =
+                StdArc::new(StringArray::from(padded_strings)) as datafusion::arrow::array::ArrayRef;
+
+            // Clone the final_configured config and create temp scale with padded domain
+            let mut temp_config = final_configured.config.clone();
+            temp_config.domain = padded_array;
+            let temp_scale = avenger_scales::scales::ConfiguredScale {
+                scale_impl: final_configured.scale_impl.clone(),
+                config: temp_config,
+            };
+            let positions = temp_scale.scale_scalars_to_numeric(&scale_domain_vals)?;
+            (positions, scale_domain_vals.clone())
+        } else {
+            let positions = final_configured.scale_scalars_to_numeric(&domain_vals)?;
+            (positions, domain_vals.clone())
+        }
+    } else {
+        let positions = final_configured.scale_scalars_to_numeric(&domain_vals)?;
+        (positions, domain_vals.clone())
+    };
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
             "measure_pass final_positions: channel={} positions={:?}",
             DimConfig::channel_name(),
-            final_positions
+            final_all_positions,
         );
     }
 
     let mut temp_position_channels = HashMap::new();
+    // Use ALL positions (including placeholders) so geometry gets correct band count
     temp_position_channels.insert(
         channel_name,
-        avenger_common::value::ScalarOrArray::new_array(final_positions),
+        avenger_common::value::ScalarOrArray::new_array(final_all_positions),
     );
 
     let mut temp_position_values = HashMap::new();
-    temp_position_values.insert(channel_name, domain_vals);
+    // Use padded domain values so geometry knows the full domain size
+    temp_position_values.insert(channel_name, final_scale_domain_vals.clone());
 
     let final_geometry_with_padding = updated_facet_coord.transform(
         &temp_position_channels,
@@ -676,7 +767,7 @@ where
         context.plot_height,
     )?;
 
-    let mut final_rects = final_geometry_with_padding
+    let all_final_rects_raw = final_geometry_with_padding
         .as_any()
         .downcast_ref::<SubplotGeometry>()
         .ok_or_else(|| {
@@ -687,22 +778,32 @@ where
         .rects
         .clone();
 
+    // For uniform free scaling, filter to only actual data rects (exclude placeholder rects)
+    let mut final_rects: Vec<SubplotRect> = if uniform_cell_count.is_some() && all_final_rects_raw.len() > domain_vals.len() {
+        all_final_rects_raw.into_iter().take(domain_vals.len()).collect()
+    } else {
+        all_final_rects_raw
+    };
+
     // Adjust the last rect to fill remaining space, avoiding rounding gaps
     // This ensures the last band reaches exactly to the plot boundary
-    if let Some(last_rect) = final_rects.last_mut() {
-        if DimConfig::is_row_facet() {
-            // For row faceting, adjust height so last band reaches plot_height
-            let expected_end = context.plot_height;
-            let current_end = last_rect.y + last_rect.height;
-            if (expected_end - current_end).abs() > 0.001 {
-                last_rect.height = expected_end - last_rect.y;
-            }
-        } else {
-            // For column faceting, adjust width so last band reaches plot_width
-            let expected_end = context.plot_width;
-            let current_end = last_rect.x + last_rect.width;
-            if (expected_end - current_end).abs() > 0.001 {
-                last_rect.width = expected_end - last_rect.x;
+    // NOTE: For uniform sizing, we DON'T adjust the last rect since empty space should appear below
+    if uniform_cell_count.is_none() {
+        if let Some(last_rect) = final_rects.last_mut() {
+            if DimConfig::is_row_facet() {
+                // For row faceting, adjust height so last band reaches plot_height
+                let expected_end = context.plot_height;
+                let current_end = last_rect.y + last_rect.height;
+                if (expected_end - current_end).abs() > 0.001 {
+                    last_rect.height = expected_end - last_rect.y;
+                }
+            } else {
+                // For column faceting, adjust width so last band reaches plot_width
+                let expected_end = context.plot_width;
+                let current_end = last_rect.x + last_rect.width;
+                if (expected_end - current_end).abs() > 0.001 {
+                    last_rect.width = expected_end - last_rect.x;
+                }
             }
         }
     }
@@ -1598,6 +1699,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         &df,
         ctx,
         DimConfig::is_row_facet(), // Whether this (outer) facet is a row facet
+        &facet_expr,               // Outer facet's expression for inner cell counting
     )
     .await?;
 
@@ -1778,6 +1880,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 /// * `df` - The full dataset (before any filtering)
 /// * `ctx` - Session context for expression evaluation
 /// * `outer_is_row_facet` - Whether the outer (calling) facet is a row facet
+/// * `outer_facet_expr` - The outer facet's expression (used to iterate over outer values for inner cell counting)
 ///
 /// # Returns
 /// Some(FacetCoordinationContext) if a nested facet is found, None otherwise
@@ -1786,6 +1889,7 @@ async fn detect_nested_facet_and_compute_coordination(
     df: &DataFrame,
     ctx: &SessionContext,
     _outer_is_row_facet: bool,
+    outer_facet_expr: &datafusion::logical_expr::Expr,
 ) -> Result<Option<FacetCoordinationContext>, AvengerChartError> {
     use crate::facet::coordination::{GuideOwnership, LevelChannelKey, SerializableDataExtents};
     use crate::facet::keys::FacetKeyExtractor;
@@ -1899,6 +2003,44 @@ async fn detect_nested_facet_and_compute_coordination(
             domain_vals.len()
         );
     }
+
+    // ========== COMPUTE UNIFORM FREE SCALING MAX CELL COUNT ==========
+    // When inner facet uses Free scaling, compute max inner cell count across all outer cells
+    // This enables uniform subplot sizing with empty space where data is missing.
+    let (max_inner_cell_count, enable_uniform_free_scaling) = if !should_share_domain {
+        // Extract outer domain values to iterate over parent cells
+        let outer_domain_vals = FacetKeyExtractor::extract_keys(df, outer_facet_expr).await?;
+
+        let mut max_count: usize = 1; // Floor at 1 to prevent divide-by-zero
+
+        for outer_val in &outer_domain_vals {
+            // Filter dataset by outer facet value
+            let filter_df = df
+                .clone()
+                .filter(outer_facet_expr.clone().eq(datafusion::logical_expr::lit(outer_val.clone())));
+
+            if let Ok(filter_df) = filter_df {
+                // Extract inner domain from filtered data
+                if let Ok(inner_domain_for_cell) = FacetKeyExtractor::extract_keys(&filter_df, &expr).await {
+                    let inner_count = inner_domain_for_cell.len().max(1);
+                    max_count = max_count.max(inner_count);
+                }
+            }
+        }
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "  Computed max_inner_cell_count for uniform Free scaling: {} (across {} outer cells)",
+                max_count,
+                outer_domain_vals.len()
+            );
+        }
+
+        (Some(max_count), true)
+    } else {
+        // Domain is shared, don't need uniform Free scaling
+        (None, false)
+    };
 
     // ========== COMPUTE SHARED DATA EXTENTS ==========
     // Get the inner facet's compiled subplot to extract x/y channel expressions
@@ -2019,6 +2161,23 @@ async fn detect_nested_facet_and_compute_coordination(
         }
     } else if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!("  Nested facet domain sharing DISABLED: each cell will compute own domain");
+    }
+
+    // Add uniform free scaling fields if computed
+    // This enables uniform subplot sizes when inner facet uses Free scaling
+    if enable_uniform_free_scaling {
+        if let Some(count) = max_inner_cell_count {
+            coord_ctx = coord_ctx
+                .with_max_inner_cell_count(count)
+                .with_uniform_free_scaling(true);
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  Enabled uniform Free scaling: max_inner_cell_count={}",
+                    count
+                );
+            }
+        }
     }
 
     // Add shared data extents if we computed any

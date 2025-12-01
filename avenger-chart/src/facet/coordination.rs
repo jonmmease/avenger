@@ -579,6 +579,31 @@ pub struct FacetCoordinationContext {
     /// - "legend_bottom": Bottom margin for legend alignment
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub coordinated_spacing: HashMap<String, f32>,
+
+    // ========================================================================
+    // Uniform Free scaling fields
+    // ========================================================================
+    /// Maximum inner cell count for uniform Free scaling sizing
+    ///
+    /// When nested facets use ScaleSharing::Free, different parent cells can have
+    /// different numbers of child subplots. This field stores the maximum count
+    /// across all parent cells, enabling uniform subplot sizes.
+    ///
+    /// Set during measure_pass when nested facet detection finds Free scaling.
+    /// Used by guides to compute band dimensions based on max count rather than
+    /// local count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_inner_cell_count: Option<usize>,
+
+    /// Enable uniform cell sizing for Free scaling
+    ///
+    /// When true, inner facets use max_inner_cell_count for band sizing instead
+    /// of their local domain count. This ensures all subplots have uniform sizes
+    /// with empty space where data is missing.
+    ///
+    /// Only has effect when max_inner_cell_count is Some.
+    #[serde(default)]
+    pub enable_uniform_free_scaling: bool,
 }
 
 fn default_scale_sharing() -> ScaleSharing {
@@ -611,6 +636,9 @@ impl Default for FacetCoordinationContext {
             inner_facet_spacing: None,
             col_overflow_by_index: None,
             coordinated_spacing: HashMap::new(),
+            // Uniform Free scaling fields
+            max_inner_cell_count: None,
+            enable_uniform_free_scaling: false,
         }
     }
 }
@@ -660,6 +688,9 @@ impl FacetCoordinationContext {
             inner_facet_spacing: None,
             col_overflow_by_index: None,
             coordinated_spacing: HashMap::new(),
+            // Uniform Free scaling fields
+            max_inner_cell_count: None,
+            enable_uniform_free_scaling: false,
         }
     }
 
@@ -717,6 +748,43 @@ impl FacetCoordinationContext {
     /// Returns the aggregated spacing value if it exists, None otherwise.
     pub fn get_coordinated_spacing(&self, key: &str) -> Option<f32> {
         self.coordinated_spacing.get(key).copied()
+    }
+
+    /// Builder: Set maximum inner cell count for uniform Free scaling
+    ///
+    /// This is the maximum number of child subplots across all parent cells.
+    /// When uniform Free scaling is enabled, all subplots use this count for
+    /// band sizing instead of their local domain count.
+    ///
+    /// The count is floored at 1 to prevent divide-by-zero errors.
+    pub fn with_max_inner_cell_count(mut self, count: usize) -> Self {
+        self.max_inner_cell_count = Some(count.max(1));
+        self
+    }
+
+    /// Builder: Enable or disable uniform cell sizing for Free scaling
+    ///
+    /// When enabled (and max_inner_cell_count is set), inner facets compute
+    /// band dimensions based on the maximum cell count rather than their local
+    /// domain count, ensuring uniform subplot sizes across all parent cells.
+    pub fn with_uniform_free_scaling(mut self, enabled: bool) -> Self {
+        self.enable_uniform_free_scaling = enabled;
+        self
+    }
+
+    /// Get uniform cell count for band sizing if enabled
+    ///
+    /// Returns Some(count) when:
+    /// - enable_uniform_free_scaling is true AND
+    /// - max_inner_cell_count is Some
+    ///
+    /// Returns None otherwise, indicating normal per-cell sizing should be used.
+    pub fn get_uniform_cell_count(&self) -> Option<usize> {
+        if self.enable_uniform_free_scaling {
+            self.max_inner_cell_count
+        } else {
+            None
+        }
     }
 
     /// Builder: Set outer position and count for proper grid coordinate computation
@@ -2021,5 +2089,112 @@ mod tests {
         let params = IndexMap::new();
         let result = FacetCoordinationContext::update_outer_position_in_params(&params, 5, 10);
         assert!(result.is_empty());
+    }
+
+    // ========================================================================
+    // Uniform Free scaling tests
+    // ========================================================================
+
+    #[test]
+    fn test_uniform_cell_count_serialization() {
+        // Create context with max_inner_cell_count and enable_uniform_free_scaling
+        let ctx = FacetCoordinationContext::default()
+            .with_max_inner_cell_count(5)
+            .with_uniform_free_scaling(true);
+
+        // Serialize to params
+        let params = ctx.to_params();
+        assert!(params.contains_key(FacetCoordinationContext::PARAM_KEY));
+
+        // Deserialize
+        let restored = FacetCoordinationContext::from_params(&params).unwrap();
+        assert_eq!(restored.max_inner_cell_count, Some(5));
+        assert!(restored.enable_uniform_free_scaling);
+
+        // Verify get_uniform_cell_count works after round-trip
+        assert_eq!(restored.get_uniform_cell_count(), Some(5));
+    }
+
+    #[test]
+    fn test_get_uniform_cell_count_disabled() {
+        // When enable_uniform_free_scaling is false, should return None
+        // even if max_inner_cell_count is set
+        let ctx = FacetCoordinationContext::default()
+            .with_max_inner_cell_count(3)
+            .with_uniform_free_scaling(false);
+
+        assert_eq!(ctx.max_inner_cell_count, Some(3));
+        assert!(!ctx.enable_uniform_free_scaling);
+        assert_eq!(ctx.get_uniform_cell_count(), None);
+    }
+
+    #[test]
+    fn test_get_uniform_cell_count_enabled() {
+        // When both flag is true and count is set, should return Some(count)
+        let ctx = FacetCoordinationContext::default()
+            .with_max_inner_cell_count(4)
+            .with_uniform_free_scaling(true);
+
+        assert_eq!(ctx.max_inner_cell_count, Some(4));
+        assert!(ctx.enable_uniform_free_scaling);
+        assert_eq!(ctx.get_uniform_cell_count(), Some(4));
+    }
+
+    #[test]
+    fn test_get_uniform_cell_count_enabled_but_count_not_set() {
+        // When flag is true but count was never set, should return None
+        let ctx = FacetCoordinationContext::default().with_uniform_free_scaling(true);
+
+        assert!(ctx.max_inner_cell_count.is_none());
+        assert!(ctx.enable_uniform_free_scaling);
+        assert_eq!(ctx.get_uniform_cell_count(), None);
+    }
+
+    #[test]
+    fn test_uniform_cell_count_floor_at_one() {
+        // count=0 should be floored to 1
+        let ctx0 = FacetCoordinationContext::default()
+            .with_max_inner_cell_count(0)
+            .with_uniform_free_scaling(true);
+        assert_eq!(ctx0.max_inner_cell_count, Some(1));
+        assert_eq!(ctx0.get_uniform_cell_count(), Some(1));
+
+        // count=1 should remain 1
+        let ctx1 = FacetCoordinationContext::default()
+            .with_max_inner_cell_count(1)
+            .with_uniform_free_scaling(true);
+        assert_eq!(ctx1.max_inner_cell_count, Some(1));
+        assert_eq!(ctx1.get_uniform_cell_count(), Some(1));
+
+        // count=2 should remain 2
+        let ctx2 = FacetCoordinationContext::default()
+            .with_max_inner_cell_count(2)
+            .with_uniform_free_scaling(true);
+        assert_eq!(ctx2.max_inner_cell_count, Some(2));
+        assert_eq!(ctx2.get_uniform_cell_count(), Some(2));
+    }
+
+    #[test]
+    fn test_uniform_cell_count_default_values() {
+        // Default context should have no uniform scaling enabled
+        let ctx = FacetCoordinationContext::default();
+        assert!(ctx.max_inner_cell_count.is_none());
+        assert!(!ctx.enable_uniform_free_scaling);
+        assert_eq!(ctx.get_uniform_cell_count(), None);
+    }
+
+    #[test]
+    fn test_uniform_cell_count_serialization_with_disabled() {
+        // Verify that enable_uniform_free_scaling=false serializes correctly
+        let ctx = FacetCoordinationContext::default()
+            .with_max_inner_cell_count(3)
+            .with_uniform_free_scaling(false);
+
+        let params = ctx.to_params();
+        let restored = FacetCoordinationContext::from_params(&params).unwrap();
+
+        assert_eq!(restored.max_inner_cell_count, Some(3));
+        assert!(!restored.enable_uniform_free_scaling);
+        assert_eq!(restored.get_uniform_cell_count(), None);
     }
 }
