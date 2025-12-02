@@ -667,7 +667,7 @@ impl CompiledGuide for FacetRowGuide {
             })?;
 
         // Compute subplot overflow using shared helper
-        let (top, bottom, max_left, max_right) = self
+        let (mut top, mut bottom, mut max_left, mut max_right) = self
             .compute_max_subplot_overflow(
                 row_scale,
                 plot_width,
@@ -679,6 +679,25 @@ impl CompiledGuide for FacetRowGuide {
                 data_override,
             )
             .await?;
+
+        // Apply shared overflow from coordination context for uniform padding across columns
+        // This ensures plot areas align even when scales are not shared
+        {
+            use crate::facet::coordination::FacetCoordinationContext;
+            let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
+            if let Some(shared_left) = coord_ctx.get_coordinated_spacing("shared_overflow_left") {
+                max_left = max_left.max(shared_left);
+            }
+            if let Some(shared_right) = coord_ctx.get_coordinated_spacing("shared_overflow_right") {
+                max_right = max_right.max(shared_right);
+            }
+            if let Some(shared_top) = coord_ctx.get_coordinated_spacing("shared_overflow_top") {
+                top = top.max(shared_top);
+            }
+            if let Some(shared_bottom) = coord_ctx.get_coordinated_spacing("shared_overflow_bottom") {
+                bottom = bottom.max(shared_bottom);
+            }
+        }
 
         // Add space for facet labels by measuring text bounds
         // For 90° rotation, horizontal footprint ≈ text height
@@ -1328,9 +1347,54 @@ impl CompiledGuide for FacetRowGuide {
         // Get band positions from the scale
         // The scale now has the correct padding_inner_px from the facet mark (via scale updates).
         // We'll use .center() on each BandPosition for label/tick positioning.
+        //
+        // For uniform Free scaling: if uniform_cell_count > actual labels, we need to compute
+        // band positions as if there were uniform_cell_count values. This ensures labels are
+        // positioned at the correct center (e.g., half-height for 2 cells when only 1 exists).
         use crate::facet::band_positions::BandPositionIterator;
-        let band_positions: Vec<_> =
-            BandPositionIterator::from_configured_scale(row_scale)?.collect();
+        use crate::facet::coordination::FacetCoordinationContext;
+        let uniform_cell_count = FacetCoordinationContext::from_params(params)
+            .and_then(|ctx| ctx.get_uniform_cell_count());
+
+        let band_positions: Vec<_> = if let Some(uniform_count) = uniform_cell_count {
+            if labels.len() < uniform_count {
+                // Create temporary scale with padded domain for correct band sizing
+                use datafusion::arrow::array::StringArray;
+                use std::sync::Arc as StdArc;
+
+                // Create padded domain values
+                let mut padded_labels: Vec<String> = labels.clone();
+                for i in labels.len()..uniform_count {
+                    padded_labels.push(format!("__placeholder_{}", i));
+                }
+
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetRowGuide evaluate: uniform sizing - creating temp scale with {} values (actual={}) for band positioning",
+                        uniform_count,
+                        labels.len()
+                    );
+                }
+
+                // Create temporary scale with padded domain
+                let padded_array =
+                    StdArc::new(StringArray::from(padded_labels)) as datafusion::arrow::array::ArrayRef;
+                let temp_scale = row_scale.clone().with_domain(padded_array);
+
+                // Get positions from the padded scale (only use first labels.len() positions)
+                let all_positions: Vec<_> =
+                    BandPositionIterator::from_configured_scale(&temp_scale)?.collect();
+
+                // Return only the positions for actual labels (not placeholders)
+                all_positions.into_iter().take(labels.len()).collect()
+            } else {
+                // No padding needed
+                BandPositionIterator::from_configured_scale(row_scale)?.collect()
+            }
+        } else {
+            // No uniform sizing
+            BandPositionIterator::from_configured_scale(row_scale)?.collect()
+        };
 
         // Theme-based font for rendering (match measurement)
         let guide_ctx = crate::theme::ThemeContext::new("guide", params.clone())
@@ -2138,7 +2202,7 @@ impl CompiledGuide for FacetColGuide {
             })?;
 
         // Compute subplot overflow using shared helper
-        let (top_max, bottom_max, left_max, right_max) = self
+        let (mut top_max, mut bottom_max, mut left_max, mut right_max) = self
             .compute_max_subplot_overflow(
                 col_scale,
                 plot_width,
@@ -2150,6 +2214,25 @@ impl CompiledGuide for FacetColGuide {
                 data_override,
             )
             .await?;
+
+        // Apply shared overflow from coordination context for uniform padding across rows
+        // This ensures plot areas align even when scales are not shared
+        {
+            use crate::facet::coordination::FacetCoordinationContext;
+            let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
+            if let Some(shared_left) = coord_ctx.get_coordinated_spacing("shared_overflow_left") {
+                left_max = left_max.max(shared_left);
+            }
+            if let Some(shared_right) = coord_ctx.get_coordinated_spacing("shared_overflow_right") {
+                right_max = right_max.max(shared_right);
+            }
+            if let Some(shared_top) = coord_ctx.get_coordinated_spacing("shared_overflow_top") {
+                top_max = top_max.max(shared_top);
+            }
+            if let Some(shared_bottom) = coord_ctx.get_coordinated_spacing("shared_overflow_bottom") {
+                bottom_max = bottom_max.max(shared_bottom);
+            }
+        }
 
         // Add facet guide space (labels/titles) on top of child overflows
         // Measure facet label slab (same theme contexts used elsewhere)
@@ -2880,9 +2963,54 @@ impl CompiledGuide for FacetColGuide {
             )
             .await?;
 
+        // Get band positions from the scale
+        // For uniform Free scaling: if uniform_cell_count > actual labels, we need to compute
+        // band positions as if there were uniform_cell_count values. This ensures labels are
+        // positioned at the correct center (e.g., half-width for 2 cells when only 1 exists).
         use crate::facet::band_positions::BandPositionIterator;
-        let band_positions: Vec<_> =
-            BandPositionIterator::from_configured_scale(col_scale)?.collect();
+        use crate::facet::coordination::FacetCoordinationContext;
+        let uniform_cell_count = FacetCoordinationContext::from_params(params)
+            .and_then(|ctx| ctx.get_uniform_cell_count());
+
+        let band_positions: Vec<_> = if let Some(uniform_count) = uniform_cell_count {
+            if labels.len() < uniform_count {
+                // Create temporary scale with padded domain for correct band sizing
+                use datafusion::arrow::array::StringArray;
+                use std::sync::Arc as StdArc;
+
+                // Create padded domain values
+                let mut padded_labels: Vec<String> = labels.clone();
+                for i in labels.len()..uniform_count {
+                    padded_labels.push(format!("__placeholder_{}", i));
+                }
+
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetColGuide evaluate: uniform sizing - creating temp scale with {} values (actual={}) for band positioning",
+                        uniform_count,
+                        labels.len()
+                    );
+                }
+
+                // Create temporary scale with padded domain
+                let padded_array =
+                    StdArc::new(StringArray::from(padded_labels)) as datafusion::arrow::array::ArrayRef;
+                let temp_scale = col_scale.clone().with_domain(padded_array);
+
+                // Get positions from the padded scale (only use first labels.len() positions)
+                let all_positions: Vec<_> =
+                    BandPositionIterator::from_configured_scale(&temp_scale)?.collect();
+
+                // Return only the positions for actual labels (not placeholders)
+                all_positions.into_iter().take(labels.len()).collect()
+            } else {
+                // No padding needed
+                BandPositionIterator::from_configured_scale(col_scale)?.collect()
+            }
+        } else {
+            // No uniform sizing
+            BandPositionIterator::from_configured_scale(col_scale)?.collect()
+        };
 
         // Theme-based font for labels (use facet label theme context matching RowFacet)
         let label_ctx = crate::theme::ThemeContext::new("guide", params.clone())

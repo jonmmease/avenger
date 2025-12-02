@@ -129,6 +129,35 @@ where
         ctx.get_inner_domain_for_channel(current_channel)
     });
 
+    // Extract uniform_cell_count early for adjusted bandwidth computation
+    // When uniform Free scaling is enabled, shared scales need to use adjusted bandwidth
+    // so the axis extent matches the actual subplot extent, not full column height
+    let early_uniform_cell_count = coordination_context
+        .as_ref()
+        .and_then(|ctx| ctx.get_uniform_cell_count());
+
+    // Compute adjusted bandwidth for shared scale building when uniform_cell_count is set
+    // This ensures shared Y axis extent matches actual subplot extent, not phantom cell space
+    let adjusted_initial_bandwidth = if let Some(uniform_count) = early_uniform_cell_count {
+        let domain_count = configured.config.domain.len();
+        if uniform_count > domain_count && domain_count > 0 {
+            // Scale down bandwidth proportionally: if domain has 1 element but uniform is 2,
+            // the actual subplot is half the size, so bandwidth should be halved
+            let adjusted = initial_bandwidth * (domain_count as f32 / uniform_count as f32);
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  Adjusted initial_bandwidth for shared scales: {:.3} -> {:.3} (domain_count={}, uniform_count={})",
+                    initial_bandwidth, adjusted, domain_count, uniform_count
+                );
+            }
+            adjusted
+        } else {
+            initial_bandwidth
+        }
+    } else {
+        initial_bandwidth
+    };
+
     // Extract shared data extents from coordination context for nested facets
     // This allows inner facet scales to use the full dataset extent (not just filtered data)
     let shared_data_extents = coordination_context
@@ -235,8 +264,9 @@ where
     };
 
     // Build initial shared scales for Pass 1 using approximate band size
+    // Use adjusted_initial_bandwidth to account for uniform_cell_count (phantom cells)
     let initial_shared_scales = if let Some(ref builder) = shared_scale_builder {
-        let (width, height) = subplot_dims(initial_bandwidth, context);
+        let (width, height) = subplot_dims(adjusted_initial_bandwidth, context);
         Some(
             compiled_subplot
                 .build_scales_from_builder(
@@ -810,7 +840,27 @@ where
 
     let final_shared_scales = if let Some(ref builder) = shared_scale_builder {
         let final_bandwidth = band::bandwidth(&final_dimension_scale.configured().config)?;
-        let (width, height) = subplot_dims(final_bandwidth, context);
+
+        // Apply same uniform_cell_count adjustment as for initial_shared_scales
+        let adjusted_final_bandwidth = if let Some(uniform_count) = early_uniform_cell_count {
+            let final_domain_count = final_dimension_scale.configured().config.domain.len();
+            if uniform_count > final_domain_count && final_domain_count > 0 {
+                let adjusted = final_bandwidth * (final_domain_count as f32 / uniform_count as f32);
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "  Adjusted final_bandwidth for shared scales: {:.3} -> {:.3} (domain_count={}, uniform_count={})",
+                        final_bandwidth, adjusted, final_domain_count, uniform_count
+                    );
+                }
+                adjusted
+            } else {
+                final_bandwidth
+            }
+        } else {
+            final_bandwidth
+        };
+
+        let (width, height) = subplot_dims(adjusted_final_bandwidth, context);
 
         Some(
             compiled_subplot
@@ -869,7 +919,14 @@ where
                     .map(|ctx| ctx.inner_domain_count)
                     .unwrap_or(0);
 
-                if inner_domain_count > 1 {
+                // Check if uniform Free scaling is enabled
+                // When uniform Free scaling is active, we need to coordinate inter_row_gap
+                // even for columns with only 1 row, so they use the same gap as other columns
+                let uniform_cell_count = coord_ctx
+                    .as_ref()
+                    .and_then(|ctx| ctx.get_uniform_cell_count());
+
+                if inner_domain_count > 1 || uniform_cell_count.is_some() {
                     // Extract inter_row_gap from aggregated spacing_needs (computed by inner FacetRowGuide)
                     // This is the correct gap computed using calculate_inter_row_gap which does:
                     // max(bottom[row_i] + top[row_i+1]) + spacing
@@ -878,8 +935,8 @@ where
                     {
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             eprintln!(
-                                "  Extracted measured_row_gap from inner guide: {:.1} (inner_domain_count={})",
-                                gap, inner_domain_count
+                                "  Extracted measured_row_gap from inner guide: {:.1} (inner_domain_count={}, uniform_cell_count={:?})",
+                                gap, inner_domain_count, uniform_cell_count
                             );
                         }
                         Some(gap)
@@ -932,7 +989,14 @@ where
                     .map(|ctx| ctx.inner_domain_count)
                     .unwrap_or(0);
 
-                if inner_domain_count > 1 {
+                // Check if uniform Free scaling is enabled
+                // When uniform Free scaling is active, we need to coordinate inter_col_gap
+                // even for rows with only 1 column, so they use the same gap as other rows
+                let uniform_cell_count = coord_ctx
+                    .as_ref()
+                    .and_then(|ctx| ctx.get_uniform_cell_count());
+
+                if inner_domain_count > 1 || uniform_cell_count.is_some() {
                     // Extract inter_col_gap from aggregated spacing_needs (computed by inner FacetColGuide)
                     // This is the correct gap computed using calculate_inter_col_gap which does:
                     // max(right[col_i] + left[col_i+1]) + spacing
@@ -941,8 +1005,8 @@ where
                     {
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             eprintln!(
-                                "  Extracted measured_col_gap from inner guide: {:.1} (inner_domain_count={})",
-                                gap, inner_domain_count
+                                "  Extracted measured_col_gap from inner guide: {:.1} (inner_domain_count={}, uniform_cell_count={:?})",
+                                gap, inner_domain_count, uniform_cell_count
                             );
                         }
                         Some(gap)
@@ -1001,6 +1065,19 @@ where
     }
     if all_legend_positions.contains(&LegendPosition::Bottom) {
         spacing_needs.insert("legend_bottom".to_string(), global_max_overflow.bottom);
+    }
+
+    // Add shared overflow for uniform padding across columns (for nested facets)
+    // This ensures plot areas align across all columns, even when scales are not shared.
+    // We only add these when there's a nested facet (indicated by measured cross-dimension gap)
+    // to avoid unnecessary re-measurement for standalone facets.
+    let has_nested_facet = measured_row_gap.is_some() || measured_col_gap.is_some();
+    if has_nested_facet {
+        // Use guide-only overflow (not total) to avoid legend interference
+        spacing_needs.insert("shared_overflow_left".to_string(), global_max_overflow.left);
+        spacing_needs.insert("shared_overflow_right".to_string(), global_max_overflow.right);
+        spacing_needs.insert("shared_overflow_top".to_string(), global_max_overflow.top);
+        spacing_needs.insert("shared_overflow_bottom".to_string(), global_max_overflow.bottom);
     }
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -2015,17 +2092,26 @@ async fn detect_nested_facet_and_compute_coordination(
 
         for outer_val in &outer_domain_vals {
             // Filter dataset by outer facet value
-            let filter_df = df
-                .clone()
-                .filter(outer_facet_expr.clone().eq(datafusion::logical_expr::lit(outer_val.clone())));
+            let filter_df = df.clone().filter(
+                outer_facet_expr
+                    .clone()
+                    .eq(datafusion::logical_expr::lit(outer_val.clone())),
+            );
 
-            if let Ok(filter_df) = filter_df {
+            let inner_count = if let Ok(filter_df) = filter_df {
                 // Extract inner domain from filtered data
-                if let Ok(inner_domain_for_cell) = FacetKeyExtractor::extract_keys(&filter_df, &expr).await {
-                    let inner_count = inner_domain_for_cell.len().max(1);
-                    max_count = max_count.max(inner_count);
+                if let Ok(inner_domain_for_cell) =
+                    FacetKeyExtractor::extract_keys(&filter_df, &expr).await
+                {
+                    inner_domain_for_cell.len().max(1)
+                } else {
+                    1
                 }
-            }
+            } else {
+                1
+            };
+
+            max_count = max_count.max(inner_count);
         }
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
