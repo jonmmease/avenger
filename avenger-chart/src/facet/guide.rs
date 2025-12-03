@@ -3216,25 +3216,60 @@ impl CompiledGuide for FacetColGuide {
             let title_bounds = title_measurer.measure_text_bounds(&title_cfg);
             let title_height = title_bounds.height; // becomes width when rotated
 
+            // Calculate y_axis_title_space using same formula as measure_overflow (lines 2370-2379)
+            // This is the space allocated for the unified y-axis title on the outer edge
+            let y_axis_title_space = gap_y_axis + title_height + 1.0;
+
+            // The unified y-title should be positioned at the FAR LEFT of the total left overflow.
+            // The total left overflow = subplot_y_axis_overflow + y_axis_title_space
+            //
+            // The _left/_right values computed earlier come from per-facet overflow which may include
+            // nested guide labels (FacetRowGuide row labels). For unified y-title positioning, we need
+            // the actual Cartesian subplot overflow, not the nested facet overflow.
+            //
+            // Re-measure subplot overflow with None for overflow parameter to get true subplot values.
+            // This is the same path taken during measure_overflow() to compute outer overflow.
+            let (_, _, subplot_left_actual, subplot_right_actual) = self
+                .compute_max_subplot_overflow(
+                    col_scale,
+                    plot_width,
+                    plot_height,
+                    theme,
+                    params,
+                    ctx,
+                    None,
+                    data_override,
+                )
+                .await?;
+
+            // Calculate outer overflow by adding title space to actual subplot overflow
+            let outer_left = if !y_axis_on_right {
+                subplot_left_actual + y_axis_title_space
+            } else {
+                subplot_left_actual
+            };
+            let outer_right = if y_axis_on_right {
+                subplot_right_actual + y_axis_title_space
+            } else {
+                subplot_right_actual
+            };
+
             let x_unified_y = if y_axis_on_right {
                 // Y-axis on right: unified y title goes to the right of the subplot guides
-                // For nested facets, _right already includes the inner guide's unified title space.
-                // Position the title at the right edge of allocated space minus half title height
-                // (centered within the title allocation at the right edge).
-                plot_bounds.x + plot_width + _right - gap_y_axis - title_height / 2.0
+                // Position the title at the left edge of the title allocation space (gap from labels)
+                plot_bounds.x + plot_width + outer_right - gap_y_axis - title_height / 2.0
             } else {
                 // Y-axis on left (default): unified y title goes to the left of subplot guides
-                // Position centered in the left overflow space (between edge and subplot axis labels)
-                // The title space starts at (plot_bounds.x - _left) and goes for y_axis_title_space pixels
-                plot_bounds.x - _left + gap_y_axis + title_height / 2.0
+                // Position centered in the title allocation space at the left edge
+                plot_bounds.x - outer_left + gap_y_axis + title_height / 2.0
             };
 
             let y_center = plot_bounds.y + plot_height / 2.0;
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
-                    "FacetColGuide RENDER unified_y_title='{}' at x={:.3} y={:.3} (y_axis_on_right={} _left={:.3} _right={:.3})",
-                    unified_y_title, x_unified_y, y_center, y_axis_on_right, _left, _right
+                    "FacetColGuide RENDER unified_y_title='{}' at x={:.3} y={:.3} (y_axis_on_right={} subplot_left={:.3} outer_left={:.3} subplot_right={:.3} outer_right={:.3})",
+                    unified_y_title, x_unified_y, y_center, y_axis_on_right, subplot_left_actual, outer_left, subplot_right_actual, outer_right
                 );
             }
 
