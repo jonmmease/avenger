@@ -515,6 +515,70 @@ impl CompiledMark for CompiledFacetCol {
 }
 
 // ============================================================================
+// Axis-Aligned Empty Space Helper
+// ============================================================================
+
+/// Determine the band scale alignment value based on subplot axis position.
+///
+/// When faceting creates cells with different numbers of subplots (e.g., in nested facets
+/// with Free scaling), empty space is allocated. This function determines where to place
+/// that empty space relative to the axis labels:
+///
+/// - X-axis at Bottom → align=1.0 (push subplots to bottom, empty space at top)
+/// - X-axis at Top → align=0.0 (push subplots to top, empty space at bottom)
+/// - Y-axis at Left → align=0.0 (push subplots to left, empty space at right)
+/// - Y-axis at Right → align=1.0 (push subplots to right, empty space at left)
+///
+/// This ensures subplots are visually aligned with their axis labels.
+///
+/// # Arguments
+/// * `is_row_facet` - true for FacetRow (vertical stacking), false for FacetCol (horizontal)
+/// * `compiled_subplot` - The compiled subplot to query axis position from
+///
+/// # Returns
+/// Band scale align value: 0.0 (start) or 1.0 (end)
+pub fn determine_facet_band_align(is_row_facet: bool, compiled_subplot: &CompiledPlot) -> f32 {
+    use crate::cartesian::axis::AxisPosition;
+    use crate::cartesian::guide::CartesianGuide;
+    use crate::guide::CompiledGuide;
+
+    // Try to get the axis position from the compiled guide
+    if let Some(guide) = compiled_subplot.compiled_guide.as_ref() {
+        // For row facets, check x-axis position (determines vertical alignment)
+        // For column facets, check y-axis position (determines horizontal alignment)
+        let channel = if is_row_facet { "x" } else { "y" };
+
+        if let Some(position) = guide.axis_position(channel) {
+            return match position {
+                // Row faceting: x-axis position determines vertical alignment
+                AxisPosition::Bottom => 1.0, // Push to bottom, empty space at top
+                AxisPosition::Top => 0.0,    // Push to top, empty space at bottom
+                // Column faceting: y-axis position determines horizontal alignment
+                AxisPosition::Left => 0.0,  // Push to left, empty space at right
+                AxisPosition::Right => 1.0, // Push to right, empty space at left
+            };
+        }
+
+        // If guide exists but doesn't provide axis_position, try downcasting to CartesianGuide
+        // to access the axis_position method directly
+        if let Some(cartesian) = guide.as_any().downcast_ref::<CartesianGuide>() {
+            if let Some(position) = cartesian.axis_position(channel) {
+                return match position {
+                    AxisPosition::Bottom => 1.0,
+                    AxisPosition::Top => 0.0,
+                    AxisPosition::Left => 0.0,
+                    AxisPosition::Right => 1.0,
+                };
+            }
+        }
+    }
+
+    // Default: 0.0 (start alignment) for backward compatibility
+    // This is the original hardcoded behavior
+    0.0
+}
+
+// ============================================================================
 // GridFacet Implementation
 // ============================================================================
 
@@ -1211,14 +1275,29 @@ impl CompiledMark for CompiledFacetGrid {
         // Rebuild row and col scales with measured spacing
         let mut updated_scales = context.scales.clone();
 
-        if row_padding_px > 0.0 && row_scale_opt.is_some() {
+        // Compute band alignment based on axis positions
+        let row_band_align = determine_facet_band_align(true, &self.compiled_subplot);
+        let col_band_align = determine_facet_band_align(false, &self.compiled_subplot);
+
+        if row_scale_opt.is_some() {
             use avenger_scales::scalar::Scalar;
             let row_scale = row_scale_opt.unwrap();
             let mut new_config = row_scale.configured().config.clone();
-            new_config.options.insert(
-                "padding_inner_px".to_string(),
-                Scalar::from_f32(row_padding_px),
-            );
+            if row_padding_px > 0.0 {
+                new_config.options.insert(
+                    "padding_inner_px".to_string(),
+                    Scalar::from_f32(row_padding_px),
+                );
+            }
+            // Add align option (was missing in GridFacet)
+            new_config
+                .options
+                .insert("align".to_string(), Scalar::from_f32(row_band_align));
+            // Add round option for consistency with FacetRow/FacetCol
+            new_config
+                .options
+                .insert("round".to_string(), Scalar::from_bool(false));
+
             let new_configured = avenger_scales::scales::ConfiguredScale {
                 scale_impl: row_scale.configured().scale_impl.clone(),
                 config: new_config,
@@ -1232,18 +1311,30 @@ impl CompiledMark for CompiledFacetGrid {
             );
             tracing::debug!(
                 padding_inner_px = row_padding_px,
-                "GridFacet: updated row scale padding_inner_px"
+                align = row_band_align,
+                "GridFacet: updated row scale"
             );
         }
 
-        if col_padding_px > 0.0 && col_scale_opt.is_some() {
+        if col_scale_opt.is_some() {
             use avenger_scales::scalar::Scalar;
             let col_scale = col_scale_opt.unwrap();
             let mut new_config = col_scale.configured().config.clone();
-            new_config.options.insert(
-                "padding_inner_px".to_string(),
-                Scalar::from_f32(col_padding_px),
-            );
+            if col_padding_px > 0.0 {
+                new_config.options.insert(
+                    "padding_inner_px".to_string(),
+                    Scalar::from_f32(col_padding_px),
+                );
+            }
+            // Add align option (was missing in GridFacet)
+            new_config
+                .options
+                .insert("align".to_string(), Scalar::from_f32(col_band_align));
+            // Add round option for consistency with FacetRow/FacetCol
+            new_config
+                .options
+                .insert("round".to_string(), Scalar::from_bool(false));
+
             let new_configured = avenger_scales::scales::ConfiguredScale {
                 scale_impl: col_scale.configured().scale_impl.clone(),
                 config: new_config,
@@ -1257,7 +1348,8 @@ impl CompiledMark for CompiledFacetGrid {
             );
             tracing::debug!(
                 padding_inner_px = col_padding_px,
-                "GridFacet: updated col scale padding_inner_px"
+                align = col_band_align,
+                "GridFacet: updated col scale"
             );
         }
 

@@ -283,4 +283,10 @@ pub trait CompiledGuide: Send + Sync + 'static {
         // Default: guides render their own axis titles
         false
     }
+
+    /// Get this guide as Any for downcasting to concrete types
+    ///
+    /// This enables runtime type checking and downcasting of CompiledGuide
+    /// trait objects to their concrete types (e.g., CartesianGuide).
+    fn as_any(&self) -> &dyn std::any::Any;
 }

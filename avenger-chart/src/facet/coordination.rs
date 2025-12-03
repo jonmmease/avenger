@@ -604,6 +604,33 @@ pub struct FacetCoordinationContext {
     /// Only has effect when max_inner_cell_count is Some.
     #[serde(default)]
     pub enable_uniform_free_scaling: bool,
+
+    /// Number of phantom cells prepended for uniform Free scaling
+    ///
+    /// When uniform sizing adds phantom cells and they're prepended (band_align >= 0.5),
+    /// this stores how many phantoms were added at the start. This offset is used by
+    /// SubplotIterator to correctly compute FacetContext.position for axis label visibility.
+    ///
+    /// 0 = No phantoms, or phantoms were appended (not prepended)
+    /// N = N phantoms were prepended, so actual data starts at rendered position N
+    #[serde(default)]
+    pub phantom_prepend_count: usize,
+
+    /// Band alignment for the inner facet dimension (0.0 to 1.0)
+    ///
+    /// Used by guides to compute phantom_prepend_count locally when they don't know
+    /// it from the outer facet. This enables correct axis label visibility positioning
+    /// for nested facets with uniform Free scaling.
+    ///
+    /// - 0.0: Data aligns to start (top for rows, left for columns), phantoms appended
+    /// - 0.5: Data centered, phantoms split evenly
+    /// - 1.0: Data aligns to end (bottom for rows, right for columns), phantoms prepended
+    #[serde(default = "default_band_align")]
+    pub inner_band_align: f32,
+}
+
+fn default_band_align() -> f32 {
+    0.5 // Default to centered if not specified
 }
 
 fn default_scale_sharing() -> ScaleSharing {
@@ -639,6 +666,8 @@ impl Default for FacetCoordinationContext {
             // Uniform Free scaling fields
             max_inner_cell_count: None,
             enable_uniform_free_scaling: false,
+            phantom_prepend_count: 0,
+            inner_band_align: 0.5, // Default to centered
         }
     }
 }
@@ -691,7 +720,22 @@ impl FacetCoordinationContext {
             // Uniform Free scaling fields
             max_inner_cell_count: None,
             enable_uniform_free_scaling: false,
+            phantom_prepend_count: 0,
+            inner_band_align: 0.5, // Default to centered
         }
+    }
+
+    /// Builder: Set band alignment for inner facet dimension
+    ///
+    /// This enables guides to compute phantom_prepend_count locally for
+    /// correct axis label visibility positioning.
+    ///
+    /// - 0.0: Data aligns to start (top for rows), phantoms appended
+    /// - 0.5: Data centered, phantoms split evenly
+    /// - 1.0: Data aligns to end (bottom for rows), phantoms prepended
+    pub fn with_inner_band_align(mut self, align: f32) -> Self {
+        self.inner_band_align = align;
+        self
     }
 
     /// Builder: Set per-channel scale sharing modes for x/y axes

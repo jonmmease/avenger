@@ -492,4 +492,8 @@ impl CompiledGuide for CartesianGuide {
             }
         }
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }

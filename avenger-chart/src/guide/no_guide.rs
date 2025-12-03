@@ -86,4 +86,8 @@ impl CompiledGuide for NoGuide {
         // No clipping for zero-dimensional coordinate systems
         avenger_scenegraph::marks::group::Clip::None
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }

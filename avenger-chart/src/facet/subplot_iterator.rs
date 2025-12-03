@@ -140,20 +140,51 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                 // consistent grid dimensions across all outer subplots.
                 let inner_count = if let Some(uniform_count) = coord_ctx.get_uniform_cell_count() {
                     // Uniform Free scaling: use max cell count across all outer cells
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "SubplotIterator: channel={} using uniform_cell_count={} (enable_uniform={} max_inner={:?})",
+                            current_channel,
+                            uniform_count,
+                            coord_ctx.enable_uniform_free_scaling,
+                            coord_ctx.max_inner_cell_count
+                        );
+                    }
                     uniform_count
                 } else if coord_ctx.inner_domain_count > 0 {
                     // Shared domain: use coordinated domain count
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "SubplotIterator: channel={} using inner_domain_count={} (enable_uniform={} max_inner={:?})",
+                            current_channel,
+                            coord_ctx.inner_domain_count,
+                            coord_ctx.enable_uniform_free_scaling,
+                            coord_ctx.max_inner_cell_count
+                        );
+                    }
                     coord_ctx.inner_domain_count
                 } else {
                     // Fallback to actual domain size if neither is set
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "SubplotIterator: channel={} FALLBACK to domain_vals.len()={} (enable_uniform={} max_inner={:?})",
+                            current_channel,
+                            self.domain_vals.len(),
+                            coord_ctx.enable_uniform_free_scaling,
+                            coord_ctx.max_inner_cell_count
+                        );
+                    }
                     self.domain_vals.len()
                 };
+
+                // Adjust index by phantom_prepend_count to get rendered position
+                // When phantoms are prepended, actual data starts at position phantom_prepend_count
+                let adjusted_index = index + coord_ctx.phantom_prepend_count;
 
                 let (pos, dims) = if DimConfig::is_row_facet() {
                     // This is FacetRow inside FacetColumn
                     // position: (row_index, column_position_from_outer)
                     // grid_dimensions: (num_rows, num_columns_from_outer)
-                    let row = index;
+                    let row = adjusted_index;
                     let col = coord_ctx.outer_position;
                     let num_rows = inner_count;
                     let num_cols = coord_ctx.outer_count;
@@ -163,7 +194,7 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                     // position: (row_position_from_outer, column_index)
                     // grid_dimensions: (num_rows_from_outer, num_columns)
                     let row = coord_ctx.outer_position;
-                    let col = index;
+                    let col = adjusted_index;
                     let num_rows = coord_ctx.outer_count;
                     let num_cols = inner_count;
                     ((row, col), (num_rows, num_cols))

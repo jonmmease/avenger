@@ -7,7 +7,8 @@ use crate::coords::SubplotGeometry;
 use crate::coords::SubplotRect;
 use crate::error::AvengerChartError;
 use crate::facet::coordination::FacetCoordinationContext;
-use crate::facet::dimension_config::FacetDimensionConfig;
+use crate::facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig};
+use crate::facet::marks::facet::determine_facet_band_align;
 use crate::facet::scale_helpers::build_scales_helper_with_fallback;
 use crate::facet::subplot_iterator::SubplotIteration;
 use crate::marks::CompiledMarkState;
@@ -87,6 +88,10 @@ struct FacetPass1Result {
     /// - "legend_right": Right margin for legend alignment
     /// - "legend_bottom": Bottom margin for legend alignment
     spacing_needs: HashMap<String, f32>,
+    /// Total cell count including phantoms for uniform sizing (used for guide ownership)
+    uniform_cell_count: Option<usize>,
+    /// Number of phantom cells prepended (0 if phantoms appended or no uniform sizing)
+    phantom_offset: usize,
 }
 
 /// Measure facet layout and overflow (Pass 1) while keeping the outer future small
@@ -135,6 +140,12 @@ where
     let early_uniform_cell_count = coordination_context
         .as_ref()
         .and_then(|ctx| ctx.get_uniform_cell_count());
+
+    // Compute band alignment early - needed for phantom cell placement in uniform free scaling
+    // When align=1.0, phantoms should be prepended (at start) so actual data is at the end (bottom)
+    // When align=0.0, phantoms should be appended (at end) so actual data is at the start (top)
+    let is_row_facet = DimConfig::channel_name() == RowDimensionConfig::channel_name();
+    let band_align = determine_facet_band_align(is_row_facet, compiled_subplot);
 
     // Compute adjusted bandwidth for shared scale building when uniform_cell_count is set
     // This ensures shared Y axis extent matches actual subplot extent, not phantom cell space
@@ -360,21 +371,38 @@ where
     let (all_positions, scale_domain_vals) = if let Some(uniform_count) = uniform_cell_count {
         if domain_vals.len() < uniform_count {
             // Create padded domain values for position computation only
-            let mut padded = domain_vals.clone();
+            // When band_align >= 0.5, prepend phantoms so actual data ends up at end positions (bottom)
+            // When band_align < 0.5, append phantoms so actual data stays at start positions (top)
+            let num_phantoms = uniform_count - domain_vals.len();
             let placeholder_template = domain_vals.first().cloned().unwrap_or(ScalarValue::Utf8(None));
-            for i in domain_vals.len()..uniform_count {
-                let placeholder = match &placeholder_template {
-                    ScalarValue::Utf8View(_) => ScalarValue::Utf8View(Some(format!("__placeholder_{}", i))),
+            let mut phantoms: Vec<ScalarValue> = (0..num_phantoms)
+                .map(|i| match &placeholder_template {
+                    ScalarValue::Utf8View(_) => {
+                        ScalarValue::Utf8View(Some(format!("__placeholder_{}", i)))
+                    }
                     ScalarValue::Utf8(_) => ScalarValue::Utf8(Some(format!("__placeholder_{}", i))),
                     _ => ScalarValue::Utf8(Some(format!("__placeholder_{}", i))),
-                };
-                padded.push(placeholder);
-            }
+                })
+                .collect();
+
+            let padded = if band_align >= 0.5 {
+                // Prepend phantoms: [phantom0, phantom1, ..., actual0, actual1, ...]
+                phantoms.extend(domain_vals.clone());
+                phantoms
+            } else {
+                // Append phantoms: [actual0, actual1, ..., phantom0, phantom1, ...]
+                let mut result = domain_vals.clone();
+                result.extend(phantoms);
+                result
+            };
+
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
-                    "  Uniform Free scaling: creating temp scale with {} values (actual={}) for band sizing",
+                    "  Uniform Free scaling Pass1: creating temp scale with {} values (actual={}) band_align={:.2} prepend_phantoms={}",
                     uniform_count,
-                    domain_vals.len()
+                    domain_vals.len(),
+                    band_align,
+                    band_align >= 0.5
                 );
             }
 
@@ -386,7 +414,7 @@ where
                 StdArc::new(StringArray::from(padded_strings)) as datafusion::arrow::array::ArrayRef;
             let temp_scale = configured.clone().with_domain(padded_array);
 
-            // Compute positions using the padded temporary scale
+            // Compute positions for ALL values (including phantoms) so geometry gets correct band count
             let positions = temp_scale.scale_scalars_to_numeric(&padded)?;
             (positions, padded)
         } else {
@@ -402,9 +430,37 @@ where
 
     use crate::facet::subplot_iterator::SubplotIteration;
     use crate::facet::subplot_iterator::SubplotIterator;
+
+    // Compute phantom_prepend_count for coordination context BEFORE SubplotIterator
+    // This enables correct FacetContext.position computation for axis label visibility
+    let phantom_prepend_count = if band_align >= 0.5 {
+        uniform_cell_count
+            .map(|u| u.saturating_sub(domain_vals.len()))
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    // Update coordination context params with phantom_prepend_count
+    let subplot_params = if phantom_prepend_count > 0 {
+        // Get existing coordination context and update phantom_prepend_count
+        if let Some(mut coord_ctx) =
+            FacetCoordinationContext::from_params(&context.params)
+        {
+            coord_ctx.phantom_prepend_count = phantom_prepend_count;
+            let mut updated_params = context.params.clone();
+            updated_params.extend(coord_ctx.to_params());
+            updated_params
+        } else {
+            context.params.clone()
+        }
+    } else {
+        context.params.clone()
+    };
+
     let subplot_iter = SubplotIterator::<DimConfig>::new(
         domain_vals.clone(),
-        context.params.clone(),
+        subplot_params.clone(),
         scale_sharing_by_channel.clone(),
     );
 
@@ -440,9 +496,18 @@ where
 
     // For uniform free scaling, we passed padded positions to get correct band sizes,
     // but we only iterate over actual data values. Filter rects to match iteration count.
+    // When phantoms were prepended (band_align >= 0.5), take the LAST N rects.
+    // When phantoms were appended (band_align < 0.5), take the FIRST N rects.
     let initial_rects = if uniform_cell_count.is_some() && all_initial_rects.len() > domain_vals.len() {
-        // Take only the first N rects corresponding to actual domain values
-        all_initial_rects.into_iter().take(domain_vals.len()).collect()
+        let num_actual = domain_vals.len();
+        let total = all_initial_rects.len();
+        if band_align >= 0.5 {
+            // Phantoms at start, actual data at end - take last N rects
+            all_initial_rects.into_iter().skip(total - num_actual).collect()
+        } else {
+            // Phantoms at end, actual data at start - take first N rects
+            all_initial_rects.into_iter().take(num_actual).collect()
+        }
     } else {
         all_initial_rects
     };
@@ -499,7 +564,23 @@ where
         .collect();
 
     // Total count for coordination context outer_count
-    let outer_count = work_items.len();
+    // When uniform sizing adds phantom cells, outer_count should include them
+    // so that guide ownership (axis label visibility) is computed correctly.
+    // IMPORTANT: Only use uniform_cell_count if it's for THIS facet's dimension.
+    // If inner_channel doesn't match our channel, the uniform sizing is for a nested facet.
+    let outer_uniform_cell_count = FacetCoordinationContext::from_params(&context.params)
+        .and_then(|ctx| {
+            // Check if uniform sizing is for this facet's dimension
+            if ctx.inner_channel.as_deref() == Some(DimConfig::channel_name()) {
+                ctx.get_uniform_cell_count()
+            } else {
+                // Uniform sizing is for a different dimension (nested facet), not us
+                None
+            }
+        });
+    let outer_count = outer_uniform_cell_count.unwrap_or(work_items.len());
+    // Use phantom_prepend_count computed earlier for position adjustment
+    let phantom_offset = phantom_prepend_count;
 
     let results: Vec<_> = stream::iter(work_items)
         .map(|(idx, iteration, rect)| {
@@ -507,14 +588,16 @@ where
             let compiled_subplot = Arc::clone(compiled_subplot);
             let facet_expr = facet_expr.clone();
             let ctx = context.session_context.clone();
-            // Start with context.params to preserve coordination params (like measured_row_gap)
-            let mut params_base = context.params.clone();
+            // Start with subplot_params which has updated phantom_prepend_count
+            let mut params_base = subplot_params.clone();
             // Merge iteration params (these take precedence for iteration-specific values)
             params_base.extend(iteration.params.clone());
             // Update coordination context with outer position for this iteration
+            // When phantoms are prepended, adjust idx to reflect rendered position
+            let adjusted_idx = idx + phantom_offset;
             let params_base = FacetCoordinationContext::update_outer_position_in_params(
                 &params_base,
-                idx,
+                adjusted_idx,
                 outer_count,
             );
             let scale_sharing_by_channel = scale_sharing_by_channel.clone();
@@ -713,10 +796,28 @@ where
         Scalar::from_f32(rounded_gap),
     );
 
-    let updated_spec = dimension_scale.spec().clone().option(
-        "padding_inner_px",
-        lit(ScalarValue::Float32(Some(rounded_gap))),
-    );
+    // Use the band_align computed earlier (needed for phantom cell placement)
+    // Log it here for debugging visibility
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "measure_pass band alignment: channel={} is_row_facet={} band_align={:.3}",
+            DimConfig::channel_name(),
+            is_row_facet,
+            band_align
+        );
+    }
+    new_config
+        .options
+        .insert("align".to_string(), Scalar::from_f32(band_align));
+
+    let updated_spec = dimension_scale
+        .spec()
+        .clone()
+        .option(
+            "padding_inner_px",
+            lit(ScalarValue::Float32(Some(rounded_gap))),
+        )
+        .option("align", lit(ScalarValue::Float32(Some(band_align))));
 
     let updated_configured = avenger_scales::scales::ConfiguredScale {
         scale_impl: effective_configured.scale_impl.clone(),
@@ -809,8 +910,36 @@ where
         .clone();
 
     // For uniform free scaling, filter to only actual data rects (exclude placeholder rects)
+    // When phantoms were prepended (band_align >= 0.5), take the LAST N rects.
+    // When phantoms were appended (band_align < 0.5), take the FIRST N rects.
     let mut final_rects: Vec<SubplotRect> = if uniform_cell_count.is_some() && all_final_rects_raw.len() > domain_vals.len() {
-        all_final_rects_raw.into_iter().take(domain_vals.len()).collect()
+        let num_actual = domain_vals.len();
+        let total = all_final_rects_raw.len();
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "  rect selection Pass2: channel={} total={} num_actual={} band_align={:.2} all_rects_y={:?}",
+                DimConfig::channel_name(),
+                total,
+                num_actual,
+                band_align,
+                all_final_rects_raw.iter().map(|r| r.y).collect::<Vec<_>>()
+            );
+        }
+        let result = if band_align >= 0.5 {
+            // Phantoms at start, actual data at end - take last N rects
+            all_final_rects_raw.into_iter().skip(total - num_actual).collect::<Vec<_>>()
+        } else {
+            // Phantoms at end, actual data at start - take first N rects
+            all_final_rects_raw.into_iter().take(num_actual).collect::<Vec<_>>()
+        };
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "  rect selection Pass2 result: channel={} selected_rects_y={:?}",
+                DimConfig::channel_name(),
+                result.iter().map(|r| r.y).collect::<Vec<_>>()
+            );
+        }
+        result
     } else {
         all_final_rects_raw
     };
@@ -1098,6 +1227,8 @@ where
         shared_data_extents_by_row,
         shared_data_extents_for_column,
         spacing_needs,
+        uniform_cell_count,
+        phantom_offset,
     })
 }
 
@@ -1123,9 +1254,24 @@ where
         .collect();
 
     use crate::facet::subplot_iterator::SubplotIterator;
+
+    // Update coordination context with phantom_prepend_count from pass1 for render pass
+    let subplot_params_pass2 = if pass1.phantom_offset > 0 {
+        if let Some(mut coord_ctx) = FacetCoordinationContext::from_params(&context.params) {
+            coord_ctx.phantom_prepend_count = pass1.phantom_offset;
+            let mut updated_params = context.params.clone();
+            updated_params.extend(coord_ctx.to_params());
+            updated_params
+        } else {
+            context.params.clone()
+        }
+    } else {
+        context.params.clone()
+    };
+
     let subplot_iter_pass2 = SubplotIterator::<DimConfig>::new(
         domain_vals_final,
-        context.params.clone(),
+        subplot_params_pass2.clone(),
         scale_sharing_by_channel.clone(),
     );
 
@@ -1172,7 +1318,22 @@ where
         .collect();
 
     // Total count for coordination context outer_count
-    let outer_count = work_items.len();
+    // Use uniform_cell_count if available to include phantom cells in guide ownership calculation
+    // IMPORTANT: Only use uniform_cell_count if it's for THIS facet's dimension.
+    // If inner_channel doesn't match our channel, the uniform sizing is for a nested facet.
+    let outer_uniform_cell_count = FacetCoordinationContext::from_params(&context.params)
+        .and_then(|ctx| {
+            // Check if uniform sizing is for this facet's dimension
+            if ctx.inner_channel.as_deref() == Some(DimConfig::channel_name()) {
+                ctx.get_uniform_cell_count()
+            } else {
+                // Uniform sizing is for a different dimension (nested facet), not us
+                None
+            }
+        });
+    let outer_count = outer_uniform_cell_count.unwrap_or(work_items.len());
+    // Phantom offset from pass1 for adjusting subplot positions
+    let phantom_offset = pass1.phantom_offset;
 
     // Clone fallback builder for render pass
     let fallback_builder = pass1.fallback_builder.clone();
@@ -1203,13 +1364,15 @@ where
             let compiled_subplot = Arc::clone(compiled_subplot);
             let facet_expr = facet_expr.clone();
             let ctx = context.session_context.clone();
-            // Start with context.params to preserve coordination params (like measured_row_gap)
-            let mut params_base = context.params.clone();
+            // Start with subplot_params_pass2 which has updated phantom_prepend_count
+            let mut params_base = subplot_params_pass2.clone();
             // Merge iteration params (these take precedence for iteration-specific values)
             params_base.extend(iteration.params.clone());
             // Update coordination context with outer position for this iteration
+            // When phantoms are prepended, adjust idx to reflect rendered position
+            let adjusted_idx = idx + phantom_offset;
             let params_base =
-                FacetCoordinationContext::update_outer_position_in_params(&params_base, idx, outer_count);
+                FacetCoordinationContext::update_outer_position_in_params(&params_base, adjusted_idx, outer_count);
             let scale_sharing_by_channel = scale_sharing_by_channel.clone();
             let final_shared_scales = pass1.final_shared_scales.clone();
             let fallback_builder = fallback_builder.clone();
@@ -1464,6 +1627,12 @@ where
                 } else {
                     rect.x
                 };
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "render_pass subplot: idx={} rect.y={:.1} rect.x={:.1} position={:.1} is_row={}",
+                        idx, rect.y, rect.x, position, DimConfig::is_row_facet()
+                    );
+                }
                 let origin = group_origin(position);
 
                 Ok::<_, AvengerChartError>((
@@ -2253,14 +2422,23 @@ async fn detect_nested_facet_and_compute_coordination(
     // This enables uniform subplot sizes when inner facet uses Free scaling
     if enable_uniform_free_scaling {
         if let Some(count) = max_inner_cell_count {
+            // Compute inner_band_align based on the inner facet's axis position
+            // This is needed for guides to compute phantom_prepend locally
+            let inner_band_align = if let Some(subplot) = inner_subplot.as_ref() {
+                determine_facet_band_align(inner_is_row_facet, subplot)
+            } else {
+                0.0 // Default to start alignment if subplot not available
+            };
+
             coord_ctx = coord_ctx
                 .with_max_inner_cell_count(count)
-                .with_uniform_free_scaling(true);
+                .with_uniform_free_scaling(true)
+                .with_inner_band_align(inner_band_align);
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
-                    "  Enabled uniform Free scaling: max_inner_cell_count={}",
-                    count
+                    "  Enabled uniform Free scaling: max_inner_cell_count={} inner_band_align={:.1}",
+                    count, inner_band_align
                 );
             }
         }

@@ -393,4 +393,8 @@ impl CompiledGuide for PolarGuide {
 
         Clip::Path(path)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }

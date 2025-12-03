@@ -361,9 +361,18 @@ impl FacetRowGuide {
                             // from channel configs, ensuring measurement uses same visibility
                             // decisions as rendering.
                             // Also extract inner_domain_count or uniform_cell_count for proper grid dimensions.
-                            let grid_num_rows = if let Some(coord_ctx) =
+                            // Also extract phantom_prepend_count for correct row position adjustment.
+                            let (grid_num_rows, phantom_prepend) = if let Some(coord_ctx) =
                                 FacetCoordinationContext::from_params(params)
                             {
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                    eprintln!(
+                                        "FacetRowGuide FacetContext: coord_ctx enable_uniform={} max_inner={:?} phantom_prepend={}",
+                                        coord_ctx.enable_uniform_free_scaling,
+                                        coord_ctx.max_inner_cell_count,
+                                        coord_ctx.phantom_prepend_count
+                                    );
+                                }
                                 if let Some(ref axis_sharing) = coord_ctx.axis_scale_sharing {
                                     for (channel, mode) in axis_sharing {
                                         merged_scale_sharing.insert(channel.clone(), *mode);
@@ -371,19 +380,43 @@ impl FacetRowGuide {
                                 }
                                 // Use uniform_cell_count (for Free scaling) or inner_domain_count (for Shared) for grid dimensions
                                 // This ensures correct edge detection for axis visibility and uniform band sizing
-                                if let Some(uniform_count) = coord_ctx.get_uniform_cell_count() {
+                                let grid_rows = if let Some(uniform_count) = coord_ctx.get_uniform_cell_count() {
                                     uniform_count
                                 } else if coord_ctx.inner_domain_count > 0 {
                                     coord_ctx.inner_domain_count
                                 } else {
                                     num_rows
+                                };
+
+                                // Compute phantom_prepend locally based on:
+                                // - grid_rows: the total uniform grid size (including phantoms)
+                                // - iteration_domain.len(): actual data rows in this column
+                                // - inner_band_align: determines where phantoms go (0.0=append, 1.0=prepend)
+                                let actual_rows = iteration_domain.len();
+                                let phantom_count = grid_rows.saturating_sub(actual_rows);
+                                let computed_phantom_prepend = if phantom_count > 0 && coord_ctx.inner_band_align >= 0.5 {
+                                    // Phantoms are prepended when band_align >= 0.5
+                                    phantom_count
+                                } else {
+                                    0
+                                };
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && phantom_count > 0 {
+                                    eprintln!(
+                                        "FacetRowGuide: computed phantom_prepend={} (grid_rows={} actual={} band_align={})",
+                                        computed_phantom_prepend, grid_rows, actual_rows, coord_ctx.inner_band_align
+                                    );
                                 }
+                                (grid_rows, computed_phantom_prepend)
                             } else {
-                                num_rows
+                                (num_rows, 0)
                             };
 
+                            // Adjust row index by phantom_prepend_count for correct position
+                            // When phantoms are prepended, actual data starts at position phantom_prepend
+                            let adjusted_row_idx = row_idx + phantom_prepend;
+
                             let facet_ctx = FacetContext {
-                                position: (row_idx, parent_col),
+                                position: (adjusted_row_idx, parent_col),
                                 grid_dimensions: (grid_num_rows, parent_num_cols),
                                 unified_channels,
                                 scale_sharing: merged_scale_sharing,
@@ -1356,6 +1389,11 @@ impl CompiledGuide for FacetRowGuide {
         let uniform_cell_count = FacetCoordinationContext::from_params(params)
             .and_then(|ctx| ctx.get_uniform_cell_count());
 
+        // Get inner_band_align from coordination context for facet label positioning
+        let inner_band_align = FacetCoordinationContext::from_params(params)
+            .map(|ctx| ctx.inner_band_align)
+            .unwrap_or(0.0);
+
         let band_positions: Vec<_> = if let Some(uniform_count) = uniform_cell_count {
             if labels.len() < uniform_count {
                 // Create temporary scale with padded domain for correct band sizing
@@ -1370,9 +1408,10 @@ impl CompiledGuide for FacetRowGuide {
 
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetRowGuide evaluate: uniform sizing - creating temp scale with {} values (actual={}) for band positioning",
+                        "FacetRowGuide evaluate: uniform sizing - creating temp scale with {} values (actual={}) for band positioning, inner_band_align={}",
                         uniform_count,
-                        labels.len()
+                        labels.len(),
+                        inner_band_align
                     );
                 }
 
@@ -1381,12 +1420,20 @@ impl CompiledGuide for FacetRowGuide {
                     StdArc::new(StringArray::from(padded_labels)) as datafusion::arrow::array::ArrayRef;
                 let temp_scale = row_scale.clone().with_domain(padded_array);
 
-                // Get positions from the padded scale (only use first labels.len() positions)
+                // Get positions from the padded scale
                 let all_positions: Vec<_> =
                     BandPositionIterator::from_configured_scale(&temp_scale)?.collect();
 
                 // Return only the positions for actual labels (not placeholders)
-                all_positions.into_iter().take(labels.len()).collect()
+                // When inner_band_align >= 0.5, phantoms are prepended so actual data is at the end
+                let phantom_count = uniform_count - labels.len();
+                if inner_band_align >= 0.5 {
+                    // Skip phantom positions at start, take actual data positions at end
+                    all_positions.into_iter().skip(phantom_count).collect()
+                } else {
+                    // Phantoms at end, take positions at start
+                    all_positions.into_iter().take(labels.len()).collect()
+                }
             } else {
                 // No padding needed
                 BandPositionIterator::from_configured_scale(row_scale)?.collect()
@@ -1636,6 +1683,10 @@ impl CompiledGuide for FacetRowGuide {
     fn unifies_channel(&self, channel: &str) -> bool {
         // FacetRowGuide unifies the y-channel (suppresses y-axis titles in subplots)
         channel == "y"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -3321,6 +3372,10 @@ impl CompiledGuide for FacetColGuide {
         }
         None
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // ============================================================================
@@ -4464,5 +4519,9 @@ impl CompiledGuide for GridFacetGuide {
     ) -> avenger_scenegraph::marks::group::Clip {
         // Don't clip faceted plots - legends may extend beyond plot area
         avenger_scenegraph::marks::group::Clip::None
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
