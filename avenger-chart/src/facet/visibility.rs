@@ -383,9 +383,13 @@ impl FacetColVisibility {
         // Unified x title is rendered only if:
         // 1. A unified x title is configured
         // 2. Parent hasn't already unified x
-        // 3. Not nested inside a row facet (which handles unified x title)
+        // 3. This is the correct edge (bottom for bottom axis, top for top axis)
+        // Note: FacetRowGuide doesn't handle unified x title (only y), so we render it
+        // even when nested in a row facet. The parent_unified_x check handles the case
+        // where another FacetColGuide parent has already rendered the unified x title.
+        let is_x_title_edge = if x_axis_at_top { is_top_edge } else { is_bottom_edge };
         let render_unified_x_title =
-            input.has_unified_x_title && !parent_unified_x && !nested_in_row_facet;
+            input.has_unified_x_title && !parent_unified_x && is_x_title_edge;
 
         // Unified y title is rendered only if:
         // 1. A unified y title is configured

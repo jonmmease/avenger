@@ -3373,6 +3373,47 @@ impl CompiledGuide for FacetColGuide {
         None
     }
 
+    fn facet_unifiable_channel(
+        &self,
+        facet_direction: crate::guide::FacetDirection,
+        _marks: &[std::sync::Arc<dyn crate::marks::CompiledMark>],
+        session_context: &datafusion::prelude::SessionContext,
+    ) -> Option<crate::guide::UnifiableChannelInfo> {
+        use crate::guide::FacetDirection;
+
+        // For FacetColGuide, delegate to inner subplot's guide
+        // Column faceting unifies x-channel, so if asked for Column, return our own unified_x_title
+        // For Row faceting, drill down to inner subplot
+        match facet_direction {
+            FacetDirection::Column => {
+                // This FacetCol already unifies x, return our stored title
+                Some(crate::guide::UnifiableChannelInfo {
+                    channel: "x".to_string(),
+                    title: self.unified_x_title.clone(),
+                })
+            }
+            FacetDirection::Row => {
+                // Drill down to inner subplot to get y-axis title
+                if let Some(src) = self.facet_sources.first() {
+                    if let Some(guide) = src.subplot.compiled_guide.as_ref() {
+                        // Ask the inner guide for row-unifiable channel (y-axis)
+                        return guide.facet_unifiable_channel(
+                            facet_direction,
+                            src.subplot.marks(),
+                            session_context,
+                        );
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    fn unifies_channel(&self, channel: &str) -> bool {
+        // FacetColGuide unifies the x-channel (suppresses x-axis titles in subplots)
+        channel == "x"
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
