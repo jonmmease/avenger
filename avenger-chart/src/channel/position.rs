@@ -87,16 +87,6 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
         self.with_scale_sharing(crate::channel::config_traits::ScaleSharing::Free)
     }
 
-    /// Share this channel's scale within each row (across columns)
-    pub fn share_scale_in_rows(self) -> Self {
-        self.with_scale_sharing(crate::channel::config_traits::ScaleSharing::SharedInRow)
-    }
-
-    /// Share this channel's scale within each column (across rows)
-    pub fn share_scale_in_columns(self) -> Self {
-        self.with_scale_sharing(crate::channel::config_traits::ScaleSharing::SharedInColumn)
-    }
-
     /// Disable scaling for this channel
     pub fn no_scale(self) -> Self {
         Self {

@@ -167,8 +167,8 @@ pub enum FacetAxis {
 /// Padding specification for coordinate system transforms
 ///
 /// Facet coordinate systems need padding between subplots to accommodate overflow
-/// from axes, legends, and other guides. This enum supports both single-dimension
-/// padding (FacetRow/FacetCol) and dual-dimension padding (GridFacet).
+/// from axes, legends, and other guides. This enum supports single-dimension
+/// padding for FacetRow/FacetCol coordinate systems.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PaddingSpec {
     /// Single-dimension padding for row or column facets
@@ -177,17 +177,6 @@ pub enum PaddingSpec {
         padding_px: f32,
         /// Overflow measurements for each subplot
         overflow: Vec<OverflowSpaceRequirement>,
-    },
-    /// Two-dimension padding for grid facets
-    Grid {
-        /// Padding in pixels between rows
-        row_padding_px: f32,
-        /// Padding in pixels between columns
-        col_padding_px: f32,
-        /// Overflow measurements for each row
-        row_overflow: Vec<OverflowSpaceRequirement>,
-        /// Overflow measurements for each column
-        col_overflow: Vec<OverflowSpaceRequirement>,
     },
 }
 
@@ -297,7 +286,7 @@ pub trait CoordinateSystemTransform: Send + Sync {
     /// * `plot_width` - Width of the plot area
     /// * `plot_height` - Height of the plot area
     ///
-    /// For facet coordinates (FacetRow, FacetColumn, FacetGrid), `position_values` provides
+    /// For facet coordinates (FacetRow, FacetColumn), `position_values` provides
     /// the original domain values that were scaled to produce `position_channels`. This enables
     /// SubplotRect.value to store the actual facet key (e.g., "setosa", "versicolor").
     ///

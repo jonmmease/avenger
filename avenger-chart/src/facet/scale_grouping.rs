@@ -1,10 +1,9 @@
-//! Scale grouping for grid facets with partial sharing modes
+//! Scale grouping for facets with sharing modes
 //!
 //! This module provides infrastructure to group ScaleBuilders based on sharing mode:
 //! - Shared: One builder for all subplots
 //! - Free: One builder per subplot (row_idx, col_idx)
-//! - SharedInRow: One builder per row
-//! - SharedInColumn: One builder per column
+//! - Level(n): Hierarchical sharing based on nesting level
 
 use crate::channel::config_traits::ScaleSharing;
 use crate::error::AvengerChartError;
@@ -21,8 +20,6 @@ use std::collections::HashMap;
 ///
 /// Uses Option pattern to represent sharing modes:
 /// - `GroupKey { row: None, col: None }`: Shared across all subplots
-/// - `GroupKey { row: Some(r), col: None }`: Shared within row r (SharedInRow)
-/// - `GroupKey { row: None, col: Some(c) }`: Shared within column c (SharedInColumn)
 /// - `GroupKey { row: Some(r), col: Some(c) }`: Independent for cell (r, c) (Free)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct GroupKey {
@@ -40,14 +37,6 @@ impl GroupKey {
             },
             ScaleSharing::Free => GroupKey {
                 row: Some(row_idx),
-                col: Some(col_idx),
-            },
-            ScaleSharing::SharedInRow => GroupKey {
-                row: Some(row_idx),
-                col: None,
-            },
-            ScaleSharing::SharedInColumn => GroupKey {
-                row: None,
                 col: Some(col_idx),
             },
             ScaleSharing::Level(n) => {
@@ -156,13 +145,13 @@ impl ScaleGrouping {
                         df.clone()
                     }
                     (Some(row_idx), None) => {
-                        // SharedInRow: filter by row value only (include all columns)
+                        // Filter by row value only (include all columns)
                         let row_val = &row_domain_vals[row_idx];
                         df.clone()
                             .filter(row_expr.clone().eq(lit(row_val.clone())))?
                     }
                     (None, Some(col_idx)) => {
-                        // SharedInColumn: filter by col value only (include all rows)
+                        // Filter by col value only (include all rows)
                         let col_val = &col_domain_vals[col_idx];
                         df.clone()
                             .filter(col_expr.clone().eq(lit(col_val.clone())))?
@@ -304,51 +293,6 @@ mod tests {
             }
         );
 
-        // SharedInRow mode
-        assert_eq!(
-            GroupKey::for_cell(0, 0, ScaleSharing::SharedInRow),
-            GroupKey {
-                row: Some(0),
-                col: None
-            }
-        );
-        assert_eq!(
-            GroupKey::for_cell(0, 2, ScaleSharing::SharedInRow),
-            GroupKey {
-                row: Some(0),
-                col: None
-            }
-        );
-        assert_eq!(
-            GroupKey::for_cell(1, 0, ScaleSharing::SharedInRow),
-            GroupKey {
-                row: Some(1),
-                col: None
-            }
-        );
-
-        // SharedInColumn mode
-        assert_eq!(
-            GroupKey::for_cell(0, 0, ScaleSharing::SharedInColumn),
-            GroupKey {
-                row: None,
-                col: Some(0)
-            }
-        );
-        assert_eq!(
-            GroupKey::for_cell(2, 0, ScaleSharing::SharedInColumn),
-            GroupKey {
-                row: None,
-                col: Some(0)
-            }
-        );
-        assert_eq!(
-            GroupKey::for_cell(0, 1, ScaleSharing::SharedInColumn),
-            GroupKey {
-                row: None,
-                col: Some(1)
-            }
-        );
     }
 
     #[test]
@@ -368,26 +312,12 @@ mod tests {
         let json = serde_json::to_string(&free).unwrap();
         assert_eq!(json, "\"free\"");
 
-        let in_row = ScaleSharing::SharedInRow;
-        let json = serde_json::to_string(&in_row).unwrap();
-        assert_eq!(json, "\"shared_in_row\"");
-
-        let in_col = ScaleSharing::SharedInColumn;
-        let json = serde_json::to_string(&in_col).unwrap();
-        assert_eq!(json, "\"shared_in_column\"");
-
         // Test deserialization
         let shared: ScaleSharing = serde_json::from_str("\"shared\"").unwrap();
         assert_eq!(shared, ScaleSharing::Shared);
 
         let free: ScaleSharing = serde_json::from_str("\"free\"").unwrap();
         assert_eq!(free, ScaleSharing::Free);
-
-        let in_row: ScaleSharing = serde_json::from_str("\"shared_in_row\"").unwrap();
-        assert_eq!(in_row, ScaleSharing::SharedInRow);
-
-        let in_col: ScaleSharing = serde_json::from_str("\"shared_in_column\"").unwrap();
-        assert_eq!(in_col, ScaleSharing::SharedInColumn);
     }
 
     #[test]
@@ -404,10 +334,6 @@ mod tests {
 
         // Shared => u8::MAX
         assert_eq!(ScaleSharing::Shared.to_level(), u8::MAX);
-
-        // Deprecated variants => u8::MAX (treated as globally shared)
-        assert_eq!(ScaleSharing::SharedInRow.to_level(), u8::MAX);
-        assert_eq!(ScaleSharing::SharedInColumn.to_level(), u8::MAX);
     }
 
     #[test]
@@ -479,18 +405,13 @@ mod tests {
         assert!(ScaleSharing::Shared.should_share_with_parent());
         assert!(ScaleSharing::Level(u8::MAX).should_share_with_parent());
 
-        // Deprecated variants should share
-        assert!(ScaleSharing::SharedInRow.should_share_with_parent());
-        assert!(ScaleSharing::SharedInColumn.should_share_with_parent());
     }
 
     #[test]
     fn test_scale_sharing_is_fully_shared() {
-        // Only Shared, Level(u8::MAX), and deprecated variants are fully shared
+        // Only Shared and Level(u8::MAX) are fully shared
         assert!(ScaleSharing::Shared.is_fully_shared());
         assert!(ScaleSharing::Level(u8::MAX).is_fully_shared());
-        assert!(ScaleSharing::SharedInRow.is_fully_shared());
-        assert!(ScaleSharing::SharedInColumn.is_fully_shared());
 
         // Free and Level(0..254) are NOT fully shared
         assert!(!ScaleSharing::Free.is_fully_shared());
@@ -511,8 +432,6 @@ mod tests {
         assert!(!ScaleSharing::Level(100).is_free());
         assert!(!ScaleSharing::Level(u8::MAX).is_free());
         assert!(!ScaleSharing::Shared.is_free());
-        assert!(!ScaleSharing::SharedInRow.is_free());
-        assert!(!ScaleSharing::SharedInColumn.is_free());
     }
 
     #[test]

@@ -69,13 +69,6 @@ struct FacetPass1Result {
     /// Shared data extents from coordination context for nested facets (ScaleSharing::Shared)
     shared_data_extents:
         Option<HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
-    /// Per-row shared data extents from coordination context for nested facets (ScaleSharing::SharedInRow)
-    shared_data_extents_by_row: Option<
-        HashMap<String, HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
-    >,
-    /// Per-column shared data extents from coordination context for nested facets (ScaleSharing::SharedInColumn)
-    shared_data_extents_for_column:
-        Option<HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
     /// Named spacing needs reported by this facet for coordination with parent facets
     ///
     /// Inner facets compute their own gap needs based on cell overflow and report them here.
@@ -89,6 +82,7 @@ struct FacetPass1Result {
     /// - "legend_bottom": Bottom margin for legend alignment
     spacing_needs: HashMap<String, f32>,
     /// Total cell count including phantoms for uniform sizing (used for guide ownership)
+    #[allow(dead_code)]
     uniform_cell_count: Option<usize>,
     /// Number of phantom cells prepended (0 if phantoms appended or no uniform sizing)
     phantom_offset: usize,
@@ -175,15 +169,6 @@ where
         .as_ref()
         .and_then(|ctx| ctx.shared_data_extents.clone());
 
-    // Extract per-row shared data extents for SharedInRow mode
-    let shared_data_extents_by_row = coordination_context
-        .as_ref()
-        .and_then(|ctx| ctx.shared_data_extents_by_row.clone());
-
-    // Extract per-column shared data extents for SharedInColumn mode
-    let shared_data_extents_for_column = coordination_context
-        .as_ref()
-        .and_then(|ctx| ctx.shared_data_extents_for_column.clone());
 
     // ========== LEVEL-BASED DOMAIN EXTRACTION (Level(N) sharing) ==========
     // For channels with Level(N) sharing where N >= 1, extract domains from level_domains
@@ -1224,8 +1209,6 @@ where
         final_rects,
         fallback_builder,
         shared_data_extents,
-        shared_data_extents_by_row,
-        shared_data_extents_for_column,
         spacing_needs,
         uniform_cell_count,
         phantom_offset,
@@ -1338,27 +1321,6 @@ where
     // Clone fallback builder for render pass
     let fallback_builder = pass1.fallback_builder.clone();
 
-    // Wrap shared_data_extents_by_row in Arc to avoid cloning the large HashMap for each work item
-    // This reduces async future size and prevents stack overflow
-    let shared_data_extents_by_row: Arc<
-        Option<
-            std::collections::HashMap<
-                String,
-                std::collections::HashMap<
-                    String,
-                    crate::facet::coordination::SerializableDataExtents,
-                >,
-            >,
-        >,
-    > = Arc::new(pass1.shared_data_extents_by_row.clone());
-
-    // Wrap shared_data_extents_for_column in Arc for same reasons
-    let shared_data_extents_for_column: Arc<
-        Option<
-            std::collections::HashMap<String, crate::facet::coordination::SerializableDataExtents>,
-        >,
-    > = Arc::new(pass1.shared_data_extents_for_column.clone());
-
     let results: Vec<_> = stream::iter(work_items)
         .map(|(idx, iteration, rect)| {
             let compiled_subplot = Arc::clone(compiled_subplot);
@@ -1377,9 +1339,6 @@ where
             let final_shared_scales = pass1.final_shared_scales.clone();
             let fallback_builder = fallback_builder.clone();
             let shared_data_extents = pass1.shared_data_extents.clone();
-            // Clone Arc references (cheap) instead of the large HashMaps
-            let shared_data_extents_by_row = Arc::clone(&shared_data_extents_by_row);
-            let shared_data_extents_for_column = Arc::clone(&shared_data_extents_for_column);
             let df = df.clone();
             let overflow_dbg = pass1
                 .overflow_measurements
@@ -1436,60 +1395,6 @@ where
                     }
                 }
 
-                // Extend with per-row shared data extents for channels with ScaleSharing::SharedInRow
-                // These extents were computed at the outer facet level for each row value
-                if let Some(ref extents_by_row) = *shared_data_extents_by_row {
-                    let row_key = scalar_to_string_key(&iteration.facet_value);
-                    if let Some(row_extents) = extents_by_row.get(&row_key) {
-                        // Filter to only SharedInRow channels
-                        let shared_in_row_extents: std::collections::HashMap<String, _> = row_extents
-                            .iter()
-                            .filter(|(channel, _)| {
-                                scale_sharing_by_channel
-                                    .get(*channel)
-                                    .map(|mode| *mode == ScaleSharing::SharedInRow)
-                                    .unwrap_or(false)
-                            })
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect();
-                        if !shared_in_row_extents.is_empty() {
-                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                eprintln!(
-                                    "SharedInRow: applying extents for row_key={} channels={:?}",
-                                    row_key,
-                                    shared_in_row_extents.keys().collect::<Vec<_>>()
-                                );
-                            }
-                            free_scale_builder.extend_with_shared_extents(&shared_in_row_extents);
-                        }
-                    }
-                }
-
-                // Extend with per-column shared data extents for channels with ScaleSharing::SharedInColumn
-                // These extents were computed at the outer facet level for this column
-                if let Some(ref col_extents) = *shared_data_extents_for_column {
-                    // Filter to only SharedInColumn channels
-                    let shared_in_col_extents: std::collections::HashMap<String, _> = col_extents
-                        .iter()
-                        .filter(|(channel, _)| {
-                            scale_sharing_by_channel
-                                .get(*channel)
-                                .map(|mode| *mode == ScaleSharing::SharedInColumn)
-                                .unwrap_or(false)
-                        })
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect();
-                    if !shared_in_col_extents.is_empty() {
-                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                            eprintln!(
-                                "SharedInColumn: applying extents for channels={:?}",
-                                shared_in_col_extents.keys().collect::<Vec<_>>()
-                            );
-                        }
-                        free_scale_builder.extend_with_shared_extents(&shared_in_col_extents);
-                    }
-                }
-
                 // Extend with level-based extents for channels with Level(N) sharing (N >= 1)
                 // Extract from coordination context (which was updated per-iteration)
                 if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
@@ -1518,28 +1423,6 @@ where
                         free_scale_builder.extend_with_shared_extents(&level_extents);
                     }
                 }
-
-                // Compute SharedInColumn extents to pass to inner facets BEFORE moving free_scale_builder
-                // These are computed from the column's filtered data and apply to all rows in this column
-                let shared_in_column_channels: Vec<&str> = scale_sharing_by_channel
-                    .iter()
-                    .filter(|(_, mode)| **mode == ScaleSharing::SharedInColumn)
-                    .map(|(ch, _)| ch.as_str())
-                    .collect();
-
-                let column_extents_for_inner = if !shared_in_column_channels.is_empty() {
-                    let extents = free_scale_builder.extract_serializable_extents(&shared_in_column_channels);
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && !extents.is_empty() {
-                        eprintln!(
-                            "SharedInColumn: computed extents for column={:?} channels={:?}",
-                            iteration.facet_value,
-                            extents.keys().collect::<Vec<_>>()
-                        );
-                    }
-                    Some(extents)
-                } else {
-                    None
-                };
 
                 let mut scales = build_scales_helper_with_fallback(
                     &compiled_subplot,
@@ -1593,17 +1476,7 @@ where
                 // Add unified overflow params for cross-subplot legend alignment.
                 // These override the measured overflow to ensure all subplots use
                 // identical overflow, causing legends to naturally align during layout.
-                let mut merged_params = params_base.clone();
-
-                // Pass SharedInColumn extents to inner facets (precomputed before free_scale_builder was moved)
-                if let Some(column_extents) = column_extents_for_inner {
-                    if !column_extents.is_empty() {
-                        merged_params = FacetCoordinationContext::update_shared_data_extents_for_column_in_params(
-                            &merged_params,
-                            column_extents,
-                        );
-                    }
-                }
+                let merged_params = params_base.clone();
 
                 // Note: Legend alignment is now handled via coordinated_spacing in the coordination context
                 // (legend_right, legend_left, legend_top, legend_bottom keys).
@@ -1905,17 +1778,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         scale_sharing_by_channel.insert(ch.to_string(), mode);
     }
 
-    let mut scale_sharing_by_channel: HashMap<String, ScaleSharing> = scale_sharing_by_channel
-        .into_iter()
-        .map(|(ch, mode)| {
-            let normalized = match mode {
-                ScaleSharing::SharedInColumn if DimConfig::is_row_facet() => ScaleSharing::Shared,
-                ScaleSharing::SharedInRow if DimConfig::is_col_facet() => ScaleSharing::Shared,
-                other => other,
-            };
-            (ch, normalized)
-        })
-        .collect();
+    let mut scale_sharing_by_channel: HashMap<String, ScaleSharing> = scale_sharing_by_channel;
 
     // Merge axis_scale_sharing from incoming coordination context (from outer facet)
     // This enables inner facets to know the x/y scale sharing for Cartesian subplot measurement
@@ -2197,34 +2060,9 @@ async fn detect_nested_facet_and_compute_coordination(
     //   - Shared/Level(1+) → should_share_domain = true (share columns across rows)
     //   - Free/Level(0) → should_share_domain = false (each row has own columns)
     //
-    // SharedInRow/SharedInColumn are DEPRECATED for nested facets.
-    // These modes are grid-centric and don't map cleanly to nested FacetRow/FacetColumn.
-    // They are treated as Level(1) for backward compatibility.
     let should_share_domain = match configured_scale_sharing {
         ScaleSharing::Shared => true,
         ScaleSharing::Free => false,
-        #[allow(deprecated)]
-        ScaleSharing::SharedInRow => {
-            // DEPRECATED: SharedInRow doesn't apply cleanly to nested facets.
-            // Use Level(N) with FacetRow > FacetColumn nesting instead.
-            // Fall back to Level(1) behavior (share with immediate parent).
-            eprintln!(
-                "[DEPRECATION WARNING] SharedInRow scale sharing is deprecated for nested facets. \
-                 Use Level(1) with FacetRow > FacetColumn nesting for row-based sharing."
-            );
-            true // Treat as Level(1)
-        }
-        #[allow(deprecated)]
-        ScaleSharing::SharedInColumn => {
-            // DEPRECATED: SharedInColumn doesn't apply cleanly to nested facets.
-            // Use Level(N) with FacetColumn > FacetRow nesting instead.
-            // Fall back to Level(1) behavior (share with immediate parent).
-            eprintln!(
-                "[DEPRECATION WARNING] SharedInColumn scale sharing is deprecated for nested facets. \
-                 Use Level(1) with FacetColumn > FacetRow nesting for column-based sharing."
-            );
-            true // Treat as Level(1)
-        }
         ScaleSharing::Level(n) => {
             // Hierarchical level-based sharing
             // Level(0) = Free: don't share domain
@@ -2312,8 +2150,6 @@ async fn detect_nested_facet_and_compute_coordination(
     };
 
     let mut shared_data_extents: HashMap<String, SerializableDataExtents> = HashMap::new();
-    let mut shared_data_extents_by_row: HashMap<String, HashMap<String, SerializableDataExtents>> =
-        HashMap::new();
 
     // First, collect channel expressions and their share modes
     let mut channel_info: Vec<(String, datafusion::logical_expr::Expr, ScaleSharing)> = Vec::new();
@@ -2335,50 +2171,20 @@ async fn detect_nested_facet_and_compute_coordination(
 
         // Now compute extents based on share mode
         for (channel_name, channel_expr, share_mode) in &channel_info {
-            match share_mode {
-                ScaleSharing::Shared => {
-                    // Compute from full dataset
-                    if let Ok(extents) = compute_numeric_extents(df, channel_expr, ctx).await {
-                        shared_data_extents.insert(channel_name.clone(), extents);
-                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                            eprintln!(
-                                "  Computed shared extents for {}: {:?}",
-                                channel_name,
-                                shared_data_extents.get(channel_name)
-                            );
-                        }
+            if matches!(share_mode, ScaleSharing::Shared) {
+                // Compute from full dataset
+                if let Ok(extents) = compute_numeric_extents(df, channel_expr, ctx).await {
+                    shared_data_extents.insert(channel_name.clone(), extents);
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "  Computed shared extents for {}: {:?}",
+                            channel_name,
+                            shared_data_extents.get(channel_name)
+                        );
                     }
-                }
-                ScaleSharing::SharedInRow => {
-                    // Compute per-row extents
-                    // For FacetColumn(FacetRow(Cartesian)), we need extents per row value
-                    // Filter by row value and compute extents
-                    if inner_is_row_facet {
-                        for row_val in &domain_vals {
-                            // Filter dataframe to this row value
-                            let row_key = scalar_to_string_key(row_val);
-                            let filter_df = df.clone().filter(
-                                expr.clone()
-                                    .eq(datafusion::logical_expr::lit(row_val.clone())),
-                            );
-                            if let Ok(filter_df) = filter_df {
-                                if let Ok(extents) =
-                                    compute_numeric_extents(&filter_df, channel_expr, ctx).await
-                                {
-                                    shared_data_extents_by_row
-                                        .entry(row_key.clone())
-                                        .or_default()
-                                        .insert(channel_name.clone(), extents);
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    // Free or SharedInColumn - no pre-computation needed at outer level
-                    // SharedInColumn would need different handling (per-column extents)
                 }
             }
+            // For Free and Level(N) modes, no pre-computation needed
         }
     }
 
@@ -2448,11 +2254,6 @@ async fn detect_nested_facet_and_compute_coordination(
     // This still helps with scale ranges for shared scales
     if !shared_data_extents.is_empty() {
         coord_ctx = coord_ctx.with_shared_data_extents(shared_data_extents);
-    }
-
-    // Add per-row extents for SharedInRow channels
-    if !shared_data_extents_by_row.is_empty() {
-        coord_ctx = coord_ctx.with_shared_data_extents_by_row(shared_data_extents_by_row);
     }
 
     // Collect and add per-channel scale sharing modes for x/y axes
@@ -2556,15 +2357,6 @@ async fn detect_nested_facet_and_compute_coordination(
     }
 
     Ok(Some(coord_ctx))
-}
-
-/// Convert a ScalarValue to a string key for HashMap lookups
-///
-/// This is used for the `shared_data_extents_by_row` HashMap keys.
-fn scalar_to_string_key(value: &ScalarValue) -> String {
-    use crate::facet::coordination::SerializableDomainValue;
-    let serializable = SerializableDomainValue::from_scalar(value);
-    serde_json::to_string(&serializable).unwrap_or_else(|_| "null".to_string())
 }
 
 /// Compute numeric extents (min, max) for an expression from a DataFrame

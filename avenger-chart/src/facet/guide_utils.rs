@@ -1,7 +1,7 @@
 //! Shared utilities for facet guide rendering
 //!
 //! This module provides common measurement and rendering functions used by all facet guide types
-//! (FacetRowGuide, FacetColGuide, and GridFacetGuide) to eliminate code duplication and ensure
+//! (FacetRowGuide and FacetColGuide) to eliminate code duplication and ensure
 //! consistent behavior across faceting dimensions.
 
 use crate::facet::band_positions::BandPosition;

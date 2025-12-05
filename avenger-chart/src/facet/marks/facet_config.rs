@@ -46,16 +46,6 @@ impl FacetOptions {
     pub fn free_scale(self) -> Self {
         self.with_scale_sharing(ScaleSharing::Free)
     }
-
-    /// Share domain within each row (across columns)
-    pub fn share_scale_in_rows(self) -> Self {
-        self.with_scale_sharing(ScaleSharing::SharedInRow)
-    }
-
-    /// Share domain within each column (across rows)
-    pub fn share_scale_in_columns(self) -> Self {
-        self.with_scale_sharing(ScaleSharing::SharedInColumn)
-    }
 }
 
 impl FacetRowChannelConfig {

@@ -127,8 +127,7 @@ impl GuideOwnership {
     ) -> Self {
         match scale_sharing {
             ScaleSharing::Free => GuideOwnership::Full,
-            #[allow(deprecated)]
-            ScaleSharing::Shared | ScaleSharing::SharedInRow | ScaleSharing::SharedInColumn => {
+            ScaleSharing::Shared => {
                 // For FacetRow inside FacetColumn: edge is rightmost (last position)
                 // For FacetColumn inside FacetRow: edge is bottommost (last position)
                 if is_row_facet {

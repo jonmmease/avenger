@@ -195,30 +195,6 @@ impl FacetContext {
                 // Shared scales: only show on relevant edge
                 self.is_on_relevant_edge(channel, position)
             }
-            ScaleSharing::SharedInRow => {
-                // Scales shared within each row (across columns)
-                match (channel, position) {
-                    ("y", AxisPosition::Left) => col == 0, // Show y-labels only on left edge
-                    ("y", AxisPosition::Right) => col == num_cols - 1, // Show y-labels only on right edge
-                    ("x", _) => {
-                        // X-axis uses normal edge logic (show on top/bottom edges)
-                        self.is_on_relevant_edge(channel, position)
-                    }
-                    _ => true, // Unknown combinations show labels
-                }
-            }
-            ScaleSharing::SharedInColumn => {
-                // Scales shared within each column (across rows)
-                match (channel, position) {
-                    ("x", AxisPosition::Bottom) => row == num_rows - 1, // Show x-labels only on bottom edge
-                    ("x", AxisPosition::Top) => row == 0, // Show x-labels only on top edge
-                    ("y", _) => {
-                        // Y-axis uses normal edge logic (show on left/right edges)
-                        self.is_on_relevant_edge(channel, position)
-                    }
-                    _ => true, // Unknown combinations show labels
-                }
-            }
             ScaleSharing::Level(n) => {
                 // Hierarchical level-based sharing
                 // Level(0) = Free: always show labels
@@ -295,7 +271,7 @@ impl FacetContext {
                 // Free scales: always show labels (each subplot may have different values)
                 true
             }
-            ScaleSharing::Shared | ScaleSharing::SharedInRow | ScaleSharing::SharedInColumn => {
+            ScaleSharing::Shared => {
                 // Shared scales: only show on relevant edge
                 self.is_facet_on_relevant_edge(channel, position)
             }
