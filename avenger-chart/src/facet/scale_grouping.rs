@@ -89,8 +89,11 @@ impl ChannelGrouping {
 ///
 /// The `fallback_builder` is used for empty cells where no data exists - it's built from
 /// the full dataset and ensures all required scales exist even for empty subplots.
+///
+/// Uses IndexMap for deterministic iteration order, which is important for consistent
+/// behavior across runs and reproducible serialization.
 pub struct ScaleGrouping {
-    channel_groupings: HashMap<String, ChannelGrouping>,
+    channel_groupings: IndexMap<String, ChannelGrouping>,
     fallback_builder: ScaleBuilder,
 }
 
@@ -123,7 +126,7 @@ impl ScaleGrouping {
             .build_scale_builder_from_dataframe(ctx, params, df)
             .await?;
 
-        let mut channel_groupings = HashMap::new();
+        let mut channel_groupings = IndexMap::new();
 
         for (channel, &mode) in scale_sharing_by_channel {
             let mut builders = HashMap::new();

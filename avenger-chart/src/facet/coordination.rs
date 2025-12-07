@@ -12,36 +12,57 @@
 //! `FacetCoordinationContext` coordinates behavior between facet levels.
 
 use crate::channel::config_traits::ScaleSharing;
+
+// ============================================================================
+// Spacing Key Constants
+// ============================================================================
+// These constants define the keys used for coordinated spacing in nested facets.
+// Using constants instead of string literals prevents typos and enables IDE
+// autocomplete/refactoring support.
+
+/// Key for shared left overflow spacing across nested facets
+pub const SHARED_OVERFLOW_LEFT: &str = "shared_overflow_left";
+
+/// Key for shared right overflow spacing across nested facets
+pub const SHARED_OVERFLOW_RIGHT: &str = "shared_overflow_right";
+
+/// Key for shared top overflow spacing across nested facets
+pub const SHARED_OVERFLOW_TOP: &str = "shared_overflow_top";
+
+/// Key for shared bottom overflow spacing across nested facets
+pub const SHARED_OVERFLOW_BOTTOM: &str = "shared_overflow_bottom";
 use crate::guide::OverflowSpaceRequirement;
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 
-/// Custom serialization module for HashMap<LevelChannelKey, SerializableDataExtents>
-/// JSON doesn't support non-string keys in objects, so we serialize as Vec of tuples
+/// Custom serialization module for IndexMap<LevelChannelKey, SerializableDataExtents>
+/// JSON doesn't support non-string keys in objects, so we serialize as Vec of tuples.
+/// Uses IndexMap instead of HashMap for deterministic iteration order during serialization.
 mod level_domains_serde {
     use super::*;
 
     pub fn serialize<S>(
-        map: &HashMap<LevelChannelKey, SerializableDataExtents>,
+        map: &IndexMap<LevelChannelKey, SerializableDataExtents>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        // Convert HashMap to Vec of tuples for JSON-compatible serialization
+        // Convert IndexMap to Vec of tuples for JSON-compatible serialization
+        // IndexMap preserves insertion order, ensuring deterministic output
         let vec: Vec<(&LevelChannelKey, &SerializableDataExtents)> = map.iter().collect();
         vec.serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<HashMap<LevelChannelKey, SerializableDataExtents>, D::Error>
+    ) -> Result<IndexMap<LevelChannelKey, SerializableDataExtents>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        // Deserialize Vec of tuples back to HashMap
+        // Deserialize Vec of tuples back to IndexMap
         let vec: Vec<(LevelChannelKey, SerializableDataExtents)> =
             Vec::deserialize(deserializer)?;
         Ok(vec.into_iter().collect())
@@ -51,7 +72,7 @@ mod level_domains_serde {
 /// Key for level-based domain lookups in FacetCoordinationContext
 ///
 /// This struct combines a hierarchy level with a channel name to form a
-/// unique key for looking up shared domain values in the level_domains HashMap.
+/// unique key for looking up shared domain values in the level_domains IndexMap.
 ///
 /// # Example
 /// ```ignore
@@ -606,9 +627,10 @@ pub struct FacetCoordinationContext {
     /// Key: LevelChannelKey { level, channel }
     /// Value: SerializableDataExtents (numeric interval, discrete, or temporal)
     ///
-    /// Note: Uses custom serialization to handle non-string keys in JSON
+    /// Note: Uses custom serialization to handle non-string keys in JSON.
+    /// Uses IndexMap for deterministic iteration order during serialization.
     #[serde(default, with = "level_domains_serde")]
-    pub level_domains: HashMap<LevelChannelKey, SerializableDataExtents>,
+    pub level_domains: IndexMap<LevelChannelKey, SerializableDataExtents>,
 
     /// Position path through the facet hierarchy
     ///
@@ -1245,9 +1267,10 @@ impl FacetCoordinationContext {
     /// Builder: Set level-based domains
     ///
     /// Maps (level, channel) pairs to pre-computed data extents.
+    /// Uses IndexMap to preserve insertion order for deterministic serialization.
     pub fn with_level_domains(
         mut self,
-        domains: HashMap<LevelChannelKey, SerializableDataExtents>,
+        domains: IndexMap<LevelChannelKey, SerializableDataExtents>,
     ) -> Self {
         self.level_domains = domains;
         self
