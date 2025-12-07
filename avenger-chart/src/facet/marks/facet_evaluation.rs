@@ -1,13 +1,39 @@
 /// Generic facet evaluation logic shared between FacetRow and FacetCol implementations
 ///
-/// This module provides a parameterized two-pass rendering algorithm that works for
+/// This module provides a parameterized three-phase rendering algorithm that works for
 /// both row and column faceting by accepting orientation-specific closures.
+///
+/// # Three-Phase Algorithm
+///
+/// The facet evaluation follows a three-phase pattern:
+///
+/// **Phase 1 (Measurement)**: Measure guide overflow to determine spacing needs
+/// - Build scales with approximate band size
+/// - Measure each subplot's axis labels/titles
+/// - Calculate max overflow based on dimension-specific adjacency rules
+/// - Collect spacing requirements for coordination
+///
+/// **Phase 1.5 (Coordination)**: Coordinate spacing across nested facets
+/// - Aggregate overflow measurements across all cells
+/// - Propagate shared spacing requirements to nested facets
+/// - Compute uniform cell counts for Free scaling mode
+/// - Re-measure with coordinated spacing if needed
+///
+/// **Phase 2 (Rendering)**: Render with final dimensions
+/// - Rebuild shared scales with final band size (CRITICAL for data alignment)
+/// - Position and render each subplot with correct spacing
+/// - Facet labels are rendered by the guide system (not by this function)
 use crate::channel::config_traits::ScaleSharing;
 use crate::coords::SubplotGeometry;
 use crate::coords::SubplotRect;
 use crate::error::AvengerChartError;
-use crate::facet::coordination::FacetCoordinationContext;
+use crate::facet::coordination::{
+    FacetCoordinationContext, SHARED_OVERFLOW_BOTTOM, SHARED_OVERFLOW_LEFT, SHARED_OVERFLOW_RIGHT,
+    SHARED_OVERFLOW_TOP,
+};
 use crate::facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig};
+use crate::facet::phantom_cells::PhantomPlacement;
+use crate::facet::scalar_cmp::scalar_total_cmp;
 use crate::facet::marks::facet::determine_facet_band_align;
 use crate::facet::scale_helpers::build_scales_helper_with_fallback;
 use crate::facet::subplot_iterator::SubplotIteration;
@@ -353,41 +379,21 @@ where
 
     // For uniform free scaling, create a separate scale with padded domain just for position computation
     // This scale is NOT stored - it's only used to compute correct band positions
-    let (all_positions, scale_domain_vals) = if let Some(uniform_count) = uniform_cell_count {
-        if domain_vals.len() < uniform_count {
-            // Create padded domain values for position computation only
-            // When band_align >= 0.5, prepend phantoms so actual data ends up at end positions (bottom)
-            // When band_align < 0.5, append phantoms so actual data stays at start positions (top)
-            let num_phantoms = uniform_count - domain_vals.len();
-            let placeholder_template = domain_vals.first().cloned().unwrap_or(ScalarValue::Utf8(None));
-            let mut phantoms: Vec<ScalarValue> = (0..num_phantoms)
-                .map(|i| match &placeholder_template {
-                    ScalarValue::Utf8View(_) => {
-                        ScalarValue::Utf8View(Some(format!("__placeholder_{}", i)))
-                    }
-                    ScalarValue::Utf8(_) => ScalarValue::Utf8(Some(format!("__placeholder_{}", i))),
-                    _ => ScalarValue::Utf8(Some(format!("__placeholder_{}", i))),
-                })
-                .collect();
+    let phantom_placement = uniform_cell_count
+        .map(|uniform_count| PhantomPlacement::compute(band_align, domain_vals.len(), uniform_count));
 
-            let padded = if band_align >= 0.5 {
-                // Prepend phantoms: [phantom0, phantom1, ..., actual0, actual1, ...]
-                phantoms.extend(domain_vals.clone());
-                phantoms
-            } else {
-                // Append phantoms: [actual0, actual1, ..., phantom0, phantom1, ...]
-                let mut result = domain_vals.clone();
-                result.extend(phantoms);
-                result
-            };
+    let (all_positions, scale_domain_vals) = if let Some(ref placement) = phantom_placement {
+        if placement.phantom_count > 0 {
+            let placeholder_template = domain_vals.first().cloned().unwrap_or(ScalarValue::Utf8(None));
+            let padded = placement.pad_domain(&domain_vals, &placeholder_template);
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
                     "  Uniform Free scaling Pass1: creating temp scale with {} values (actual={}) band_align={:.2} prepend_phantoms={}",
-                    uniform_count,
+                    padded.len(),
                     domain_vals.len(),
                     band_align,
-                    band_align >= 0.5
+                    placement.prepend
                 );
             }
 
@@ -1184,10 +1190,10 @@ where
     let has_nested_facet = measured_row_gap.is_some() || measured_col_gap.is_some();
     if has_nested_facet {
         // Use guide-only overflow (not total) to avoid legend interference
-        spacing_needs.insert("shared_overflow_left".to_string(), global_max_overflow.left);
-        spacing_needs.insert("shared_overflow_right".to_string(), global_max_overflow.right);
-        spacing_needs.insert("shared_overflow_top".to_string(), global_max_overflow.top);
-        spacing_needs.insert("shared_overflow_bottom".to_string(), global_max_overflow.bottom);
+        spacing_needs.insert(SHARED_OVERFLOW_LEFT.to_string(), global_max_overflow.left);
+        spacing_needs.insert(SHARED_OVERFLOW_RIGHT.to_string(), global_max_overflow.right);
+        spacing_needs.insert(SHARED_OVERFLOW_TOP.to_string(), global_max_overflow.top);
+        spacing_needs.insert(SHARED_OVERFLOW_BOTTOM.to_string(), global_max_overflow.bottom);
     }
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -1664,17 +1670,26 @@ where
     Ok((all_marks, layout_updates))
 }
 
-/// Generic two-pass facet evaluation parameterized by dimension
+/// Generic three-phase facet evaluation parameterized by dimension
 ///
 /// # Algorithm
 ///
-/// **Pass 1 (Measurement)**: Measure guide overflow to determine spacing
+/// The evaluation follows a three-phase pattern to handle nested facets and
+/// coordinated spacing:
+///
+/// **Phase 1 (Measurement)**: Measure guide overflow to determine spacing needs
 /// - Build scales with approximate band size
 /// - Measure each subplot's axis labels/titles
 /// - Calculate max overflow based on dimension-specific adjacency rules
-/// - Adjust band spacing to accommodate overflow
+/// - Collect spacing requirements for coordination across nested facets
 ///
-/// **Pass 2 (Rendering)**: Render with corrected dimensions
+/// **Phase 1.5 (Coordination)**: Coordinate spacing between facet levels
+/// - This phase is handled by the caller (CompiledFacetRow/CompiledFacetCol)
+/// - Aggregates overflow measurements across all cells
+/// - Propagates shared spacing requirements via FacetCoordinationContext
+/// - Re-measures with coordinated spacing if nested facets require it
+///
+/// **Phase 2 (Rendering)**: Render with final dimensions
 /// - Rebuild shared scales with final band size (CRITICAL for data alignment)
 /// - Position and render each subplot with correct spacing
 /// - Facet labels are rendered by the guide system (not by this function)
@@ -2073,7 +2088,7 @@ async fn detect_nested_facet_and_compute_coordination(
 
     // Compute domain from full dataset
     let mut domain_vals = FacetKeyExtractor::extract_keys(df, &expr).await?;
-    domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    domain_vals.sort_by(scalar_total_cmp);
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
@@ -2298,7 +2313,7 @@ async fn detect_nested_facet_and_compute_coordination(
         }
     }
 
-    // ========== BUILD LEVEL_DOMAINS HashMap (Level-based domain propagation) ==========
+    // ========== BUILD LEVEL_DOMAINS IndexMap (Level-based domain propagation) ==========
     // For channels with Level(N) where N >= 1, compute domain extents and store
     // at the appropriate level. Level 1 domains come from the outer's filtered df.
     // For 2-level nesting (outer > inner), we're at nesting_depth = 1.
@@ -2306,7 +2321,8 @@ async fn detect_nested_facet_and_compute_coordination(
     // Note: This function is called from the OUTER facet while processing nested facets.
     // The df parameter is the OUTER facet's full dataset (before per-cell filtering).
     // Level 1 domains use this full dataset to unify scales across all cells.
-    let mut level_domains: HashMap<LevelChannelKey, SerializableDataExtents> = HashMap::new();
+    // Uses IndexMap for deterministic iteration order during serialization.
+    let mut level_domains: IndexMap<LevelChannelKey, SerializableDataExtents> = IndexMap::new();
 
     for (channel_name, channel_expr, share_mode) in &channel_info {
         let level = share_mode.to_level();
