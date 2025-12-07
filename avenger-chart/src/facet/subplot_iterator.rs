@@ -118,11 +118,14 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             if let Some(parent_ctx) = FacetContext::from_params(&self.base_params) {
                 // Merge parent's unified_channels with this dimension's
                 let mut merged = parent_ctx.unified_channels;
-                merged.extend(DimConfig::unified_channels());
+                merged.extend(DimConfig::unified_channels().iter().map(|s| s.to_string()));
                 merged
             } else {
                 // No parent context, use just this dimension's channels
                 DimConfig::unified_channels()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
             };
 
         // Check for FacetCoordinationContext from outer facet (for nested facets)

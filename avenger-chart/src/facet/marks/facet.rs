@@ -219,7 +219,7 @@ impl CompiledMark for CompiledFacetRow {
 
     /// Evaluate faceted row layout using a two-pass rendering algorithm
     ///
-    /// Delegates to the generic `evaluate_facet` helper with row-specific orientation closures.
+    /// Delegates to the generic `evaluate_facet` helper with dimension-specific closures.
     async fn evaluate_from_data(
         &self,
         data: Option<&datafusion::arrow::record_batch::RecordBatch>,
@@ -244,29 +244,27 @@ impl CompiledMark for CompiledFacetRow {
             self.facet_title.clone(),
             self.facet_spacing,
             context,
-            // Row: height varies with band size, width is fixed
-            // Round bandwidth to integer for pixel-aligned subplot dimensions
-            |band_height: f32, ctx: &RenderContext| {
-                let rounded = band_height.round();
+            // Use dimension config for subplot dimensions
+            |band_size: f32, ctx: &RenderContext| {
+                let dims = RowDimensionConfig::subplot_dimensions(band_size, ctx.plot_width, ctx.plot_height);
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetRow subplot_dims: band_height={:.3} -> rounded={:.3} ctx.plot_width={:.3}",
-                        band_height, rounded, ctx.plot_width
+                        "FacetRow subplot_dims: band_size={:.3} -> dims=({:.3}, {:.3})",
+                        band_size, dims.0, dims.1
                     );
                 }
-                (ctx.plot_width, rounded)
+                dims
             },
-            // Row: translate vertically
-            // Round positions to integers for pixel alignment
-            |y_pos: f32| {
-                let rounded = y_pos.round();
+            // Use dimension config for group origin
+            |position: f32| {
+                let origin = RowDimensionConfig::group_origin(position);
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetRow group_origin: y_pos={:.3} -> rounded={:.3}",
-                        y_pos, rounded
+                        "FacetRow group_origin: position={:.3} -> origin=[{:.3}, {:.3}]",
+                        position, origin[0], origin[1]
                     );
                 }
-                [0.0, rounded]
+                origin
             },
         )
         .await
@@ -416,7 +414,7 @@ impl CompiledMark for CompiledFacetCol {
 
     /// Evaluate faceted column layout using a two-pass rendering algorithm
     ///
-    /// Delegates to the generic `evaluate_facet` helper with column-specific orientation closures.
+    /// Delegates to the generic `evaluate_facet` helper with dimension-specific closures.
     async fn evaluate_from_data(
         &self,
         data: Option<&datafusion::arrow::record_batch::RecordBatch>,
@@ -441,29 +439,27 @@ impl CompiledMark for CompiledFacetCol {
             self.facet_title.clone(),
             self.facet_spacing,
             context,
-            // Column: width varies with band size, height is fixed
-            // Round bandwidth to integer for pixel-aligned subplot dimensions
-            |band_width: f32, ctx: &RenderContext| {
-                let rounded = band_width.round();
+            // Use dimension config for subplot dimensions
+            |band_size: f32, ctx: &RenderContext| {
+                let dims = ColumnDimensionConfig::subplot_dimensions(band_size, ctx.plot_width, ctx.plot_height);
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetCol subplot_dims: band_width={:.3} -> rounded={:.3}",
-                        band_width, rounded
+                        "FacetCol subplot_dims: band_size={:.3} -> dims=({:.3}, {:.3})",
+                        band_size, dims.0, dims.1
                     );
                 }
-                (rounded, ctx.plot_height)
+                dims
             },
-            // Column: translate horizontally
-            // Round positions to integers for pixel alignment
-            |x_pos: f32| {
-                let rounded = x_pos.round();
+            // Use dimension config for group origin
+            |position: f32| {
+                let origin = ColumnDimensionConfig::group_origin(position);
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "FacetCol group_origin: x_pos={:.3} -> rounded={:.3}",
-                        x_pos, rounded
+                        "FacetCol group_origin: position={:.3} -> origin=[{:.3}, {:.3}]",
+                        position, origin[0], origin[1]
                     );
                 }
-                [rounded, 0.0]
+                origin
             },
         )
         .await
