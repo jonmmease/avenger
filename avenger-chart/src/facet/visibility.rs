@@ -7,8 +7,6 @@
 use crate::cartesian::axis::AxisPosition;
 use crate::channel::config_traits::ScaleSharing;
 use crate::facet::context::FacetContext;
-use datafusion::common::ScalarValue;
-use indexmap::IndexMap;
 
 /// Visibility decisions for FacetRowGuide elements.
 ///
@@ -81,8 +79,8 @@ impl FacetRowVisibility {
     ///
     /// # Arguments
     /// * `input` - Pre-extracted values from the guide
-    /// * `params` - Parameters containing facet context
-    pub fn resolve(input: &FacetRowVisibilityInput, params: &IndexMap<String, ScalarValue>) -> Self {
+    /// * `parent_ctx` - Parent facet context, if available
+    pub fn resolve(input: &FacetRowVisibilityInput, parent_ctx: Option<&FacetContext>) -> Self {
         // Determine y-axis position from subplot guide (default is left)
         let axis_on_right = match input.y_axis_position {
             Some(AxisPosition::Right) => true,
@@ -94,22 +92,18 @@ impl FacetRowVisibility {
             }
             _ => false, // fallback: left (Top/Bottom variants)
         };
-
         // Check parent FacetContext for unified y and grid position
-        let parent_ctx = FacetContext::from_params(params);
         let parent_unified_y = parent_ctx
-            .as_ref()
             .map(|ctx| ctx.is_channel_unified("y"))
             .unwrap_or(false);
 
         // Check if we're nested inside a column facet
         let nested_in_col_facet = parent_ctx
-            .as_ref()
             .map(|ctx| ctx.grid_dimensions.1 > 1) // num_cols > 1 means we're inside a column facet
             .unwrap_or(false);
 
         // Determine if we're on left/right edge of parent grid
-        let (is_left_edge, is_right_edge) = if let Some(ctx) = &parent_ctx {
+        let (is_left_edge, is_right_edge) = if let Some(ctx) = parent_ctx {
             let col = ctx.position.1;
             let num_cols = ctx.grid_dimensions.1;
             (col == 0, col == num_cols - 1)
@@ -119,7 +113,6 @@ impl FacetRowVisibility {
 
         // Check if y-axis scale is shared across columns (for axis visibility, not facet labels)
         let y_sharing_mode = parent_ctx
-            .as_ref()
             .and_then(|ctx| ctx.scale_sharing.get("y"))
             .copied()
             .unwrap_or(ScaleSharing::Free);
@@ -288,8 +281,8 @@ impl FacetColVisibility {
     ///
     /// # Arguments
     /// * `input` - Pre-extracted values from the guide
-    /// * `params` - Parameters containing facet context
-    pub fn resolve(input: &FacetColVisibilityInput, params: &IndexMap<String, ScalarValue>) -> Self {
+    /// * `parent_ctx` - Parent facet context, if available
+    pub fn resolve(input: &FacetColVisibilityInput, parent_ctx: Option<&FacetContext>) -> Self {
         // Determine x-axis position from subplot guide (default is bottom)
         let x_axis_at_top = match input.x_axis_position {
             Some(AxisPosition::Top) => true,
@@ -315,24 +308,20 @@ impl FacetColVisibility {
         let place_below = x_axis_at_top;
 
         // Check parent FacetContext for unified axes and grid position
-        let parent_ctx = FacetContext::from_params(params);
         let parent_unified_x = parent_ctx
-            .as_ref()
             .map(|ctx| ctx.is_channel_unified("x"))
             .unwrap_or(false);
         let parent_unified_y = parent_ctx
-            .as_ref()
             .map(|ctx| ctx.is_channel_unified("y"))
             .unwrap_or(false);
 
         // Check if we're nested inside a row facet
         let nested_in_row_facet = parent_ctx
-            .as_ref()
             .map(|ctx| ctx.grid_dimensions.0 > 1) // num_rows > 1 means we're inside a row facet
             .unwrap_or(false);
 
         // Determine if we're on top/bottom edge of parent grid
-        let (is_top_edge, is_bottom_edge) = if let Some(ctx) = &parent_ctx {
+        let (is_top_edge, is_bottom_edge) = if let Some(ctx) = parent_ctx {
             let row = ctx.position.0;
             let num_rows = ctx.grid_dimensions.0;
             (row == 0, row == num_rows - 1)
@@ -342,7 +331,6 @@ impl FacetColVisibility {
 
         // Check if x-axis scale is shared across rows (for axis visibility, not facet labels)
         let x_sharing_mode = parent_ctx
-            .as_ref()
             .and_then(|ctx| ctx.scale_sharing.get("x"))
             .copied()
             .unwrap_or(ScaleSharing::Free);
@@ -447,9 +435,8 @@ mod tests {
             has_unified_y_title: true,
             facet_scale_sharing: None,
         };
-        let params = IndexMap::new();
 
-        let vis = FacetRowVisibility::resolve(&input, &params);
+        let vis = FacetRowVisibility::resolve(&input, None);
 
         // No parent = both edges
         assert!(vis.is_left_edge);
@@ -474,9 +461,8 @@ mod tests {
             has_unified_y_title: false,
             facet_scale_sharing: None,
         };
-        let params = IndexMap::new();
 
-        let vis = FacetRowVisibility::resolve(&input_right, &params);
+        let vis = FacetRowVisibility::resolve(&input_right, None);
         assert!(vis.axis_on_right);
 
         // When y_axis_position is explicitly Left
@@ -488,7 +474,7 @@ mod tests {
             facet_scale_sharing: None,
         };
 
-        let vis = FacetRowVisibility::resolve(&input_left, &params);
+        let vis = FacetRowVisibility::resolve(&input_left, None);
         assert!(!vis.axis_on_right);
     }
 
@@ -549,10 +535,8 @@ mod tests {
             facet_scale_sharing: None,
         };
 
-        // Simulate left edge column
-        let params = IndexMap::new();
         // No parent context means both edges = true
-        let vis = FacetRowVisibility::resolve(&input, &params);
+        let vis = FacetRowVisibility::resolve(&input, None);
         assert!(vis.axis_on_right);
         assert!(vis.facet_labels_on_left);
         assert!(vis.render_facet_labels); // Both edges true for standalone
@@ -574,9 +558,8 @@ mod tests {
             has_unified_y_title: false,
             facet_scale_sharing: None,
         };
-        let params = IndexMap::new();
 
-        let vis = FacetColVisibility::resolve(&input, &params);
+        let vis = FacetColVisibility::resolve(&input, None);
 
         // No parent = both edges
         assert!(vis.is_top_edge);
@@ -605,9 +588,8 @@ mod tests {
             has_unified_y_title: false,
             facet_scale_sharing: None,
         };
-        let params = IndexMap::new();
 
-        let vis = FacetColVisibility::resolve(&input_top, &params);
+        let vis = FacetColVisibility::resolve(&input_top, None);
         assert!(vis.x_axis_at_top);
         assert!(vis.place_below); // Labels below when x-axis at top
 
@@ -622,7 +604,7 @@ mod tests {
             facet_scale_sharing: None,
         };
 
-        let vis = FacetColVisibility::resolve(&input_bottom, &params);
+        let vis = FacetColVisibility::resolve(&input_bottom, None);
         assert!(!vis.x_axis_at_top);
         assert!(!vis.place_below); // Labels above when x-axis at bottom
     }
@@ -692,9 +674,8 @@ mod tests {
             facet_scale_sharing: None,
         };
 
-        let params = IndexMap::new();
         // No parent context means both edges = true
-        let vis = FacetColVisibility::resolve(&input, &params);
+        let vis = FacetColVisibility::resolve(&input, None);
         assert!(vis.x_axis_at_top);
         assert!(vis.place_below);
         assert!(vis.render_facet_labels); // Both edges true for standalone
