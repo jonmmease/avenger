@@ -8,6 +8,7 @@ use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
 use crate::error::AvengerChartError;
+use crate::facet::scalar_cmp::scalar_total_cmp;
 use crate::scales::Scale;
 use crate::serialization::LogicalPlanNodeExt;
 
@@ -1108,7 +1109,7 @@ async fn cache_categorical_data(
     }
 
     if !all_unique_values.is_empty() {
-        all_unique_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        all_unique_values.sort_by(scalar_total_cmp);
 
         let extents = DataExtents::Discrete(all_unique_values);
         builder.add_standard(channel.to_string(), spec.clone_box(), extents, options);

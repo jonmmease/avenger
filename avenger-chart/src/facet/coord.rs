@@ -4,7 +4,6 @@ use crate::facet::guide::{FacetColGuide, FacetRowGuide};
 use avenger_common::value::ScalarOrArray;
 use datafusion::common::ScalarValue;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 /// Row faceting coordinate system
@@ -49,7 +48,7 @@ fn compute_band_layout(positions: &[f32], extent: f32, padding_px: Option<f32>) 
     }
 
     let mut sorted = positions.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    sorted.sort_by(|a, b| a.total_cmp(b));
 
     let mut base_bandwidth = if sorted.len() > 1 {
         sorted
