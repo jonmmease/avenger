@@ -11,7 +11,6 @@
 //! - FacetDirection enum value
 
 use crate::guide::{FacetDirection, OverflowSpaceRequirement};
-use std::collections::HashSet;
 
 /// Configuration trait that abstracts row vs column faceting behavior
 pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
@@ -21,12 +20,14 @@ pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
     /// The facet direction for guide rendering
     fn facet_direction() -> FacetDirection;
 
-    /// Get the set of channels unified by this facet dimension
+    /// Get the channels unified by this facet dimension
     ///
-    /// For row faceting: returns {"y"} (y-axis titles shown by facet guide)
-    /// For column faceting: returns {"x"} (x-axis titles shown by facet guide)
-    /// For grid faceting: returns {"x", "y"} (both axes unified)
-    fn unified_channels() -> HashSet<String>;
+    /// For row faceting: returns ["y"] (y-axis titles shown by facet guide)
+    /// For column faceting: returns ["x"] (x-axis titles shown by facet guide)
+    /// For grid faceting: returns ["x", "y"] (both axes unified)
+    ///
+    /// Returns a static slice for efficiency - avoids allocation on every call.
+    fn unified_channels() -> &'static [&'static str];
 
     /// Convert a linear index to a FacetContext position tuple
     ///
@@ -58,6 +59,10 @@ pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
     fn is_col_facet() -> bool {
         false
     }
+    fn group_origin(position: f32) -> [f32; 2];
+
+    /// The coordination context key for inter-cell gap spacing
+    ///
 }
 
 /// Row faceting dimension configuration
@@ -73,10 +78,8 @@ impl FacetDimensionConfig for RowDimensionConfig {
         FacetDirection::Row
     }
 
-    fn unified_channels() -> HashSet<String> {
-        let mut channels = HashSet::new();
-        channels.insert("y".to_string());
-        channels
+    fn unified_channels() -> &'static [&'static str] {
+        &["y"]
     }
 
     fn index_to_position(index: usize) -> (usize, usize) {
@@ -114,8 +117,6 @@ impl FacetDimensionConfig for ColumnDimensionConfig {
 
     fn unified_channels() -> HashSet<String> {
         let mut channels = HashSet::new();
-        channels.insert("x".to_string());
-        channels
     }
 
     fn index_to_position(index: usize) -> (usize, usize) {
@@ -135,6 +136,44 @@ impl FacetDimensionConfig for ColumnDimensionConfig {
 
     fn is_col_facet() -> bool {
         true
+    }
+
+    fn mark_type() -> &'static str {
+        "facet_col"
+    }
+
+    fn subplot_dimensions(band_size: f32, _plot_width: f32, plot_height: f32) -> (f32, f32) {
+        // Column: width varies with band, height is fixed
+        (band_size.round(), plot_height)
+    }
+
+    fn group_origin(position: f32) -> [f32; 2] {
+        // Column: translate horizontally
+        [position.round(), 0.0]
+    }
+
+    fn inter_gap_key() -> &'static str {
+        "inter_col_gap"
+    }
+
+    fn compute_band_size(
+        plot_width: f32,
+        _plot_height: f32,
+        num_cells: usize,
+        total_gap: f32,
+    ) -> f32 {
+        // Column: width varies with band
+        (plot_width - total_gap) / num_cells.max(1) as f32
+    }
+
+    fn build_cell_position(cell_idx: usize, parent_row: usize) -> (usize, usize) {
+        // Column: (parent_row, col_idx)
+        (parent_row, cell_idx)
+    }
+
+    fn build_grid_dimensions(num_cells: usize, parent_num_rows: usize) -> (usize, usize) {
+        // Column: (parent_num_rows, num_cols)
+        (parent_num_rows, num_cells)
     }
 }
 
