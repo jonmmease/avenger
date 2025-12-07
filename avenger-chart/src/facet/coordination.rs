@@ -1043,11 +1043,41 @@ impl FacetCoordinationContext {
     ///
     /// Attempts to extract and deserialize the `__facet_coordination` param.
     /// Returns None if the param doesn't exist or deserialization fails.
+    ///
+    /// Note: For error-aware deserialization, use `try_from_params()` instead.
     pub fn from_params(params: &IndexMap<String, ScalarValue>) -> Option<Self> {
         params.get(Self::PARAM_KEY).and_then(|v| match v {
             ScalarValue::Utf8(Some(json)) => serde_json::from_str(json).ok(),
             _ => None,
         })
+    }
+
+    /// Deserialize from params map with explicit error handling
+    ///
+    /// Unlike `from_params()`, this method distinguishes between:
+    /// - `Ok(None)`: The param doesn't exist (valid case - no coordination context)
+    /// - `Ok(Some(ctx))`: Successfully deserialized
+    /// - `Err(...)`: The param exists but deserialization failed (indicates data corruption)
+    ///
+    /// Use this in contexts where deserialization errors should be propagated rather
+    /// than silently converted to None.
+    pub fn try_from_params(
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<Option<Self>, crate::error::AvengerChartError> {
+        match params.get(Self::PARAM_KEY) {
+            None => Ok(None),
+            Some(ScalarValue::Utf8(None)) => Ok(None),
+            Some(ScalarValue::Utf8(Some(json))) => {
+                serde_json::from_str(json)
+                    .map(Some)
+                    .map_err(|e| crate::error::AvengerChartError::DeserializationError(
+                        format!("Failed to deserialize FacetCoordinationContext: {}", e)
+                    ))
+            }
+            Some(other) => Err(crate::error::AvengerChartError::DeserializationError(
+                format!("Expected Utf8 for FacetCoordinationContext, got {:?}", other.data_type())
+            )),
+        }
     }
 
     /// Update outer position in params and return modified params

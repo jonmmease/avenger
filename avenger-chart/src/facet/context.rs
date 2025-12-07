@@ -104,11 +104,41 @@ impl FacetContext {
     ///
     /// Attempts to extract and deserialize the `__facet_context` param.
     /// Returns None if the param doesn't exist or deserialization fails.
+    ///
+    /// Note: For error-aware deserialization, use `try_from_params()` instead.
     pub fn from_params(params: &IndexMap<String, ScalarValue>) -> Option<Self> {
         params.get("__facet_context").and_then(|v| match v {
             ScalarValue::Utf8(Some(json)) => serde_json::from_str(json).ok(),
             _ => None,
         })
+    }
+
+    /// Deserialize from params map with explicit error handling
+    ///
+    /// Unlike `from_params()`, this method distinguishes between:
+    /// - `Ok(None)`: The param doesn't exist (valid case - no facet context)
+    /// - `Ok(Some(ctx))`: Successfully deserialized
+    /// - `Err(...)`: The param exists but deserialization failed (indicates data corruption)
+    ///
+    /// Use this in contexts where deserialization errors should be propagated rather
+    /// than silently converted to None.
+    pub fn try_from_params(
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<Option<Self>, crate::error::AvengerChartError> {
+        match params.get("__facet_context") {
+            None => Ok(None),
+            Some(ScalarValue::Utf8(None)) => Ok(None),
+            Some(ScalarValue::Utf8(Some(json))) => {
+                serde_json::from_str(json)
+                    .map(Some)
+                    .map_err(|e| crate::error::AvengerChartError::DeserializationError(
+                        format!("Failed to deserialize FacetContext: {}", e)
+                    ))
+            }
+            Some(other) => Err(crate::error::AvengerChartError::DeserializationError(
+                format!("Expected Utf8 for FacetContext, got {:?}", other.data_type())
+            )),
+        }
     }
 
     /// Check if a channel is unified by the facet guide
@@ -683,5 +713,56 @@ mod tests {
         // Level(1) on left edge: show left labels
         assert!(ctx_level1_left.should_show_facet_labels("row", AxisPosition::Left));
         assert!(!ctx_level1_left.should_show_facet_labels("row", AxisPosition::Right));
+    }
+
+    #[test]
+    fn test_try_from_params_success() {
+        let mut unified_channels = HashSet::new();
+        unified_channels.insert("y".to_string());
+
+        let ctx = FacetContext {
+            position: (1, 0),
+            grid_dimensions: (3, 1),
+            unified_channels: unified_channels.clone(),
+            scale_sharing: HashMap::new(),
+        };
+
+        let params = ctx.to_params();
+        let result = FacetContext::try_from_params(&params);
+        assert!(result.is_ok());
+        let restored = result.unwrap().unwrap();
+        assert_eq!(restored.position, (1, 0));
+        assert_eq!(restored.grid_dimensions, (3, 1));
+    }
+
+    #[test]
+    fn test_try_from_params_missing() {
+        let params = IndexMap::new();
+        let result = FacetContext::try_from_params(&params);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_try_from_params_invalid_json() {
+        let mut params = IndexMap::new();
+        params.insert(
+            "__facet_context".to_string(),
+            ScalarValue::Utf8(Some("not valid json".to_string())),
+        );
+        let result = FacetContext::try_from_params(&params);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Failed to deserialize FacetContext"));
+    }
+
+    #[test]
+    fn test_try_from_params_wrong_type() {
+        let mut params = IndexMap::new();
+        params.insert("__facet_context".to_string(), ScalarValue::Int32(Some(42)));
+        let result = FacetContext::try_from_params(&params);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Expected Utf8"));
     }
 }

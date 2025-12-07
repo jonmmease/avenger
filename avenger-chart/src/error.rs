@@ -19,6 +19,9 @@ pub enum AvengerChartError {
     #[error("Serialization error: `{0}`")]
     SerializationError(String),
 
+    #[error("Deserialization error: `{0}`")]
+    DeserializationError(String),
+
     #[error("No scale compiler registered for scale type: `{0}`")]
     ScaleKindLookupError(String),
 
