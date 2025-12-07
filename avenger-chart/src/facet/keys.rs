@@ -1,4 +1,5 @@
 use crate::error::AvengerChartError;
+use crate::facet::scalar_cmp::scalar_total_cmp;
 use datafusion::common::ScalarValue;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::Expr;
@@ -25,7 +26,7 @@ impl FacetKeyExtractor {
         let mut values = Self::scalar_column_to_vec(&batches, 0)?;
 
         // Sort values to ensure deterministic facet ordering
-        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        values.sort_by(scalar_total_cmp);
 
         Ok(values)
     }
@@ -48,13 +49,8 @@ impl FacetKeyExtractor {
 
         // Sort by row first, then by column, to ensure deterministic facet ordering
         pairs.sort_by(|(row_a, col_a), (row_b, col_b)| {
-            match row_a
-                .partial_cmp(row_b)
-                .unwrap_or(std::cmp::Ordering::Equal)
-            {
-                std::cmp::Ordering::Equal => col_a
-                    .partial_cmp(col_b)
-                    .unwrap_or(std::cmp::Ordering::Equal),
+            match scalar_total_cmp(row_a, row_b) {
+                std::cmp::Ordering::Equal => scalar_total_cmp(col_a, col_b),
                 other => other,
             }
         });

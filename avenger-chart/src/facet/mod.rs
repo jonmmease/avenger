@@ -8,6 +8,8 @@ pub mod guide_measurement;
 pub mod guide_utils;
 pub mod keys;
 pub mod marks;
+pub mod phantom_cells;
+pub mod scalar_cmp;
 pub mod scale_grouping;
 pub mod scale_helpers;
 pub mod subplot_iterator;
