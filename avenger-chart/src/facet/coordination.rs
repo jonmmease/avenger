@@ -760,7 +760,7 @@ impl Default for FacetCoordinationContext {
             // Level-based scale sharing fields
             nesting_depth: 0,
             channel_sharing_levels: HashMap::new(),
-            level_domains: HashMap::new(),
+            level_domains: IndexMap::new(),
             position_path: Vec::new(),
             level_counts: Vec::new(),
             // End level-based scale sharing fields
@@ -814,7 +814,7 @@ impl FacetCoordinationContext {
             // Level-based scale sharing fields
             nesting_depth: 0,
             channel_sharing_levels: HashMap::new(),
-            level_domains: HashMap::new(),
+            level_domains: IndexMap::new(),
             position_path: Vec::new(),
             level_counts: Vec::new(),
             // End level-based scale sharing fields
@@ -1638,8 +1638,8 @@ mod tests {
         levels.insert("y".to_string(), 1u8); // Level(1) - look up at level 1
         levels.insert("color".to_string(), 2u8); // Level(2) - look up at level 2
 
-        // Set up level domains
-        let mut domains = HashMap::new();
+        // Set up level domains (using IndexMap for deterministic iteration)
+        let mut domains = IndexMap::new();
         domains.insert(
             LevelChannelKey::new(1, "y"),
             SerializableDataExtents::interval(0.0, 100.0),
@@ -1687,6 +1687,7 @@ mod tests {
         let mut levels = HashMap::new();
         levels.insert("y".to_string(), 1u8);
 
+        // No domains set, but level_domains is empty IndexMap
         let ctx = FacetCoordinationContext::default()
             .with_nesting_depth(1)
             .with_channel_sharing_levels(levels);
@@ -1702,6 +1703,7 @@ mod tests {
         levels.insert("y".to_string(), 5u8);
 
         // Domain at level 2 (the nesting depth)
+        let mut domains = IndexMap::new();
         domains.insert(
             LevelChannelKey::new(2, "y"),
             SerializableDataExtents::interval(0.0, 50.0),
@@ -1788,7 +1790,7 @@ mod tests {
         levels.insert("x".to_string(), 0u8);
         levels.insert("y".to_string(), 1u8);
 
-        let mut domains = HashMap::new();
+        let mut domains = IndexMap::new();
         domains.insert(
             LevelChannelKey::new(1, "y"),
             SerializableDataExtents::interval(0.0, 100.0),
@@ -1817,7 +1819,7 @@ mod tests {
         levels.insert("y".to_string(), 1u8);
         levels.insert("color".to_string(), 255u8);
 
-        let mut domains = HashMap::new();
+        let mut domains = IndexMap::new();
         domains.insert(
             LevelChannelKey::new(1, "y"),
             SerializableDataExtents::interval(0.0, 100.0),
