@@ -59,10 +59,46 @@ pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
     fn is_col_facet() -> bool {
         false
     }
+
+    /// The mark type identifier for serialization ("facet_row" or "facet_col")
+    fn mark_type() -> &'static str;
+
+    /// Calculate subplot dimensions from band size and plot dimensions
+    ///
+    /// Row: (plot_width, band_size) - height varies with band
+    /// Column: (band_size, plot_height) - width varies with band
+    fn subplot_dimensions(band_size: f32, plot_width: f32, plot_height: f32) -> (f32, f32);
+
+    /// Calculate group origin translation from position value
+    ///
+    /// Row: [0.0, position] - translate vertically
+    /// Column: [position, 0.0] - translate horizontally
     fn group_origin(position: f32) -> [f32; 2];
 
     /// The coordination context key for inter-cell gap spacing
     ///
+    /// Row: "inter_row_gap"
+    /// Column: "inter_col_gap"
+    fn inter_gap_key() -> &'static str;
+
+    /// Compute band size from plot dimensions and cell count
+    ///
+    /// Row: (plot_height - total_gap) / num_cells
+    /// Column: (plot_width - total_gap) / num_cells
+    fn compute_band_size(plot_width: f32, plot_height: f32, num_cells: usize, total_gap: f32)
+        -> f32;
+
+    /// Build FacetContext position from cell index and parent position
+    ///
+    /// Row: (cell_idx, parent_col)
+    /// Column: (parent_row, cell_idx)
+    fn build_cell_position(cell_idx: usize, parent_other: usize) -> (usize, usize);
+
+    /// Build FacetContext grid dimensions from cell count and parent dimension
+    ///
+    /// Row: (num_cells, parent_num_cols)
+    /// Column: (parent_num_rows, num_cells)
+    fn build_grid_dimensions(num_cells: usize, parent_other: usize) -> (usize, usize);
 }
 
 /// Row faceting dimension configuration
@@ -100,6 +136,44 @@ impl FacetDimensionConfig for RowDimensionConfig {
     fn is_row_facet() -> bool {
         true
     }
+
+    fn mark_type() -> &'static str {
+        "facet_row"
+    }
+
+    fn subplot_dimensions(band_size: f32, plot_width: f32, _plot_height: f32) -> (f32, f32) {
+        // Row: height varies with band, width is fixed
+        (plot_width, band_size.round())
+    }
+
+    fn group_origin(position: f32) -> [f32; 2] {
+        // Row: translate vertically
+        [0.0, position.round()]
+    }
+
+    fn inter_gap_key() -> &'static str {
+        "inter_row_gap"
+    }
+
+    fn compute_band_size(
+        _plot_width: f32,
+        plot_height: f32,
+        num_cells: usize,
+        total_gap: f32,
+    ) -> f32 {
+        // Row: height varies with band
+        (plot_height - total_gap) / num_cells.max(1) as f32
+    }
+
+    fn build_cell_position(cell_idx: usize, parent_col: usize) -> (usize, usize) {
+        // Row: (row_idx, parent_col)
+        (cell_idx, parent_col)
+    }
+
+    fn build_grid_dimensions(num_cells: usize, parent_num_cols: usize) -> (usize, usize) {
+        // Row: (num_rows, parent_num_cols)
+        (num_cells, parent_num_cols)
+    }
 }
 
 /// Column faceting dimension configuration
@@ -115,8 +189,8 @@ impl FacetDimensionConfig for ColumnDimensionConfig {
         FacetDirection::Column
     }
 
-    fn unified_channels() -> HashSet<String> {
-        let mut channels = HashSet::new();
+    fn unified_channels() -> &'static [&'static str] {
+        &["x"]
     }
 
     fn index_to_position(index: usize) -> (usize, usize) {
@@ -196,12 +270,11 @@ impl GridDimensionConfig {
         }
     }
 
-    /// Get the set of channels unified by grid faceting (both x and y)
-    pub fn unified_channels() -> HashSet<String> {
-        let mut channels = HashSet::new();
-        channels.insert("x".to_string());
-        channels.insert("y".to_string());
-        channels
+    /// Get the channels unified by grid faceting (both x and y)
+    ///
+    /// Returns a static slice for efficiency - avoids allocation on every call.
+    pub fn unified_channels() -> &'static [&'static str] {
+        &["x", "y"]
     }
 }
 

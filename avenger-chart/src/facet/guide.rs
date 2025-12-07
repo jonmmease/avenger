@@ -2,6 +2,8 @@ use crate::channel::config_traits::ScaleSharing;
 use crate::facet::dimension_config::{
     ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
+use crate::facet::phantom_cells::PhantomPlacement;
+use crate::facet::scalar_cmp::scalar_total_cmp;
 use crate::guide::{spacing_keys, CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;
@@ -15,6 +17,92 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+
+/// Default overflow fallback values (left, right, top, bottom) used when
+/// measurement cannot be performed (e.g., in data_override path without facet expression).
+///
+/// These values provide reasonable padding for typical axis labels and titles:
+/// - Left: 30.0 pixels for y-axis labels
+/// - Right: 30.0 pixels for right-side elements
+/// - Top: 40.0 pixels for title/header space
+/// - Bottom: 20.0 pixels for x-axis labels
+pub const DEFAULT_OVERFLOW_FALLBACK: (f32, f32, f32, f32) = (30.0, 30.0, 40.0, 20.0);
+
+/// Returns the default overflow fallback values as a tuple.
+/// Used when overflow cannot be measured (data_override path without facet expression).
+#[inline]
+pub fn default_overflow_fallback() -> (f32, f32, f32, f32) {
+    DEFAULT_OVERFLOW_FALLBACK
+}
+
+/// Aggregate overflow from computed per-cell values.
+///
+/// This helper computes the aggregate overflow edges from a slice of per-cell overflow values:
+/// - top: maximum across all cells
+/// - bottom: maximum across all cells
+/// - left: from first cell only (leftmost edge)
+/// - right: from last cell only (rightmost edge)
+///
+/// Returns (top, bottom, left, right) tuple.
+pub fn aggregate_overflow_edges(
+    computed_overflow: &[OverflowSpaceRequirement],
+) -> (f32, f32, f32, f32) {
+    let mut top = 0.0_f32;
+    let mut bottom = 0.0_f32;
+    let mut left = 0.0_f32;
+    let mut right = 0.0_f32;
+
+    // Aggregate top/bottom across all cells
+    for overflow_item in computed_overflow {
+        top = top.max(overflow_item.top);
+        bottom = bottom.max(overflow_item.bottom);
+    }
+
+    // Use first cell's left overflow (leftmost edge)
+    if let Some(first) = computed_overflow.first() {
+        left = first.left;
+    }
+
+    // Use last cell's right overflow (rightmost edge)
+    if let Some(last) = computed_overflow.last() {
+        right = last.right;
+    }
+
+    (top, bottom, left, right)
+}
+
+/// Aggregate overflow from computed per-cell values for column facets.
+///
+/// Column facets aggregate differently:
+/// - left: from first cell only (leftmost column edge)
+/// - right: maximum across all cells (each column may have its own legend)
+/// - top: maximum across all cells
+/// - bottom: maximum across all cells
+///
+/// Returns (top, bottom, left, right) tuple.
+pub fn aggregate_overflow_edges_col(
+    computed_overflow: &[OverflowSpaceRequirement],
+) -> (f32, f32, f32, f32) {
+    let mut top = 0.0_f32;
+    let mut bottom = 0.0_f32;
+    let mut left = 0.0_f32;
+    let mut right = 0.0_f32;
+
+    // Use first cell's left overflow (leftmost column edge)
+    if let Some(first) = computed_overflow.first() {
+        left = first.left;
+    }
+
+    // Aggregate right/top/bottom across all cells
+    // (each column may have its own legend extending to the right)
+    for overflow_item in computed_overflow {
+        right = right.max(overflow_item.right);
+        top = top.max(overflow_item.top);
+        bottom = bottom.max(overflow_item.bottom);
+    }
+
+    (top, bottom, left, right)
+}
 
 /// Compute scale sharing mode for each channel from marks.
 /// This extracts the sharing configuration from channel definitions.
@@ -155,7 +243,7 @@ impl FacetRowGuide {
             _ => vec![],
         };
         // Sort to ensure deterministic facet ordering
-        domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        domain_vals.sort_by(scalar_total_cmp);
 
         let mut max_left: f32 = 0.0;
         let mut max_right: f32 = 0.0;
@@ -305,12 +393,12 @@ impl FacetRowGuide {
                         .and_then(|ctx| ctx.get_uniform_cell_count())
                         .unwrap_or(iteration_domain.len())
                         .max(1);
-                    let inter_row_gap = coord_ctx
+                    let inter_gap = coord_ctx
                         .as_ref()
-                        .and_then(|ctx| ctx.get_coordinated_spacing("inter_row_gap"))
+                        .and_then(|ctx| ctx.get_coordinated_spacing(RowDimensionConfig::inter_gap_key()))
                         .unwrap_or(0.0);
-                    let total_gap = inter_row_gap * (num_rows.saturating_sub(1)) as f32;
-                    let band_height = (plot_height - total_gap) / num_rows as f32;
+                    let total_gap = inter_gap * (num_rows.saturating_sub(1)) as f32;
+                    let band_height = RowDimensionConfig::compute_band_size(plot_width, plot_height, num_rows, total_gap);
 
                     // Build scales for subplot measurement using two-step pattern for data override
                     let builder = source
@@ -339,7 +427,12 @@ impl FacetRowGuide {
                         // Create FacetContext with correct position for THIS row
                         let measure_params = {
                             let mut updated_params = params.clone();
-                            let mut unified_channels = RowDimensionConfig::unified_channels();
+                            // Convert static slice to HashSet<String>
+                            let mut unified_channels: std::collections::HashSet<String> =
+                                RowDimensionConfig::unified_channels()
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect();
 
                             // Merge parent's unified_channels and scale_sharing if present
                             let (parent_col, parent_num_cols, mut merged_scale_sharing) =
@@ -388,19 +481,15 @@ impl FacetRowGuide {
                                     num_rows
                                 };
 
-                                // Compute phantom_prepend locally based on:
-                                // - grid_rows: the total uniform grid size (including phantoms)
-                                // - iteration_domain.len(): actual data rows in this column
-                                // - inner_band_align: determines where phantoms go (0.0=append, 1.0=prepend)
+                                // Compute phantom_prepend using PhantomPlacement helper
                                 let actual_rows = iteration_domain.len();
-                                let phantom_count = grid_rows.saturating_sub(actual_rows);
-                                let computed_phantom_prepend = if phantom_count > 0 && coord_ctx.inner_band_align >= 0.5 {
-                                    // Phantoms are prepended when band_align >= 0.5
-                                    phantom_count
-                                } else {
-                                    0
-                                };
-                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && phantom_count > 0 {
+                                let phantom_placement = PhantomPlacement::compute(
+                                    coord_ctx.inner_band_align,
+                                    actual_rows,
+                                    grid_rows,
+                                );
+                                let computed_phantom_prepend = phantom_placement.prepend_count();
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && phantom_placement.phantom_count > 0 {
                                     eprintln!(
                                         "FacetRowGuide: computed phantom_prepend={} (grid_rows={} actual={} band_align={})",
                                         computed_phantom_prepend, grid_rows, actual_rows, coord_ctx.inner_band_align
@@ -443,17 +532,12 @@ impl FacetRowGuide {
                         computed_overflow.push(total_overflow);
                     }
 
-                    // Aggregate computed overflow
-                    for overflow_item in &computed_overflow {
-                        top = top.max(overflow_item.top);
-                        bottom = bottom.max(overflow_item.bottom);
-                    }
-                    if let Some(first) = computed_overflow.first() {
-                        max_left = max_left.max(first.left);
-                    }
-                    if let Some(last) = computed_overflow.last() {
-                        max_right = max_right.max(last.right);
-                    }
+                    // Aggregate computed overflow using helper
+                    let (t, b, l, r) = aggregate_overflow_edges(&computed_overflow);
+                    top = top.max(t);
+                    bottom = bottom.max(b);
+                    max_left = max_left.max(l);
+                    max_right = max_right.max(r);
                 } else {
                     // No facet expression available - use fallback (data_override path)
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -462,7 +546,7 @@ impl FacetRowGuide {
                             source_idx
                         );
                     }
-                    return Ok((30.0, 30.0, 40.0, 20.0));
+                    return Ok(default_overflow_fallback());
                 }
             } else if let Some(df) = source.data.dataframe_with_context(ctx) {
                 // No cached overflow and no data_override but we have source data - compute overflow
@@ -493,12 +577,12 @@ impl FacetRowGuide {
                     // Account for inter-row gaps when computing band height
                     let coord_ctx = FacetCoordinationContext::from_params(params);
                     let num_rows = domain_vals.len().max(1);
-                    let inter_row_gap = coord_ctx
+                    let inter_gap = coord_ctx
                         .as_ref()
-                        .and_then(|ctx| ctx.get_coordinated_spacing("inter_row_gap"))
+                        .and_then(|ctx| ctx.get_coordinated_spacing(RowDimensionConfig::inter_gap_key()))
                         .unwrap_or(0.0);
-                    let total_gap = inter_row_gap * (num_rows.saturating_sub(1)) as f32;
-                    let band_height = (plot_height - total_gap) / num_rows as f32;
+                    let total_gap = inter_gap * (num_rows.saturating_sub(1)) as f32;
+                    let band_height = RowDimensionConfig::compute_band_size(plot_width, plot_height, num_rows, total_gap);
 
                     // Build scales for subplot measurement using two-step pattern for data override
                     let builder = source
@@ -545,7 +629,10 @@ impl FacetRowGuide {
                             let facet_ctx = FacetContext {
                                 position: (row_idx, 0), // Correct row position
                                 grid_dimensions: (num_rows, 1),
-                                unified_channels: RowDimensionConfig::unified_channels(),
+                                unified_channels: RowDimensionConfig::unified_channels()
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect(),
                                 scale_sharing: scale_sharing.clone(),
                             };
                             let ctx_params = facet_ctx.to_params();
@@ -570,17 +657,12 @@ impl FacetRowGuide {
                         computed_overflow.push(total_overflow);
                     }
 
-                    // Aggregate computed overflow
-                    for overflow_item in &computed_overflow {
-                        top = top.max(overflow_item.top);
-                        bottom = bottom.max(overflow_item.bottom);
-                    }
-                    if let Some(first) = computed_overflow.first() {
-                        max_left = max_left.max(first.left);
-                    }
-                    if let Some(last) = computed_overflow.last() {
-                        max_right = max_right.max(last.right);
-                    }
+                    // Aggregate computed overflow using helper
+                    let (t, b, l, r) = aggregate_overflow_edges(&computed_overflow);
+                    top = top.max(t);
+                    bottom = bottom.max(b);
+                    max_left = max_left.max(l);
+                    max_right = max_right.max(r);
                 } else {
                     // No facet expression available - use fallback
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -589,7 +671,7 @@ impl FacetRowGuide {
                             source_idx
                         );
                     }
-                    return Ok((30.0, 30.0, 40.0, 20.0));
+                    return Ok(default_overflow_fallback());
                 }
             } else {
                 // No cached overflow and no data - use reasonable estimates
@@ -600,7 +682,7 @@ impl FacetRowGuide {
                         source_idx
                     );
                 }
-                return Ok((30.0, 30.0, 40.0, 20.0));
+                return Ok(default_overflow_fallback());
             }
         }
         Ok((top, bottom, max_left, max_right))
@@ -716,18 +798,21 @@ impl CompiledGuide for FacetRowGuide {
         // Apply shared overflow from coordination context for uniform padding across columns
         // This ensures plot areas align even when scales are not shared
         {
-            use crate::facet::coordination::FacetCoordinationContext;
+            use crate::facet::coordination::{
+                FacetCoordinationContext, SHARED_OVERFLOW_BOTTOM, SHARED_OVERFLOW_LEFT,
+                SHARED_OVERFLOW_RIGHT, SHARED_OVERFLOW_TOP,
+            };
             let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
-            if let Some(shared_left) = coord_ctx.get_coordinated_spacing("shared_overflow_left") {
+            if let Some(shared_left) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_LEFT) {
                 max_left = max_left.max(shared_left);
             }
-            if let Some(shared_right) = coord_ctx.get_coordinated_spacing("shared_overflow_right") {
+            if let Some(shared_right) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_RIGHT) {
                 max_right = max_right.max(shared_right);
             }
-            if let Some(shared_top) = coord_ctx.get_coordinated_spacing("shared_overflow_top") {
+            if let Some(shared_top) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_TOP) {
                 top = top.max(shared_top);
             }
-            if let Some(shared_bottom) = coord_ctx.get_coordinated_spacing("shared_overflow_bottom") {
+            if let Some(shared_bottom) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_BOTTOM) {
                 bottom = bottom.max(shared_bottom);
             }
         }
@@ -765,6 +850,7 @@ impl CompiledGuide for FacetRowGuide {
 
         // Resolve visibility decisions using single source of truth
         // (moved before measurement so we can use render_facet_title)
+        use crate::facet::context::FacetContext;
         use crate::facet::visibility::{FacetRowVisibility, FacetRowVisibilityInput};
         let facet_scale_sharing = self
             .facet_sources
@@ -777,7 +863,8 @@ impl CompiledGuide for FacetRowGuide {
             has_unified_y_title: self.unified_y_title.is_some(),
             facet_scale_sharing,
         };
-        let visibility = FacetRowVisibility::resolve(&visibility_input, params);
+        let parent_ctx = FacetContext::from_params(params);
+        let visibility = FacetRowVisibility::resolve(&visibility_input, parent_ctx.as_ref());
 
         // Use guide_utils to measure facet label slab
         use crate::facet::guide_utils::{FacetLabelMeasurementConfig, measure_facet_label_slab};
@@ -1044,7 +1131,7 @@ impl CompiledGuide for FacetRowGuide {
             crate::scales::extensions::DomainValues::Discrete(vals) => vals,
             _ => vec![],
         };
-        domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        domain_vals.sort_by(scalar_total_cmp);
 
         // For uniform Free scaling, use max cell count instead of actual domain length
         let num_rows = coord_ctx
@@ -1114,7 +1201,10 @@ impl CompiledGuide for FacetRowGuide {
                     let facet_ctx = FacetContext {
                         position: (row_idx, 0),
                         grid_dimensions: (num_rows, 1),
-                        unified_channels: RowDimensionConfig::unified_channels(),
+                        unified_channels: RowDimensionConfig::unified_channels()
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
                         scale_sharing: scale_sharing.clone(),
                     };
                     for (k, v) in facet_ctx.to_params() {
@@ -1278,7 +1368,10 @@ impl CompiledGuide for FacetRowGuide {
                     let facet_ctx = FacetContext {
                         position: (row_idx, 0),
                         grid_dimensions: (num_rows, 1),
-                        unified_channels: RowDimensionConfig::unified_channels(),
+                        unified_channels: RowDimensionConfig::unified_channels()
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
                         scale_sharing: scale_sharing.clone(),
                     };
                     for (k, v) in facet_ctx.to_params() {
@@ -1424,16 +1517,9 @@ impl CompiledGuide for FacetRowGuide {
                 let all_positions: Vec<_> =
                     BandPositionIterator::from_configured_scale(&temp_scale)?.collect();
 
-                // Return only the positions for actual labels (not placeholders)
-                // When inner_band_align >= 0.5, phantoms are prepended so actual data is at the end
-                let phantom_count = uniform_count - labels.len();
-                if inner_band_align >= 0.5 {
-                    // Skip phantom positions at start, take actual data positions at end
-                    all_positions.into_iter().skip(phantom_count).collect()
-                } else {
-                    // Phantoms at end, take positions at start
-                    all_positions.into_iter().take(labels.len()).collect()
-                }
+                // Extract only the positions for actual labels (not placeholders)
+                let phantom_placement = PhantomPlacement::compute(inner_band_align, labels.len(), uniform_count);
+                phantom_placement.extract_actual(all_positions)
             } else {
                 // No padding needed
                 BandPositionIterator::from_configured_scale(row_scale)?.collect()
@@ -1487,6 +1573,7 @@ impl CompiledGuide for FacetRowGuide {
             .and_then(|guide| guide.axis_position("y"));
 
         // Resolve visibility decisions using single source of truth (same as measure_overflow)
+        use crate::facet::context::FacetContext;
         use crate::facet::visibility::{FacetRowVisibility, FacetRowVisibilityInput};
         let facet_scale_sharing = self
             .facet_sources
@@ -1499,7 +1586,8 @@ impl CompiledGuide for FacetRowGuide {
             has_unified_y_title: self.unified_y_title.is_some(),
             facet_scale_sharing,
         };
-        let visibility = FacetRowVisibility::resolve(&visibility_input, params);
+        let parent_ctx = FacetContext::from_params(params);
+        let visibility = FacetRowVisibility::resolve(&visibility_input, parent_ctx.as_ref());
 
         // Use visibility struct for rendering decisions
         let place_on_left = visibility.facet_labels_on_left;
@@ -1726,7 +1814,7 @@ impl FacetColGuide {
             _ => vec![],
         };
         // Sort to ensure deterministic facet ordering
-        domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        domain_vals.sort_by(scalar_total_cmp);
 
         let mut left_max = 0.0_f32;
         let mut right_max = 0.0_f32;
@@ -1854,12 +1942,12 @@ impl FacetColGuide {
                         .and_then(|ctx| ctx.get_uniform_cell_count())
                         .unwrap_or(iteration_domain.len())
                         .max(1);
-                    let inter_col_gap = coord_ctx
+                    let inter_gap = coord_ctx
                         .as_ref()
-                        .and_then(|ctx| ctx.get_coordinated_spacing("inter_col_gap"))
+                        .and_then(|ctx| ctx.get_coordinated_spacing(ColumnDimensionConfig::inter_gap_key()))
                         .unwrap_or(0.0);
-                    let total_gap = inter_col_gap * (num_cols.saturating_sub(1)) as f32;
-                    let band_width = (plot_width - total_gap) / num_cols as f32;
+                    let total_gap = inter_gap * (num_cols.saturating_sub(1)) as f32;
+                    let band_width = ColumnDimensionConfig::compute_band_size(plot_width, plot_height, num_cols, total_gap);
 
                     // Build scales for subplot measurement using two-step pattern for data override
                     let builder = source
@@ -1894,7 +1982,12 @@ impl FacetColGuide {
                         let subplot_measure_params = {
                             use crate::facet::context::FacetContext;
                             let mut updated_params = params.clone();
-                            let mut unified_channels = ColumnDimensionConfig::unified_channels();
+                            // Convert static slice to HashSet<String>
+                            let mut unified_channels: std::collections::HashSet<String> =
+                                ColumnDimensionConfig::unified_channels()
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect();
 
                             // Merge parent's unified_channels and scale_sharing if present
                             let (parent_row, parent_num_rows, mut merged_scale_sharing) =
@@ -1947,16 +2040,13 @@ impl FacetColGuide {
                         computed_overflow.push(total_overflow);
                     }
 
-                    // Aggregate computed overflow - first column for left, ALL columns for right
-                    // (each column may have its own legend extending to the right)
-                    if let Some(first) = computed_overflow.first() {
-                        left_max = left_max.max(first.left);
-                    }
-                    for overflow_item in &computed_overflow {
-                        right_max = right_max.max(overflow_item.right);
-                        top_max = top_max.max(overflow_item.top);
-                        bottom_max = bottom_max.max(overflow_item.bottom);
-                    }
+                    // Aggregate computed overflow using column-specific helper
+                    // (first column for left, ALL columns for right/top/bottom)
+                    let (t, b, l, r) = aggregate_overflow_edges_col(&computed_overflow);
+                    top_max = top_max.max(t);
+                    bottom_max = bottom_max.max(b);
+                    left_max = left_max.max(l);
+                    right_max = right_max.max(r);
                 } else {
                     // No facet expression available - use fallback
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -1965,7 +2055,7 @@ impl FacetColGuide {
                             source_idx
                         );
                     }
-                    return Ok((30.0, 30.0, 40.0, 20.0));
+                    return Ok(default_overflow_fallback());
                 }
             } else if let Some(df) = source.data.dataframe_with_context(ctx) {
                 // No cached overflow and no data_override but we have source data - compute overflow
@@ -1996,12 +2086,12 @@ impl FacetColGuide {
                     // Account for inter-column gaps when computing band width
                     let coord_ctx = FacetCoordinationContext::from_params(params);
                     let num_cols = domain_vals.len().max(1);
-                    let inter_col_gap = coord_ctx
+                    let inter_gap = coord_ctx
                         .as_ref()
-                        .and_then(|ctx| ctx.get_coordinated_spacing("inter_col_gap"))
+                        .and_then(|ctx| ctx.get_coordinated_spacing(ColumnDimensionConfig::inter_gap_key()))
                         .unwrap_or(0.0);
-                    let total_gap = inter_col_gap * (num_cols.saturating_sub(1)) as f32;
-                    let band_width = (plot_width - total_gap) / num_cols as f32;
+                    let total_gap = inter_gap * (num_cols.saturating_sub(1)) as f32;
+                    let band_width = ColumnDimensionConfig::compute_band_size(plot_width, plot_height, num_cols, total_gap);
 
                     // Build scales for subplot measurement using two-step pattern for data override
                     let builder = source
@@ -2034,7 +2124,12 @@ impl FacetColGuide {
                         let subplot_measure_params = {
                             use crate::facet::context::FacetContext;
                             let mut updated_params = params.clone();
-                            let mut unified_channels = ColumnDimensionConfig::unified_channels();
+                            // Convert static slice to HashSet<String>
+                            let mut unified_channels: std::collections::HashSet<String> =
+                                ColumnDimensionConfig::unified_channels()
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect();
 
                             // Merge parent's unified_channels and scale_sharing if present
                             let (parent_row, parent_num_rows, mut merged_scale_sharing) =
@@ -2100,16 +2195,13 @@ impl FacetColGuide {
                         computed_overflow.push(total_overflow);
                     }
 
-                    // Aggregate computed overflow - first column for left, ALL columns for right
-                    // (each column may have its own legend extending to the right)
-                    if let Some(first) = computed_overflow.first() {
-                        left_max = left_max.max(first.left);
-                    }
-                    for overflow_item in &computed_overflow {
-                        right_max = right_max.max(overflow_item.right);
-                        top_max = top_max.max(overflow_item.top);
-                        bottom_max = bottom_max.max(overflow_item.bottom);
-                    }
+                    // Aggregate computed overflow using column-specific helper
+                    // (first column for left, ALL columns for right/top/bottom)
+                    let (t, b, l, r) = aggregate_overflow_edges_col(&computed_overflow);
+                    top_max = top_max.max(t);
+                    bottom_max = bottom_max.max(b);
+                    left_max = left_max.max(l);
+                    right_max = right_max.max(r);
                 } else {
                     // No facet expression available - use fallback
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -2118,7 +2210,7 @@ impl FacetColGuide {
                             source_idx
                         );
                     }
-                    return Ok((30.0, 30.0, 40.0, 20.0));
+                    return Ok(default_overflow_fallback());
                 }
             } else {
                 // No cached overflow and no data - use reasonable estimates
@@ -2129,7 +2221,7 @@ impl FacetColGuide {
                         source_idx
                     );
                 }
-                return Ok((30.0, 30.0, 40.0, 20.0));
+                return Ok(default_overflow_fallback());
             }
         }
         Ok((top_max, bottom_max, left_max, right_max))
@@ -2269,18 +2361,21 @@ impl CompiledGuide for FacetColGuide {
         // Apply shared overflow from coordination context for uniform padding across rows
         // This ensures plot areas align even when scales are not shared
         {
-            use crate::facet::coordination::FacetCoordinationContext;
+            use crate::facet::coordination::{
+                FacetCoordinationContext, SHARED_OVERFLOW_BOTTOM, SHARED_OVERFLOW_LEFT,
+                SHARED_OVERFLOW_RIGHT, SHARED_OVERFLOW_TOP,
+            };
             let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
-            if let Some(shared_left) = coord_ctx.get_coordinated_spacing("shared_overflow_left") {
+            if let Some(shared_left) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_LEFT) {
                 left_max = left_max.max(shared_left);
             }
-            if let Some(shared_right) = coord_ctx.get_coordinated_spacing("shared_overflow_right") {
+            if let Some(shared_right) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_RIGHT) {
                 right_max = right_max.max(shared_right);
             }
-            if let Some(shared_top) = coord_ctx.get_coordinated_spacing("shared_overflow_top") {
+            if let Some(shared_top) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_TOP) {
                 top_max = top_max.max(shared_top);
             }
-            if let Some(shared_bottom) = coord_ctx.get_coordinated_spacing("shared_overflow_bottom") {
+            if let Some(shared_bottom) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_BOTTOM) {
                 bottom_max = bottom_max.max(shared_bottom);
             }
         }
@@ -2432,6 +2527,7 @@ impl CompiledGuide for FacetColGuide {
         // ====================================================================
         // Resolve visibility using centralized FacetColVisibility
         // ====================================================================
+        use crate::facet::context::FacetContext;
         use crate::facet::visibility::{FacetColVisibility, FacetColVisibilityInput};
 
         // Extract axis positions from subplot guide
@@ -2460,7 +2556,8 @@ impl CompiledGuide for FacetColGuide {
             has_unified_y_title: self.unified_y_title.is_some(),
             facet_scale_sharing,
         };
-        let visibility = FacetColVisibility::resolve(&visibility_input, params);
+        let parent_ctx = FacetContext::from_params(params);
+        let visibility = FacetColVisibility::resolve(&visibility_input, parent_ctx.as_ref());
 
         // Use visibility struct for placement decisions
         let place_below = visibility.place_below;
@@ -2682,7 +2779,7 @@ impl CompiledGuide for FacetColGuide {
             crate::scales::extensions::DomainValues::Discrete(vals) => vals,
             _ => vec![],
         };
-        domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        domain_vals.sort_by(scalar_total_cmp);
 
         // For uniform Free scaling, use max cell count instead of actual domain length
         let num_cols = coord_ctx
@@ -2751,7 +2848,10 @@ impl CompiledGuide for FacetColGuide {
                     let facet_ctx = FacetContext {
                         position: (0, col_idx),
                         grid_dimensions: (1, num_cols),
-                        unified_channels: ColumnDimensionConfig::unified_channels(),
+                        unified_channels: ColumnDimensionConfig::unified_channels()
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
                         scale_sharing: scale_sharing.clone(),
                     };
                     for (k, v) in facet_ctx.to_params() {
@@ -2914,7 +3014,10 @@ impl CompiledGuide for FacetColGuide {
                     let facet_ctx = FacetContext {
                         position: (0, col_idx),
                         grid_dimensions: (1, num_cols),
-                        unified_channels: ColumnDimensionConfig::unified_channels(),
+                        unified_channels: ColumnDimensionConfig::unified_channels()
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
                         scale_sharing: scale_sharing.clone(),
                     };
                     for (k, v) in facet_ctx.to_params() {
@@ -3078,6 +3181,7 @@ impl CompiledGuide for FacetColGuide {
         // ====================================================================
         // Resolve visibility using centralized FacetColVisibility
         // ====================================================================
+        use crate::facet::context::FacetContext;
         use crate::facet::visibility::{FacetColVisibility, FacetColVisibilityInput};
 
         // Extract axis positions from subplot guide
@@ -3106,7 +3210,8 @@ impl CompiledGuide for FacetColGuide {
             has_unified_y_title: self.unified_y_title.is_some(),
             facet_scale_sharing,
         };
-        let visibility = FacetColVisibility::resolve(&visibility_input, params);
+        let parent_ctx = FacetContext::from_params(params);
+        let visibility = FacetColVisibility::resolve(&visibility_input, parent_ctx.as_ref());
 
         // Use visibility struct for placement and rendering decisions
         let place_below = visibility.place_below;
