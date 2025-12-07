@@ -268,48 +268,131 @@ impl GuideOwnership {
 /// Serializable representation of domain values
 ///
 /// ScalarValue doesn't implement Serialize/Deserialize, so we convert
-/// domain values to JSON strings for serialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// domain values to this enum for serialization through coordination context.
+///
+/// This enum preserves type information for grouping and domain operations,
+/// with variants for all common Arrow/DataFusion scalar types.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SerializableDomainValue {
     String(String),
     Int(i64),
+    /// Unsigned 64-bit integer - stored separately to avoid i64 overflow
+    UInt64(u64),
     Float(f64),
     Bool(bool),
+    /// Decimal128 stored as string to preserve precision
+    /// Format: "value:precision:scale" (e.g., "12345:10:2" for 123.45)
+    Decimal128(String),
+    /// Timestamp in milliseconds since Unix epoch
+    TimestampMs(i64),
+    /// Timestamp in microseconds since Unix epoch
+    TimestampUs(i64),
+    /// Timestamp in nanoseconds since Unix epoch
+    TimestampNs(i64),
     Null,
 }
 
 impl SerializableDomainValue {
     /// Convert from ScalarValue
+    ///
+    /// Handles all common Arrow scalar types, preserving type information
+    /// for proper round-trip serialization.
     pub fn from_scalar(value: &ScalarValue) -> Self {
         match value {
+            // String types
             ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => {
                 SerializableDomainValue::String(s.clone())
             }
             // Handle Utf8View - DataFusion uses this for string views in newer versions
             ScalarValue::Utf8View(Some(s)) => SerializableDomainValue::String(s.clone()),
+
+            // Signed integer types
             ScalarValue::Int8(Some(n)) => SerializableDomainValue::Int(*n as i64),
             ScalarValue::Int16(Some(n)) => SerializableDomainValue::Int(*n as i64),
             ScalarValue::Int32(Some(n)) => SerializableDomainValue::Int(*n as i64),
             ScalarValue::Int64(Some(n)) => SerializableDomainValue::Int(*n),
+
+            // Unsigned integer types - small ones fit in i64
             ScalarValue::UInt8(Some(n)) => SerializableDomainValue::Int(*n as i64),
             ScalarValue::UInt16(Some(n)) => SerializableDomainValue::Int(*n as i64),
             ScalarValue::UInt32(Some(n)) => SerializableDomainValue::Int(*n as i64),
-            ScalarValue::UInt64(Some(n)) => SerializableDomainValue::Int(*n as i64),
+            // UInt64 uses dedicated variant to avoid overflow
+            ScalarValue::UInt64(Some(n)) => SerializableDomainValue::UInt64(*n),
+
+            // Float types
             ScalarValue::Float32(Some(n)) => SerializableDomainValue::Float(*n as f64),
             ScalarValue::Float64(Some(n)) => SerializableDomainValue::Float(*n),
+
+            // Boolean
             ScalarValue::Boolean(Some(b)) => SerializableDomainValue::Bool(*b),
+
+            // Decimal128 - serialize as string to preserve precision
+            ScalarValue::Decimal128(Some(value), precision, scale) => {
+                SerializableDomainValue::Decimal128(format!("{}:{}:{}", value, precision, scale))
+            }
+
+            // Timestamp types - preserve the time unit in variant
+            ScalarValue::TimestampMillisecond(Some(ts), _) => {
+                SerializableDomainValue::TimestampMs(*ts)
+            }
+            ScalarValue::TimestampMicrosecond(Some(ts), _) => {
+                SerializableDomainValue::TimestampUs(*ts)
+            }
+            ScalarValue::TimestampNanosecond(Some(ts), _) => {
+                SerializableDomainValue::TimestampNs(*ts)
+            }
+            ScalarValue::TimestampSecond(Some(ts), _) => {
+                // Convert seconds to milliseconds for consistent storage
+                SerializableDomainValue::TimestampMs(*ts * 1000)
+            }
+
+            // Date types - convert to milliseconds
+            ScalarValue::Date32(Some(days)) => {
+                // days since Unix epoch -> milliseconds
+                SerializableDomainValue::TimestampMs(*days as i64 * 86_400_000)
+            }
+            ScalarValue::Date64(Some(ms)) => SerializableDomainValue::TimestampMs(*ms),
+
+            // Everything else becomes Null
             _ => SerializableDomainValue::Null,
         }
     }
 
-    /// Convert to ScalarValue (as Utf8 for strings, Float64 for numbers)
+    /// Convert to ScalarValue for use in domain operations
+    ///
+    /// This enables round-trip: ScalarValue -> SerializableDomainValue -> ScalarValue
     pub fn to_scalar(&self) -> ScalarValue {
         match self {
             SerializableDomainValue::String(s) => ScalarValue::Utf8(Some(s.clone())),
             SerializableDomainValue::Int(n) => ScalarValue::Int64(Some(*n)),
+            SerializableDomainValue::UInt64(n) => ScalarValue::UInt64(Some(*n)),
             SerializableDomainValue::Float(f) => ScalarValue::Float64(Some(*f)),
             SerializableDomainValue::Bool(b) => ScalarValue::Boolean(Some(*b)),
+            SerializableDomainValue::Decimal128(s) => {
+                // Parse "value:precision:scale" format
+                let parts: Vec<&str> = s.split(':').collect();
+                if parts.len() == 3 {
+                    if let (Ok(value), Ok(precision), Ok(scale)) = (
+                        parts[0].parse::<i128>(),
+                        parts[1].parse::<u8>(),
+                        parts[2].parse::<i8>(),
+                    ) {
+                        return ScalarValue::Decimal128(Some(value), precision, scale);
+                    }
+                }
+                // Fallback to null if parsing fails
+                ScalarValue::Null
+            }
+            SerializableDomainValue::TimestampMs(ts) => {
+                ScalarValue::TimestampMillisecond(Some(*ts), None)
+            }
+            SerializableDomainValue::TimestampUs(ts) => {
+                ScalarValue::TimestampMicrosecond(Some(*ts), None)
+            }
+            SerializableDomainValue::TimestampNs(ts) => {
+                ScalarValue::TimestampNanosecond(Some(*ts), None)
+            }
             SerializableDomainValue::Null => ScalarValue::Null,
         }
     }
@@ -1364,6 +1447,44 @@ mod tests {
         // Test float
         let f = SerializableDomainValue::from_scalar(&ScalarValue::Float64(Some(3.14)));
         assert!(matches!(f, SerializableDomainValue::Float(_)));
+
+        // Test UInt64 (previously overflowed when stored as i64)
+        let large_uint = u64::MAX;
+        let u = SerializableDomainValue::from_scalar(&ScalarValue::UInt64(Some(large_uint)));
+        assert!(matches!(u, SerializableDomainValue::UInt64(v) if v == large_uint));
+        assert_eq!(u.to_scalar(), ScalarValue::UInt64(Some(large_uint)));
+
+        // Test Decimal128
+        let d = SerializableDomainValue::from_scalar(&ScalarValue::Decimal128(Some(12345), 10, 2));
+        assert!(matches!(d, SerializableDomainValue::Decimal128(_)));
+        assert_eq!(d.to_scalar(), ScalarValue::Decimal128(Some(12345), 10, 2));
+
+        // Test timestamps
+        let ts_ms = SerializableDomainValue::from_scalar(&ScalarValue::TimestampMillisecond(
+            Some(1609459200000),
+            None,
+        ));
+        assert!(matches!(ts_ms, SerializableDomainValue::TimestampMs(1609459200000)));
+        assert_eq!(
+            ts_ms.to_scalar(),
+            ScalarValue::TimestampMillisecond(Some(1609459200000), None)
+        );
+
+        let ts_us = SerializableDomainValue::from_scalar(&ScalarValue::TimestampMicrosecond(
+            Some(1609459200000000),
+            None,
+        ));
+        assert!(matches!(ts_us, SerializableDomainValue::TimestampUs(1609459200000000)));
+
+        let ts_ns = SerializableDomainValue::from_scalar(&ScalarValue::TimestampNanosecond(
+            Some(1609459200000000000),
+            None,
+        ));
+        assert!(matches!(ts_ns, SerializableDomainValue::TimestampNs(1609459200000000000)));
+
+        // Test null
+        let n = SerializableDomainValue::from_scalar(&ScalarValue::Null);
+        assert!(matches!(n, SerializableDomainValue::Null));
     }
 
     // ========================================================================
@@ -1513,7 +1634,6 @@ mod tests {
         let mut levels = HashMap::new();
         levels.insert("y".to_string(), 1u8);
 
-        // No domains set, but level_domains is empty HashMap
         let ctx = FacetCoordinationContext::default()
             .with_nesting_depth(1)
             .with_channel_sharing_levels(levels);
@@ -1529,7 +1649,6 @@ mod tests {
         levels.insert("y".to_string(), 5u8);
 
         // Domain at level 2 (the nesting depth)
-        let mut domains = HashMap::new();
         domains.insert(
             LevelChannelKey::new(2, "y"),
             SerializableDataExtents::interval(0.0, 50.0),
