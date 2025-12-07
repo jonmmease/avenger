@@ -325,7 +325,7 @@ where
         }
         extracted
     };
-    domain_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    domain_vals.sort_by(scalar_total_cmp);
 
     // Check if uniform free scaling is enabled via coordination context
     // If so, we need to use a virtual domain size for band sizing
@@ -895,36 +895,32 @@ where
         .clone();
 
     // For uniform free scaling, filter to only actual data rects (exclude placeholder rects)
-    // When phantoms were prepended (band_align >= 0.5), take the LAST N rects.
-    // When phantoms were appended (band_align < 0.5), take the FIRST N rects.
-    let mut final_rects: Vec<SubplotRect> = if uniform_cell_count.is_some() && all_final_rects_raw.len() > domain_vals.len() {
-        let num_actual = domain_vals.len();
-        let total = all_final_rects_raw.len();
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "  rect selection Pass2: channel={} total={} num_actual={} band_align={:.2} all_rects_y={:?}",
-                DimConfig::channel_name(),
-                total,
-                num_actual,
-                band_align,
-                all_final_rects_raw.iter().map(|r| r.y).collect::<Vec<_>>()
-            );
-        }
-        let result = if band_align >= 0.5 {
-            // Phantoms at start, actual data at end - take last N rects
-            all_final_rects_raw.into_iter().skip(total - num_actual).collect::<Vec<_>>()
+    // Uses PhantomPlacement.extract_actual() to handle prepend/append logic consistently
+    let mut final_rects: Vec<SubplotRect> = if let Some(ref placement) = phantom_placement {
+        if placement.phantom_count > 0 && all_final_rects_raw.len() > domain_vals.len() {
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  rect selection Pass2: channel={} total={} num_actual={} band_align={:.2} prepend={} all_rects_y={:?}",
+                    DimConfig::channel_name(),
+                    all_final_rects_raw.len(),
+                    domain_vals.len(),
+                    band_align,
+                    placement.prepend,
+                    all_final_rects_raw.iter().map(|r| r.y).collect::<Vec<_>>()
+                );
+            }
+            let result = placement.extract_actual(all_final_rects_raw);
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  rect selection Pass2 result: channel={} selected_rects_y={:?}",
+                    DimConfig::channel_name(),
+                    result.iter().map(|r| r.y).collect::<Vec<_>>()
+                );
+            }
+            result
         } else {
-            // Phantoms at end, actual data at start - take first N rects
-            all_final_rects_raw.into_iter().take(num_actual).collect::<Vec<_>>()
-        };
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "  rect selection Pass2 result: channel={} selected_rects_y={:?}",
-                DimConfig::channel_name(),
-                result.iter().map(|r| r.y).collect::<Vec<_>>()
-            );
+            all_final_rects_raw
         }
-        result
     } else {
         all_final_rects_raw
     };
