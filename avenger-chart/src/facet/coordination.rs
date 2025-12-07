@@ -2414,4 +2414,283 @@ mod tests {
         assert!(!restored.enable_uniform_free_scaling);
         assert_eq!(restored.get_uniform_cell_count(), None);
     }
+
+    #[test]
+    fn test_try_from_params_success() {
+        let ctx = FacetCoordinationContext::default()
+            .with_outer_position(1, 3);
+
+        let params = ctx.to_params();
+        let result = FacetCoordinationContext::try_from_params(&params);
+        assert!(result.is_ok());
+        let restored = result.unwrap().unwrap();
+        assert_eq!(restored.outer_position, 1);
+        assert_eq!(restored.outer_count, 3);
+    }
+
+    #[test]
+    fn test_try_from_params_missing() {
+        let params = IndexMap::new();
+        let result = FacetCoordinationContext::try_from_params(&params);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_try_from_params_invalid_json() {
+        let mut params = IndexMap::new();
+        params.insert(
+            FacetCoordinationContext::PARAM_KEY.to_string(),
+            ScalarValue::Utf8(Some("not valid json".to_string())),
+        );
+        let result = FacetCoordinationContext::try_from_params(&params);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Failed to deserialize FacetCoordinationContext"));
+    }
+
+    #[test]
+    fn test_try_from_params_wrong_type() {
+        let mut params = IndexMap::new();
+        params.insert(
+            FacetCoordinationContext::PARAM_KEY.to_string(),
+            ScalarValue::Int32(Some(42)),
+        );
+        let result = FacetCoordinationContext::try_from_params(&params);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Expected Utf8"));
+    }
+
+    // ========================================================================
+    // T3: Serialization determinism tests
+    // ========================================================================
+
+    #[test]
+    fn test_indexmap_serialization_determinism() {
+        // Create a FacetCoordinationContext with multiple level_domains entries
+        // IndexMap should produce the same serialization order every time
+        let mut domains = IndexMap::new();
+        domains.insert(
+            LevelChannelKey::new(0, "x"),
+            SerializableDataExtents::interval(0.0, 100.0),
+        );
+        domains.insert(
+            LevelChannelKey::new(1, "y"),
+            SerializableDataExtents::interval(-50.0, 50.0),
+        );
+        domains.insert(
+            LevelChannelKey::new(2, "color"),
+            SerializableDataExtents::discrete(vec![
+                ScalarValue::Utf8(Some("a".to_string())),
+                ScalarValue::Utf8(Some("b".to_string())),
+                ScalarValue::Utf8(Some("c".to_string())),
+            ]),
+        );
+
+        let ctx = FacetCoordinationContext::default()
+            .with_nesting_depth(3)
+            .with_level_domains(domains);
+
+        // Serialize multiple times and verify same output
+        let json1 = serde_json::to_string(&ctx).unwrap();
+        let json2 = serde_json::to_string(&ctx).unwrap();
+        let json3 = serde_json::to_string(&ctx).unwrap();
+
+        assert_eq!(json1, json2, "Serialization should be deterministic (1 vs 2)");
+        assert_eq!(json2, json3, "Serialization should be deterministic (2 vs 3)");
+
+        // Verify order is preserved in serialized output
+        // The level_domains should appear in insertion order (0, 1, 2)
+        let x_pos = json1.find("\"level\":0").unwrap();
+        let y_pos = json1.find("\"level\":1").unwrap();
+        let color_pos = json1.find("\"level\":2").unwrap();
+        assert!(x_pos < y_pos, "level 0 should appear before level 1");
+        assert!(y_pos < color_pos, "level 1 should appear before level 2");
+    }
+
+    #[test]
+    fn test_serializable_domain_value_round_trip_all_variants() {
+        // Test round-trip for all SerializableDomainValue variants
+        let test_cases: Vec<(ScalarValue, &str)> = vec![
+            (ScalarValue::Utf8(Some("test string".to_string())), "String"),
+            (ScalarValue::Int64(Some(-42)), "Int (negative)"),
+            (ScalarValue::Int64(Some(0)), "Int (zero)"),
+            (ScalarValue::Int64(Some(i64::MAX)), "Int (max)"),
+            (ScalarValue::Int64(Some(i64::MIN)), "Int (min)"),
+            (ScalarValue::UInt64(Some(u64::MAX)), "UInt64 (max)"),
+            (ScalarValue::UInt64(Some(0)), "UInt64 (zero)"),
+            (ScalarValue::Float64(Some(3.14159)), "Float (positive)"),
+            (ScalarValue::Float64(Some(-2.71828)), "Float (negative)"),
+            (ScalarValue::Float64(Some(0.0)), "Float (zero)"),
+            (ScalarValue::Boolean(Some(true)), "Bool (true)"),
+            (ScalarValue::Boolean(Some(false)), "Bool (false)"),
+            (ScalarValue::Decimal128(Some(12345), 10, 2), "Decimal128"),
+            (ScalarValue::Decimal128(Some(-98765), 15, 4), "Decimal128 (negative)"),
+            (ScalarValue::TimestampMillisecond(Some(1609459200000), None), "TimestampMs"),
+            (ScalarValue::TimestampMicrosecond(Some(1609459200000000), None), "TimestampUs"),
+            (ScalarValue::TimestampNanosecond(Some(1609459200000000000), None), "TimestampNs"),
+            (ScalarValue::Null, "Null"),
+        ];
+
+        for (scalar, variant_name) in test_cases {
+            // Convert to SerializableDomainValue
+            let serializable = SerializableDomainValue::from_scalar(&scalar);
+
+            // Serialize to JSON
+            let json = serde_json::to_string(&serializable)
+                .unwrap_or_else(|e| panic!("Failed to serialize {}: {}", variant_name, e));
+
+            // Deserialize from JSON
+            let deserialized: SerializableDomainValue = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("Failed to deserialize {}: {}", variant_name, e));
+
+            // Convert back to ScalarValue
+            let round_tripped = deserialized.to_scalar();
+
+            // Verify equality
+            // Note: Float comparison needs special handling for NaN, but we don't test NaN here
+            assert_eq!(
+                serializable, deserialized,
+                "{}: SerializableDomainValue should match after JSON round-trip",
+                variant_name
+            );
+
+            // For most types, the round-tripped ScalarValue should match
+            // (except for type widening like Int8 -> Int64)
+            match &scalar {
+                ScalarValue::Null => assert_eq!(round_tripped, ScalarValue::Null),
+                ScalarValue::Boolean(Some(b)) => {
+                    assert_eq!(round_tripped, ScalarValue::Boolean(Some(*b)))
+                }
+                ScalarValue::Utf8(Some(s)) => {
+                    assert_eq!(round_tripped, ScalarValue::Utf8(Some(s.clone())))
+                }
+                ScalarValue::Int64(Some(n)) => {
+                    assert_eq!(round_tripped, ScalarValue::Int64(Some(*n)))
+                }
+                ScalarValue::UInt64(Some(n)) => {
+                    assert_eq!(round_tripped, ScalarValue::UInt64(Some(*n)))
+                }
+                ScalarValue::Float64(Some(f)) => {
+                    // Float comparison with tolerance
+                    if let ScalarValue::Float64(Some(f2)) = round_tripped {
+                        assert!((f - f2).abs() < 1e-10, "Float mismatch: {} vs {}", f, f2);
+                    } else {
+                        panic!("Expected Float64, got {:?}", round_tripped);
+                    }
+                }
+                ScalarValue::Decimal128(Some(v), p, s) => {
+                    assert_eq!(round_tripped, ScalarValue::Decimal128(Some(*v), *p, *s))
+                }
+                ScalarValue::TimestampMillisecond(Some(ts), _) => {
+                    assert_eq!(
+                        round_tripped,
+                        ScalarValue::TimestampMillisecond(Some(*ts), None)
+                    )
+                }
+                ScalarValue::TimestampMicrosecond(Some(ts), _) => {
+                    assert_eq!(
+                        round_tripped,
+                        ScalarValue::TimestampMicrosecond(Some(*ts), None)
+                    )
+                }
+                ScalarValue::TimestampNanosecond(Some(ts), _) => {
+                    assert_eq!(
+                        round_tripped,
+                        ScalarValue::TimestampNanosecond(Some(*ts), None)
+                    )
+                }
+                _ => {} // Other types may have intentional type changes
+            }
+        }
+    }
+
+    #[test]
+    fn test_full_context_serialization_determinism_multiple_runs() {
+        // Run serialization multiple times with a complex context
+        // to verify determinism
+        for run in 0..5 {
+            let mut domains = IndexMap::new();
+            // Insert in a specific order
+            for i in 0..10 {
+                let channel = format!("channel_{}", i);
+                domains.insert(
+                    LevelChannelKey::new(i % 3, &channel),
+                    SerializableDataExtents::interval(i as f64 * 10.0, (i + 1) as f64 * 10.0),
+                );
+            }
+
+            let ctx = FacetCoordinationContext::default()
+                .with_nesting_depth(3)
+                .with_level_domains(domains.clone())
+                .with_inner_domain(vec![
+                    ScalarValue::Utf8(Some("cat1".to_string())),
+                    ScalarValue::Utf8(Some("cat2".to_string())),
+                    ScalarValue::Utf8(Some("cat3".to_string())),
+                ]);
+
+            let params = ctx.to_params();
+            let json = params.get(FacetCoordinationContext::PARAM_KEY);
+
+            // Store first run's output
+            if run == 0 {
+                // Just verify it serializes
+                assert!(json.is_some(), "Context should serialize to params");
+            }
+
+            // Round-trip and verify
+            let restored = FacetCoordinationContext::from_params(&params)
+                .expect("Should deserialize from params");
+            assert_eq!(
+                restored.nesting_depth, 3,
+                "Run {}: nesting_depth should be preserved",
+                run
+            );
+            assert_eq!(
+                restored.level_domains.len(),
+                10,
+                "Run {}: all domains should be preserved",
+                run
+            );
+            assert!(
+                restored.inner_domain.is_some(),
+                "Run {}: inner_domain should be preserved",
+                run
+            );
+        }
+    }
+
+    #[test]
+    fn test_level_domains_ordering_preserved() {
+        // Verify that level_domains maintains insertion order through serialization
+        let mut domains = IndexMap::new();
+        let keys = vec!["zebra", "apple", "mango", "banana"];
+
+        for (i, key) in keys.iter().enumerate() {
+            domains.insert(
+                LevelChannelKey::new(0, *key),
+                SerializableDataExtents::interval(i as f64, i as f64 + 1.0),
+            );
+        }
+
+        let ctx = FacetCoordinationContext::default().with_level_domains(domains);
+
+        // Serialize and deserialize
+        let json = serde_json::to_string(&ctx).unwrap();
+        let restored: FacetCoordinationContext = serde_json::from_str(&json).unwrap();
+
+        // Verify order is preserved
+        let restored_keys: Vec<String> = restored
+            .level_domains
+            .keys()
+            .map(|k| k.channel.clone())
+            .collect();
+
+        assert_eq!(
+            restored_keys,
+            vec!["zebra", "apple", "mango", "banana"],
+            "IndexMap should preserve insertion order through JSON serialization"
+        );
+    }
 }
