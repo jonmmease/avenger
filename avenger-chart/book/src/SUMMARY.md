@@ -13,6 +13,11 @@
   - [Cartesian](./docs/coordinate-systems/cartesian.md)
   - [Polar](./docs/coordinate-systems/polar.md)
   - [Zero-Dimensional](./docs/coordinate-systems/zero-dimensional.md)
+  - [Faceting](./docs/coordinate-systems/faceting/index.md)
+    - [Getting Started](./docs/coordinate-systems/faceting/getting-started.md)
+    - [Scale Sharing](./docs/coordinate-systems/faceting/scale-sharing.md)
+    - [Customization](./docs/coordinate-systems/faceting/customization.md)
+    - [Nested Facets](./docs/coordinate-systems/faceting/nested-facets.md)
 
 - [Marks](./docs/marks/index.md)
   - [Symbol](./docs/marks/symbol.md)
