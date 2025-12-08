@@ -1,3 +1,7 @@
+> **Note**: This is an internal architecture document created during development.
+> For user-facing facet documentation, see [avenger-chart/book](../avenger-chart/book/).
+> For current architecture reference, see [docs/architecture/facet-system](../avenger-chart/docs/architecture/facet-system/).
+
 # Quick Reference: Measurement and Coordination Architecture
 
 ## File Locations
