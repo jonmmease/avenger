@@ -1,6 +1,14 @@
 # Faceting System
 
-> **Status**: Planned feature, not yet implemented
+> **Status**: Partially Implemented
+> - ✅ **FacetRow** - [Documentation](../book/src/docs/coordinate-systems/faceting/)
+> - ✅ **FacetColumn** - [Documentation](../book/src/docs/coordinate-systems/faceting/)
+> - ⏳ FacetWrap - Planned
+> - ⏳ FacetGrid - Planned
+> - ⏳ Manual Facet - Planned
+>
+> This document describes the original design specification. For implemented
+> features, see the [Faceting Documentation](../book/src/docs/coordinate-systems/faceting/index.md).
 >
 > **Note**: Code examples assume `use datafusion::prelude::*;` and relevant aggregate function imports like `use datafusion::functions_aggregate::first::first;`.
 
@@ -12,27 +20,19 @@ This is distinct from the [Repeat System](repeat.md) which iterates over variabl
 
 ## Prerequisites
 
-### Required Infrastructure
+### Implemented Infrastructure
 
-Before faceting can be implemented, the following components must be in place:
+These components have been implemented to support FacetRow and FacetColumn:
 
-1. **Arc Mark for Polar** (`avenger-chart/src/polar/marks/arc.rs`)
-   - Required for pie chart examples in this document
-   - Should support `r`, `theta`, `start_angle`, `end_angle` channels
-   - Currently only Symbol mark exists for Polar coordinates
+✓ **Layout System Enhancement** (`avenger-chart/src/layout/`)
+  - Multi-subplot support with independent plot regions
+  - Handles N subplots with shared or independent axes
+  - Two-pass measurement and coordination system
 
-2. **Layout System Enhancement** (`avenger-chart/src/layout/`)
-   - Current `ChartLayout` supports single plot area
-   - Needs multi-subplot support with independent plot regions
-   - Must handle N subplots with shared or independent axes
-
-3. **Scale Domain Resolution**
-   - Cross-facet domain calculation for shared scales
-   - Pre-compilation domain analysis
-
-### Existing Foundation
-
-These components already exist and support faceting:
+✓ **Scale Domain Resolution**
+  - Cross-facet domain calculation for shared scales
+  - ScaleSharing::Free, Shared, and Level(n) modes implemented
+  - Pre-compilation domain analysis
 
 ✓ **FacetStrategy enum** (`avenger-chart/src/marks/facet_strategy.rs`)
   - Filter, Broadcast, Skip variants implemented
@@ -43,6 +43,15 @@ These components already exist and support faceting:
 ✓ **Coordinate system abstractions** - Cartesian, Polar, ZeroD
 
 ✓ **Aggregation system** - Plot::compile() already handles aggregate expressions
+
+### Required for Future Features
+
+Before additional faceting features (FacetWrap, FacetGrid, Manual Facet) can be implemented:
+
+1. **Arc Mark for Polar** (`avenger-chart/src/polar/marks/arc.rs`)
+   - Required for pie chart examples in this document
+   - Should support `r`, `theta`, `start_angle`, `end_angle` channels
+   - Currently only Symbol mark exists for Polar coordinates
 
 ---
 
