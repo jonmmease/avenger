@@ -173,25 +173,6 @@ impl FacetRowVisibility {
             nested_in_col_facet,
         }
     }
-
-    /// Compute adjusted subplot overflow based on edge position and scale sharing.
-    ///
-    /// Previously, this function suppressed overflow for non-edge columns when y-axis
-    /// was shared, returning 0.0. However, FacetContext now correctly propagates
-    /// position information, so subplots in non-edge columns already measure smaller
-    /// overflow (tick marks only, no y-axis labels). The measured values are correct
-    /// and should be returned directly for proper gap computation.
-    ///
-    /// Returns (adjusted_max_left, adjusted_max_right) - now always returns the
-    /// measured values since FacetContext handles visibility correctly.
-    pub fn adjusted_subplot_overflow(&self, max_left: f32, max_right: f32) -> (f32, f32) {
-        // FacetContext now correctly propagates position to subplots, so they
-        // already produce correct overflow values:
-        // - Edge columns: include y-axis label space
-        // - Interior columns: include only tick overflow
-        // Simply return the measured values for proper gap computation.
-        (max_left, max_right)
-    }
 }
 
 /// Visibility decisions for FacetColGuide elements.
@@ -400,25 +381,6 @@ impl FacetColVisibility {
             nested_in_row_facet,
         }
     }
-
-    /// Compute adjusted subplot overflow based on edge position and scale sharing.
-    ///
-    /// Previously, this function suppressed overflow for non-edge rows when x-axis
-    /// was shared, returning 0.0. However, FacetContext now correctly propagates
-    /// position information, so subplots in non-edge rows already measure smaller
-    /// overflow (tick marks only, no x-axis labels). The measured values are correct
-    /// and should be returned directly for proper gap computation.
-    ///
-    /// Returns (adjusted_max_top, adjusted_max_bottom) - now always returns the
-    /// measured values since FacetContext handles visibility correctly.
-    pub fn adjusted_subplot_overflow(&self, max_top: f32, max_bottom: f32) -> (f32, f32) {
-        // FacetContext now correctly propagates position to subplots, so they
-        // already produce correct overflow values:
-        // - Edge rows: include x-axis label space
-        // - Interior rows: include only tick overflow
-        // Simply return the measured values for proper gap computation.
-        (max_top, max_bottom)
-    }
 }
 
 #[cfg(test)]
@@ -476,51 +438,6 @@ mod tests {
 
         let vis = FacetRowVisibility::resolve(&input_left, None);
         assert!(!vis.axis_on_right);
-    }
-
-    #[test]
-    fn test_adjusted_overflow_left_edge() {
-        let vis = FacetRowVisibility {
-            axis_on_right: false,
-            is_left_edge: true,
-            is_right_edge: false,
-            y_is_shared_across_cols: true,
-            render_facet_title: true,
-            render_facet_labels: false,
-            facet_labels_on_left: false,
-            render_unified_y_title: false,
-            parent_unified_y: false,
-            nested_in_col_facet: true,
-        };
-
-        let (left, right) = vis.adjusted_subplot_overflow(50.0, 10.0);
-        // Left edge keeps left overflow (for y-axis)
-        assert_eq!(left, 50.0);
-        // Axis on left (not right), not right edge, y shared → still kept because axis_on_right=false
-        assert_eq!(right, 10.0);
-    }
-
-    #[test]
-    fn test_adjusted_overflow_middle_column() {
-        let vis = FacetRowVisibility {
-            axis_on_right: false,
-            is_left_edge: false,
-            is_right_edge: false,
-            y_is_shared_across_cols: true,
-            render_facet_title: false,
-            render_facet_labels: false,
-            facet_labels_on_left: false,
-            render_unified_y_title: false,
-            parent_unified_y: false,
-            nested_in_col_facet: true,
-        };
-
-        let (left, right) = vis.adjusted_subplot_overflow(50.0, 10.0);
-        // Now that FacetContext correctly propagates position info, subplots
-        // already measure correct overflow (smaller for non-edge columns).
-        // adjusted_subplot_overflow simply returns the measured values.
-        assert_eq!(left, 50.0);
-        assert_eq!(right, 10.0);
     }
 
     #[test]
@@ -607,57 +524,6 @@ mod tests {
         let vis = FacetColVisibility::resolve(&input_bottom, None);
         assert!(!vis.x_axis_at_top);
         assert!(!vis.place_below); // Labels above when x-axis at bottom
-    }
-
-    #[test]
-    fn test_col_adjusted_overflow_top_edge() {
-        let vis = FacetColVisibility {
-            place_below: false, // labels above
-            x_axis_at_top: false,
-            y_axis_on_right: false,
-            is_top_edge: true,
-            is_bottom_edge: false,
-            x_is_shared_across_rows: true,
-            render_facet_title: true,
-            render_facet_labels: true,
-            render_unified_x_title: false,
-            render_unified_y_title: false,
-            parent_unified_x: false,
-            parent_unified_y: false,
-            nested_in_row_facet: true,
-        };
-
-        let (top, bottom) = vis.adjusted_subplot_overflow(10.0, 50.0);
-        // Top edge keeps top overflow
-        assert_eq!(top, 10.0);
-        // Axis at bottom (not top), not bottom edge, x shared → keep bottom because axis_at_top=false
-        assert_eq!(bottom, 50.0);
-    }
-
-    #[test]
-    fn test_col_adjusted_overflow_middle_row() {
-        let vis = FacetColVisibility {
-            place_below: false,
-            x_axis_at_top: false,
-            y_axis_on_right: false,
-            is_top_edge: false,
-            is_bottom_edge: false,
-            x_is_shared_across_rows: true,
-            render_facet_title: false,
-            render_facet_labels: false,
-            render_unified_x_title: false,
-            render_unified_y_title: false,
-            parent_unified_x: false,
-            parent_unified_y: false,
-            nested_in_row_facet: true,
-        };
-
-        let (top, bottom) = vis.adjusted_subplot_overflow(10.0, 50.0);
-        // Now that FacetContext correctly propagates position info, subplots
-        // already measure correct overflow (smaller for non-edge rows).
-        // adjusted_subplot_overflow simply returns the measured values.
-        assert_eq!(top, 10.0);
-        assert_eq!(bottom, 50.0);
     }
 
     #[test]

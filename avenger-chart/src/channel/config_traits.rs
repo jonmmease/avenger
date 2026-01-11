@@ -202,6 +202,16 @@ impl ScaleSharing {
         }
     }
 
+    /// Check if this is free (independent per facet cell)
+    ///
+    /// Returns true for Free and Level(0)
+    pub fn is_free(self) -> bool {
+        self.to_level() == 0
+    }
+}
+
+#[cfg(test)]
+impl ScaleSharing {
     /// Check if this sharing mode shares with the parent facet
     ///
     /// Returns true for Level(1+), Shared
@@ -215,13 +225,6 @@ impl ScaleSharing {
     /// Returns true for Shared and Level(u8::MAX)
     pub fn is_fully_shared(self) -> bool {
         matches!(self, ScaleSharing::Shared | ScaleSharing::Level(u8::MAX))
-    }
-
-    /// Check if this is free (independent per facet cell)
-    ///
-    /// Returns true for Free and Level(0)
-    pub fn is_free(self) -> bool {
-        self.to_level() == 0
     }
 }
 

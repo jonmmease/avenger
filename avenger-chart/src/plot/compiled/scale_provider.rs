@@ -80,39 +80,3 @@ impl ScaleProvider for PrebuiltScaleProvider {
     }
 }
 
-/// Facet scale provider that coordinates scales across subplot cells.
-///
-/// This provider uses a `ScaleGrouping` to build scales that respect the
-/// sharing modes (Shared, Free, SharedInRow, SharedInColumn) configured for
-/// each channel. The subplot position (row_idx, col_idx) determines which
-/// scale group is used for each channel.
-#[allow(dead_code)] // Used in Phase 6-7 when migrating grid facet rendering
-pub struct FacetScaleProvider<'a> {
-    pub grouping: &'a crate::facet::scale_grouping::ScaleGrouping,
-    pub plot: &'a CompiledPlot,
-    pub row_idx: usize,
-    pub col_idx: usize,
-}
-
-#[async_trait]
-impl<'a> ScaleProvider for FacetScaleProvider<'a> {
-    async fn build_scales(
-        &self,
-        plot_area_width: f32,
-        plot_area_height: f32,
-        ctx: &SessionContext,
-        params: &IndexMap<String, ScalarValue>,
-    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
-        self.grouping
-            .build_scales_for_position(
-                self.plot,
-                self.row_idx,
-                self.col_idx,
-                plot_area_width,
-                plot_area_height,
-                ctx,
-                params,
-            )
-            .await
-    }
-}

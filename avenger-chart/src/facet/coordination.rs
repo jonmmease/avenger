@@ -553,34 +553,6 @@ pub struct FacetCoordinationContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_data_extents: Option<HashMap<String, SerializableDataExtents>>,
 
-    /// Pre-computed data extents for SharedInRow scale channels, keyed by row value
-    ///
-    /// For nested facets with SharedInRow mode, the outer facet computes extents
-    /// per inner facet row value. This enables cells in the same row to share
-    /// scale domains while allowing different rows to have different domains.
-    ///
-    /// Outer key: serialized row value (JSON string)
-    /// Inner key: channel name (e.g., "x", "y")
-    /// Inner value: data extents for that row/channel combination
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shared_data_extents_by_row:
-        Option<HashMap<String, HashMap<String, SerializableDataExtents>>>,
-
-    /// Pre-computed data extents for SharedInColumn scale channels
-    ///
-    /// For nested facets with SharedInColumn mode, the outer facet computes extents
-    /// per column (from the outer facet's filtered data). This enables cells in the
-    /// same column to share scale domains while allowing different columns to have
-    /// different domains.
-    ///
-    /// Unlike `shared_data_extents_by_row`, these extents are passed directly to
-    /// each inner facet subplot since the outer facet already filters by column value.
-    /// Each column's coordination context contains only that column's extents.
-    ///
-    /// Key: channel name (e.g., "x", "y")
-    /// Value: data extents for this column/channel combination
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shared_data_extents_for_column: Option<HashMap<String, SerializableDataExtents>>,
 
     /// Per-channel scale sharing modes for x/y axes (computed from channel configs)
     ///
@@ -754,8 +726,6 @@ impl Default for FacetCoordinationContext {
             enable_empty_cell_fallback: false,
             inner_domain_count: 0,
             shared_data_extents: None,
-            shared_data_extents_by_row: None,
-            shared_data_extents_for_column: None,
             axis_scale_sharing: None,
             // Level-based scale sharing fields
             nesting_depth: 0,
@@ -808,8 +778,6 @@ impl FacetCoordinationContext {
             enable_empty_cell_fallback: false,
             inner_domain_count,
             shared_data_extents: None,
-            shared_data_extents_by_row: None,
-            shared_data_extents_for_column: None,
             axis_scale_sharing: None,
             // Level-based scale sharing fields
             nesting_depth: 0,
@@ -975,58 +943,7 @@ impl FacetCoordinationContext {
             .and_then(|extents| extents.get(channel))
     }
 
-    /// Builder: Set shared data extents by row for SharedInRow mode
-    ///
-    /// For channels with SharedInRow mode, this provides per-row extents.
-    /// The outer key is a JSON-serialized row value.
-    pub fn with_shared_data_extents_by_row(
-        mut self,
-        extents: HashMap<String, HashMap<String, SerializableDataExtents>>,
-    ) -> Self {
-        self.shared_data_extents_by_row = Some(extents);
-        self
-    }
 
-    /// Get shared data extents for a channel at a specific row value
-    ///
-    /// Used by inner facets with SharedInRow mode to look up extents
-    /// based on the current row value.
-    pub fn get_shared_data_extents_for_row(
-        &self,
-        row_key: &str,
-        channel: &str,
-    ) -> Option<&SerializableDataExtents> {
-        self.shared_data_extents_by_row
-            .as_ref()
-            .and_then(|by_row| by_row.get(row_key))
-            .and_then(|extents| extents.get(channel))
-    }
-
-    /// Builder: Set shared data extents for column (SharedInColumn mode)
-    ///
-    /// For channels with SharedInColumn mode, the outer facet computes extents
-    /// for each column from its filtered data and passes them directly to each
-    /// inner facet subplot.
-    pub fn with_shared_data_extents_for_column(
-        mut self,
-        extents: HashMap<String, SerializableDataExtents>,
-    ) -> Self {
-        self.shared_data_extents_for_column = Some(extents);
-        self
-    }
-
-    /// Get shared data extents for a channel in SharedInColumn mode
-    ///
-    /// Used by inner facets with SharedInColumn mode to look up extents
-    /// that were pre-computed by the outer facet for this column.
-    pub fn get_shared_data_extents_for_column(
-        &self,
-        channel: &str,
-    ) -> Option<&SerializableDataExtents> {
-        self.shared_data_extents_for_column
-            .as_ref()
-            .and_then(|extents| extents.get(channel))
-    }
 
     /// Serialize to params map for passing through call stack
     ///
@@ -1111,24 +1028,6 @@ impl FacetCoordinationContext {
         }
     }
 
-    /// Update shared data extents for column in params and return modified params
-    ///
-    /// This is used by the outer facet to add per-column extents for SharedInColumn mode.
-    /// Each column computes its extents from filtered data and passes them to inner facets.
-    /// If no coordination context exists in params, they are returned unchanged.
-    pub fn update_shared_data_extents_for_column_in_params(
-        params: &IndexMap<String, ScalarValue>,
-        extents: HashMap<String, SerializableDataExtents>,
-    ) -> IndexMap<String, ScalarValue> {
-        if let Some(mut ctx) = Self::from_params(params) {
-            ctx.shared_data_extents_for_column = Some(extents);
-            let mut new_params = params.clone();
-            new_params.extend(ctx.to_params());
-            new_params
-        } else {
-            params.clone()
-        }
-    }
 
     /// Get inner domain as ScalarValues
     pub fn get_inner_domain(&self) -> Option<Vec<ScalarValue>> {
@@ -1249,6 +1148,7 @@ impl FacetCoordinationContext {
     ///
     /// # Returns
     /// True if at edge for this level, false otherwise
+    #[cfg(test)]
     pub fn is_at_edge_for_level(&self, level: usize) -> bool {
         if level >= self.position_path.len() || level >= self.level_counts.len() {
             // Level doesn't exist in hierarchy, consider it "at edge" by default

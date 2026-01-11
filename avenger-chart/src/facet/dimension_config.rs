@@ -251,35 +251,3 @@ impl FacetDimensionConfig for ColumnDimensionConfig {
     }
 }
 
-/// Grid faceting dimension configuration
-///
-/// Manages 2D grid faceting with both row and column dimensions.
-/// Not a traditional FacetDimensionConfig since it handles two dimensions simultaneously.
-#[derive(Clone, Debug)]
-pub struct GridDimensionConfig {
-    pub row: RowDimensionConfig,
-    pub col: ColumnDimensionConfig,
-}
-
-impl GridDimensionConfig {
-    /// Create a new grid dimension config
-    pub fn new() -> Self {
-        Self {
-            row: RowDimensionConfig,
-            col: ColumnDimensionConfig,
-        }
-    }
-
-    /// Get the channels unified by grid faceting (both x and y)
-    ///
-    /// Returns a static slice for efficiency - avoids allocation on every call.
-    pub fn unified_channels() -> &'static [&'static str] {
-        &["x", "y"]
-    }
-}
-
-impl Default for GridDimensionConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}

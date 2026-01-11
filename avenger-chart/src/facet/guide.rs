@@ -887,9 +887,10 @@ impl CompiledGuide for FacetRowGuide {
         let is_right_edge = visibility.is_right_edge;
         let parent_unified_y = visibility.parent_unified_y;
 
-        // Adjust max_left/max_right based on edge position AND scale sharing
-        let (adjusted_max_left, adjusted_max_right) =
-            visibility.adjusted_subplot_overflow(max_left, max_right);
+        // FacetContext now correctly propagates position to subplots, so they
+        // already produce correct overflow values. Use measured values directly.
+        let adjusted_max_left = max_left;
+        let adjusted_max_right = max_right;
 
         // Measure unified y title height (rotated width) - but only if parent hasn't unified y
         let unified_y_height = if !parent_unified_y {
