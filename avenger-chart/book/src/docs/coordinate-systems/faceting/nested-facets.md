@@ -442,10 +442,6 @@ For deeper nesting hierarchies, use either:
 - `ScaleSharing::Level(1)` (sharing with immediate parent)
 - `ScaleSharing::Free` (independent per cell)
 
-### FacetGrid Nesting
-
-`FacetGrid` (2D grid in a single mark) cannot currently be nested inside other facets. For grid-like layouts with multiple faceting dimensions, use nested `FacetRow` and `FacetColumn` instead.
-
 ## Summary
 
 Nested facets enable:

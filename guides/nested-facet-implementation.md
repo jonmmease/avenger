@@ -274,8 +274,8 @@ During Phase 1.5, the outer facet aggregates all `spacing_needs` from its subplo
    - Global max overflow is computed for each side with legends
    - Legend margin values are added to `spacing_needs` (e.g., `legend_right`, `legend_bottom`)
 
-2. **GridFacet injection**:
-   - GridFacet reads `spacing_needs` and builds `coordinated_spacing`
+2. **Outer facet coordination**:
+   - Outer facet reads `spacing_needs` and builds `coordinated_spacing`
    - Injects into subplot params via `FacetCoordinationContext`
 
 3. **Plot rendering**:

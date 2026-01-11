@@ -197,8 +197,13 @@ where
 
 
     // ========== LEVEL-BASED DOMAIN EXTRACTION (Level(N) sharing) ==========
-    // For channels with Level(N) sharing where N >= 1, extract domains from level_domains
-    // This enables hierarchical scale sharing in nested facets using the new Level(N) API.
+    // For channels with Level(N) sharing where N >= 1, extract domains from level_domains.
+    // This enables hierarchical scale sharing in nested facets using the Level(N) API.
+    //
+    // SILENT BEHAVIOR: When coordination_context is None (non-nested facet or
+    // coordination disabled), Level(N) modes silently fall back to Free behavior
+    // since there's no parent to share domains with. This ensures graceful
+    // degradation in all contexts without errors.
     let level_based_extents: HashMap<String, crate::facet::coordination::SerializableDataExtents> =
         if let Some(ref ctx) = coordination_context {
             scale_sharing_by_channel
@@ -219,6 +224,7 @@ where
                 })
                 .collect()
         } else {
+            // No coordination context - Level(N) degrades to Free behavior
             HashMap::new()
         };
 
@@ -1771,6 +1777,17 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         .coord_transform
         .required_channels()
         .to_vec();
+
+    // Extract scale sharing modes from subplot marks.
+    //
+    // SILENT BEHAVIOR: When multiple marks specify different sharing modes for the
+    // same channel, the following precedence applies:
+    // 1. ScaleSharing::Shared always wins (once set, cannot be overridden)
+    // 2. First non-Free mode wins over Free
+    // 3. Subsequent non-Shared modes are ignored
+    //
+    // For consistent behavior, use the same scale sharing mode across all marks
+    // in a subplot. Mixed modes may produce unexpected results.
     let mut scale_sharing_by_channel: HashMap<String, ScaleSharing> = HashMap::new();
     for &ch in &required_channels {
         let mut mode = ScaleSharing::Free;

@@ -9,7 +9,6 @@ These files contain cached analysis and architectural knowledge. Read them when 
 | `guides/architecture-patterns.md` | Implementing new features or refactoring existing code |
 | `guides/code-style-conventions.md` | Writing new code to match existing style |
 | `guides/facet-layout-overflow-model.md` | Working on facet layout or overflow handling |
-| `guides/grid-facet-detailed-analysis.md` | Working on grid facet functionality |
 | `guides/nested-facet-implementation.md` | Working on nested facet features |
 | `guides/coordinate-transform-analysis.md` | Working on coordinate transformations |
 | `guides/overflow-measurement-analysis.md` | Debugging overflow or measurement issues |
