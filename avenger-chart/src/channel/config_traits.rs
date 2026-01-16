@@ -143,7 +143,6 @@ pub trait ChannelConfig: Sized {
     fn free_scale(self) -> Self {
         self.with_scale_sharing(ScaleSharing::Free)
     }
-
 }
 
 /// Facet scale sharing modes for a channel

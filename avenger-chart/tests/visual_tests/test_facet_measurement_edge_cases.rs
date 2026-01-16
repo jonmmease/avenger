@@ -96,17 +96,9 @@ fn many_category_dataset(ctx: &SessionContext, num_categories: usize) -> DataFra
 
 /// Create dataset with extreme numeric values for edge case testing
 fn extreme_values_dataset(ctx: &SessionContext) -> DataFrame {
-    let categories = StringArray::from(vec![
-        "Normal", "Normal", "Large", "Large", "Small", "Small",
-    ]);
-    let x_vals = Float64Array::from(vec![
-        1.0,
-        2.0,
-        1000000.0,
-        2000000.0,
-        0.000001,
-        0.000002,
-    ]);
+    let categories =
+        StringArray::from(vec!["Normal", "Normal", "Large", "Large", "Small", "Small"]);
+    let x_vals = Float64Array::from(vec![1.0, 2.0, 1000000.0, 2000000.0, 0.000001, 0.000002]);
     let y_vals = Float64Array::from(vec![1.0, 2.0, 1e6, 2e6, 1e-6, 2e-6]);
 
     let schema = Arc::new(Schema::new(vec![
@@ -404,12 +396,5 @@ async fn facet_row_single_cell_free() {
         .canvas_size(400.0, 300.0);
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    assert_visual_match_default(
-        &compiled,
-        &ctx,
-        None,
-        "facet",
-        "facet_row_single_cell_free",
-    )
-    .await;
+    assert_visual_match_default(&compiled, &ctx, None, "facet", "facet_row_single_cell_free").await;
 }

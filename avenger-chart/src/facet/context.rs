@@ -129,14 +129,18 @@ impl FacetContext {
             None => Ok(None),
             Some(ScalarValue::Utf8(None)) => Ok(None),
             Some(ScalarValue::Utf8(Some(json))) => {
-                serde_json::from_str(json)
-                    .map(Some)
-                    .map_err(|e| crate::error::AvengerChartError::DeserializationError(
-                        format!("Failed to deserialize FacetContext: {}", e)
+                serde_json::from_str(json).map(Some).map_err(|e| {
+                    crate::error::AvengerChartError::DeserializationError(format!(
+                        "Failed to deserialize FacetContext: {}",
+                        e
                     ))
+                })
             }
             Some(other) => Err(crate::error::AvengerChartError::DeserializationError(
-                format!("Expected Utf8 for FacetContext, got {:?}", other.data_type())
+                format!(
+                    "Expected Utf8 for FacetContext, got {:?}",
+                    other.data_type()
+                ),
             )),
         }
     }
@@ -753,7 +757,10 @@ mod tests {
         let result = FacetContext::try_from_params(&params);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("Failed to deserialize FacetContext"));
+        assert!(
+            err.to_string()
+                .contains("Failed to deserialize FacetContext")
+        );
     }
 
     #[test]

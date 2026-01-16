@@ -85,8 +85,12 @@ pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
     ///
     /// Row: (plot_height - total_gap) / num_cells
     /// Column: (plot_width - total_gap) / num_cells
-    fn compute_band_size(plot_width: f32, plot_height: f32, num_cells: usize, total_gap: f32)
-        -> f32;
+    fn compute_band_size(
+        plot_width: f32,
+        plot_height: f32,
+        num_cells: usize,
+        total_gap: f32,
+    ) -> f32;
 
     /// Build FacetContext position from cell index and parent position
     ///
@@ -99,6 +103,23 @@ pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
     /// Row: (num_cells, parent_num_cols)
     /// Column: (parent_num_rows, num_cells)
     fn build_grid_dimensions(num_cells: usize, parent_other: usize) -> (usize, usize);
+
+    /// Aggregate overflow edges from computed per-cell values
+    ///
+    /// This implements dimension-specific overflow aggregation:
+    /// - Row facets: left from first, right from last, top/bottom max across all
+    /// - Column facets: left from first, right/top/bottom max across all
+    ///
+    /// Returns (top, bottom, left, right) tuple.
+    fn aggregate_overflow_edges(
+        computed_overflow: &[OverflowSpaceRequirement],
+    ) -> (f32, f32, f32, f32);
+
+    /// The unified axis title channel for this dimension
+    ///
+    /// Row facets unify the y-axis title
+    /// Column facets unify the x-axis title
+    fn unified_title_channel() -> &'static str;
 }
 
 /// Row faceting dimension configuration
@@ -173,6 +194,37 @@ impl FacetDimensionConfig for RowDimensionConfig {
     fn build_grid_dimensions(num_cells: usize, parent_num_cols: usize) -> (usize, usize) {
         // Row: (num_rows, parent_num_cols)
         (num_cells, parent_num_cols)
+    }
+
+    fn aggregate_overflow_edges(
+        computed_overflow: &[OverflowSpaceRequirement],
+    ) -> (f32, f32, f32, f32) {
+        let mut top = 0.0_f32;
+        let mut bottom = 0.0_f32;
+        let mut left = 0.0_f32;
+        let mut right = 0.0_f32;
+
+        // Aggregate top/bottom across all cells
+        for overflow_item in computed_overflow {
+            top = top.max(overflow_item.top);
+            bottom = bottom.max(overflow_item.bottom);
+        }
+
+        // Use first cell's left overflow (topmost row)
+        if let Some(first) = computed_overflow.first() {
+            left = first.left;
+        }
+
+        // Use last cell's right overflow (bottommost row)
+        if let Some(last) = computed_overflow.last() {
+            right = last.right;
+        }
+
+        (top, bottom, left, right)
+    }
+
+    fn unified_title_channel() -> &'static str {
+        "y"
     }
 }
 
@@ -249,5 +301,32 @@ impl FacetDimensionConfig for ColumnDimensionConfig {
         // Column: (parent_num_rows, num_cols)
         (parent_num_rows, num_cells)
     }
-}
 
+    fn aggregate_overflow_edges(
+        computed_overflow: &[OverflowSpaceRequirement],
+    ) -> (f32, f32, f32, f32) {
+        let mut top = 0.0_f32;
+        let mut bottom = 0.0_f32;
+        let mut left = 0.0_f32;
+        let mut right = 0.0_f32;
+
+        // Use first cell's left overflow (leftmost column)
+        if let Some(first) = computed_overflow.first() {
+            left = first.left;
+        }
+
+        // Aggregate right/top/bottom across all cells
+        // (each column may have its own legend extending to the right)
+        for overflow_item in computed_overflow {
+            right = right.max(overflow_item.right);
+            top = top.max(overflow_item.top);
+            bottom = bottom.max(overflow_item.bottom);
+        }
+
+        (top, bottom, left, right)
+    }
+
+    fn unified_title_channel() -> &'static str {
+        "x"
+    }
+}

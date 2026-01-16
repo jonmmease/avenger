@@ -246,7 +246,11 @@ impl CompiledMark for CompiledFacetRow {
             context,
             // Use dimension config for subplot dimensions
             |band_size: f32, ctx: &RenderContext| {
-                let dims = RowDimensionConfig::subplot_dimensions(band_size, ctx.plot_width, ctx.plot_height);
+                let dims = RowDimensionConfig::subplot_dimensions(
+                    band_size,
+                    ctx.plot_width,
+                    ctx.plot_height,
+                );
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
                         "FacetRow subplot_dims: band_size={:.3} -> dims=({:.3}, {:.3})",
@@ -441,7 +445,11 @@ impl CompiledMark for CompiledFacetCol {
             context,
             // Use dimension config for subplot dimensions
             |band_size: f32, ctx: &RenderContext| {
-                let dims = ColumnDimensionConfig::subplot_dimensions(band_size, ctx.plot_width, ctx.plot_height);
+                let dims = ColumnDimensionConfig::subplot_dimensions(
+                    band_size,
+                    ctx.plot_width,
+                    ctx.plot_height,
+                );
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
                         "FacetCol subplot_dims: band_size={:.3} -> dims=({:.3}, {:.3})",
@@ -546,7 +554,7 @@ pub fn determine_facet_band_align(is_row_facet: bool, compiled_subplot: &Compile
                 AxisPosition::Bottom => 1.0, // Push to bottom, empty space at top
                 AxisPosition::Top => 0.0,    // Push to top, empty space at bottom
                 // Column faceting: y-axis position determines horizontal alignment
-                AxisPosition::Left => 0.0,  // Push to left, empty space at right
+                AxisPosition::Left => 0.0, // Push to left, empty space at right
                 AxisPosition::Right => 1.0, // Push to right, empty space at left
             };
         }
@@ -569,4 +577,3 @@ pub fn determine_facet_band_align(is_row_facet: bool, compiled_subplot: &Compile
     // This is the original hardcoded behavior
     0.0
 }
-

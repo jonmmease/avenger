@@ -1236,7 +1236,8 @@ impl CompiledPlot {
         );
 
         // 2. Determine initial plot area dimensions and compute initial layout
-        let (initial_plot_width, initial_plot_height, initial_layout) = if dimensions_are_plot_area {
+        let (initial_plot_width, initial_plot_height, initial_layout) = if dimensions_are_plot_area
+        {
             // Plot area mode: dimensions specify the plot area size
             let initial_scales = scale_provider
                 .build_scales(width, height, ctx, &merged_params)
@@ -1372,8 +1373,7 @@ impl CompiledPlot {
                 )
                 .await?;
 
-                let all_legends =
-                    self.get_legends_with_theme(&merged_scales, ctx, &merged_params);
+                let all_legends = self.get_legends_with_theme(&merged_scales, ctx, &merged_params);
                 let (_channel_groups, legends_map) = self
                     .merge_legend_channels(&all_legends, &merged_scales, ctx, &merged_params)
                     .await?;

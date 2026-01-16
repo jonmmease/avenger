@@ -23,8 +23,8 @@ use crate::guide::{CompiledGuide, OverflowSpaceRequirement};
 use crate::layout::{LayoutBounds, LayoutResult, LayoutSpec};
 use crate::legend::Legend;
 use crate::marks::CompiledMark;
-use crate::scales::ConfiguredScaleWithSpec;
 use crate::plot::compiled::scales::build_scale_builder_from_marks;
+use crate::scales::ConfiguredScaleWithSpec;
 use crate::serialization::SerializableDataFrame;
 use crate::theme::Theme;
 
@@ -778,11 +778,7 @@ impl PlotMeasurementResult {
             let is_y_scale = name == "y" || name.starts_with("y");
 
             if is_x_scale || is_y_scale {
-                let expected_range = if is_x_scale {
-                    plot_width
-                } else {
-                    plot_height
-                };
+                let expected_range = if is_x_scale { plot_width } else { plot_height };
 
                 // Get the numeric range from the scale
                 if let Ok((range_min, range_max)) = configured.numeric_interval_range() {

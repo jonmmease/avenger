@@ -261,19 +261,17 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
         // Add facet channel scale sharing from coordination context if specified
         if let Some(ref coord_ctx) = coordination_ctx {
             // This enables FacetContext.should_show_facet_labels() to work correctly
-            if coord_ctx.inner_scale_sharing != ScaleSharing::Free {
+            if !coord_ctx.inner_scale_sharing.is_free() {
                 if let Some(ref channel) = coord_ctx.inner_channel {
                     scale_sharing.insert(channel.clone(), coord_ctx.inner_scale_sharing);
                 }
             }
 
-            // Merge axis_scale_sharing for x/y channels from coordination context
+            // Merge channel_sharing_levels for x/y channels from coordination context
             // This ensures FacetContext has the correct per-channel scale sharing modes
             // computed from channel configs, enabling consistent axis visibility decisions.
-            if let Some(ref axis_sharing) = coord_ctx.axis_scale_sharing {
-                for (channel, mode) in axis_sharing {
-                    scale_sharing.insert(channel.clone(), *mode);
-                }
+            for (channel, level) in &coord_ctx.channel_sharing_levels {
+                scale_sharing.insert(channel.clone(), ScaleSharing::from_level(*level));
             }
         }
 

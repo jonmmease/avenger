@@ -32,9 +32,9 @@ use crate::facet::coordination::{
     SHARED_OVERFLOW_TOP,
 };
 use crate::facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig};
+use crate::facet::marks::facet::determine_facet_band_align;
 use crate::facet::phantom_cells::PhantomPlacement;
 use crate::facet::scalar_cmp::scalar_total_cmp;
-use crate::facet::marks::facet::determine_facet_band_align;
 use crate::facet::scale_helpers::build_scales_helper_with_fallback;
 use crate::facet::subplot_iterator::SubplotIteration;
 use crate::marks::CompiledMarkState;
@@ -107,11 +107,79 @@ struct FacetPass1Result {
     /// - "legend_right": Right margin for legend alignment
     /// - "legend_bottom": Bottom margin for legend alignment
     spacing_needs: HashMap<String, f32>,
-    /// Total cell count including phantoms for uniform sizing (used for guide ownership)
+    /// Phantom cell layout for uniform free scaling
+    ///
+    /// Computed in Pass 1 and reused in Pass 2 to avoid duplicating phantom cell
+    /// positioning logic. Contains band alignment, phantom counts, and cell counts.
+    phantom_layout: crate::facet::phantom_cells::PhantomCellLayout,
+}
+
+/// Decision strategy for Phase 1.5 coordination
+///
+/// Phase 1.5 coordinates spacing between nested facets after the initial measurement
+/// pass. The strategy determines whether re-measurement is needed based on the
+/// spacing requirements detected during Pass 1.
+///
+/// # Variants
+///
+/// - `Rerun`: Re-run measure_pass with coordinated spacing (nested facets with cross-dimensional gaps)
+/// - `UpdateContextOnly`: Update coordination context without re-measurement (standalone facets)
+/// - `NoCoordination`: No coordination needed (simple facets)
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CoordinationStrategy {
+    /// Re-run measure_pass with coordinated spacing
+    ///
+    /// Used for nested facets where cross-dimensional gaps need coordination.
+    /// For example, a FacetColumn containing FacetRow needs to coordinate row gaps.
+    Rerun,
+
+    /// Update coordination context only, no re-measurement
+    ///
+    /// Used for standalone facets that have spacing requirements (like legend alignment)
+    /// but don't need to re-measure because there are no inner facets.
+    UpdateContextOnly,
+
+    /// No coordination needed
+    ///
+    /// Used for simple facets with no spacing requirements.
+    NoCoordination,
+}
+
+impl CoordinationStrategy {
+    /// Determine the coordination strategy based on spacing needs
+    ///
+    /// # Arguments
+    /// * `spacing_needs` - Named spacing requirements from Pass 1
+    ///
+    /// # Type Parameters
+    /// * `DimConfig` - Facet dimension configuration (Row or Column)
+    ///
+    /// # Returns
+    /// The appropriate coordination strategy
+    fn determine<DimConfig: FacetDimensionConfig>(spacing_needs: &HashMap<String, f32>) -> Self {
+        // Cross-dimension key depends on facet orientation:
+        // - FacetColumn looks for "inter_row_gap" (from nested FacetRow)
+        // - FacetRow looks for "inter_col_gap" (from nested FacetColumn)
+        let cross_dim_key = if DimConfig::is_col_facet() {
+            "inter_row_gap"
+        } else {
+            "inter_col_gap"
+        };
+
+        if spacing_needs.contains_key(cross_dim_key) {
+            Self::Rerun
+        } else if !spacing_needs.is_empty() {
+            Self::UpdateContextOnly
+        } else {
+            Self::NoCoordination
+        }
+    }
+
+    /// Whether this strategy requires re-running the measurement pass
     #[allow(dead_code)]
-    uniform_cell_count: Option<usize>,
-    /// Number of phantom cells prepended (0 if phantoms appended or no uniform sizing)
-    phantom_offset: usize,
+    fn requires_remeasurement(&self) -> bool {
+        matches!(self, Self::Rerun)
+    }
 }
 
 /// Measure facet layout and overflow (Pass 1) while keeping the outer future small
@@ -194,7 +262,6 @@ where
     let shared_data_extents = coordination_context
         .as_ref()
         .and_then(|ctx| ctx.shared_data_extents.clone());
-
 
     // ========== LEVEL-BASED DOMAIN EXTRACTION (Level(N) sharing) ==========
     // For channels with Level(N) sharing where N >= 1, extract domains from level_domains.
@@ -385,12 +452,16 @@ where
 
     // For uniform free scaling, create a separate scale with padded domain just for position computation
     // This scale is NOT stored - it's only used to compute correct band positions
-    let phantom_placement = uniform_cell_count
-        .map(|uniform_count| PhantomPlacement::compute(band_align, domain_vals.len(), uniform_count));
+    let phantom_placement = uniform_cell_count.map(|uniform_count| {
+        PhantomPlacement::compute(band_align, domain_vals.len(), uniform_count)
+    });
 
     let (all_positions, scale_domain_vals) = if let Some(ref placement) = phantom_placement {
         if placement.phantom_count > 0 {
-            let placeholder_template = domain_vals.first().cloned().unwrap_or(ScalarValue::Utf8(None));
+            let placeholder_template = domain_vals
+                .first()
+                .cloned()
+                .unwrap_or(ScalarValue::Utf8(None));
             let padded = placement.pad_domain(&domain_vals, &placeholder_template);
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -407,8 +478,8 @@ where
             use datafusion::arrow::array::StringArray;
             use std::sync::Arc as StdArc;
             let padded_strings: Vec<String> = padded.iter().map(|v| v.to_string()).collect();
-            let padded_array =
-                StdArc::new(StringArray::from(padded_strings)) as datafusion::arrow::array::ArrayRef;
+            let padded_array = StdArc::new(StringArray::from(padded_strings))
+                as datafusion::arrow::array::ArrayRef;
             let temp_scale = configured.clone().with_domain(padded_array);
 
             // Compute positions for ALL values (including phantoms) so geometry gets correct band count
@@ -425,35 +496,17 @@ where
         (positions, domain_vals.clone())
     };
 
+    use crate::facet::phantom_cells::PhantomCellLayout;
     use crate::facet::subplot_iterator::SubplotIteration;
     use crate::facet::subplot_iterator::SubplotIterator;
 
-    // Compute phantom_prepend_count for coordination context BEFORE SubplotIterator
-    // This enables correct FacetContext.position computation for axis label visibility
-    let phantom_prepend_count = if band_align >= 0.5 {
-        uniform_cell_count
-            .map(|u| u.saturating_sub(domain_vals.len()))
-            .unwrap_or(0)
-    } else {
-        0
-    };
+    // Compute phantom cell layout for uniform free scaling
+    // This centralizes phantom positioning logic for use in both measurement and rendering
+    let phantom_layout =
+        PhantomCellLayout::compute(band_align, domain_vals.len(), uniform_cell_count);
 
     // Update coordination context params with phantom_prepend_count
-    let subplot_params = if phantom_prepend_count > 0 {
-        // Get existing coordination context and update phantom_prepend_count
-        if let Some(mut coord_ctx) =
-            FacetCoordinationContext::from_params(&context.params)
-        {
-            coord_ctx.phantom_prepend_count = phantom_prepend_count;
-            let mut updated_params = context.params.clone();
-            updated_params.extend(coord_ctx.to_params());
-            updated_params
-        } else {
-            context.params.clone()
-        }
-    } else {
-        context.params.clone()
-    };
+    let subplot_params = phantom_layout.update_params_with_phantom_context(&context.params);
 
     let subplot_iter = SubplotIterator::<DimConfig>::new(
         domain_vals.clone(),
@@ -495,19 +548,23 @@ where
     // but we only iterate over actual data values. Filter rects to match iteration count.
     // When phantoms were prepended (band_align >= 0.5), take the LAST N rects.
     // When phantoms were appended (band_align < 0.5), take the FIRST N rects.
-    let initial_rects = if uniform_cell_count.is_some() && all_initial_rects.len() > domain_vals.len() {
-        let num_actual = domain_vals.len();
-        let total = all_initial_rects.len();
-        if band_align >= 0.5 {
-            // Phantoms at start, actual data at end - take last N rects
-            all_initial_rects.into_iter().skip(total - num_actual).collect()
+    let initial_rects =
+        if uniform_cell_count.is_some() && all_initial_rects.len() > domain_vals.len() {
+            let num_actual = domain_vals.len();
+            let total = all_initial_rects.len();
+            if band_align >= 0.5 {
+                // Phantoms at start, actual data at end - take last N rects
+                all_initial_rects
+                    .into_iter()
+                    .skip(total - num_actual)
+                    .collect()
+            } else {
+                // Phantoms at end, actual data at start - take first N rects
+                all_initial_rects.into_iter().take(num_actual).collect()
+            }
         } else {
-            // Phantoms at end, actual data at start - take first N rects
-            all_initial_rects.into_iter().take(num_actual).collect()
-        }
-    } else {
-        all_initial_rects
-    };
+            all_initial_rects
+        };
 
     assert_eq!(
         subplot_iter.len(),
@@ -565,8 +622,8 @@ where
     // so that guide ownership (axis label visibility) is computed correctly.
     // IMPORTANT: Only use uniform_cell_count if it's for THIS facet's dimension.
     // If inner_channel doesn't match our channel, the uniform sizing is for a nested facet.
-    let outer_uniform_cell_count = FacetCoordinationContext::from_params(&context.params)
-        .and_then(|ctx| {
+    let outer_uniform_cell_count =
+        FacetCoordinationContext::from_params(&context.params).and_then(|ctx| {
             // Check if uniform sizing is for this facet's dimension
             if ctx.inner_channel.as_deref() == Some(DimConfig::channel_name()) {
                 ctx.get_uniform_cell_count()
@@ -576,8 +633,8 @@ where
             }
         });
     let outer_count = outer_uniform_cell_count.unwrap_or(work_items.len());
-    // Use phantom_prepend_count computed earlier for position adjustment
-    let phantom_offset = phantom_prepend_count;
+    // Use phantom layout's prepend count for position adjustment
+    let phantom_offset = phantom_layout.prepend_count();
 
     let results: Vec<_> = stream::iter(work_items)
         .map(|(idx, iteration, rect)| {
@@ -643,18 +700,25 @@ where
                 )
                 .await?;
 
-                let (guide_only, total_overflow, legend_positions, spacing_needs) = measure_subplot(
-                    &compiled_subplot,
-                    width,
-                    height,
-                    &ctx,
-                    &params_base,
-                    &scales,
-                    &filter_df,
-                )
-                .await?;
+                let (guide_only, total_overflow, legend_positions, spacing_needs) =
+                    measure_subplot(
+                        &compiled_subplot,
+                        width,
+                        height,
+                        &ctx,
+                        &params_base,
+                        &scales,
+                        &filter_df,
+                    )
+                    .await?;
 
-                Ok::<_, AvengerChartError>((idx, guide_only, total_overflow, legend_positions, spacing_needs))
+                Ok::<_, AvengerChartError>((
+                    idx,
+                    guide_only,
+                    total_overflow,
+                    legend_positions,
+                    spacing_needs,
+                ))
             }
         })
         .buffer_unordered(MAX_CONCURRENT_MEASURE)
@@ -842,32 +906,34 @@ where
     // For uniform free scaling, create a temporary scale with padded domain for position computation
     // This mirrors the approach in Pass 1 - the final_dimension_scale has only actual values,
     // but we need positions computed as if there were uniform_count bands
-    let (final_all_positions, final_scale_domain_vals) = if let Some(uniform_count) = uniform_cell_count {
-        if domain_vals.len() < uniform_count {
-            // Create temporary scale with padded domain for position computation
-            use datafusion::arrow::array::StringArray;
-            use std::sync::Arc as StdArc;
-            let padded_strings: Vec<String> = scale_domain_vals.iter().map(|v| v.to_string()).collect();
-            let padded_array =
-                StdArc::new(StringArray::from(padded_strings)) as datafusion::arrow::array::ArrayRef;
+    let (final_all_positions, final_scale_domain_vals) =
+        if let Some(uniform_count) = uniform_cell_count {
+            if domain_vals.len() < uniform_count {
+                // Create temporary scale with padded domain for position computation
+                use datafusion::arrow::array::StringArray;
+                use std::sync::Arc as StdArc;
+                let padded_strings: Vec<String> =
+                    scale_domain_vals.iter().map(|v| v.to_string()).collect();
+                let padded_array = StdArc::new(StringArray::from(padded_strings))
+                    as datafusion::arrow::array::ArrayRef;
 
-            // Clone the final_configured config and create temp scale with padded domain
-            let mut temp_config = final_configured.config.clone();
-            temp_config.domain = padded_array;
-            let temp_scale = avenger_scales::scales::ConfiguredScale {
-                scale_impl: final_configured.scale_impl.clone(),
-                config: temp_config,
-            };
-            let positions = temp_scale.scale_scalars_to_numeric(&scale_domain_vals)?;
-            (positions, scale_domain_vals.clone())
+                // Clone the final_configured config and create temp scale with padded domain
+                let mut temp_config = final_configured.config.clone();
+                temp_config.domain = padded_array;
+                let temp_scale = avenger_scales::scales::ConfiguredScale {
+                    scale_impl: final_configured.scale_impl.clone(),
+                    config: temp_config,
+                };
+                let positions = temp_scale.scale_scalars_to_numeric(&scale_domain_vals)?;
+                (positions, scale_domain_vals.clone())
+            } else {
+                let positions = final_configured.scale_scalars_to_numeric(&domain_vals)?;
+                (positions, domain_vals.clone())
+            }
         } else {
             let positions = final_configured.scale_scalars_to_numeric(&domain_vals)?;
             (positions, domain_vals.clone())
-        }
-    } else {
-        let positions = final_configured.scale_scalars_to_numeric(&domain_vals)?;
-        (positions, domain_vals.clone())
-    };
+        };
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
@@ -1052,8 +1118,8 @@ where
                     // Extract inter_row_gap from aggregated spacing_needs (computed by inner FacetRowGuide)
                     // This is the correct gap computed using calculate_inter_row_gap which does:
                     // max(bottom[row_i] + top[row_i+1]) + spacing
-                    if let Some(&gap) = aggregated_spacing_needs
-                        .get(crate::guide::spacing_keys::INTER_ROW_GAP)
+                    if let Some(&gap) =
+                        aggregated_spacing_needs.get(crate::guide::spacing_keys::INTER_ROW_GAP)
                     {
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             eprintln!(
@@ -1065,9 +1131,7 @@ where
                     } else {
                         // Fallback: no spacing_needs from inner guide (shouldn't happen for properly nested facets)
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                            eprintln!(
-                                "  No inter_row_gap in aggregated_spacing_needs, using None"
-                            );
+                            eprintln!("  No inter_row_gap in aggregated_spacing_needs, using None");
                         }
                         None
                     }
@@ -1122,8 +1186,8 @@ where
                     // Extract inter_col_gap from aggregated spacing_needs (computed by inner FacetColGuide)
                     // This is the correct gap computed using calculate_inter_col_gap which does:
                     // max(right[col_i] + left[col_i+1]) + spacing
-                    if let Some(&gap) = aggregated_spacing_needs
-                        .get(crate::guide::spacing_keys::INTER_COL_GAP)
+                    if let Some(&gap) =
+                        aggregated_spacing_needs.get(crate::guide::spacing_keys::INTER_COL_GAP)
                     {
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             eprintln!(
@@ -1135,9 +1199,7 @@ where
                     } else {
                         // Fallback: no spacing_needs from inner guide (shouldn't happen for properly nested facets)
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                            eprintln!(
-                                "  No inter_col_gap in aggregated_spacing_needs, using None"
-                            );
+                            eprintln!("  No inter_col_gap in aggregated_spacing_needs, using None");
                         }
                         None
                     }
@@ -1199,14 +1261,20 @@ where
         spacing_needs.insert(SHARED_OVERFLOW_LEFT.to_string(), global_max_overflow.left);
         spacing_needs.insert(SHARED_OVERFLOW_RIGHT.to_string(), global_max_overflow.right);
         spacing_needs.insert(SHARED_OVERFLOW_TOP.to_string(), global_max_overflow.top);
-        spacing_needs.insert(SHARED_OVERFLOW_BOTTOM.to_string(), global_max_overflow.bottom);
+        spacing_needs.insert(
+            SHARED_OVERFLOW_BOTTOM.to_string(),
+            global_max_overflow.bottom,
+        );
     }
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
             "measure_pass returning final_rects: channel={} rects={:?}",
             DimConfig::channel_name(),
-            final_rects.iter().map(|r| (r.x, r.width)).collect::<Vec<_>>()
+            final_rects
+                .iter()
+                .map(|r| (r.x, r.width))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1218,8 +1286,7 @@ where
         fallback_builder,
         shared_data_extents,
         spacing_needs,
-        uniform_cell_count,
-        phantom_offset,
+        phantom_layout,
     })
 }
 
@@ -1247,18 +1314,10 @@ where
     use crate::facet::subplot_iterator::SubplotIterator;
 
     // Update coordination context with phantom_prepend_count from pass1 for render pass
-    let subplot_params_pass2 = if pass1.phantom_offset > 0 {
-        if let Some(mut coord_ctx) = FacetCoordinationContext::from_params(&context.params) {
-            coord_ctx.phantom_prepend_count = pass1.phantom_offset;
-            let mut updated_params = context.params.clone();
-            updated_params.extend(coord_ctx.to_params());
-            updated_params
-        } else {
-            context.params.clone()
-        }
-    } else {
-        context.params.clone()
-    };
+    // Reuse the phantom layout computed in Pass 1 to avoid duplicating logic
+    let subplot_params_pass2 = pass1
+        .phantom_layout
+        .update_params_with_phantom_context(&context.params);
 
     let subplot_iter_pass2 = SubplotIterator::<DimConfig>::new(
         domain_vals_final,
@@ -1312,8 +1371,8 @@ where
     // Use uniform_cell_count if available to include phantom cells in guide ownership calculation
     // IMPORTANT: Only use uniform_cell_count if it's for THIS facet's dimension.
     // If inner_channel doesn't match our channel, the uniform sizing is for a nested facet.
-    let outer_uniform_cell_count = FacetCoordinationContext::from_params(&context.params)
-        .and_then(|ctx| {
+    let outer_uniform_cell_count =
+        FacetCoordinationContext::from_params(&context.params).and_then(|ctx| {
             // Check if uniform sizing is for this facet's dimension
             if ctx.inner_channel.as_deref() == Some(DimConfig::channel_name()) {
                 ctx.get_uniform_cell_count()
@@ -1323,8 +1382,8 @@ where
             }
         });
     let outer_count = outer_uniform_cell_count.unwrap_or(work_items.len());
-    // Phantom offset from pass1 for adjusting subplot positions
-    let phantom_offset = pass1.phantom_offset;
+    // Phantom offset from pass1 for adjusting subplot positions (reuse layout from Pass 1)
+    let phantom_offset = pass1.phantom_layout.prepend_count();
 
     // Clone fallback builder for render pass
     let fallback_builder = pass1.fallback_builder.clone();
@@ -1808,22 +1867,22 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     let mut scale_sharing_by_channel: HashMap<String, ScaleSharing> = scale_sharing_by_channel;
 
-    // Merge axis_scale_sharing from incoming coordination context (from outer facet)
+    // Merge channel_sharing_levels from incoming coordination context (from outer facet)
     // This enables inner facets to know the x/y scale sharing for Cartesian subplot measurement
     if let Some(incoming_coord_ctx) = FacetCoordinationContext::from_params(&context.params) {
-        if let Some(ref axis_sharing) = incoming_coord_ctx.axis_scale_sharing {
-            for (channel, mode) in axis_sharing {
-                // Only add if not already present (don't override explicit channel settings)
-                scale_sharing_by_channel
-                    .entry(channel.clone())
-                    .or_insert(*mode);
-            }
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "  Merged axis_scale_sharing from coordination context: {:?}",
-                    axis_sharing
-                );
-            }
+        for (channel, level) in &incoming_coord_ctx.channel_sharing_levels {
+            // Only add if not already present (don't override explicit channel settings)
+            scale_sharing_by_channel
+                .entry(channel.clone())
+                .or_insert_with(|| ScaleSharing::from_level(*level));
+        }
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok()
+            && !incoming_coord_ctx.channel_sharing_levels.is_empty()
+        {
+            eprintln!(
+                "  Merged channel_sharing_levels from coordination context: {:?}",
+                incoming_coord_ctx.channel_sharing_levels
+            );
         }
     }
 
@@ -1880,114 +1939,108 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     )
     .await?;
 
-    // Phase 1.5: Build coordination context with spacing values for rendering
+    // Phase 1.5: Coordinate spacing across nested facets
     //
-    // Two cases:
-    // 1. Cross-dimension gaps (nested facets): Re-run measure_pass so inner facets can use coordinated gaps
-    //    - FacetColumn with nested FacetRow: spacing_needs contains "inter_row_gap"
-    //    - FacetRow with nested FacetColumn: spacing_needs contains "inter_col_gap"
-    // 2. Only own-dimension spacing_needs (standalone facets): Just pass coordination context to render_pass
-    //
-    // Cross-dimension gap detection: check for gap key that would only exist from 2D overflow analysis
-    let has_cross_dimension_gap = if DimConfig::is_col_facet() {
-        // FacetColumn: check for inter_row_gap (from nested FacetRow)
-        pass1.spacing_needs.contains_key("inter_row_gap")
-    } else {
-        // FacetRow: check for inter_col_gap (from nested FacetColumn)
-        pass1.spacing_needs.contains_key("inter_col_gap")
-    };
-    let has_spacing_needs = !pass1.spacing_needs.is_empty();
+    // The coordination strategy determines whether re-measurement is needed:
+    // - Rerun: Nested facets with cross-dimensional gaps need re-measurement
+    // - UpdateContextOnly: Standalone facets just need context update for legend alignment
+    // - NoCoordination: Simple facets with no spacing requirements
+    let strategy = CoordinationStrategy::determine::<DimConfig>(&pass1.spacing_needs);
 
-    let (final_pass, final_context) = if has_cross_dimension_gap {
-        // Nested facets: need to re-run measure_pass with coordination context
-        let mut coord_ctx = FacetCoordinationContext::from_params(&effective_context.params)
-            .unwrap_or_default();
+    let (final_pass, final_context) = match strategy {
+        CoordinationStrategy::Rerun => {
+            // Nested facets: re-run measure_pass with coordinated spacing
+            let mut coord_ctx = FacetCoordinationContext::from_params(&effective_context.params)
+                .unwrap_or_default();
+            coord_ctx = coord_ctx.with_coordinated_spacing(pass1.spacing_needs.clone());
 
-        // Apply coordinated_spacing from spacing_needs (contains both dimensions' gaps)
-        coord_ctx = coord_ctx.with_coordinated_spacing(pass1.spacing_needs.clone());
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "  Re-running measure_pass with coordinated_spacing={:?}",
-                pass1.spacing_needs
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  Phase 1.5 (Rerun): Re-running measure_pass with coordinated_spacing={:?}",
+                    pass1.spacing_needs
+                );
+            }
+
+            let mut new_params = context.params.clone();
+            new_params.extend(coord_ctx.to_params());
+
+            let updated_ctx = RenderContext::new(
+                context.theme.clone(),
+                context.plot_width,
+                context.plot_height,
+                context.session_context.clone(),
+                new_params,
+                context.scales.clone(),
             );
+
+            // Re-run measure_pass with updated context so inner facets use correct gap
+            // IMPORTANT: Use pass1.final_dimension_scale which has padding_inner_px applied,
+            // so subplot widths will be correct (e.g., 163px instead of 165px with 3px gap)
+            //
+            // Also create an updated facet_coord with padding_px so that compute_band_layout
+            // correctly subtracts the gap from the step size to get the actual bandwidth.
+            let padding_inner_px = pass1
+                .final_dimension_scale
+                .configured()
+                .config
+                .options
+                .get("padding_inner_px")
+                .and_then(|v| v.as_f32().ok())
+                .unwrap_or(0.0);
+            let updated_padding_spec = crate::coords::PaddingSpec::Single {
+                padding_px: padding_inner_px,
+                overflow: pass1.overflow_measurements.clone(),
+            };
+            let updated_facet_coord = facet_coord.with_measured_padding(&updated_padding_spec);
+
+            let pass2 = measure_pass::<DimConfig, _>(
+                updated_facet_coord.as_ref(),
+                compiled_subplot,
+                &pass1.final_dimension_scale,
+                &scale_sharing_by_channel,
+                &df,
+                &facet_expr,
+                facet_spacing,
+                &updated_ctx,
+                &subplot_dims,
+            )
+            .await?;
+
+            (pass2, updated_ctx)
         }
 
-        let mut new_params = context.params.clone();
-        new_params.extend(coord_ctx.to_params());
+        CoordinationStrategy::UpdateContextOnly => {
+            // Standalone facets: update coordination context for legend alignment
+            let mut coord_ctx = FacetCoordinationContext::from_params(&effective_context.params)
+                .unwrap_or_default();
+            coord_ctx = coord_ctx.with_coordinated_spacing(pass1.spacing_needs.clone());
 
-        let updated_ctx = RenderContext::new(
-            context.theme.clone(),
-            context.plot_width,
-            context.plot_height,
-            context.session_context.clone(),
-            new_params,
-            context.scales.clone(),
-        );
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  Phase 1.5 (UpdateContextOnly): coordinated_spacing={:?}",
+                    pass1.spacing_needs
+                );
+            }
 
-        // Re-run measure_pass with updated context so inner facets use correct gap
-        // IMPORTANT: Use pass1.final_dimension_scale which has padding_inner_px applied,
-        // so subplot widths will be correct (e.g., 163px instead of 165px with 3px gap)
-        //
-        // Also create an updated facet_coord with padding_px so that compute_band_layout
-        // correctly subtracts the gap from the step size to get the actual bandwidth.
-        let padding_inner_px = pass1
-            .final_dimension_scale
-            .configured()
-            .config
-            .options
-            .get("padding_inner_px")
-            .and_then(|v| v.as_f32().ok())
-            .unwrap_or(0.0);
-        let updated_padding_spec = crate::coords::PaddingSpec::Single {
-            padding_px: padding_inner_px,
-            overflow: pass1.overflow_measurements.clone(),
-        };
-        let updated_facet_coord = facet_coord.with_measured_padding(&updated_padding_spec);
+            let mut new_params = context.params.clone();
+            new_params.extend(coord_ctx.to_params());
 
-        let pass2 = measure_pass::<DimConfig, _>(
-            updated_facet_coord.as_ref(),
-            compiled_subplot,
-            &pass1.final_dimension_scale,
-            &scale_sharing_by_channel,
-            &df,
-            &facet_expr,
-            facet_spacing,
-            &updated_ctx,
-            &subplot_dims,
-        )
-        .await?;
-
-        (pass2, updated_ctx)
-    } else if has_spacing_needs {
-        // Standalone facets: just pass coordination context for legend alignment in render_pass
-        // No need to re-run measure_pass since there are no inner facets
-        let mut coord_ctx = FacetCoordinationContext::from_params(&effective_context.params)
-            .unwrap_or_default();
-
-        coord_ctx = coord_ctx.with_coordinated_spacing(pass1.spacing_needs.clone());
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "  Applying coordinated_spacing={:?} to coordination context (no re-measure)",
-                pass1.spacing_needs
+            let updated_ctx = RenderContext::new(
+                context.theme.clone(),
+                context.plot_width,
+                context.plot_height,
+                context.session_context.clone(),
+                new_params,
+                context.scales.clone(),
             );
+
+            (pass1, updated_ctx)
         }
 
-        let mut new_params = context.params.clone();
-        new_params.extend(coord_ctx.to_params());
-
-        let updated_ctx = RenderContext::new(
-            context.theme.clone(),
-            context.plot_width,
-            context.plot_height,
-            context.session_context.clone(),
-            new_params,
-            context.scales.clone(),
-        );
-
-        // Use pass1 results (no re-measure needed for standalone facets)
-        (pass1, updated_ctx)
-    } else {
-        (pass1, effective_context.clone())
+        CoordinationStrategy::NoCoordination => {
+            // Simple facets: no coordination needed
+            (pass1, effective_context.clone())
+        }
     };
 
     render_pass::<DimConfig, _>(
@@ -2088,16 +2141,8 @@ async fn detect_nested_facet_and_compute_coordination(
     //   - Shared/Level(1+) → should_share_domain = true (share columns across rows)
     //   - Free/Level(0) → should_share_domain = false (each row has own columns)
     //
-    let should_share_domain = match configured_scale_sharing {
-        ScaleSharing::Shared => true,
-        ScaleSharing::Free => false,
-        ScaleSharing::Level(n) => {
-            // Hierarchical level-based sharing
-            // Level(0) = Free: don't share domain
-            // Level(1+) = Share with parent: share domain
-            n > 0
-        }
-    };
+    // Use is_free() helper: Level(0) is semantically equivalent to Free
+    let should_share_domain = !configured_scale_sharing.is_free();
 
     // For guide ownership coordination, we still use Shared mode so axis labels
     // only appear on edges, regardless of domain sharing configuration
@@ -2282,32 +2327,6 @@ async fn detect_nested_facet_and_compute_coordination(
     // This still helps with scale ranges for shared scales
     if !shared_data_extents.is_empty() {
         coord_ctx = coord_ctx.with_shared_data_extents(shared_data_extents);
-    }
-
-    // Collect and add per-channel scale sharing modes for x/y axes
-    // This enables measurement to use the same axis visibility decisions as rendering
-    //
-    // IMPORTANT: The axis_scale_sharing comes from the Cartesian subplot's channel configs,
-    // not from the facet dimension's scale sharing. For example:
-    // - `.x_with(col("sepal_length"), |c| c.with_scale_sharing(ScaleSharing::Shared))`
-    // - `.y_with(col("sepal_width"), |c| c.with_scale_sharing(ScaleSharing::Free))`
-    //
-    // The channel_info collected earlier (lines 1593-1613) contains this information.
-    let axis_scale_sharing: HashMap<String, ScaleSharing> = {
-        let mut sharing = HashMap::new();
-        for (channel_name, _, share_mode) in &channel_info {
-            sharing.insert(channel_name.clone(), *share_mode);
-        }
-        sharing
-    };
-    if !axis_scale_sharing.is_empty() {
-        coord_ctx = coord_ctx.with_axis_scale_sharing(axis_scale_sharing.clone());
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "  Added axis_scale_sharing to coord context: {:?}",
-                coord_ctx.axis_scale_sharing
-            );
-        }
     }
 
     // ========== EXTRACT CHANNEL SHARING LEVELS (Level-based scale sharing) ==========

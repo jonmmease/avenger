@@ -4,7 +4,9 @@ use crate::facet::dimension_config::{
 };
 use crate::facet::phantom_cells::PhantomPlacement;
 use crate::facet::scalar_cmp::scalar_total_cmp;
-use crate::guide::{spacing_keys, CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
+use crate::guide::{
+    CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement, spacing_keys,
+};
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;
 use crate::scales::ConfiguredScaleLegendExt;
@@ -35,74 +37,9 @@ pub fn default_overflow_fallback() -> (f32, f32, f32, f32) {
     DEFAULT_OVERFLOW_FALLBACK
 }
 
-/// Aggregate overflow from computed per-cell values.
-///
-/// This helper computes the aggregate overflow edges from a slice of per-cell overflow values:
-/// - top: maximum across all cells
-/// - bottom: maximum across all cells
-/// - left: from first cell only (leftmost edge)
-/// - right: from last cell only (rightmost edge)
-///
-/// Returns (top, bottom, left, right) tuple.
-pub fn aggregate_overflow_edges(
-    computed_overflow: &[OverflowSpaceRequirement],
-) -> (f32, f32, f32, f32) {
-    let mut top = 0.0_f32;
-    let mut bottom = 0.0_f32;
-    let mut left = 0.0_f32;
-    let mut right = 0.0_f32;
-
-    // Aggregate top/bottom across all cells
-    for overflow_item in computed_overflow {
-        top = top.max(overflow_item.top);
-        bottom = bottom.max(overflow_item.bottom);
-    }
-
-    // Use first cell's left overflow (leftmost edge)
-    if let Some(first) = computed_overflow.first() {
-        left = first.left;
-    }
-
-    // Use last cell's right overflow (rightmost edge)
-    if let Some(last) = computed_overflow.last() {
-        right = last.right;
-    }
-
-    (top, bottom, left, right)
-}
-
-/// Aggregate overflow from computed per-cell values for column facets.
-///
-/// Column facets aggregate differently:
-/// - left: from first cell only (leftmost column edge)
-/// - right: maximum across all cells (each column may have its own legend)
-/// - top: maximum across all cells
-/// - bottom: maximum across all cells
-///
-/// Returns (top, bottom, left, right) tuple.
-pub fn aggregate_overflow_edges_col(
-    computed_overflow: &[OverflowSpaceRequirement],
-) -> (f32, f32, f32, f32) {
-    let mut top = 0.0_f32;
-    let mut bottom = 0.0_f32;
-    let mut left = 0.0_f32;
-    let mut right = 0.0_f32;
-
-    // Use first cell's left overflow (leftmost column edge)
-    if let Some(first) = computed_overflow.first() {
-        left = first.left;
-    }
-
-    // Aggregate right/top/bottom across all cells
-    // (each column may have its own legend extending to the right)
-    for overflow_item in computed_overflow {
-        right = right.max(overflow_item.right);
-        top = top.max(overflow_item.top);
-        bottom = bottom.max(overflow_item.bottom);
-    }
-
-    (top, bottom, left, right)
-}
+// Note: aggregate_overflow_edges logic is now in FacetDimensionConfig::aggregate_overflow_edges
+// trait method, which provides dimension-specific behavior (row vs column).
+// Use RowDimensionConfig::aggregate_overflow_edges or ColumnDimensionConfig::aggregate_overflow_edges
 
 /// Compute scale sharing mode for each channel from marks.
 /// This extracts the sharing configuration from channel definitions.
@@ -312,13 +249,13 @@ impl FacetRowGuide {
                     let coord_ctx = FacetCoordinationContext::from_params(params);
                     let use_full_domain = if let Some(ctx) = coord_ctx.as_ref() {
                         // Use coordination context's inner_scale_sharing
-                        !matches!(ctx.inner_scale_sharing, ScaleSharing::Free)
+                        !ctx.inner_scale_sharing.is_free()
                     } else {
                         // No coordination context - check the facet's scale sharing config
                         // This is stored in the FacetSource (from CompiledFacetRow.facet_scale_sharing)
                         source
                             .facet_scale_sharing
-                            .map(|mode| !matches!(mode, ScaleSharing::Free))
+                            .map(|mode| !mode.is_free())
                             .unwrap_or(false)
                     };
 
@@ -395,10 +332,17 @@ impl FacetRowGuide {
                         .max(1);
                     let inter_gap = coord_ctx
                         .as_ref()
-                        .and_then(|ctx| ctx.get_coordinated_spacing(RowDimensionConfig::inter_gap_key()))
+                        .and_then(|ctx| {
+                            ctx.get_coordinated_spacing(RowDimensionConfig::inter_gap_key())
+                        })
                         .unwrap_or(0.0);
                     let total_gap = inter_gap * (num_rows.saturating_sub(1)) as f32;
-                    let band_height = RowDimensionConfig::compute_band_size(plot_width, plot_height, num_rows, total_gap);
+                    let band_height = RowDimensionConfig::compute_band_size(
+                        plot_width,
+                        plot_height,
+                        num_rows,
+                        total_gap,
+                    );
 
                     // Build scales for subplot measurement using two-step pattern for data override
                     let builder = source
@@ -418,7 +362,8 @@ impl FacetRowGuide {
                         use crate::facet::context::FacetContext;
                         // Get the DataFrame for this cell - either filtered data or empty
                         let cell_df = if *has_data {
-                            df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?
+                            df.clone()
+                                .filter(expr.clone().eq(lit(domain_val.clone())))?
                         } else {
                             // Empty cell: create an empty DataFrame with the same schema
                             df.clone().limit(0, Some(0))?
@@ -449,7 +394,7 @@ impl FacetRowGuide {
                                     (0, 1, std::collections::HashMap::new())
                                 };
 
-                            // Merge axis_scale_sharing from FacetCoordinationContext
+                            // Merge channel_sharing_levels from FacetCoordinationContext
                             // This contains the per-channel scale sharing modes (x, y) computed
                             // from channel configs, ensuring measurement uses same visibility
                             // decisions as rendering.
@@ -466,14 +411,15 @@ impl FacetRowGuide {
                                         coord_ctx.phantom_prepend_count
                                     );
                                 }
-                                if let Some(ref axis_sharing) = coord_ctx.axis_scale_sharing {
-                                    for (channel, mode) in axis_sharing {
-                                        merged_scale_sharing.insert(channel.clone(), *mode);
-                                    }
+                                for (channel, level) in &coord_ctx.channel_sharing_levels {
+                                    merged_scale_sharing
+                                        .insert(channel.clone(), ScaleSharing::from_level(*level));
                                 }
                                 // Use uniform_cell_count (for Free scaling) or inner_domain_count (for Shared) for grid dimensions
                                 // This ensures correct edge detection for axis visibility and uniform band sizing
-                                let grid_rows = if let Some(uniform_count) = coord_ctx.get_uniform_cell_count() {
+                                let grid_rows = if let Some(uniform_count) =
+                                    coord_ctx.get_uniform_cell_count()
+                                {
                                     uniform_count
                                 } else if coord_ctx.inner_domain_count > 0 {
                                     coord_ctx.inner_domain_count
@@ -489,10 +435,15 @@ impl FacetRowGuide {
                                     grid_rows,
                                 );
                                 let computed_phantom_prepend = phantom_placement.prepend_count();
-                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && phantom_placement.phantom_count > 0 {
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok()
+                                    && phantom_placement.phantom_count > 0
+                                {
                                     eprintln!(
                                         "FacetRowGuide: computed phantom_prepend={} (grid_rows={} actual={} band_align={})",
-                                        computed_phantom_prepend, grid_rows, actual_rows, coord_ctx.inner_band_align
+                                        computed_phantom_prepend,
+                                        grid_rows,
+                                        actual_rows,
+                                        coord_ctx.inner_band_align
                                     );
                                 }
                                 (grid_rows, computed_phantom_prepend)
@@ -532,8 +483,9 @@ impl FacetRowGuide {
                         computed_overflow.push(total_overflow);
                     }
 
-                    // Aggregate computed overflow using helper
-                    let (t, b, l, r) = aggregate_overflow_edges(&computed_overflow);
+                    // Aggregate computed overflow using dimension-specific trait method
+                    let (t, b, l, r) =
+                        RowDimensionConfig::aggregate_overflow_edges(&computed_overflow);
                     top = top.max(t);
                     bottom = bottom.max(b);
                     max_left = max_left.max(l);
@@ -579,10 +531,17 @@ impl FacetRowGuide {
                     let num_rows = domain_vals.len().max(1);
                     let inter_gap = coord_ctx
                         .as_ref()
-                        .and_then(|ctx| ctx.get_coordinated_spacing(RowDimensionConfig::inter_gap_key()))
+                        .and_then(|ctx| {
+                            ctx.get_coordinated_spacing(RowDimensionConfig::inter_gap_key())
+                        })
                         .unwrap_or(0.0);
                     let total_gap = inter_gap * (num_rows.saturating_sub(1)) as f32;
-                    let band_height = RowDimensionConfig::compute_band_size(plot_width, plot_height, num_rows, total_gap);
+                    let band_height = RowDimensionConfig::compute_band_size(
+                        plot_width,
+                        plot_height,
+                        num_rows,
+                        total_gap,
+                    );
 
                     // Build scales for subplot measurement using two-step pattern for data override
                     let builder = source
@@ -603,15 +562,13 @@ impl FacetRowGuide {
                     let mut scale_sharing =
                         compute_scale_sharing_for_nested_facet(&source.subplot.marks);
 
-                    // Merge axis_scale_sharing from FacetCoordinationContext
+                    // Merge channel_sharing_levels from FacetCoordinationContext
                     // This contains the per-channel scale sharing modes (x, y) computed
                     // from channel configs, ensuring measurement uses same visibility
                     // decisions as rendering.
                     if let Some(coord_ctx) = FacetCoordinationContext::from_params(params) {
-                        if let Some(ref axis_sharing) = coord_ctx.axis_scale_sharing {
-                            for (channel, mode) in axis_sharing {
-                                scale_sharing.insert(channel.clone(), *mode);
-                            }
+                        for (channel, level) in &coord_ctx.channel_sharing_levels {
+                            scale_sharing.insert(channel.clone(), ScaleSharing::from_level(*level));
                         }
                     }
 
@@ -657,8 +614,9 @@ impl FacetRowGuide {
                         computed_overflow.push(total_overflow);
                     }
 
-                    // Aggregate computed overflow using helper
-                    let (t, b, l, r) = aggregate_overflow_edges(&computed_overflow);
+                    // Aggregate computed overflow using dimension-specific trait method
+                    let (t, b, l, r) =
+                        RowDimensionConfig::aggregate_overflow_edges(&computed_overflow);
                     top = top.max(t);
                     bottom = bottom.max(b);
                     max_left = max_left.max(l);
@@ -1070,9 +1028,7 @@ impl CompiledGuide for FacetRowGuide {
             .get_coordinated_spacing(spacing_keys::INTER_ROW_GAP)
             .is_some()
         {
-            debug!(
-                "FacetRowGuide: Recursion guard - using pre-coordinated inter_row_gap"
-            );
+            debug!("FacetRowGuide: Recursion guard - using pre-coordinated inter_row_gap");
             let overflow = self
                 .measure_overflow(
                     scales,
@@ -1095,9 +1051,7 @@ impl CompiledGuide for FacetRowGuide {
             .get_coordinated_spacing(spacing_keys::NESTED_MEASUREMENT)
             .is_some()
         {
-            debug!(
-                "FacetRowGuide: Nesting guard - NESTED_MEASUREMENT set, using single-pass"
-            );
+            debug!("FacetRowGuide: Nesting guard - NESTED_MEASUREMENT set, using single-pass");
             let overflow = self
                 .measure_overflow(
                     scales,
@@ -1193,7 +1147,9 @@ impl CompiledGuide for FacetRowGuide {
             for (row_idx, domain_val) in domain_vals.iter().enumerate() {
                 use crate::facet::context::FacetContext;
 
-                let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
+                let filter_df = df
+                    .clone()
+                    .filter(expr.clone().eq(lit(domain_val.clone())))?;
 
                 // Create FacetContext for this cell, including NESTED_MEASUREMENT marker
                 // to prevent child facet guides from doing their own 2-pass measurement
@@ -1346,7 +1302,13 @@ impl CompiledGuide for FacetRowGuide {
                 .await?;
             let subplot_scales = source
                 .subplot
-                .build_scales_from_builder(&builder, plot_width, pass2_band_height, ctx, &pass2_params)
+                .build_scales_from_builder(
+                    &builder,
+                    plot_width,
+                    pass2_band_height,
+                    ctx,
+                    &pass2_params,
+                )
                 .await?;
 
             // Convert to ConfiguredScale for measure_with_coordination trait method
@@ -1360,7 +1322,9 @@ impl CompiledGuide for FacetRowGuide {
             for (row_idx, domain_val) in domain_vals.iter().enumerate() {
                 use crate::facet::context::FacetContext;
 
-                let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
+                let filter_df = df
+                    .clone()
+                    .filter(expr.clone().eq(lit(domain_val.clone())))?;
 
                 // Create cell params - pass2_params already includes NESTED_MEASUREMENT from the
                 // coord_ctx propagation, so child facets will skip 2-pass
@@ -1510,8 +1474,8 @@ impl CompiledGuide for FacetRowGuide {
                 }
 
                 // Create temporary scale with padded domain
-                let padded_array =
-                    StdArc::new(StringArray::from(padded_labels)) as datafusion::arrow::array::ArrayRef;
+                let padded_array = StdArc::new(StringArray::from(padded_labels))
+                    as datafusion::arrow::array::ArrayRef;
                 let temp_scale = row_scale.clone().with_domain(padded_array);
 
                 // Get positions from the padded scale
@@ -1519,7 +1483,8 @@ impl CompiledGuide for FacetRowGuide {
                     BandPositionIterator::from_configured_scale(&temp_scale)?.collect();
 
                 // Extract only the positions for actual labels (not placeholders)
-                let phantom_placement = PhantomPlacement::compute(inner_band_align, labels.len(), uniform_count);
+                let phantom_placement =
+                    PhantomPlacement::compute(inner_band_align, labels.len(), uniform_count);
                 phantom_placement.extract_actual(all_positions)
             } else {
                 // No padding needed
@@ -1736,7 +1701,7 @@ impl CompiledGuide for FacetRowGuide {
             FacetDirection::Row => {
                 // This FacetRow already unifies y, return our stored title
                 Some(crate::guide::UnifiableChannelInfo {
-                    channel: "y".to_string(),
+                    channel: RowDimensionConfig::unified_title_channel().to_string(),
                     title: self.unified_y_title.clone(),
                 })
             }
@@ -1771,7 +1736,7 @@ impl CompiledGuide for FacetRowGuide {
 
     fn unifies_channel(&self, channel: &str) -> bool {
         // FacetRowGuide unifies the y-channel (suppresses y-axis titles in subplots)
-        channel == "y"
+        channel == RowDimensionConfig::unified_title_channel()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -1891,13 +1856,13 @@ impl FacetColGuide {
                     let coord_ctx = FacetCoordinationContext::from_params(params);
                     let use_full_domain = if let Some(ctx) = coord_ctx.as_ref() {
                         // Use coordination context's inner_scale_sharing
-                        !matches!(ctx.inner_scale_sharing, ScaleSharing::Free)
+                        !ctx.inner_scale_sharing.is_free()
                     } else {
                         // No coordination context - check the facet's scale sharing config
                         // This is stored in the FacetSource (from CompiledFacetCol.facet_scale_sharing)
                         source
                             .facet_scale_sharing
-                            .map(|mode| !matches!(mode, ScaleSharing::Free))
+                            .map(|mode| !mode.is_free())
                             .unwrap_or(false)
                     };
 
@@ -1945,10 +1910,17 @@ impl FacetColGuide {
                         .max(1);
                     let inter_gap = coord_ctx
                         .as_ref()
-                        .and_then(|ctx| ctx.get_coordinated_spacing(ColumnDimensionConfig::inter_gap_key()))
+                        .and_then(|ctx| {
+                            ctx.get_coordinated_spacing(ColumnDimensionConfig::inter_gap_key())
+                        })
                         .unwrap_or(0.0);
                     let total_gap = inter_gap * (num_cols.saturating_sub(1)) as f32;
-                    let band_width = ColumnDimensionConfig::compute_band_size(plot_width, plot_height, num_cols, total_gap);
+                    let band_width = ColumnDimensionConfig::compute_band_size(
+                        plot_width,
+                        plot_height,
+                        num_cols,
+                        total_gap,
+                    );
 
                     // Build scales for subplot measurement using two-step pattern for data override
                     let builder = source
@@ -1972,7 +1944,8 @@ impl FacetColGuide {
                     for (col_idx, (domain_val, has_data)) in iteration_domain.iter().enumerate() {
                         // Get the DataFrame for this cell - either filtered data or empty
                         let cell_df = if *has_data {
-                            df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?
+                            df.clone()
+                                .filter(expr.clone().eq(lit(domain_val.clone())))?
                         } else {
                             // Empty cell: create an empty DataFrame with the same schema
                             df.clone().limit(0, Some(0))?
@@ -2041,9 +2014,9 @@ impl FacetColGuide {
                         computed_overflow.push(total_overflow);
                     }
 
-                    // Aggregate computed overflow using column-specific helper
-                    // (first column for left, ALL columns for right/top/bottom)
-                    let (t, b, l, r) = aggregate_overflow_edges_col(&computed_overflow);
+                    // Aggregate computed overflow using dimension-specific trait method
+                    let (t, b, l, r) =
+                        ColumnDimensionConfig::aggregate_overflow_edges(&computed_overflow);
                     top_max = top_max.max(t);
                     bottom_max = bottom_max.max(b);
                     left_max = left_max.max(l);
@@ -2089,10 +2062,17 @@ impl FacetColGuide {
                     let num_cols = domain_vals.len().max(1);
                     let inter_gap = coord_ctx
                         .as_ref()
-                        .and_then(|ctx| ctx.get_coordinated_spacing(ColumnDimensionConfig::inter_gap_key()))
+                        .and_then(|ctx| {
+                            ctx.get_coordinated_spacing(ColumnDimensionConfig::inter_gap_key())
+                        })
                         .unwrap_or(0.0);
                     let total_gap = inter_gap * (num_cols.saturating_sub(1)) as f32;
-                    let band_width = ColumnDimensionConfig::compute_band_size(plot_width, plot_height, num_cols, total_gap);
+                    let band_width = ColumnDimensionConfig::compute_band_size(
+                        plot_width,
+                        plot_height,
+                        num_cols,
+                        total_gap,
+                    );
 
                     // Build scales for subplot measurement using two-step pattern for data override
                     let builder = source
@@ -2152,16 +2132,15 @@ impl FacetColGuide {
                                 merged_scale_sharing.insert(k.clone(), *v);
                             }
 
-                            // Merge axis_scale_sharing from FacetCoordinationContext
+                            // Merge channel_sharing_levels from FacetCoordinationContext
                             // This contains the per-channel scale sharing modes (x, y) computed
                             // from channel configs, ensuring measurement uses same visibility
                             // decisions as rendering.
                             use crate::facet::coordination::FacetCoordinationContext;
                             if let Some(coord_ctx) = FacetCoordinationContext::from_params(params) {
-                                if let Some(ref axis_sharing) = coord_ctx.axis_scale_sharing {
-                                    for (channel, mode) in axis_sharing {
-                                        merged_scale_sharing.insert(channel.clone(), *mode);
-                                    }
+                                for (channel, level) in &coord_ctx.channel_sharing_levels {
+                                    merged_scale_sharing
+                                        .insert(channel.clone(), ScaleSharing::from_level(*level));
                                 }
                             }
 
@@ -2196,9 +2175,9 @@ impl FacetColGuide {
                         computed_overflow.push(total_overflow);
                     }
 
-                    // Aggregate computed overflow using column-specific helper
-                    // (first column for left, ALL columns for right/top/bottom)
-                    let (t, b, l, r) = aggregate_overflow_edges_col(&computed_overflow);
+                    // Aggregate computed overflow using dimension-specific trait method
+                    let (t, b, l, r) =
+                        ColumnDimensionConfig::aggregate_overflow_edges(&computed_overflow);
                     top_max = top_max.max(t);
                     bottom_max = bottom_max.max(b);
                     left_max = left_max.max(l);
@@ -2476,9 +2455,9 @@ impl CompiledGuide for FacetColGuide {
         // When title IS present, gap_title already accounts for rule/tick spacing
         // rule_tick_space is only used in the nested case (labels without title)
         let facet_label_space = if self.facet_title.is_some() {
-            max_label_height + gap_title + title_height + 1.0  // Original - gap_title handles spacing
+            max_label_height + gap_title + title_height + 1.0 // Original - gap_title handles spacing
         } else {
-            max_label_height + rule_tick_space + 1.0  // Add rule_tick_space when no title
+            max_label_height + rule_tick_space + 1.0 // Add rule_tick_space when no title
         };
         let gap_axis = if self.unified_x_title.is_some() {
             6.0
@@ -2717,9 +2696,7 @@ impl CompiledGuide for FacetColGuide {
             .get_coordinated_spacing(spacing_keys::INTER_COL_GAP)
             .is_some()
         {
-            debug!(
-                "FacetColGuide: Recursion guard - using pre-coordinated inter_col_gap"
-            );
+            debug!("FacetColGuide: Recursion guard - using pre-coordinated inter_col_gap");
             let overflow = self
                 .measure_overflow(
                     scales,
@@ -2743,9 +2720,7 @@ impl CompiledGuide for FacetColGuide {
             .get_coordinated_spacing(spacing_keys::NESTED_MEASUREMENT)
             .is_some()
         {
-            debug!(
-                "FacetColGuide: Nesting guard - NESTED_MEASUREMENT set, using single-pass"
-            );
+            debug!("FacetColGuide: Nesting guard - NESTED_MEASUREMENT set, using single-pass");
             let overflow = self
                 .measure_overflow(
                     scales,
@@ -2841,7 +2816,9 @@ impl CompiledGuide for FacetColGuide {
             for (col_idx, domain_val) in domain_vals.iter().enumerate() {
                 use crate::facet::context::FacetContext;
 
-                let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
+                let filter_df = df
+                    .clone()
+                    .filter(expr.clone().eq(lit(domain_val.clone())))?;
 
                 // Create FacetContext for this cell with NESTED_MEASUREMENT marker
                 let measure_params = {
@@ -2994,7 +2971,13 @@ impl CompiledGuide for FacetColGuide {
                 .await?;
             let subplot_scales = source
                 .subplot
-                .build_scales_from_builder(&builder, pass2_band_width, plot_height, ctx, &pass2_params)
+                .build_scales_from_builder(
+                    &builder,
+                    pass2_band_width,
+                    plot_height,
+                    ctx,
+                    &pass2_params,
+                )
                 .await?;
 
             // Convert to ConfiguredScale for measure_with_coordination trait method
@@ -3008,7 +2991,9 @@ impl CompiledGuide for FacetColGuide {
             for (col_idx, domain_val) in domain_vals.iter().enumerate() {
                 use crate::facet::context::FacetContext;
 
-                let filter_df = df.clone().filter(expr.clone().eq(lit(domain_val.clone())))?;
+                let filter_df = df
+                    .clone()
+                    .filter(expr.clone().eq(lit(domain_val.clone())))?;
 
                 let measure_params = {
                     let mut updated_params = pass2_params.clone();
@@ -3148,8 +3133,8 @@ impl CompiledGuide for FacetColGuide {
                 }
 
                 // Create temporary scale with padded domain
-                let padded_array =
-                    StdArc::new(StringArray::from(padded_labels)) as datafusion::arrow::array::ArrayRef;
+                let padded_array = StdArc::new(StringArray::from(padded_labels))
+                    as datafusion::arrow::array::ArrayRef;
                 let temp_scale = col_scale.clone().with_domain(padded_array);
 
                 // Get positions from the padded scale (only use first labels.len() positions)
@@ -3311,7 +3296,12 @@ impl CompiledGuide for FacetColGuide {
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
                         "FacetColGuide RENDER unified_x_title='{}' at y={:.3} (plot_y={:.3} plot_height={:.3} subplot_max_bottom={:.3} gap_axis={:.3})",
-                        unified_title, y_unified, plot_bounds.y, plot_height, subplot_max_bottom, gap_axis
+                        unified_title,
+                        y_unified,
+                        plot_bounds.y,
+                        plot_height,
+                        subplot_max_bottom,
+                        gap_axis
                     );
                 }
 
@@ -3426,7 +3416,14 @@ impl CompiledGuide for FacetColGuide {
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
                     "FacetColGuide RENDER unified_y_title='{}' at x={:.3} y={:.3} (y_axis_on_right={} subplot_left={:.3} outer_left={:.3} subplot_right={:.3} outer_right={:.3})",
-                    unified_y_title, x_unified_y, y_center, y_axis_on_right, subplot_left_actual, outer_left, subplot_right_actual, outer_right
+                    unified_y_title,
+                    x_unified_y,
+                    y_center,
+                    y_axis_on_right,
+                    subplot_left_actual,
+                    outer_left,
+                    subplot_right_actual,
+                    outer_right
                 );
             }
 
@@ -3494,7 +3491,7 @@ impl CompiledGuide for FacetColGuide {
             FacetDirection::Column => {
                 // This FacetCol already unifies x, return our stored title
                 Some(crate::guide::UnifiableChannelInfo {
-                    channel: "x".to_string(),
+                    channel: ColumnDimensionConfig::unified_title_channel().to_string(),
                     title: self.unified_x_title.clone(),
                 })
             }
@@ -3517,11 +3514,10 @@ impl CompiledGuide for FacetColGuide {
 
     fn unifies_channel(&self, channel: &str) -> bool {
         // FacetColGuide unifies the x-channel (suppresses x-axis titles in subplots)
-        channel == "x"
+        channel == ColumnDimensionConfig::unified_title_channel()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 }
-

@@ -662,28 +662,25 @@ fn test_nested_free_row_shared_in_row_both() {
         // Outer: FacetRow by species (3 rows)
         // Inner: FacetColumn by petal_width_bin (3 columns per row)
         // Level(1): each row shares scales across columns
-        let outer = Plot::<FacetRow>::new()
-            .data(df)
-            .canvas_size(600, 600)
-            .mark(
-                Facet::new().row(col("species")).subplot(
-                    Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("petal_width_bin")).subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
+        let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<FacetColumn>::new().mark(
+                    Facet::new().column(col("petal_width_bin")).subplot(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Level(1))
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
                         ),
                     ),
                 ),
-            );
+            ),
+        );
 
         let compiled = outer
             .compile(&ctx)
@@ -710,28 +707,25 @@ fn test_nested_free_row_shared_in_row_x() {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
-        let outer = Plot::<FacetRow>::new()
-            .data(df)
-            .canvas_size(600, 600)
-            .mark(
-                Facet::new().row(col("species")).subplot(
-                    Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("petal_width_bin")).subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Free)
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
+        let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<FacetColumn>::new().mark(
+                    Facet::new().column(col("petal_width_bin")).subplot(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Free)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
                         ),
                     ),
                 ),
-            );
+            ),
+        );
 
         let compiled = outer
             .compile(&ctx)
@@ -758,28 +752,25 @@ fn test_nested_free_row_shared_in_row_y() {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
-        let outer = Plot::<FacetRow>::new()
-            .data(df)
-            .canvas_size(600, 600)
-            .mark(
-                Facet::new().row(col("species")).subplot(
-                    Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("petal_width_bin")).subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Free)
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
+        let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<FacetColumn>::new().mark(
+                    Facet::new().column(col("petal_width_bin")).subplot(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Free)
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Level(1))
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
                         ),
                     ),
                 ),
-            );
+            ),
+        );
 
         let compiled = outer
             .compile(&ctx)
@@ -806,28 +797,25 @@ fn test_nested_free_row_mixed_shared_and_shared_in_row() {
         let ctx = SessionContext::new();
         let df = iris_with_binned_petal_width().await;
 
-        let outer = Plot::<FacetRow>::new()
-            .data(df)
-            .canvas_size(600, 600)
-            .mark(
-                Facet::new().row(col("species")).subplot(
-                    Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("petal_width_bin")).subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Shared)
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
+        let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<FacetColumn>::new().mark(
+                    Facet::new().column(col("petal_width_bin")).subplot(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Level(1))
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
                         ),
                     ),
                 ),
-            );
+            ),
+        );
 
         let compiled = outer
             .compile(&ctx)
@@ -1776,28 +1764,25 @@ fn test_nested_level1_x_row_col() {
         let df = iris_with_binned_petal_width().await;
 
         // Note: FacetRow > FacetColumn layout (opposite of most other tests)
-        let outer = Plot::<FacetRow>::new()
-            .data(df)
-            .canvas_size(600, 600)
-            .mark(
-                Facet::new().row(col("petal_width_bin")).subplot(
-                    Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("species")).subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Free)
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
+        let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
+            Facet::new().row(col("petal_width_bin")).subplot(
+                Plot::<FacetColumn>::new().mark(
+                    Facet::new().column(col("species")).subplot(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Free)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
                         ),
                     ),
                 ),
-            );
+            ),
+        );
 
         let compiled = outer
             .compile(&ctx)
@@ -1971,29 +1956,26 @@ fn test_nested_level1_x_bottom_axis() {
         let df = iris_with_binned_petal_width().await;
 
         // Note: FacetRow > FacetColumn layout
-        let outer = Plot::<FacetRow>::new()
-            .data(df)
-            .canvas_size(600, 600)
-            .mark(
-                Facet::new().row(col("petal_width_bin")).subplot(
-                    Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("species")).subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.axis(|a| a.position("bottom"))
-                                            .with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Free)
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
+        let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
+            Facet::new().row(col("petal_width_bin")).subplot(
+                Plot::<FacetColumn>::new().mark(
+                    Facet::new().column(col("species")).subplot(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.axis(|a| a.position("bottom"))
+                                        .with_scale_sharing(ScaleSharing::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Free)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
                         ),
                     ),
                 ),
-            );
+            ),
+        );
 
         let compiled = outer
             .compile(&ctx)
@@ -2020,29 +2002,26 @@ fn test_nested_level1_x_top_axis() {
         let df = iris_with_binned_petal_width().await;
 
         // Note: FacetRow > FacetColumn layout
-        let outer = Plot::<FacetRow>::new()
-            .data(df)
-            .canvas_size(600, 600)
-            .mark(
-                Facet::new().row(col("petal_width_bin")).subplot(
-                    Plot::<FacetColumn>::new().mark(
-                        Facet::new().column(col("species")).subplot(
-                            Plot::<Cartesian>::new().mark(
-                                Symbol::new()
-                                    .x_with(col("sepal_length"), |c| {
-                                        c.axis(|a| a.position("top"))
-                                            .with_scale_sharing(ScaleSharing::Level(1))
-                                    })
-                                    .y_with(col("sepal_width"), |c| {
-                                        c.with_scale_sharing(ScaleSharing::Free)
-                                    })
-                                    .size(25.0)
-                                    .fill("#4682b4"),
-                            ),
+        let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
+            Facet::new().row(col("petal_width_bin")).subplot(
+                Plot::<FacetColumn>::new().mark(
+                    Facet::new().column(col("species")).subplot(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.axis(|a| a.position("top"))
+                                        .with_scale_sharing(ScaleSharing::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Free)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
                         ),
                     ),
                 ),
-            );
+            ),
+        );
 
         let compiled = outer
             .compile(&ctx)
@@ -2134,7 +2113,9 @@ fn test_three_level_nesting_level1_y() {
             .canvas_size(800, 600)
             .mark(
                 Facet::new()
-                    .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+                    .col_with(col("petal_width_bin"), |c| {
+                        c.facet(|f| f.title("Petal Width"))
+                    })
                     .subplot(
                         Plot::<FacetRow>::new().mark(
                             Facet::new()
@@ -2187,7 +2168,9 @@ fn test_three_level_nesting_shared_y() {
             .canvas_size(800, 600)
             .mark(
                 Facet::new()
-                    .col_with(col("petal_width_bin"), |c| c.facet(|f| f.title("Petal Width")))
+                    .col_with(col("petal_width_bin"), |c| {
+                        c.facet(|f| f.title("Petal Width"))
+                    })
                     .subplot(
                         Plot::<FacetRow>::new().mark(
                             Facet::new()

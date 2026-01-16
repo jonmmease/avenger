@@ -33,27 +33,13 @@ impl PlotGeometry for PointGeometry {
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubplotRect {
-    /// Primary facet value (row for GridFacet, facet value for Row/Col)
+    /// Facet value for this subplot (e.g., "setosa" for species faceting)
     #[serde_as(as = "FromInto<SerializableScalar>")]
     pub value: ScalarValue,
     pub x: f32,
     pub y: f32,
     pub width: f32,
     pub height: f32,
-
-    // Grid-specific fields (None for FacetRow/FacetCol)
-    /// Row index in grid (for overflow lookup)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub row_index: Option<usize>,
-
-    /// Column index in grid (for overflow lookup)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub col_index: Option<usize>,
-
-    /// Column facet value (for GridFacet data filtering)
-    #[serde_as(as = "Option<FromInto<SerializableScalar>>")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub col_value: Option<ScalarValue>,
 }
 
 impl SubplotRect {
@@ -64,32 +50,6 @@ impl SubplotRect {
             y,
             width,
             height,
-            row_index: None,
-            col_index: None,
-            col_value: None,
-        }
-    }
-
-    /// Grid-specific constructor
-    pub fn new_grid(
-        row_value: ScalarValue,
-        col_value: ScalarValue,
-        row_index: usize,
-        col_index: usize,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-    ) -> Self {
-        Self {
-            value: row_value,
-            x,
-            y,
-            width,
-            height,
-            row_index: Some(row_index),
-            col_index: Some(col_index),
-            col_value: Some(col_value),
         }
     }
 

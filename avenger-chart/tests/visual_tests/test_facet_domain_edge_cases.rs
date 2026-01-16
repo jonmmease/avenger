@@ -67,7 +67,14 @@ fn dataset_with_integer_facet(ctx: &SessionContext) -> DataFrame {
 fn dataset_with_string_facet_special_chars(ctx: &SessionContext) -> DataFrame {
     // Test string facet values with special characters
     let categories = StringArray::from(vec![
-        "Zebra", "Zebra", "Alpha", "Alpha", "123", "123", "_underscore", "_underscore",
+        "Zebra",
+        "Zebra",
+        "Alpha",
+        "Alpha",
+        "123",
+        "123",
+        "_underscore",
+        "_underscore",
     ]);
     let x_vals = Float64Array::from(vec![1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0]);
     let y_vals = Float64Array::from(vec![1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0]);

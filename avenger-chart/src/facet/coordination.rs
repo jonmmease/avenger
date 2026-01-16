@@ -10,6 +10,56 @@
 //!
 //! Unlike `FacetContext` which tracks a subplot's position within a single facet,
 //! `FacetCoordinationContext` coordinates behavior between facet levels.
+//!
+//! # Field Groups
+//!
+//! The 23 fields in `FacetCoordinationContext` are organized into 8 logical groups:
+//!
+//! ## Group 1: Basic Inner Facet Info (4 fields)
+//! Core identification and configuration for the inner facet dimension.
+//! - `inner_channel`: Channel name ("row" or "col")
+//! - `inner_domain`: Pre-computed domain values from full dataset
+//! - `inner_scale_sharing`: Scale sharing mode for the dimension
+//! - `inner_domain_count`: Expected domain count for consistent grid dimensions
+//!
+//! ## Group 2: Guide Ownership (3 fields)
+//! Controls which subplot renders facet labels and titles.
+//! - `guide_ownership`: Full/Edge/Suppress decision
+//! - `outer_position`: Position within outer facet (0-indexed)
+//! - `outer_count`: Total subplots in outer facet
+//!
+//! ## Group 3: Overflow Coordination (2 fields)
+//! Per-row and per-column overflow measurements for consistent sizing.
+//! - `row_overflow_by_index`: Max row heights across all columns
+//! - `col_overflow_by_index`: Max column widths across all rows
+//!
+//! ## Group 4: Empty Cell Fallback (2 fields)
+//! Fallback scales for cells with no data.
+//! - `enable_empty_cell_fallback`: Flag to use fallback scales
+//! - `shared_data_extents`: Pre-computed extents for fallback
+//!
+//! ## Group 5: Removed
+//! The `axis_scale_sharing` field was removed - use `channel_sharing_levels` instead.
+//!
+//! ## Group 6: Level-Based Sharing (5 fields)
+//! Support for hierarchical N-level nested facet scale sharing.
+//! - `nesting_depth`: Current depth in hierarchy (0 = outermost)
+//! - `channel_sharing_levels`: Per-channel sharing levels (u8)
+//! - `level_domains`: Level-based domain lookups
+//! - `position_path`: Position path through hierarchy for edge detection
+//! - `level_counts`: Subplot counts at each level
+//!
+//! ## Group 7: Spacing Coordination (2 fields)
+//! Gap coordination between nested facets.
+//! - `inner_facet_spacing`: Inner facet's explicit spacing
+//! - `coordinated_spacing`: Aggregated spacing from children
+//!
+//! ## Group 8: Uniform Free Scaling (4 fields)
+//! Support for uniform cell sizing with phantom cells.
+//! - `max_inner_cell_count`: Maximum cells for uniform sizing
+//! - `enable_uniform_free_scaling`: Enable uniform sizing flag
+//! - `phantom_prepend_count`: Prepended phantom count
+//! - `inner_band_align`: Band alignment value (0.0-1.0)
 
 use crate::channel::config_traits::ScaleSharing;
 
@@ -63,8 +113,7 @@ mod level_domains_serde {
         D: Deserializer<'de>,
     {
         // Deserialize Vec of tuples back to IndexMap
-        let vec: Vec<(LevelChannelKey, SerializableDataExtents)> =
-            Vec::deserialize(deserializer)?;
+        let vec: Vec<(LevelChannelKey, SerializableDataExtents)> = Vec::deserialize(deserializer)?;
         Ok(vec.into_iter().collect())
     }
 }
@@ -255,9 +304,9 @@ impl GuideOwnership {
     /// The position index that should show the axis
     pub fn edge_position_for_axis(axis_position: AxisPosition, count: usize) -> usize {
         match axis_position {
-            AxisPosition::Left => 0,          // Y-axis on left -> leftmost column (position 0)
+            AxisPosition::Left => 0, // Y-axis on left -> leftmost column (position 0)
             AxisPosition::Right => count.saturating_sub(1), // Y-axis on right -> rightmost column
-            AxisPosition::Top => 0,           // X-axis on top -> topmost row (position 0)
+            AxisPosition::Top => 0,  // X-axis on top -> topmost row (position 0)
             AxisPosition::Bottom => count.saturating_sub(1), // X-axis on bottom -> bottommost row
         }
     }
@@ -281,7 +330,7 @@ impl GuideOwnership {
         match channel {
             "x" => !is_row_facet, // X is orthogonal to FacetColumn (vertical iteration)
             "y" => is_row_facet,  // Y is orthogonal to FacetRow (horizontal iteration)
-            _ => false, // Unknown channels are not orthogonal (show all)
+            _ => false,           // Unknown channels are not orthogonal (show all)
         }
     }
 }
@@ -553,18 +602,6 @@ pub struct FacetCoordinationContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_data_extents: Option<HashMap<String, SerializableDataExtents>>,
 
-
-    /// Per-channel scale sharing modes for x/y axes (computed from channel configs)
-    ///
-    /// This enables measurement to use the same axis visibility decisions as rendering.
-    /// Unlike `inner_scale_sharing` which controls the facet dimension channel (row/column),
-    /// this field contains the scale sharing modes for data channels like x and y.
-    ///
-    /// Key: channel name (e.g., "x", "y")
-    /// Value: ScaleSharing mode for that channel
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub axis_scale_sharing: Option<HashMap<String, ScaleSharing>>,
-
     // ========================================================================
     // Level-based scale sharing fields (Phase 2)
     // ========================================================================
@@ -726,7 +763,6 @@ impl Default for FacetCoordinationContext {
             enable_empty_cell_fallback: false,
             inner_domain_count: 0,
             shared_data_extents: None,
-            axis_scale_sharing: None,
             // Level-based scale sharing fields
             nesting_depth: 0,
             channel_sharing_levels: HashMap::new(),
@@ -778,7 +814,6 @@ impl FacetCoordinationContext {
             enable_empty_cell_fallback: false,
             inner_domain_count,
             shared_data_extents: None,
-            axis_scale_sharing: None,
             // Level-based scale sharing fields
             nesting_depth: 0,
             channel_sharing_levels: HashMap::new(),
@@ -807,14 +842,6 @@ impl FacetCoordinationContext {
     /// - 1.0: Data aligns to end (bottom for rows), phantoms prepended
     pub fn with_inner_band_align(mut self, align: f32) -> Self {
         self.inner_band_align = align;
-        self
-    }
-
-    /// Builder: Set per-channel scale sharing modes for x/y axes
-    ///
-    /// This enables measurement to use the same axis visibility decisions as rendering.
-    pub fn with_axis_scale_sharing(mut self, sharing: HashMap<String, ScaleSharing>) -> Self {
-        self.axis_scale_sharing = Some(sharing);
         self
     }
 
@@ -943,8 +970,6 @@ impl FacetCoordinationContext {
             .and_then(|extents| extents.get(channel))
     }
 
-
-
     /// Serialize to params map for passing through call stack
     ///
     /// The context is serialized to JSON and stored under the `__facet_coordination` key.
@@ -985,14 +1010,18 @@ impl FacetCoordinationContext {
             None => Ok(None),
             Some(ScalarValue::Utf8(None)) => Ok(None),
             Some(ScalarValue::Utf8(Some(json))) => {
-                serde_json::from_str(json)
-                    .map(Some)
-                    .map_err(|e| crate::error::AvengerChartError::DeserializationError(
-                        format!("Failed to deserialize FacetCoordinationContext: {}", e)
+                serde_json::from_str(json).map(Some).map_err(|e| {
+                    crate::error::AvengerChartError::DeserializationError(format!(
+                        "Failed to deserialize FacetCoordinationContext: {}",
+                        e
                     ))
+                })
             }
             Some(other) => Err(crate::error::AvengerChartError::DeserializationError(
-                format!("Expected Utf8 for FacetCoordinationContext, got {:?}", other.data_type())
+                format!(
+                    "Expected Utf8 for FacetCoordinationContext, got {:?}",
+                    other.data_type()
+                ),
             )),
         }
     }
@@ -1027,7 +1056,6 @@ impl FacetCoordinationContext {
             params.clone()
         }
     }
-
 
     /// Get inner domain as ScalarValues
     pub fn get_inner_domain(&self) -> Option<Vec<ScalarValue>> {
@@ -1088,7 +1116,10 @@ impl FacetCoordinationContext {
     /// # Returns
     /// The sharing level: 0 = Free, 1-254 = Level(N), 255 = Shared (global)
     pub fn get_channel_level(&self, channel: &str) -> u8 {
-        self.channel_sharing_levels.get(channel).copied().unwrap_or(0)
+        self.channel_sharing_levels
+            .get(channel)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Check if a channel should use the parent facet's domain
@@ -1228,23 +1259,12 @@ impl FacetCoordinationContext {
     ///
     /// This method populates the level-based fields from legacy fields
     /// for backward compatibility. It converts:
-    /// - axis_scale_sharing -> channel_sharing_levels (using to_level())
     /// - shared_data_extents -> level_domains (at level 1)
     /// - outer_position/outer_count -> position_path/level_counts (single level)
     ///
     /// This should be called when receiving a coordination context that may
     /// have been created by older code.
     pub fn upgrade_from_legacy(&mut self) {
-        // Convert axis_scale_sharing to channel_sharing_levels
-        if self.channel_sharing_levels.is_empty() {
-            if let Some(ref sharing) = self.axis_scale_sharing {
-                for (channel, mode) in sharing {
-                    self.channel_sharing_levels
-                        .insert(channel.clone(), mode.to_level());
-                }
-            }
-        }
-
         // Convert shared_data_extents to level_domains at level 1
         if self.level_domains.is_empty() {
             if let Some(ref extents) = self.shared_data_extents {
@@ -1417,7 +1437,10 @@ mod tests {
             Some(1609459200000),
             None,
         ));
-        assert!(matches!(ts_ms, SerializableDomainValue::TimestampMs(1609459200000)));
+        assert!(matches!(
+            ts_ms,
+            SerializableDomainValue::TimestampMs(1609459200000)
+        ));
         assert_eq!(
             ts_ms.to_scalar(),
             ScalarValue::TimestampMillisecond(Some(1609459200000), None)
@@ -1427,13 +1450,19 @@ mod tests {
             Some(1609459200000000),
             None,
         ));
-        assert!(matches!(ts_us, SerializableDomainValue::TimestampUs(1609459200000000)));
+        assert!(matches!(
+            ts_us,
+            SerializableDomainValue::TimestampUs(1609459200000000)
+        ));
 
         let ts_ns = SerializableDomainValue::from_scalar(&ScalarValue::TimestampNanosecond(
             Some(1609459200000000000),
             None,
         ));
-        assert!(matches!(ts_ns, SerializableDomainValue::TimestampNs(1609459200000000000)));
+        assert!(matches!(
+            ts_ns,
+            SerializableDomainValue::TimestampNs(1609459200000000000)
+        ));
 
         // Test null
         let n = SerializableDomainValue::from_scalar(&ScalarValue::Null);
@@ -1777,41 +1806,35 @@ mod tests {
     #[test]
     fn test_upgrade_from_legacy() {
         // Create a legacy-style context (using old fields)
-        let mut axis_sharing = HashMap::new();
-        axis_sharing.insert("x".to_string(), ScaleSharing::Free);
-        axis_sharing.insert("y".to_string(), ScaleSharing::Shared);
-
         let mut shared_extents = HashMap::new();
-        shared_extents.insert("y".to_string(), SerializableDataExtents::interval(0.0, 100.0));
+        shared_extents.insert(
+            "y".to_string(),
+            SerializableDataExtents::interval(0.0, 100.0),
+        );
 
         let mut ctx = FacetCoordinationContext::new(
             "row",
             ScaleSharing::Shared,
             GuideOwnership::Edge,
-            2,  // outer_position
-            5,  // outer_count
+            2, // outer_position
+            5, // outer_count
             3,
         )
-        .with_axis_scale_sharing(axis_sharing)
         .with_shared_data_extents(shared_extents);
 
         // Before upgrade, level fields should be empty/default
-        assert!(ctx.channel_sharing_levels.is_empty());
         assert!(ctx.level_domains.is_empty());
         assert!(ctx.position_path.is_empty());
 
         // Upgrade
         ctx.upgrade_from_legacy();
 
-        // After upgrade, level fields should be populated
-        assert_eq!(ctx.channel_sharing_levels.len(), 2);
-        assert_eq!(ctx.get_channel_level("x"), 0); // Free -> 0
-        assert_eq!(ctx.get_channel_level("y"), 255); // Shared -> u8::MAX
-
+        // After upgrade, level fields should be populated from shared_data_extents
         assert_eq!(ctx.level_domains.len(), 1);
         let y_key = LevelChannelKey::new(1, "y");
         assert!(ctx.level_domains.contains_key(&y_key));
 
+        // position_path and level_counts from outer_position/outer_count
         assert_eq!(ctx.position_path, vec![2]);
         assert_eq!(ctx.level_counts, vec![5]);
         assert_eq!(ctx.nesting_depth, 1);
@@ -1819,22 +1842,15 @@ mod tests {
 
     #[test]
     fn test_upgraded_from_legacy_preserves_original() {
-        let mut axis_sharing = HashMap::new();
-        axis_sharing.insert("y".to_string(), ScaleSharing::Level(2));
-
-        let original = FacetCoordinationContext::default()
-            .with_axis_scale_sharing(axis_sharing)
-            .with_outer_position(1, 3);
+        let original = FacetCoordinationContext::default().with_outer_position(1, 3);
 
         // Create upgraded copy
         let upgraded = original.upgraded_from_legacy();
 
         // Original should be unchanged
-        assert!(original.channel_sharing_levels.is_empty());
         assert!(original.position_path.is_empty());
 
-        // Upgraded should have converted fields
-        assert_eq!(upgraded.get_channel_level("y"), 2);
+        // Upgraded should have converted fields from outer_position/outer_count
         assert_eq!(upgraded.position_path, vec![1]);
         assert_eq!(upgraded.level_counts, vec![3]);
     }
@@ -2087,23 +2103,44 @@ mod tests {
     #[test]
     fn test_edge_position_for_axis() {
         // Left -> position 0
-        assert_eq!(GuideOwnership::edge_position_for_axis(AxisPosition::Left, 5), 0);
+        assert_eq!(
+            GuideOwnership::edge_position_for_axis(AxisPosition::Left, 5),
+            0
+        );
 
         // Right -> position count-1
-        assert_eq!(GuideOwnership::edge_position_for_axis(AxisPosition::Right, 5), 4);
+        assert_eq!(
+            GuideOwnership::edge_position_for_axis(AxisPosition::Right, 5),
+            4
+        );
 
         // Top -> position 0
-        assert_eq!(GuideOwnership::edge_position_for_axis(AxisPosition::Top, 5), 0);
+        assert_eq!(
+            GuideOwnership::edge_position_for_axis(AxisPosition::Top, 5),
+            0
+        );
 
         // Bottom -> position count-1
-        assert_eq!(GuideOwnership::edge_position_for_axis(AxisPosition::Bottom, 5), 4);
+        assert_eq!(
+            GuideOwnership::edge_position_for_axis(AxisPosition::Bottom, 5),
+            4
+        );
 
         // Edge case: count = 1
-        assert_eq!(GuideOwnership::edge_position_for_axis(AxisPosition::Left, 1), 0);
-        assert_eq!(GuideOwnership::edge_position_for_axis(AxisPosition::Right, 1), 0);
+        assert_eq!(
+            GuideOwnership::edge_position_for_axis(AxisPosition::Left, 1),
+            0
+        );
+        assert_eq!(
+            GuideOwnership::edge_position_for_axis(AxisPosition::Right, 1),
+            0
+        );
 
         // Edge case: count = 0 (should not panic)
-        assert_eq!(GuideOwnership::edge_position_for_axis(AxisPosition::Right, 0), 0);
+        assert_eq!(
+            GuideOwnership::edge_position_for_axis(AxisPosition::Right, 0),
+            0
+        );
     }
 
     #[test]
@@ -2317,8 +2354,7 @@ mod tests {
 
     #[test]
     fn test_try_from_params_success() {
-        let ctx = FacetCoordinationContext::default()
-            .with_outer_position(1, 3);
+        let ctx = FacetCoordinationContext::default().with_outer_position(1, 3);
 
         let params = ctx.to_params();
         let result = FacetCoordinationContext::try_from_params(&params);
@@ -2346,7 +2382,10 @@ mod tests {
         let result = FacetCoordinationContext::try_from_params(&params);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("Failed to deserialize FacetCoordinationContext"));
+        assert!(
+            err.to_string()
+                .contains("Failed to deserialize FacetCoordinationContext")
+        );
     }
 
     #[test]
@@ -2397,8 +2436,14 @@ mod tests {
         let json2 = serde_json::to_string(&ctx).unwrap();
         let json3 = serde_json::to_string(&ctx).unwrap();
 
-        assert_eq!(json1, json2, "Serialization should be deterministic (1 vs 2)");
-        assert_eq!(json2, json3, "Serialization should be deterministic (2 vs 3)");
+        assert_eq!(
+            json1, json2,
+            "Serialization should be deterministic (1 vs 2)"
+        );
+        assert_eq!(
+            json2, json3,
+            "Serialization should be deterministic (2 vs 3)"
+        );
 
         // Verify order is preserved in serialized output
         // The level_domains should appear in insertion order (0, 1, 2)
@@ -2426,10 +2471,22 @@ mod tests {
             (ScalarValue::Boolean(Some(true)), "Bool (true)"),
             (ScalarValue::Boolean(Some(false)), "Bool (false)"),
             (ScalarValue::Decimal128(Some(12345), 10, 2), "Decimal128"),
-            (ScalarValue::Decimal128(Some(-98765), 15, 4), "Decimal128 (negative)"),
-            (ScalarValue::TimestampMillisecond(Some(1609459200000), None), "TimestampMs"),
-            (ScalarValue::TimestampMicrosecond(Some(1609459200000000), None), "TimestampUs"),
-            (ScalarValue::TimestampNanosecond(Some(1609459200000000000), None), "TimestampNs"),
+            (
+                ScalarValue::Decimal128(Some(-98765), 15, 4),
+                "Decimal128 (negative)",
+            ),
+            (
+                ScalarValue::TimestampMillisecond(Some(1609459200000), None),
+                "TimestampMs",
+            ),
+            (
+                ScalarValue::TimestampMicrosecond(Some(1609459200000000), None),
+                "TimestampUs",
+            ),
+            (
+                ScalarValue::TimestampNanosecond(Some(1609459200000000000), None),
+                "TimestampNs",
+            ),
             (ScalarValue::Null, "Null"),
         ];
 

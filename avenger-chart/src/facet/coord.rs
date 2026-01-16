@@ -321,7 +321,6 @@ impl CoordinateSystemTransform for FacetColumn {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,5 +340,4 @@ mod tests {
         assert_eq!(coord.padding_px, Some(5.0));
         assert!(coord.overflow_by_facet.is_some());
     }
-
 }

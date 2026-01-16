@@ -120,9 +120,9 @@ mod tests {
     #[test]
     fn test_inter_row_gap_multiple_rows() {
         let overflows = vec![
-            overflow(5.0, 10.0, 0.0, 0.0),  // row 0
-            overflow(5.0, 30.0, 0.0, 0.0),  // row 1: gap 0->1 = 10+5 = 15
-            overflow(20.0, 5.0, 0.0, 0.0),  // row 2: gap 1->2 = 30+20 = 50 (max)
+            overflow(5.0, 10.0, 0.0, 0.0), // row 0
+            overflow(5.0, 30.0, 0.0, 0.0), // row 1: gap 0->1 = 10+5 = 15
+            overflow(20.0, 5.0, 0.0, 0.0), // row 2: gap 1->2 = 30+20 = 50 (max)
         ];
         assert_eq!(calculate_inter_row_gap(&overflows, 0.0), 50.0);
     }

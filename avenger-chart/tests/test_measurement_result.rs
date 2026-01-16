@@ -34,6 +34,12 @@ async fn test_evaluate_still_works_after_refactor() {
 
     assert!(result.is_ok(), "evaluate() should succeed");
     let evaluated = result.unwrap();
-    assert!(evaluated.scene_graph.width > 0.0, "Scene graph should have positive width");
-    assert!(evaluated.scene_graph.height > 0.0, "Scene graph should have positive height");
+    assert!(
+        evaluated.scene_graph.width > 0.0,
+        "Scene graph should have positive width"
+    );
+    assert!(
+        evaluated.scene_graph.height > 0.0,
+        "Scene graph should have positive height"
+    );
 }

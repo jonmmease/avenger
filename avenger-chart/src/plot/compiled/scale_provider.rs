@@ -79,4 +79,3 @@ impl ScaleProvider for PrebuiltScaleProvider {
         Ok(self.scales.clone())
     }
 }
-
