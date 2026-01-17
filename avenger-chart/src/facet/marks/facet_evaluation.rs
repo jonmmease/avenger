@@ -43,6 +43,7 @@ use crate::render::RenderContext;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::scales::builder::ScaleBuilder;
 use avenger_scales::scalar::Scalar;
+use avenger_scales::scales::DomainKind;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -703,21 +704,23 @@ where
                 // Extend with level-based extents for channels with Level(N) sharing (N >= 1)
                 // Extract from coordination context (which was updated per-iteration)
                 if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
-                    let level_extents: std::collections::HashMap<String, _> = scale_sharing_by_channel
-                        .iter()
-                        .filter_map(|(channel, mode)| {
-                            if let ScaleSharing::Level(n) = mode {
-                                if *n >= 1 {
-                                    coord_ctx.get_domain_for_channel(channel)
-                                        .map(|extents| (channel.clone(), extents.clone()))
+                    let level_extents: std::collections::HashMap<String, _> =
+                        scale_sharing_by_channel
+                            .iter()
+                            .filter_map(|(channel, mode)| {
+                                if let ScaleSharing::Level(n) = mode {
+                                    if *n >= 1 {
+                                        coord_ctx
+                                            .get_domain_for_channel(channel)
+                                            .map(|extents| (channel.clone(), extents.clone()))
+                                    } else {
+                                        None
+                                    }
                                 } else {
                                     None
                                 }
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                            })
+                            .collect();
                     if !level_extents.is_empty() {
                         free_scale_builder.extend_with_shared_extents(&level_extents);
                     }
@@ -1971,6 +1974,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         ctx,
         DimConfig::is_row_facet(), // Whether this (outer) facet is a row facet
         &facet_expr,               // Outer facet's expression for inner cell counting
+        &context.params,           // Parameters for evaluating explicit domains
     )
     .await?;
 
@@ -2155,6 +2159,7 @@ async fn detect_nested_facet_and_compute_coordination(
     ctx: &SessionContext,
     _outer_is_row_facet: bool,
     outer_facet_expr: &datafusion::logical_expr::Expr,
+    params: &indexmap::IndexMap<String, ScalarValue>,
 ) -> Result<Option<FacetCoordinationContext>, AvengerChartError> {
     use crate::facet::coordination::{GuideOwnership, LevelChannelKey, SerializableDataExtents};
     use crate::facet::keys::FacetKeyExtractor;
@@ -2299,36 +2304,112 @@ async fn detect_nested_facet_and_compute_coordination(
 
     let mut shared_data_extents: HashMap<String, SerializableDataExtents> = HashMap::new();
 
-    // First, collect channel expressions and their share modes
-    let mut channel_info: Vec<(String, datafusion::logical_expr::Expr, ScaleSharing)> = Vec::new();
+    // First, collect channel expressions, share modes, and scale-derived domain kinds
+    let mut channel_info: Vec<(
+        String,
+        datafusion::logical_expr::Expr,
+        ScaleSharing,
+        Option<DomainKind>,
+        Option<crate::facet::coordination::SerializableDataExtents>,
+    )> = Vec::new();
 
     if let Some(inner_subplot) = inner_subplot {
         for channel_name in ["x", "y"] {
+            let mut channel_expr: Option<datafusion::logical_expr::Expr> = None;
+            let mut share_mode = ScaleSharing::Free;
+            let mut domain_kind: Option<DomainKind> = None;
+            let mut explicit_domain: Option<crate::facet::coordination::SerializableDataExtents> =
+                None;
+
             for mark in &inner_subplot.marks {
                 let channels = mark.data_context().channels();
                 if let Some(channel_value) = channels.get(channel_name) {
-                    if let Some(channel_expr) = channel_value.expr(ctx) {
-                        let share_mode =
-                            channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
-                        channel_info.push((channel_name.to_string(), channel_expr, share_mode));
-                        break;
+                    if channel_expr.is_none() {
+                        channel_expr = channel_value.expr(ctx);
+                        share_mode = channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
+                    }
+
+                    // Prefer categorical if ANY mark explicitly configures a categorical scale.
+                    let scale_config = channel_value.get_scale_config();
+                    let this_kind = scale_config.and_then(|s| s.domain_kind());
+                    if this_kind == Some(DomainKind::Categorical) {
+                        domain_kind = Some(DomainKind::Categorical);
+                    } else if domain_kind.is_none() {
+                        domain_kind = this_kind;
+                    }
+
+                    if explicit_domain.is_none() {
+                        if let Some(scale) = scale_config {
+                            explicit_domain =
+                                explicit_domain_extents_from_scale(scale, ctx, params).await?;
+                        }
                     }
                 }
+            }
+
+            if let Some(channel_expr) = channel_expr {
+                // Fall back to compiled scale spec if no explicit config was found.
+                let domain_kind = domain_kind.or_else(|| {
+                    inner_subplot
+                        .scale_specs
+                        .get(channel_name)
+                        .and_then(|spec| match spec {
+                            crate::plot::ScaleSpec::Local(scale) => scale.domain_kind(),
+                        })
+                });
+
+                if explicit_domain.is_none() {
+                    if let Some(spec) = inner_subplot.scale_specs.get(channel_name) {
+                        match spec {
+                            crate::plot::ScaleSpec::Local(scale) => {
+                                explicit_domain =
+                                    explicit_domain_extents_from_scale(scale, ctx, params).await?;
+                            }
+                        }
+                    }
+                }
+
+                channel_info.push((
+                    channel_name.to_string(),
+                    channel_expr,
+                    share_mode,
+                    domain_kind,
+                    explicit_domain,
+                ));
             }
         }
 
         // Now compute extents based on share mode
-        for (channel_name, channel_expr, share_mode) in &channel_info {
+        for (channel_name, channel_expr, share_mode, domain_kind, explicit_domain) in &channel_info
+        {
             if matches!(share_mode, ScaleSharing::Shared) {
-                // Determine if channel is categorical based on expression data type
-                let data_type = channel_expr
-                    .get_type(df.schema())
-                    .ok()
-                    .map(|dt| is_categorical_data_type(&dt))
-                    .unwrap_or(false);
+                if let Some(explicit_extents) = explicit_domain {
+                    shared_data_extents.insert(channel_name.clone(), explicit_extents.clone());
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "  Using explicit domain for shared {}: {:?}",
+                            channel_name,
+                            shared_data_extents.get(channel_name)
+                        );
+                    }
+                    continue;
+                }
 
-                // Compute extents using appropriate method based on data type
-                let extents_result = if data_type {
+                // Determine if channel is categorical:
+                // 1. First check scale configuration (handles numeric-coded categories like Int32 + Band)
+                // 2. Fall back to Arrow data type detection
+                let is_categorical = if *domain_kind == Some(DomainKind::Categorical) {
+                    true
+                } else {
+                    channel_expr
+                        .get_type(df.schema())
+                        .ok()
+                        .map(|dt| is_categorical_data_type(&dt))
+                        .unwrap_or(false)
+                };
+
+                // Compute extents using appropriate method based on categorical detection
+                let extents_result = if is_categorical {
                     compute_categorical_extents(df, channel_expr, ctx).await
                 } else {
                     compute_numeric_extents(df, channel_expr, ctx).await
@@ -2339,7 +2420,11 @@ async fn detect_nested_facet_and_compute_coordination(
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                         eprintln!(
                             "  Computed shared {} extents for {}: {:?}",
-                            if data_type { "categorical" } else { "numeric" },
+                            if is_categorical {
+                                "categorical"
+                            } else {
+                                "numeric"
+                            },
                             channel_name,
                             shared_data_extents.get(channel_name)
                         );
@@ -2423,7 +2508,7 @@ async fn detect_nested_facet_and_compute_coordination(
     // This enables get_channel_level() and get_domain_for_channel() lookups.
     let channel_sharing_levels: HashMap<String, u8> = {
         let mut levels = HashMap::new();
-        for (channel_name, _, share_mode) in &channel_info {
+        for (channel_name, _, share_mode, _, _) in &channel_info {
             levels.insert(channel_name.clone(), share_mode.to_level());
         }
         levels
@@ -2449,15 +2534,34 @@ async fn detect_nested_facet_and_compute_coordination(
     // Uses IndexMap for deterministic iteration order during serialization.
     let mut level_domains: IndexMap<LevelChannelKey, SerializableDataExtents> = IndexMap::new();
 
-    for (channel_name, channel_expr, share_mode) in &channel_info {
+    for (channel_name, channel_expr, share_mode, domain_kind, explicit_domain) in &channel_info {
         let level = share_mode.to_level();
         if level >= 1 {
-            // Determine if channel is categorical based on expression data type
-            let is_categorical = channel_expr
-                .get_type(df.schema())
-                .ok()
-                .map(|dt| is_categorical_data_type(&dt))
-                .unwrap_or(false);
+            if let Some(explicit_extents) = explicit_domain {
+                let key = LevelChannelKey::new(1, channel_name);
+                level_domains.insert(key, explicit_extents.clone());
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "  Added explicit level_domain for level=1, channel={}: {:?}",
+                        channel_name,
+                        level_domains.get(&LevelChannelKey::new(1, channel_name))
+                    );
+                }
+                continue;
+            }
+
+            // Determine if channel is categorical:
+            // 1. First check scale configuration (handles numeric-coded categories like Int32 + Band)
+            // 2. Fall back to Arrow data type detection
+            let is_categorical = if *domain_kind == Some(DomainKind::Categorical) {
+                true
+            } else {
+                channel_expr
+                    .get_type(df.schema())
+                    .ok()
+                    .map(|dt| is_categorical_data_type(&dt))
+                    .unwrap_or(false)
+            };
 
             // For Level(1+) channels, compute domain from the outer's full dataset
             // This ensures all inner facets share the same scale domain
@@ -2573,7 +2677,8 @@ async fn compute_categorical_extents(
     for batch in &batches {
         let col = batch.column(0);
         for i in 0..col.len() {
-            values.push(ScalarValue::try_from_array(col, i)?);
+            let scalar = ScalarValue::try_from_array(col, i)?;
+            values.push(normalize_domain_scalar(scalar));
         }
     }
 
@@ -2588,6 +2693,88 @@ async fn compute_categorical_extents(
     }
 
     Ok(SerializableDataExtents::discrete(values))
+}
+
+async fn explicit_domain_extents_from_scale(
+    scale: &crate::scales::Scale<crate::scales::spec::Auto>,
+    ctx: &SessionContext,
+    params: &indexmap::IndexMap<String, ScalarValue>,
+) -> Result<Option<crate::facet::coordination::SerializableDataExtents>, AvengerChartError> {
+    use crate::scales::ScaleDefaultDomain;
+
+    let Some(domain) = scale.get_domain() else {
+        return Ok(None);
+    };
+
+    match &domain.default_domain {
+        ScaleDefaultDomain::Discrete(values) => {
+            use crate::serialization::LogicalExprNodeExt;
+            let exprs = values
+                .iter()
+                .map(|value| value.to_expr(ctx))
+                .collect::<Result<Vec<_>, _>>()?;
+            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let scalars =
+                crate::utils::eval_to_scalars(exprs, Some(ctx), datafusion_params.as_ref()).await?;
+            let normalized: Vec<ScalarValue> =
+                scalars.into_iter().map(normalize_domain_scalar).collect();
+            Ok(Some(
+                crate::facet::coordination::SerializableDataExtents::discrete(normalized),
+            ))
+        }
+        ScaleDefaultDomain::Interval(start, end) => {
+            use crate::serialization::LogicalExprNodeExt;
+            use crate::utils::ScalarValueHelpers;
+            let start_expr = start.to_expr(ctx)?;
+            let end_expr = end.to_expr(ctx)?;
+            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let scalars = crate::utils::eval_to_scalars(
+                vec![start_expr, end_expr],
+                Some(ctx),
+                datafusion_params.as_ref(),
+            )
+            .await?;
+            let [start_val, end_val] = scalars.as_slice() else {
+                return Err(AvengerChartError::InternalError(
+                    "Expected two scalar values for interval domain".to_string(),
+                ));
+            };
+
+            let extents = if scale.domain_kind() == Some(DomainKind::Temporal) {
+                let start_ts =
+                    scalar_to_timestamp_ms(start_val).unwrap_or(start_val.as_f64()? as i64);
+                let end_ts = scalar_to_timestamp_ms(end_val).unwrap_or(end_val.as_f64()? as i64);
+                crate::facet::coordination::SerializableDataExtents::temporal(start_ts, end_ts)
+            } else {
+                crate::facet::coordination::SerializableDataExtents::interval(
+                    start_val.as_f64()?,
+                    end_val.as_f64()?,
+                )
+            };
+
+            Ok(Some(extents))
+        }
+        ScaleDefaultDomain::DomainExprs(_) | ScaleDefaultDomain::NoDefault => Ok(None),
+    }
+}
+
+fn normalize_domain_scalar(value: ScalarValue) -> ScalarValue {
+    match value {
+        ScalarValue::Dictionary(_, inner) => normalize_domain_scalar(*inner),
+        other => other,
+    }
+}
+
+fn scalar_to_timestamp_ms(value: &ScalarValue) -> Option<i64> {
+    match value {
+        ScalarValue::Date32(Some(days)) => Some(*days as i64 * 86_400_000),
+        ScalarValue::Date64(Some(ms)) => Some(*ms),
+        ScalarValue::TimestampSecond(Some(ts), _) => Some(*ts * 1000),
+        ScalarValue::TimestampMillisecond(Some(ts), _) => Some(*ts),
+        ScalarValue::TimestampMicrosecond(Some(ts), _) => Some(*ts / 1000),
+        ScalarValue::TimestampNanosecond(Some(ts), _) => Some(*ts / 1_000_000),
+        _ => None,
+    }
 }
 
 /// Check if a data type represents categorical data based on Arrow type

@@ -250,6 +250,108 @@ fn test_deeply_nested_categorical_scale_sharing() {
         .expect("thread panicked");
 }
 
+/// Test numeric-coded categorical sharing (Int32 category IDs with Band scale)
+///
+/// This test verifies that numeric columns used as categorical values share correctly:
+/// - Uses Int32 column for category IDs (1, 2, 3, 4) instead of strings
+/// - Configures Band scale explicitly to indicate categorical treatment
+/// - With ScaleSharing::Shared, both facets should show all category IDs
+///
+/// This was a bug where numeric columns were always treated as numeric scales
+/// (computing min/max intervals) instead of categorical scales (computing DISTINCT values).
+/// The fix checks the scale's domain_kind() before falling back to Arrow type detection.
+#[test]
+fn test_numeric_coded_categorical_sharing() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build runtime");
+
+            rt.block_on(async {
+                use datafusion::arrow::array::{Float64Array, Int32Array, StringArray};
+                use datafusion::arrow::datatypes::{DataType, Field, Schema};
+                use datafusion::arrow::record_batch::RecordBatch;
+                use std::sync::Arc;
+
+                let ctx = SessionContext::new();
+
+                // Create data with numeric category IDs:
+                // - Group1 has category IDs 1, 2, 3
+                // - Group2 has category IDs 2, 3, 4
+                // With sharing, both should show 1, 2, 3, 4 on the axis
+                let groups = StringArray::from(vec![
+                    "Group1", "Group1", "Group1", // IDs 1, 2, 3
+                    "Group2", "Group2", "Group2", // IDs 2, 3, 4
+                ]);
+                let category_ids = Int32Array::from(vec![
+                    1, 2, 3, // Group1
+                    2, 3, 4, // Group2
+                ]);
+                let values = Float64Array::from(vec![
+                    10.0, 20.0, 30.0, // Group1
+                    25.0, 35.0, 45.0, // Group2
+                ]);
+
+                let schema = Arc::new(Schema::new(vec![
+                    Field::new("group", DataType::Utf8, false),
+                    Field::new("category_id", DataType::Int32, false),
+                    Field::new("value", DataType::Float64, false),
+                ]));
+
+                let batch = RecordBatch::try_new(
+                    schema,
+                    vec![Arc::new(groups), Arc::new(category_ids), Arc::new(values)],
+                )
+                .expect("create batch");
+
+                let df = ctx.read_batch(batch).expect("read batch");
+
+                let outer = Plot::<FacetColumn>::new()
+                    .data(df)
+                    .canvas_size(600, 300)
+                    .mark(
+                        Facet::new()
+                            .col_with(col("group"), |c| c.facet(|f| f.title("Group")))
+                            .subplot(
+                                Plot::<Cartesian>::new().mark(
+                                    Rect::new()
+                                        .x_with(col("category_id"), |c| {
+                                            // Explicitly configure as Band scale (categorical)
+                                            // This triggers the scale-driven categorical detection
+                                            c.scale_with::<Band>(|s| s)
+                                                .with_scale_sharing(ScaleSharing::Shared)
+                                                .axis(|a| a.title("Category ID"))
+                                        })
+                                        .x2_with(col(":x"), |c| c.band(1.0))
+                                        .y(0.0)
+                                        .y2_with(col("value"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Shared)
+                                                .axis(|a| a.title("Value"))
+                                        })
+                                        .fill("#4682b4"),
+                                ),
+                            ),
+                    );
+
+                let compiled = outer.compile(&ctx).await.expect("compile nested facets");
+                assert_visual_match_default(
+                    &compiled,
+                    &ctx,
+                    None,
+                    "facet",
+                    "numeric_coded_categorical_sharing",
+                )
+                .await;
+            });
+        })
+        .expect("failed to spawn thread")
+        .join()
+        .expect("thread panicked");
+}
+
 /// Test Level(1) sharing on categorical channel
 ///
 /// This test verifies that Level-based scale sharing works for categorical scales:
