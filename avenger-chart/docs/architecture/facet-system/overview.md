@@ -94,6 +94,12 @@ Both implement:
 | `RowDimensionConfig` | `dimension_config.rs:106` | Row-specific implementation |
 | `ColumnDimensionConfig` | `dimension_config.rs:181` | Column-specific implementation |
 
+## Domain Sharing Notes
+
+- Shared/Level facet domains prefer explicit scale domains (e.g., `scale.domain_discrete(...)` or `scale.domain_interval(...)`) when provided. These explicit values are propagated instead of recomputing extents from data.
+- Categorical detection for shared domains prioritizes the scale's domain kind (Band/Point/Ordinal → categorical) and only falls back to Arrow data type inspection.
+- Temporal shared domains preserve temporal min/max as Unix timestamps to keep temporal scales consistent across nested facets.
+
 ## Key Traits
 
 ### `FacetDimensionConfig` (dimension_config.rs:16)

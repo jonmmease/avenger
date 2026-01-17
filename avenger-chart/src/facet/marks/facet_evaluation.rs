@@ -2311,6 +2311,7 @@ async fn detect_nested_facet_and_compute_coordination(
         ScaleSharing,
         Option<DomainKind>,
         Option<crate::facet::coordination::SerializableDataExtents>,
+        Option<DomainSort>,
     )> = Vec::new();
 
     if let Some(inner_subplot) = inner_subplot {
@@ -2320,6 +2321,7 @@ async fn detect_nested_facet_and_compute_coordination(
             let mut domain_kind: Option<DomainKind> = None;
             let mut explicit_domain: Option<crate::facet::coordination::SerializableDataExtents> =
                 None;
+            let mut domain_sort: Option<DomainSort> = None;
 
             for mark in &inner_subplot.marks {
                 let channels = mark.data_context().channels();
@@ -2342,6 +2344,12 @@ async fn detect_nested_facet_and_compute_coordination(
                         if let Some(scale) = scale_config {
                             explicit_domain =
                                 explicit_domain_extents_from_scale(scale, ctx, params).await?;
+                        }
+                    }
+
+                    if domain_sort.is_none() {
+                        if let Some(scale) = scale_config {
+                            domain_sort = scale_sort_order(scale, ctx, params).await?;
                         }
                     }
                 }
@@ -2369,18 +2377,30 @@ async fn detect_nested_facet_and_compute_coordination(
                     }
                 }
 
+                if domain_sort.is_none() {
+                    if let Some(spec) = inner_subplot.scale_specs.get(channel_name) {
+                        match spec {
+                            crate::plot::ScaleSpec::Local(scale) => {
+                                domain_sort = scale_sort_order(scale, ctx, params).await?;
+                            }
+                        }
+                    }
+                }
+
                 channel_info.push((
                     channel_name.to_string(),
                     channel_expr,
                     share_mode,
                     domain_kind,
                     explicit_domain,
+                    domain_sort,
                 ));
             }
         }
 
         // Now compute extents based on share mode
-        for (channel_name, channel_expr, share_mode, domain_kind, explicit_domain) in &channel_info
+        for (channel_name, channel_expr, share_mode, domain_kind, explicit_domain, domain_sort) in
+            &channel_info
         {
             if matches!(share_mode, ScaleSharing::Shared) {
                 if let Some(explicit_extents) = explicit_domain {
@@ -2408,9 +2428,22 @@ async fn detect_nested_facet_and_compute_coordination(
                         .unwrap_or(false)
                 };
 
+                let is_temporal = if *domain_kind == Some(DomainKind::Temporal) {
+                    true
+                } else {
+                    channel_expr
+                        .get_type(df.schema())
+                        .ok()
+                        .map(|dt| is_temporal_data_type(&dt))
+                        .unwrap_or(false)
+                };
+
                 // Compute extents using appropriate method based on categorical detection
                 let extents_result = if is_categorical {
-                    compute_categorical_extents(df, channel_expr, ctx).await
+                    let sort_order = domain_sort.unwrap_or(DomainSort::Ascending);
+                    compute_categorical_extents(df, channel_expr, ctx, sort_order).await
+                } else if is_temporal {
+                    compute_temporal_extents(df, channel_expr, ctx).await
                 } else {
                     compute_numeric_extents(df, channel_expr, ctx).await
                 };
@@ -2422,6 +2455,8 @@ async fn detect_nested_facet_and_compute_coordination(
                             "  Computed shared {} extents for {}: {:?}",
                             if is_categorical {
                                 "categorical"
+                            } else if is_temporal {
+                                "temporal"
                             } else {
                                 "numeric"
                             },
@@ -2508,7 +2543,7 @@ async fn detect_nested_facet_and_compute_coordination(
     // This enables get_channel_level() and get_domain_for_channel() lookups.
     let channel_sharing_levels: HashMap<String, u8> = {
         let mut levels = HashMap::new();
-        for (channel_name, _, share_mode, _, _) in &channel_info {
+        for (channel_name, _, share_mode, _, _, _) in &channel_info {
             levels.insert(channel_name.clone(), share_mode.to_level());
         }
         levels
@@ -2534,7 +2569,9 @@ async fn detect_nested_facet_and_compute_coordination(
     // Uses IndexMap for deterministic iteration order during serialization.
     let mut level_domains: IndexMap<LevelChannelKey, SerializableDataExtents> = IndexMap::new();
 
-    for (channel_name, channel_expr, share_mode, domain_kind, explicit_domain) in &channel_info {
+    for (channel_name, channel_expr, share_mode, domain_kind, explicit_domain, domain_sort) in
+        &channel_info
+    {
         let level = share_mode.to_level();
         if level >= 1 {
             if let Some(explicit_extents) = explicit_domain {
@@ -2563,10 +2600,23 @@ async fn detect_nested_facet_and_compute_coordination(
                     .unwrap_or(false)
             };
 
+            let is_temporal = if *domain_kind == Some(DomainKind::Temporal) {
+                true
+            } else {
+                channel_expr
+                    .get_type(df.schema())
+                    .ok()
+                    .map(|dt| is_temporal_data_type(&dt))
+                    .unwrap_or(false)
+            };
+
             // For Level(1+) channels, compute domain from the outer's full dataset
             // This ensures all inner facets share the same scale domain
             let extents_result = if is_categorical {
-                compute_categorical_extents(df, channel_expr, ctx).await
+                let sort_order = domain_sort.unwrap_or(DomainSort::Ascending);
+                compute_categorical_extents(df, channel_expr, ctx, sort_order).await
+            } else if is_temporal {
+                compute_temporal_extents(df, channel_expr, ctx).await
             } else {
                 compute_numeric_extents(df, channel_expr, ctx).await
             };
@@ -2580,6 +2630,8 @@ async fn detect_nested_facet_and_compute_coordination(
                         channel_name,
                         if is_categorical {
                             "categorical"
+                        } else if is_temporal {
+                            "temporal"
                         } else {
                             "numeric"
                         },
@@ -2665,6 +2717,7 @@ async fn compute_categorical_extents(
     df: &DataFrame,
     expr: &datafusion::logical_expr::Expr,
     _ctx: &SessionContext,
+    sort_order: DomainSort,
 ) -> Result<crate::facet::coordination::SerializableDataExtents, AvengerChartError> {
     use crate::facet::coordination::SerializableDataExtents;
 
@@ -2682,8 +2735,13 @@ async fn compute_categorical_extents(
         }
     }
 
-    // Sort for consistent ordering across facet cells
-    values.sort_by(scalar_total_cmp);
+    if sort_order != DomainSort::None {
+        // Sort for consistent ordering across facet cells
+        values.sort_by(scalar_total_cmp);
+        if sort_order == DomainSort::Descending {
+            values.reverse();
+        }
+    }
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
@@ -2693,6 +2751,44 @@ async fn compute_categorical_extents(
     }
 
     Ok(SerializableDataExtents::discrete(values))
+}
+
+async fn compute_temporal_extents(
+    df: &DataFrame,
+    expr: &datafusion::logical_expr::Expr,
+    _ctx: &SessionContext,
+) -> Result<crate::facet::coordination::SerializableDataExtents, AvengerChartError> {
+    use crate::facet::coordination::SerializableDataExtents;
+    use datafusion::functions_aggregate::min_max::{max, min};
+
+    let agg_df = df.clone().aggregate(
+        vec![],
+        vec![
+            min(expr.clone()).alias("min_val"),
+            max(expr.clone()).alias("max_val"),
+        ],
+    )?;
+
+    let batches = agg_df.collect().await?;
+
+    if batches.is_empty() || batches[0].num_rows() == 0 {
+        return Err(AvengerChartError::InternalError(
+            "Empty result from extent computation".to_string(),
+        ));
+    }
+
+    let batch = &batches[0];
+    let min_val = ScalarValue::try_from_array(batch.column(0), 0)?;
+    let max_val = ScalarValue::try_from_array(batch.column(1), 0)?;
+
+    let min_ms = scalar_to_timestamp_ms(&min_val).ok_or_else(|| {
+        AvengerChartError::InternalError("Failed to interpret temporal min value".to_string())
+    })?;
+    let max_ms = scalar_to_timestamp_ms(&max_val).ok_or_else(|| {
+        AvengerChartError::InternalError("Failed to interpret temporal max value".to_string())
+    })?;
+
+    Ok(SerializableDataExtents::temporal(min_ms, max_ms))
 }
 
 async fn explicit_domain_extents_from_scale(
@@ -2777,6 +2873,74 @@ fn scalar_to_timestamp_ms(value: &ScalarValue) -> Option<i64> {
     }
 }
 
+async fn scale_sort_order(
+    scale: &crate::scales::Scale<crate::scales::spec::Auto>,
+    ctx: &SessionContext,
+    params: &indexmap::IndexMap<String, ScalarValue>,
+) -> Result<Option<DomainSort>, AvengerChartError> {
+    use crate::serialization::LogicalExprNodeExt;
+
+    let Some(value_node) = scale.get_options().get("sort") else {
+        return Ok(None);
+    };
+
+    let expr = value_node.to_expr(ctx)?;
+    let datafusion_params = crate::utils::params_to_datafusion(params);
+    let mut scalars =
+        crate::utils::eval_to_scalars(vec![expr], Some(ctx), datafusion_params.as_ref()).await?;
+    let scalar = scalars
+        .pop()
+        .ok_or_else(|| AvengerChartError::InternalError("Missing sort option value".to_string()))?;
+
+    Ok(parse_sort_scalar(&scalar))
+}
+
+fn parse_sort_scalar(value: &ScalarValue) -> Option<DomainSort> {
+    match value {
+        ScalarValue::Boolean(Some(true)) => Some(DomainSort::Ascending),
+        ScalarValue::Boolean(Some(false)) => Some(DomainSort::None),
+        ScalarValue::Int8(Some(v)) => Some(parse_sort_int(*v as i64)),
+        ScalarValue::Int16(Some(v)) => Some(parse_sort_int(*v as i64)),
+        ScalarValue::Int32(Some(v)) => Some(parse_sort_int(*v as i64)),
+        ScalarValue::Int64(Some(v)) => Some(parse_sort_int(*v)),
+        ScalarValue::UInt8(Some(v)) => Some(parse_sort_int(*v as i64)),
+        ScalarValue::UInt16(Some(v)) => Some(parse_sort_int(*v as i64)),
+        ScalarValue::UInt32(Some(v)) => Some(parse_sort_int(*v as i64)),
+        ScalarValue::UInt64(Some(v)) => Some(parse_sort_int(*v as i64)),
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => parse_sort_string(s),
+        _ => None,
+    }
+}
+
+fn parse_sort_int(value: i64) -> DomainSort {
+    if value == 0 {
+        DomainSort::None
+    } else if value < 0 {
+        DomainSort::Descending
+    } else {
+        DomainSort::Ascending
+    }
+}
+
+fn parse_sort_string(value: &str) -> Option<DomainSort> {
+    match value.trim().to_lowercase().as_str() {
+        "asc" | "ascending" => Some(DomainSort::Ascending),
+        "desc" | "descending" => Some(DomainSort::Descending),
+        "none" | "false" | "natural" | "data" => Some(DomainSort::None),
+        "true" => Some(DomainSort::Ascending),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DomainSort {
+    Ascending,
+    Descending,
+    None,
+}
+
 /// Check if a data type represents categorical data based on Arrow type
 ///
 /// This detection is based on the column's data type, not the scale type.
@@ -2802,6 +2966,19 @@ fn is_categorical_data_type(data_type: &datafusion::arrow::datatypes::DataType) 
             | DataType::Utf8View
             | DataType::Boolean
             | DataType::Dictionary(_, _)
+    )
+}
+
+fn is_temporal_data_type(data_type: &datafusion::arrow::datatypes::DataType) -> bool {
+    use datafusion::arrow::datatypes::DataType;
+    matches!(
+        data_type,
+        DataType::Date32
+            | DataType::Date64
+            | DataType::Timestamp(_, _)
+            | DataType::Time32(_)
+            | DataType::Time64(_)
+            | DataType::Duration(_)
     )
 }
 
