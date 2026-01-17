@@ -657,6 +657,7 @@ where
             let scale_sharing_by_channel = scale_sharing_by_channel.clone();
             let initial_shared_scales = initial_shared_scales.clone();
             let fallback_builder = fallback_builder.clone();
+            let shared_data_extents = shared_data_extents.clone();
             let df = df.clone();
             let semaphore = Arc::clone(&semaphore);
 
@@ -674,20 +675,66 @@ where
                     .clone()
                     .filter(facet_expr.eq(lit(iteration.facet_value.clone())))?;
 
+                // Per-channel scale building: ALWAYS build from filtered data, then selectively
+                // extend only Shared/Level(N) channels with their respective extents.
+                // This ensures Free channels use the local (filtered) data range.
+                let mut free_scale_builder = compiled_subplot
+                    .build_scale_builder_from_dataframe(&ctx, &params_base, &filter_df)
+                    .await?;
+
+                // Extend with shared data extents ONLY for channels with ScaleSharing::Shared
+                // For Free scales, we want the local (filtered) data range, not the full dataset range
+                if let Some(ref extents) = shared_data_extents {
+                    let shared_only_extents: std::collections::HashMap<String, _> = extents
+                        .iter()
+                        .filter(|(channel, _)| {
+                            scale_sharing_by_channel
+                                .get(*channel)
+                                .map(|mode| *mode == ScaleSharing::Shared)
+                                .unwrap_or(false)
+                        })
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    if !shared_only_extents.is_empty() {
+                        free_scale_builder.extend_with_shared_extents(&shared_only_extents);
+                    }
+                }
+
+                // Extend with level-based extents for channels with Level(N) sharing (N >= 1)
+                // Extract from coordination context (which was updated per-iteration)
+                if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
+                    let level_extents: std::collections::HashMap<String, _> = scale_sharing_by_channel
+                        .iter()
+                        .filter_map(|(channel, mode)| {
+                            if let ScaleSharing::Level(n) = mode {
+                                if *n >= 1 {
+                                    coord_ctx.get_domain_for_channel(channel)
+                                        .map(|extents| (channel.clone(), extents.clone()))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    if !level_extents.is_empty() {
+                        free_scale_builder.extend_with_shared_extents(&level_extents);
+                    }
+                }
+
+                // Determine if we should pass free_scale_builder to the helper
+                // When any channel is Shared, we rely on initial_shared_scales and overlay later
                 let free_scale_builder_pass1 = if scale_sharing_by_channel
                     .values()
                     .any(|v| *v == ScaleSharing::Shared)
                 {
                     None
                 } else {
-                    // All scales are Free - build from filtered data without shared extent extension
-                    let builder = compiled_subplot
-                        .build_scale_builder_from_dataframe(&ctx, &params_base, &filter_df)
-                        .await?;
-                    Some(builder)
+                    Some(free_scale_builder.clone())
                 };
 
-                let scales = build_scales_helper_with_fallback(
+                let mut scales = build_scales_helper_with_fallback(
                     &compiled_subplot,
                     &initial_shared_scales,
                     &free_scale_builder_pass1,
@@ -699,6 +746,34 @@ where
                     &params_base,
                 )
                 .await?;
+
+                // Overlay step: For non-Shared channels, replace shared scales with free scales
+                // This ensures Free/Level(N) channels use their correct (per-channel) domains
+                // while Shared channels continue to use the full dataset domain.
+                if scale_sharing_by_channel
+                    .values()
+                    .any(|v| *v == ScaleSharing::Shared)
+                {
+                    let facet_scales = build_scales_helper_with_fallback(
+                        &compiled_subplot,
+                        &None,
+                        &Some(free_scale_builder),
+                        &fallback_builder,
+                        &filter_df,
+                        width,
+                        height,
+                        &ctx,
+                        &params_base,
+                    )
+                    .await?;
+                    for (ch, sharing_mode) in &scale_sharing_by_channel {
+                        if *sharing_mode != ScaleSharing::Shared {
+                            if let Some(s) = facet_scales.get(ch) {
+                                scales.insert(ch.clone(), s.clone());
+                            }
+                        }
+                    }
+                }
 
                 let (guide_only, total_overflow, legend_positions, spacing_needs) =
                     measure_subplot(
