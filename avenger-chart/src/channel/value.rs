@@ -2,7 +2,7 @@ use crate::channel::config_traits::ScaleSharing;
 use crate::legend::Legend;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use crate::serialization::{LogicalExprNodeExt, SerializableExpr};
-use datafusion::logical_expr::{Expr, lit};
+use datafusion::logical_expr::{Case, Expr, lit};
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
@@ -254,6 +254,44 @@ impl ChannelValue {
             ChannelValue::Scaled { expr, .. } => expr.to_expr(ctx).ok(),
             ChannelValue::Value { expr } => expr.to_expr(ctx).ok(),
             ChannelValue::Conditional { .. } => None,
+        }
+    }
+
+    /// Get expression for domain inference.
+    ///
+    /// For conditional values, builds a CASE expression that combines all branches,
+    /// allowing domain inference to consider all possible output values.
+    ///
+    /// This should be used for scale domain inference and type inference,
+    /// NOT for filtering or rendering where the original conditional logic matters.
+    pub fn expr_for_domain(&self, ctx: &SessionContext) -> Option<Expr> {
+        match self {
+            ChannelValue::Scaled { expr, .. } => expr.to_expr(ctx).ok(),
+            ChannelValue::Value { expr } => expr.to_expr(ctx).ok(),
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                ..
+            } => {
+                // Build CASE WHEN cond1 THEN val1 WHEN cond2 THEN val2 ... ELSE otherwise END
+                let when_then_exprs: Vec<(Box<Expr>, Box<Expr>)> = conditions
+                    .iter()
+                    .filter_map(|(cond, val)| {
+                        let cond_expr = cond.to_expr(ctx).ok()?;
+                        let val_expr = val.expr(ctx).ok()?;
+                        Some((Box::new(cond_expr), Box::new(val_expr)))
+                    })
+                    .collect();
+
+                let else_expr = otherwise.expr(ctx).ok().map(Box::new);
+
+                // Return None if we couldn't build any when/then pairs and no else
+                if when_then_exprs.is_empty() && else_expr.is_none() {
+                    return None;
+                }
+
+                Some(Expr::Case(Case::new(None, when_then_exprs, else_expr)))
+            }
         }
     }
 
@@ -799,5 +837,131 @@ mod tests {
         };
         // Conditional values don't have a single column name
         assert_eq!(cv.as_column_name(&ctx), None);
+    }
+
+    #[test]
+    fn test_expr_for_domain_scaled() {
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+
+        // Scaled variant should return same as expr()
+        let cv: ChannelValue = col("x").into();
+        let expr = cv.expr(&ctx);
+        let domain_expr = cv.expr_for_domain(&ctx);
+        assert!(expr.is_some());
+        assert!(domain_expr.is_some());
+        assert_eq!(expr.unwrap().to_string(), domain_expr.unwrap().to_string());
+    }
+
+    #[test]
+    fn test_expr_for_domain_value() {
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+
+        // Value variant should return same as expr()
+        let cv: ChannelValue = 42.into();
+        let expr = cv.expr(&ctx);
+        let domain_expr = cv.expr_for_domain(&ctx);
+        assert!(expr.is_some());
+        assert!(domain_expr.is_some());
+        assert_eq!(expr.unwrap().to_string(), domain_expr.unwrap().to_string());
+    }
+
+    #[test]
+    fn test_expr_for_domain_conditional() {
+        use super::ConditionalValue;
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+
+        // Build a conditional: if category == "A" then "red" else "blue"
+        let cv = ChannelValue::Conditional {
+            conditions: vec![(
+                LogicalExprNode::from_expr(col("category").eq(lit("A")))
+                    .expect("Failed to serialize condition"),
+                ConditionalValue::Value {
+                    expr: LogicalExprNode::from_expr(lit("red"))
+                        .expect("Failed to serialize value"),
+                },
+            )],
+            otherwise: ConditionalValue::Value {
+                expr: LogicalExprNode::from_expr(lit("blue"))
+                    .expect("Failed to serialize otherwise"),
+            },
+            scale_config: None,
+            legend_config: None,
+            share_mode: None,
+        };
+
+        // expr() returns None for conditional
+        assert!(cv.expr(&ctx).is_none());
+
+        // expr_for_domain() returns a CASE expression
+        let domain_expr = cv.expr_for_domain(&ctx);
+        assert!(domain_expr.is_some());
+        let expr_str = domain_expr.unwrap().to_string();
+        // CASE expression should contain WHEN, THEN, ELSE
+        assert!(
+            expr_str.contains("WHEN"),
+            "Expected CASE expression, got: {}",
+            expr_str
+        );
+        assert!(
+            expr_str.contains("THEN"),
+            "Expected CASE expression, got: {}",
+            expr_str
+        );
+        assert!(
+            expr_str.contains("ELSE"),
+            "Expected CASE expression, got: {}",
+            expr_str
+        );
+    }
+
+    #[test]
+    fn test_expr_for_domain_conditional_multiple_branches() {
+        use super::ConditionalValue;
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+
+        // Build a conditional with multiple branches:
+        // if category == "A" then "red" elif category == "B" then "green" else "blue"
+        let cv = ChannelValue::Conditional {
+            conditions: vec![
+                (
+                    LogicalExprNode::from_expr(col("category").eq(lit("A")))
+                        .expect("Failed to serialize condition"),
+                    ConditionalValue::Value {
+                        expr: LogicalExprNode::from_expr(lit("red"))
+                            .expect("Failed to serialize value"),
+                    },
+                ),
+                (
+                    LogicalExprNode::from_expr(col("category").eq(lit("B")))
+                        .expect("Failed to serialize condition"),
+                    ConditionalValue::Value {
+                        expr: LogicalExprNode::from_expr(lit("green"))
+                            .expect("Failed to serialize value"),
+                    },
+                ),
+            ],
+            otherwise: ConditionalValue::Value {
+                expr: LogicalExprNode::from_expr(lit("blue"))
+                    .expect("Failed to serialize otherwise"),
+            },
+            scale_config: None,
+            legend_config: None,
+            share_mode: None,
+        };
+
+        let domain_expr = cv.expr_for_domain(&ctx);
+        assert!(domain_expr.is_some());
+        let expr_str = domain_expr.unwrap().to_string();
+        // Should have multiple WHEN clauses
+        let when_count = expr_str.matches("WHEN").count();
+        assert_eq!(
+            when_count, 2,
+            "Expected 2 WHEN clauses, got {}: {}",
+            when_count, expr_str
+        );
     }
 }

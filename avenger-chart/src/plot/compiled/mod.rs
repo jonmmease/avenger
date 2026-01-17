@@ -309,7 +309,7 @@ impl CompiledPlot {
                 let resolved =
                     resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
                 if let Some(channel_value) = resolved.get(channel) {
-                    if let Some(expr) = channel_value.expr(ctx) {
+                    if let Some(expr) = channel_value.expr_for_domain(ctx) {
                         // Try to infer type directly from schema for simple column refs
                         let inferred_dt = match &expr {
                             datafusion::logical_expr::Expr::Column(col) => {

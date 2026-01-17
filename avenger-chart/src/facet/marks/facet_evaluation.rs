@@ -2327,7 +2327,7 @@ async fn detect_nested_facet_and_compute_coordination(
                 let channels = mark.data_context().channels();
                 if let Some(channel_value) = channels.get(channel_name) {
                     if channel_expr.is_none() {
-                        channel_expr = channel_value.expr(ctx);
+                        channel_expr = channel_value.expr_for_domain(ctx);
                         share_mode = channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
                     }
 

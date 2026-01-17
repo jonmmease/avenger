@@ -272,56 +272,43 @@ async fn build_scale_for_channel(
         let resolved = resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 
         if let Some(channel_value) = resolved.get(channel) {
-            // Infer data type for conditional values using their 'otherwise' expression
-            let maybe_dt = match channel_value {
-                crate::marks::ChannelValue::Conditional { .. } => {
-                    // Use mark/plot DF schema to infer type for the 'otherwise' expression
+            // Use expr_for_domain for all channel types (including conditional)
+            // This produces a CASE expression for conditionals, allowing type inference
+            // to consider all branches rather than just the 'otherwise' branch.
+            let maybe_dt = {
+                if let Some(expr) = channel_value.expr_for_domain(ctx) {
+                    // Try to infer type using the mark's own DataFrame first,
+                    // then fall back to plot-level DataFrame if available.
                     let mark_df = mark.data_context().dataframe_with_context(ctx);
                     // Skip EmptyRelation placeholders and use plot-level DataFrame instead
-                    let df = mark_df
+                    let df_for_inference = mark_df
                         .filter(|df| !is_empty_relation(df))
                         .or_else(|| df_opt.clone());
-                    if let Some(df) = df {
-                        channel_value.get_data_type(df.schema(), ctx).ok()
-                    } else {
-                        None
-                    }
-                }
-                _ => {
-                    if let Some(expr) = channel_value.expr(ctx) {
-                        // Try to infer type using the mark's own DataFrame first,
-                        // then fall back to plot-level DataFrame if available.
-                        let mark_df = mark.data_context().dataframe_with_context(ctx);
-                        // Skip EmptyRelation placeholders and use plot-level DataFrame instead
-                        let df_for_inference = mark_df
-                            .filter(|df| !is_empty_relation(df))
-                            .or_else(|| df_opt.clone());
-                        let inferred_dt = if let Some(df) = df_for_inference {
-                            match &expr {
-                                Expr::Column(col) => {
-                                    let name = col.name.clone();
-                                    df.schema()
-                                        .field_with_unqualified_name(&name)
-                                        .ok()
-                                        .map(|f| f.data_type().clone())
-                                }
-                                _ => {
-                                    if let Ok(projected) =
-                                        df.clone().select(vec![expr.clone().alias("__t")])
-                                    {
-                                        Some(projected.schema().field(0).data_type().clone())
-                                    } else {
-                                        None
-                                    }
+                    let inferred_dt = if let Some(df) = df_for_inference {
+                        match &expr {
+                            Expr::Column(col) => {
+                                let name = col.name.clone();
+                                df.schema()
+                                    .field_with_unqualified_name(&name)
+                                    .ok()
+                                    .map(|f| f.data_type().clone())
+                            }
+                            _ => {
+                                if let Ok(projected) =
+                                    df.clone().select(vec![expr.clone().alias("__t")])
+                                {
+                                    Some(projected.schema().field(0).data_type().clone())
+                                } else {
+                                    None
                                 }
                             }
-                        } else {
-                            None
-                        };
-                        inferred_dt
+                        }
                     } else {
                         None
-                    }
+                    };
+                    inferred_dt
+                } else {
+                    None
                 }
             };
 
@@ -735,18 +722,25 @@ async fn cache_domain_data(
                             entries.push((df.clone(), expr_df, per_mark_radius));
                         };
 
+                        // For domain collection, only include expressions that go through
+                        // the scale (Scaled variants). Literal Value branches bypass the
+                        // scale and shouldn't affect domain computation.
                         match channel_value {
-                            crate::marks::ChannelValue::Scaled { expr, .. }
-                            | crate::marks::ChannelValue::Value { expr } => {
+                            crate::marks::ChannelValue::Scaled { expr, .. } => {
                                 if let Ok(expr_df) = expr.to_expr(ctx) {
                                     push_entry(expr_df);
                                 }
+                            }
+                            crate::marks::ChannelValue::Value { .. } => {
+                                // Identity values don't use scales, skip domain collection
                             }
                             crate::marks::ChannelValue::Conditional {
                                 conditions,
                                 otherwise,
                                 ..
                             } => {
+                                // Only collect Scaled branches - they need scale transformation
+                                // Value branches (literals) bypass the scale entirely
                                 for (_cond, val) in conditions {
                                     if let crate::marks::ConditionalValue::Scaled { expr } = val {
                                         if let Ok(expr_df) = expr.to_expr(ctx) {
