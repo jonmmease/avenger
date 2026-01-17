@@ -67,7 +67,16 @@ pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
     ///
     /// Row: (plot_width, band_size) - height varies with band
     /// Column: (band_size, plot_height) - width varies with band
+    ///
+    /// Note: This version rounds the band dimension for rendering purposes.
+    /// Use `subplot_dimensions_exact` for measurement where exact values are needed.
     fn subplot_dimensions(band_size: f32, plot_width: f32, plot_height: f32) -> (f32, f32);
+
+    /// Calculate subplot dimensions without rounding (for measurement)
+    ///
+    /// Same as `subplot_dimensions` but without rounding the band dimension.
+    /// Used during measurement where exact values are needed for proper overflow computation.
+    fn subplot_dimensions_exact(band_size: f32, plot_width: f32, plot_height: f32) -> (f32, f32);
 
     /// Calculate group origin translation from position value
     ///
@@ -120,6 +129,18 @@ pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
     /// Row facets unify the y-axis title
     /// Column facets unify the x-axis title
     fn unified_title_channel() -> &'static str;
+
+    /// Calculate the inter-cell gap from adjacent overflow pairs
+    ///
+    /// Row: max(overflow_i.bottom + overflow_{i+1}.top) + safety_margin
+    /// Column: max(overflow_i.right + overflow_{i+1}.left) + safety_margin
+    fn calculate_inter_gap(overflows: &[OverflowSpaceRequirement], safety_margin: f32) -> f32;
+
+    /// The spacing key for the inter-cell gap (for recursion guard)
+    ///
+    /// Row: "inter_row_gap"
+    /// Column: "inter_col_gap"
+    fn inter_gap_spacing_key() -> &'static str;
 }
 
 /// Row faceting dimension configuration
@@ -164,7 +185,14 @@ impl FacetDimensionConfig for RowDimensionConfig {
 
     fn subplot_dimensions(band_size: f32, plot_width: f32, _plot_height: f32) -> (f32, f32) {
         // Row: height varies with band, width is fixed
+        // Note: Rounding is applied for rendering to avoid subpixel positioning
         (plot_width, band_size.round())
+    }
+
+    fn subplot_dimensions_exact(band_size: f32, plot_width: f32, _plot_height: f32) -> (f32, f32) {
+        // Row: height varies with band, width is fixed
+        // No rounding - used for measurement where exact values are needed
+        (plot_width, band_size)
     }
 
     fn group_origin(position: f32) -> [f32; 2] {
@@ -226,6 +254,22 @@ impl FacetDimensionConfig for RowDimensionConfig {
     fn unified_title_channel() -> &'static str {
         "y"
     }
+
+    fn calculate_inter_gap(overflows: &[OverflowSpaceRequirement], safety_margin: f32) -> f32 {
+        // Row: gap = max(overflow_i.bottom + overflow_{i+1}.top)
+        if overflows.len() < 2 {
+            return 0.0;
+        }
+        let max_gap = overflows
+            .windows(2)
+            .map(|pair| pair[0].bottom + pair[1].top)
+            .fold(0.0_f32, f32::max);
+        max_gap + safety_margin
+    }
+
+    fn inter_gap_spacing_key() -> &'static str {
+        crate::guide::spacing_keys::INTER_ROW_GAP
+    }
 }
 
 /// Column faceting dimension configuration
@@ -270,7 +314,14 @@ impl FacetDimensionConfig for ColumnDimensionConfig {
 
     fn subplot_dimensions(band_size: f32, _plot_width: f32, plot_height: f32) -> (f32, f32) {
         // Column: width varies with band, height is fixed
+        // Note: Rounding is applied for rendering to avoid subpixel positioning
         (band_size.round(), plot_height)
+    }
+
+    fn subplot_dimensions_exact(band_size: f32, _plot_width: f32, plot_height: f32) -> (f32, f32) {
+        // Column: width varies with band, height is fixed
+        // No rounding - used for measurement where exact values are needed
+        (band_size, plot_height)
     }
 
     fn group_origin(position: f32) -> [f32; 2] {
@@ -328,5 +379,21 @@ impl FacetDimensionConfig for ColumnDimensionConfig {
 
     fn unified_title_channel() -> &'static str {
         "x"
+    }
+
+    fn calculate_inter_gap(overflows: &[OverflowSpaceRequirement], safety_margin: f32) -> f32 {
+        // Column: gap = max(overflow_i.right + overflow_{i+1}.left)
+        if overflows.len() < 2 {
+            return 0.0;
+        }
+        let max_gap = overflows
+            .windows(2)
+            .map(|pair| pair[0].right + pair[1].left)
+            .fold(0.0_f32, f32::max);
+        max_gap + safety_margin
+    }
+
+    fn inter_gap_spacing_key() -> &'static str {
+        crate::guide::spacing_keys::INTER_COL_GAP
     }
 }

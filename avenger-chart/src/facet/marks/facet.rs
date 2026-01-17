@@ -117,6 +117,21 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
     }
 }
 
+/// Trait for accessing common fields from compiled facet marks.
+/// This enables generic code to work with both CompiledFacetRow and CompiledFacetCol.
+pub trait CompiledFacetSource {
+    /// Get the compiled subplot
+    fn compiled_subplot(&self) -> &Arc<CompiledPlot>;
+    /// Get the compiled mark state
+    fn compiled_state(&self) -> &CompiledMarkState;
+    /// Get the optional facet title
+    fn facet_title(&self) -> Option<&str>;
+    /// Get the optional facet spacing
+    fn facet_spacing(&self) -> Option<f32>;
+    /// Get the optional facet scale sharing mode
+    fn facet_scale_sharing(&self) -> Option<ScaleSharing>;
+}
+
 /// Compiled facet mark specialized for FacetRow outer coords
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
@@ -126,6 +141,24 @@ pub struct CompiledFacetRow {
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
     pub(crate) facet_scale_sharing: Option<ScaleSharing>,
+}
+
+impl CompiledFacetSource for CompiledFacetRow {
+    fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+        &self.compiled_subplot
+    }
+    fn compiled_state(&self) -> &CompiledMarkState {
+        &self.state
+    }
+    fn facet_title(&self) -> Option<&str> {
+        self.facet_title.as_deref()
+    }
+    fn facet_spacing(&self) -> Option<f32> {
+        self.facet_spacing
+    }
+    fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
+        self.facet_scale_sharing
+    }
 }
 
 #[async_trait::async_trait]
@@ -328,6 +361,24 @@ pub struct CompiledFacetCol {
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
     pub(crate) facet_scale_sharing: Option<ScaleSharing>,
+}
+
+impl CompiledFacetSource for CompiledFacetCol {
+    fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+        &self.compiled_subplot
+    }
+    fn compiled_state(&self) -> &CompiledMarkState {
+        &self.state
+    }
+    fn facet_title(&self) -> Option<&str> {
+        self.facet_title.as_deref()
+    }
+    fn facet_spacing(&self) -> Option<f32> {
+        self.facet_spacing
+    }
+    fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
+        self.facet_scale_sharing
+    }
 }
 
 #[async_trait::async_trait]

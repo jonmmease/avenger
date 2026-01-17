@@ -68,8 +68,8 @@ Before additional faceting features (FacetWrap, FacetGrid, Manual Facet) can be 
 ## Common Features
 
 All faceting marks:
-- Group data by one or more faceting columns using DataFusion's `.group_by()`
-- Render a complete inner `Plot<InnerC>` for each facet group
+- Extract unique facet values via `distinct()` and render a subplot for each via filtering
+- Render a complete inner `Plot<InnerC>` for each facet value
 - Support nested coordinate systems (e.g., Cartesian outer positioning, Polar inner subplots)
 - Pass data to each inner plot based on mark facet strategies
 - Support multiple marks within inner plots with different data strategies

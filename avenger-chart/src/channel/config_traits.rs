@@ -96,7 +96,7 @@ pub trait ChannelConfig: Sized {
 
     /// Configure whether this channel's scale is shared across facets or free per facet
     ///
-    /// Supports full ScaleSharing enum: Shared, Free, SharedInRow, SharedInColumn
+    /// Supports full ScaleSharing enum: Shared, Free, Level(n)
     fn with_scale_sharing(mut self, mode: ScaleSharing) -> Self {
         let mut value = self.get_value().clone();
         value = match value {

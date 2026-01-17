@@ -80,29 +80,15 @@ Defined in `channel/config_traits.rs`:
 pub enum ScaleSharing {
     Shared,           // One domain for all facets
     Free,             // Independent per facet
-    SharedInRow,      // Share within each row (across columns)
-    SharedInColumn,   // Share within each column (across rows)
+    Level(u8),        // Hierarchical level-based sharing for nested facets
 }
 ```
 
-**Normalization for nested facets** (lines 887-902 in facet_evaluation.rs):
-```rust
-scale_sharing_by_channel.into_iter()
-    .map(|(ch, mode)| {
-        let normalized = match mode {
-            ScaleSharing::SharedInColumn if DimConfig::is_row_facet() => ScaleSharing::Shared,
-            ScaleSharing::SharedInRow if DimConfig::is_col_facet() => ScaleSharing::Shared,
-            other => other,
-        };
-        (ch, normalized)
-    })
-    .collect();
-```
-
-**Why this normalization?**
-- FacetRow is 1-column, so SharedInColumn becomes Shared (only one column exists)
-- FacetColumn is 1-row, so SharedInRow becomes Shared (only one row exists)
-- This simplifies the logic for single-dimension faceting
+**Level-based sharing**:
+- `Level(0)` = Same as `Free` (independent per cell)
+- `Level(1)` = Share with immediate parent facet
+- `Level(n)` = Share n levels up in the hierarchy
+- `Level(u8::MAX)` = Same as `Shared` (global across all facets)
 
 ### 4. FacetContext: Position and Visibility Information
 
@@ -186,8 +172,8 @@ The inner facet receives this filtered subset and further filters by its own fac
 
 **Shared scales** are built from the parent's filtered data:
 - Outer facet builds scales from full dataset
-- If inner facet has SharedInRow/SharedInColumn → normalization to Shared
 - Inner facet's scales built from outer facet's filtered data
+- Level-based sharing (`Level(n)`) propagates domains from parent facets
 
 This ensures axes align correctly across nested levels.
 
@@ -357,14 +343,13 @@ When nested facet subplots don't provide facet expressions, guide.rs returns har
 - Cartesian subplots with large axis labels
 - Multiple nesting levels
 
-### 2. Scale Sharing Normalization May Be Too Aggressive
+### 2. Level-Based Sharing Semantics
 
-For nested FacetRow:
-- If mark declares `SharedInColumn` for x-axis
-- Gets normalized to `Shared` because FacetRow is single-column
-- Inner facets don't see the distinction
+For nested facets, `Level(n)` sharing provides hierarchical domain propagation:
+- `Level(1)` shares with immediate parent
+- Higher levels share with ancestors further up the hierarchy
 
-**Consequence**: All FacetRows behave identically for SharedInColumn/SharedInRow, losing potential expressiveness.
+This replaces the older row/column-based sharing approach with a more general level-based model.
 
 ### 3. Limited Testing of Deep Nesting
 

@@ -41,6 +41,634 @@ pub fn default_overflow_fallback() -> (f32, f32, f32, f32) {
 // trait method, which provides dimension-specific behavior (row vs column).
 // Use RowDimensionConfig::aggregate_overflow_edges or ColumnDimensionConfig::aggregate_overflow_edges
 
+/// Unified title references for measure_overflow and evaluate generic helpers.
+///
+/// This struct encapsulates the different title fields between Row and Column facets:
+/// - `FacetRowGuide` has only `unified_y_title`
+/// - `FacetColGuide` has both `unified_x_title` and `unified_y_title`
+///
+/// The `primary_unified` field corresponds to the dimension's own unified title:
+/// - Row facets: `unified_y_title` (unifies y-axis across rows)
+/// - Column facets: `unified_x_title` (unifies x-axis across columns)
+///
+/// The `nested_unified` field is only used by FacetColGuide for the nested case
+/// where a FacetRow is inside a FacetCol and needs to render the unified y-title.
+#[derive(Clone, Debug, Default)]
+pub struct FacetTitles<'a> {
+    /// The primary unified title for this dimension
+    /// Row: unified_y_title, Column: unified_x_title
+    pub primary_unified: Option<&'a String>,
+
+    /// Optional nested unified title (only used by FacetColGuide)
+    /// When FacetCol contains FacetRow, this holds unified_y_title
+    pub nested_unified: Option<&'a String>,
+}
+
+/// Apply shared overflow from coordination context for uniform padding.
+///
+/// This ensures plot areas align even when scales are not shared, by applying
+/// the maximum overflow from any sibling facet cell.
+///
+/// # Arguments
+/// * `overflow` - Mutable tuple (top, bottom, left, right) to apply shared values to
+/// * `params` - Parameters containing coordination context
+fn apply_shared_overflow_coordination(
+    overflow: &mut (f32, f32, f32, f32),
+    params: &IndexMap<String, datafusion::common::ScalarValue>,
+) {
+    use crate::facet::coordination::{
+        FacetCoordinationContext, SHARED_OVERFLOW_BOTTOM, SHARED_OVERFLOW_LEFT,
+        SHARED_OVERFLOW_RIGHT, SHARED_OVERFLOW_TOP,
+    };
+    let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
+    if let Some(shared_top) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_TOP) {
+        overflow.0 = overflow.0.max(shared_top);
+    }
+    if let Some(shared_bottom) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_BOTTOM) {
+        overflow.1 = overflow.1.max(shared_bottom);
+    }
+    if let Some(shared_left) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_LEFT) {
+        overflow.2 = overflow.2.max(shared_left);
+    }
+    if let Some(shared_right) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_RIGHT) {
+        overflow.3 = overflow.3.max(shared_right);
+    }
+}
+
+/// Aggregate overflow from cached per-facet overflow values.
+///
+/// This aggregates overflow for unified title positioning when cached overflow
+/// values are available (from the measurement phase). The aggregation strategy is:
+/// - Top/bottom: MAX across all subplots (for proper unified title positioning)
+/// - Left: from first subplot (leftmost/topmost edge)
+/// - Right: from last subplot (rightmost/bottommost edge)
+///
+/// Returns (top_max, bottom_max, left_max, right_max).
+fn aggregate_cached_overflow(
+    per_facet_overflow: &[OverflowSpaceRequirement],
+    mut top_max: f32,
+    mut bottom_max: f32,
+    mut left_max: f32,
+    mut right_max: f32,
+) -> (f32, f32, f32, f32) {
+    // Aggregate top/bottom across all subplots for unified title positioning
+    for overflow_item in per_facet_overflow {
+        top_max = top_max.max(overflow_item.top);
+        bottom_max = bottom_max.max(overflow_item.bottom);
+    }
+
+    // Use first subplot's left overflow (leftmost/topmost edge)
+    if let Some(first) = per_facet_overflow.first() {
+        left_max = left_max.max(first.left);
+    }
+
+    // Use last subplot's right overflow (rightmost/bottommost edge)
+    if let Some(last) = per_facet_overflow.last() {
+        right_max = right_max.max(last.right);
+    }
+
+    (top_max, bottom_max, left_max, right_max)
+}
+
+/// Generic implementation of two-pass measurement with coordination for facet guides.
+///
+/// This implements the measure_with_coordination pattern shared by FacetRowGuide and FacetColGuide:
+/// 1. Check recursion and nesting guards
+/// 2. Pass 1: Measure with zero gap to determine overflow
+/// 3. Compute inter-cell gap from Pass 1 overflow
+/// 4. Pass 2: Re-measure with computed gap
+/// 5. Return aggregated overflow with spacing needs
+///
+/// # Type Parameters
+/// - `D`: The dimension configuration (RowDimensionConfig or ColumnDimensionConfig)
+///
+/// # Arguments
+/// - `facet_sources`: The facet sources to measure
+/// - `unified_title`: Optional unified title (for unified_y check in Column)
+/// - `scales`: The configured scales (must contain the dimension's channel)
+/// - `own_overflow`: Overflow for this dimension (unused in recursion guard pass-through)
+/// - `other_overflow`: Overflow for the other dimension (passed to child measure_with_coordination)
+/// - `plot_width`, `plot_height`: Plot dimensions
+/// - `theme`: The theme for styling
+/// - `params`: Parameters including FacetCoordinationContext
+/// - `data_override`: Optional data override for nested scenarios
+/// - `ctx`: DataFusion session context
+#[allow(clippy::too_many_arguments)]
+async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
+    facet_sources: &[FacetSource],
+    unified_title: Option<&String>,
+    scales: &HashMap<String, ConfiguredScale>,
+    _own_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+    other_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+    plot_width: f32,
+    plot_height: f32,
+    theme: &crate::theme::Theme,
+    params: &IndexMap<String, datafusion::common::ScalarValue>,
+    data_override: Option<&datafusion::dataframe::DataFrame>,
+    ctx: &SessionContext,
+    measure_overflow_fn: impl AsyncMeasureOverflowFn,
+) -> Result<MeasurementResult, crate::error::AvengerChartError> {
+    use crate::facet::coordination::FacetCoordinationContext;
+    use crate::facet::guide_measurement::aggregate_overflow;
+    use tracing::debug;
+
+    /// Safety margin for gap calculation (accounts for potential measurement variance)
+    const GAP_SAFETY_MARGIN: f32 = 1.0;
+
+    let channel_name = D::channel_name();
+    let inter_gap_key = D::inter_gap_spacing_key();
+
+    // Guard: Invalid dimensions
+    if plot_height <= 0.0 || plot_width <= 0.0 {
+        return Ok(MeasurementResult::default());
+    }
+
+    // Guard: No facet sources
+    if facet_sources.is_empty() {
+        return Ok(MeasurementResult::default());
+    }
+
+    // Parse coordination context ONCE
+    let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
+
+    // RECURSION GUARD: If already coordinated, use single pass (measure_overflow)
+    if coord_ctx.get_coordinated_spacing(inter_gap_key).is_some() {
+        debug!(
+            "Facet{}Guide: Recursion guard - using pre-coordinated {}",
+            if D::is_row_facet() { "Row" } else { "Col" },
+            inter_gap_key
+        );
+        let overflow = measure_overflow_fn
+            .call(
+                scales,
+                _own_overflow,
+                other_overflow,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+            )
+            .await?;
+        return Ok(MeasurementResult::new(overflow));
+    }
+
+    // NESTING GUARD: If we're inside another guide's measure_with_coordination,
+    // skip 2-pass to avoid deep async recursion causing stack overflow.
+    if coord_ctx
+        .get_coordinated_spacing(spacing_keys::NESTED_MEASUREMENT)
+        .is_some()
+    {
+        debug!(
+            "Facet{}Guide: Nesting guard - NESTED_MEASUREMENT set, using single-pass",
+            if D::is_row_facet() { "Row" } else { "Col" }
+        );
+        let overflow = measure_overflow_fn
+            .call(
+                scales,
+                _own_overflow,
+                other_overflow,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+            )
+            .await?;
+        return Ok(MeasurementResult::new(overflow));
+    }
+
+    // Get dimension scale
+    let dim_scale = scales.get(channel_name).ok_or_else(|| {
+        crate::error::AvengerChartError::InternalError(
+            format!(
+                "Missing '{}' scale for Facet{}Guide",
+                channel_name,
+                if D::is_row_facet() { "Row" } else { "Col" }
+            )
+            .into(),
+        )
+    })?;
+
+    // Extract domain values
+    let mut domain_vals = match dim_scale.domain_values()? {
+        crate::scales::extensions::DomainValues::Discrete(vals) => vals,
+        _ => vec![],
+    };
+    domain_vals.sort_by(scalar_total_cmp);
+
+    // For uniform Free scaling, use max cell count instead of actual domain length
+    let num_cells = coord_ctx
+        .get_uniform_cell_count()
+        .unwrap_or(domain_vals.len())
+        .max(1);
+
+    // === PASS 1: Measure with zero gap ===
+    let pass1_band_size = D::compute_band_size(plot_width, plot_height, num_cells, 0.0);
+    let (pass1_width, pass1_height) =
+        D::subplot_dimensions_exact(pass1_band_size, plot_width, plot_height);
+
+    debug!(
+        "Facet{}Guide: Pass 1 - measuring {} cells with zero gap, band_size={:.2}",
+        if D::is_row_facet() { "Row" } else { "Col" },
+        num_cells,
+        pass1_band_size
+    );
+
+    let mut cell_overflows: Vec<OverflowSpaceRequirement> = Vec::with_capacity(num_cells);
+    let mut aggregated_spacing: std::collections::HashMap<String, f32> =
+        std::collections::HashMap::new();
+
+    // Get the first facet source (primary source for measurement)
+    let source = &facet_sources[0];
+
+    // Get facet expression
+    let facet_expr = source
+        .data
+        .channels()
+        .get(channel_name)
+        .and_then(|cv| cv.expr(ctx));
+
+    // Get the dataframe for measurement
+    let df = data_override
+        .cloned()
+        .or_else(|| source.data.dataframe_with_context(ctx));
+
+    if let (Some(expr), Some(df)) = (facet_expr, df) {
+        use datafusion::logical_expr::lit;
+
+        // Build scales for subplot measurement
+        let builder = source
+            .subplot
+            .build_scale_builder_from_dataframe(ctx, params, &df)
+            .await?;
+        let subplot_scales = source
+            .subplot
+            .build_scales_from_builder(&builder, pass1_width, pass1_height, ctx, params)
+            .await?;
+
+        // Convert to ConfiguredScale for measure_with_coordination trait method
+        let subplot_scales_configured: HashMap<String, ConfiguredScale> = subplot_scales
+            .iter()
+            .map(|(k, v)| (k.clone(), v.configured().clone()))
+            .collect();
+
+        // Compute scale sharing from marks
+        let scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
+
+        // Measure each cell in Pass 1
+        for (cell_idx, domain_val) in domain_vals.iter().enumerate() {
+            use crate::facet::context::FacetContext;
+
+            let filter_df = df
+                .clone()
+                .filter(expr.clone().eq(lit(domain_val.clone())))?;
+
+            // Create FacetContext for this cell with NESTED_MEASUREMENT marker
+            let measure_params = {
+                let mut updated_params = params.clone();
+                let position = D::index_to_position(cell_idx);
+                let grid_dimensions = D::count_to_grid_dimensions(num_cells);
+                let facet_ctx = FacetContext {
+                    position,
+                    grid_dimensions,
+                    unified_channels: D::unified_channels()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                    scale_sharing: scale_sharing.clone(),
+                };
+                for (k, v) in facet_ctx.to_params() {
+                    updated_params.insert(k, v);
+                }
+                // Add NESTED_MEASUREMENT marker to coordination context
+                let mut nested_ctx = coord_ctx.clone();
+                nested_ctx
+                    .coordinated_spacing
+                    .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
+                for (k, v) in nested_ctx.to_params() {
+                    updated_params.insert(k, v);
+                }
+                updated_params
+            };
+
+            // Call measure_with_coordination on child guide to get MeasurementResult
+            // Pass other_overflow to child based on dimension
+            let (child_row_overflow, child_col_overflow) = if D::is_row_facet() {
+                (None, other_overflow)
+            } else {
+                (other_overflow, None)
+            };
+
+            let child_result = if let Some(guide) = source.subplot.compiled_guide.as_ref() {
+                guide
+                    .measure_with_coordination(
+                        &subplot_scales_configured,
+                        child_row_overflow,
+                        child_col_overflow,
+                        pass1_width,
+                        pass1_height,
+                        theme,
+                        &measure_params,
+                        Some(&filter_df),
+                        ctx,
+                    )
+                    .await?
+            } else {
+                // Fallback: measure directly
+                let (_, total_overflow, _, _) = source
+                    .subplot
+                    .measure_with_scales(
+                        pass1_width,
+                        pass1_height,
+                        ctx,
+                        &measure_params,
+                        &subplot_scales,
+                        Some(&filter_df),
+                    )
+                    .await?;
+                MeasurementResult::new(total_overflow)
+            };
+
+            cell_overflows.push(child_result.overflow);
+
+            // Aggregate child spacing_needs
+            for (key, value) in child_result.spacing_needs {
+                aggregated_spacing
+                    .entry(key)
+                    .and_modify(|v| *v = v.max(value))
+                    .or_insert(value);
+            }
+        }
+    } else {
+        // No data or expression - use measure_overflow fallback
+        let overflow = measure_overflow_fn
+            .call(
+                scales,
+                _own_overflow,
+                other_overflow,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+            )
+            .await?;
+        return Ok(MeasurementResult::new(overflow));
+    }
+
+    // === Compute gap from Pass 1 ===
+    let computed_gap = D::calculate_inter_gap(&cell_overflows, GAP_SAFETY_MARGIN);
+
+    debug!(
+        "Facet{}Guide: Computed {}={:.2} (with {:.1}px safety margin)",
+        if D::is_row_facet() { "Row" } else { "Col" },
+        inter_gap_key,
+        computed_gap,
+        GAP_SAFETY_MARGIN
+    );
+
+    // === PASS 2: Re-measure with computed gap ===
+    let total_gap = computed_gap * (num_cells.saturating_sub(1)) as f32;
+    let pass2_band_size = D::compute_band_size(plot_width, plot_height, num_cells, total_gap);
+    let (pass2_width, pass2_height) =
+        D::subplot_dimensions_exact(pass2_band_size, plot_width, plot_height);
+
+    debug!(
+        "Facet{}Guide: Pass 2 - re-measuring with gap={:.2}, band_size={:.2}",
+        if D::is_row_facet() { "Row" } else { "Col" },
+        computed_gap,
+        pass2_band_size
+    );
+
+    // Create params with computed gap for nested guides
+    let pass2_params = {
+        let mut new_ctx = coord_ctx.clone();
+        // Add our own computed gap
+        new_ctx
+            .coordinated_spacing
+            .insert(inter_gap_key.to_string(), computed_gap);
+        // Add all aggregated spacing from children
+        for (key, value) in &aggregated_spacing {
+            new_ctx.coordinated_spacing.insert(key.clone(), *value);
+        }
+        // Add NESTED_MEASUREMENT marker for child guides
+        new_ctx
+            .coordinated_spacing
+            .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
+        let mut new_params = params.clone();
+        for (k, v) in new_ctx.to_params() {
+            new_params.insert(k, v);
+        }
+        new_params
+    };
+
+    let source = &facet_sources[0];
+    let facet_expr = source
+        .data
+        .channels()
+        .get(channel_name)
+        .and_then(|cv| cv.expr(ctx));
+
+    let df = data_override
+        .cloned()
+        .or_else(|| source.data.dataframe_with_context(ctx));
+
+    let mut final_overflows: Vec<OverflowSpaceRequirement> = Vec::with_capacity(num_cells);
+    aggregated_spacing.clear(); // Reset for Pass 2 aggregation
+
+    if let (Some(expr), Some(df)) = (facet_expr, df) {
+        use datafusion::logical_expr::lit;
+
+        // Rebuild scales with Pass 2 band size
+        let builder = source
+            .subplot
+            .build_scale_builder_from_dataframe(ctx, &pass2_params, &df)
+            .await?;
+        let subplot_scales = source
+            .subplot
+            .build_scales_from_builder(&builder, pass2_width, pass2_height, ctx, &pass2_params)
+            .await?;
+
+        let subplot_scales_configured: HashMap<String, ConfiguredScale> = subplot_scales
+            .iter()
+            .map(|(k, v)| (k.clone(), v.configured().clone()))
+            .collect();
+
+        let scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
+
+        for (cell_idx, domain_val) in domain_vals.iter().enumerate() {
+            use crate::facet::context::FacetContext;
+
+            let filter_df = df
+                .clone()
+                .filter(expr.clone().eq(lit(domain_val.clone())))?;
+
+            let measure_params = {
+                let mut updated_params = pass2_params.clone();
+                let position = D::index_to_position(cell_idx);
+                let grid_dimensions = D::count_to_grid_dimensions(num_cells);
+                let facet_ctx = FacetContext {
+                    position,
+                    grid_dimensions,
+                    unified_channels: D::unified_channels()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                    scale_sharing: scale_sharing.clone(),
+                };
+                for (k, v) in facet_ctx.to_params() {
+                    updated_params.insert(k, v);
+                }
+                updated_params
+            };
+
+            let (child_row_overflow, child_col_overflow) = if D::is_row_facet() {
+                (None, other_overflow)
+            } else {
+                (other_overflow, None)
+            };
+
+            let child_result = if let Some(guide) = source.subplot.compiled_guide.as_ref() {
+                guide
+                    .measure_with_coordination(
+                        &subplot_scales_configured,
+                        child_row_overflow,
+                        child_col_overflow,
+                        pass2_width,
+                        pass2_height,
+                        theme,
+                        &measure_params,
+                        Some(&filter_df),
+                        ctx,
+                    )
+                    .await?
+            } else {
+                let (_, total_overflow, _, _) = source
+                    .subplot
+                    .measure_with_scales(
+                        pass2_width,
+                        pass2_height,
+                        ctx,
+                        &measure_params,
+                        &subplot_scales,
+                        Some(&filter_df),
+                    )
+                    .await?;
+                MeasurementResult::new(total_overflow)
+            };
+
+            final_overflows.push(child_result.overflow);
+
+            for (key, value) in child_result.spacing_needs {
+                aggregated_spacing
+                    .entry(key)
+                    .and_modify(|v| *v = v.max(value))
+                    .or_insert(value);
+            }
+        }
+    }
+
+    // Aggregate final overflow
+    let final_overflow = aggregate_overflow(&final_overflows);
+
+    // Build result with our computed gap and child spacing
+    // Ignore unified_title parameter - it's only relevant for measure_overflow/evaluate
+    let _ = unified_title;
+
+    Ok(MeasurementResult::new(final_overflow)
+        .with_spacing(inter_gap_key, computed_gap)
+        .merge_spacing_needs(aggregated_spacing))
+}
+
+/// Trait for async measure_overflow function to enable generic callback
+#[allow(async_fn_in_trait)]
+trait AsyncMeasureOverflowFn {
+    async fn call(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        own_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        other_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &crate::theme::Theme,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+        ctx: &SessionContext,
+    ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError>;
+}
+
+/// Wrapper to call FacetRowGuide::measure_overflow from generic function
+struct RowMeasureOverflowWrapper<'a> {
+    guide: &'a FacetRowGuide,
+}
+
+impl AsyncMeasureOverflowFn for RowMeasureOverflowWrapper<'_> {
+    async fn call(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        own_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        other_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &crate::theme::Theme,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+        ctx: &SessionContext,
+    ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
+        self.guide
+            .measure_overflow(
+                scales,
+                own_overflow,
+                other_overflow,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+            )
+            .await
+    }
+}
+
+/// Wrapper to call FacetColGuide::measure_overflow from generic function
+struct ColMeasureOverflowWrapper<'a> {
+    guide: &'a FacetColGuide,
+}
+
+impl AsyncMeasureOverflowFn for ColMeasureOverflowWrapper<'_> {
+    async fn call(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        own_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        other_overflow: Option<&Vec<OverflowSpaceRequirement>>,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &crate::theme::Theme,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+        ctx: &SessionContext,
+    ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
+        self.guide
+            .measure_overflow(
+                scales,
+                own_overflow,
+                other_overflow,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+            )
+            .await
+    }
+}
+
 /// Compute scale sharing mode for each channel from marks.
 /// This extracts the sharing configuration from channel definitions.
 fn compute_scale_sharing_from_marks(
@@ -211,21 +839,9 @@ impl FacetRowGuide {
                     );
                 }
 
-                // Aggregate top/bottom across all subplots
-                for overflow_item in per_facet_overflow {
-                    top = top.max(overflow_item.top);
-                    bottom = bottom.max(overflow_item.bottom);
-                }
-
-                // Use first subplot's left overflow
-                if let Some(first) = per_facet_overflow.first() {
-                    max_left = max_left.max(first.left);
-                }
-
-                // Use last subplot's right overflow
-                if let Some(last) = per_facet_overflow.last() {
-                    max_right = max_right.max(last.right);
-                }
+                // Use helper to aggregate cached overflow
+                (top, bottom, max_left, max_right) =
+                    aggregate_cached_overflow(per_facet_overflow, top, bottom, max_left, max_right);
             } else if let Some(df) = data_override {
                 // No cached overflow but we have data - compute overflow by measuring subplots
                 // This is the nested facet case where the inner facet needs to measure its Cartesian subplots
@@ -740,7 +1356,7 @@ impl CompiledGuide for FacetRowGuide {
             })?;
 
         // Compute subplot overflow using shared helper
-        let (mut top, mut bottom, mut max_left, mut max_right) = self
+        let (top, bottom, max_left, max_right) = self
             .compute_max_subplot_overflow(
                 row_scale,
                 plot_width,
@@ -754,26 +1370,9 @@ impl CompiledGuide for FacetRowGuide {
             .await?;
 
         // Apply shared overflow from coordination context for uniform padding across columns
-        // This ensures plot areas align even when scales are not shared
-        {
-            use crate::facet::coordination::{
-                FacetCoordinationContext, SHARED_OVERFLOW_BOTTOM, SHARED_OVERFLOW_LEFT,
-                SHARED_OVERFLOW_RIGHT, SHARED_OVERFLOW_TOP,
-            };
-            let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
-            if let Some(shared_left) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_LEFT) {
-                max_left = max_left.max(shared_left);
-            }
-            if let Some(shared_right) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_RIGHT) {
-                max_right = max_right.max(shared_right);
-            }
-            if let Some(shared_top) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_TOP) {
-                top = top.max(shared_top);
-            }
-            if let Some(shared_bottom) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_BOTTOM) {
-                bottom = bottom.max(shared_bottom);
-            }
-        }
+        let mut overflow = (top, bottom, max_left, max_right);
+        apply_shared_overflow_coordination(&mut overflow, params);
+        let (top, bottom, max_left, max_right) = overflow;
 
         // Add space for facet labels by measuring text bounds
         // For 90° rotation, horizontal footprint ≈ text height
@@ -1003,395 +1602,22 @@ impl CompiledGuide for FacetRowGuide {
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<MeasurementResult, crate::error::AvengerChartError> {
-        use crate::facet::coordination::FacetCoordinationContext;
-        use crate::facet::guide_measurement::{aggregate_overflow, calculate_inter_row_gap};
-        use tracing::debug;
-
-        /// Safety margin for gap calculation (accounts for potential measurement variance)
-        const GAP_SAFETY_MARGIN: f32 = 1.0;
-
-        // Guard: Invalid dimensions
-        if plot_height <= 0.0 || plot_width <= 0.0 {
-            return Ok(MeasurementResult::default());
-        }
-
-        // Guard: No facet sources
-        if self.facet_sources.is_empty() {
-            return Ok(MeasurementResult::default());
-        }
-
-        // Parse coordination context ONCE
-        let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
-
-        // RECURSION GUARD: If already coordinated, use single pass (measure_overflow)
-        if coord_ctx
-            .get_coordinated_spacing(spacing_keys::INTER_ROW_GAP)
-            .is_some()
-        {
-            debug!("FacetRowGuide: Recursion guard - using pre-coordinated inter_row_gap");
-            let overflow = self
-                .measure_overflow(
-                    scales,
-                    _row_overflow,
-                    col_overflow,
-                    plot_width,
-                    plot_height,
-                    theme,
-                    params,
-                    data_override,
-                    ctx,
-                )
-                .await?;
-            return Ok(MeasurementResult::new(overflow));
-        }
-
-        // NESTING GUARD: If we're inside another guide's measure_with_coordination,
-        // skip 2-pass to avoid deep async recursion causing stack overflow.
-        if coord_ctx
-            .get_coordinated_spacing(spacing_keys::NESTED_MEASUREMENT)
-            .is_some()
-        {
-            debug!("FacetRowGuide: Nesting guard - NESTED_MEASUREMENT set, using single-pass");
-            let overflow = self
-                .measure_overflow(
-                    scales,
-                    _row_overflow,
-                    col_overflow,
-                    plot_width,
-                    plot_height,
-                    theme,
-                    params,
-                    data_override,
-                    ctx,
-                )
-                .await?;
-            return Ok(MeasurementResult::new(overflow));
-        }
-
-        // Get row scale
-        let row_scale = scales
-            .get(RowDimensionConfig::channel_name())
-            .ok_or_else(|| {
-                crate::error::AvengerChartError::InternalError(
-                    format!(
-                        "Missing '{}' scale for FacetRowGuide",
-                        RowDimensionConfig::channel_name()
-                    )
-                    .into(),
-                )
-            })?;
-
-        // Extract domain values
-        let mut domain_vals = match row_scale.domain_values()? {
-            crate::scales::extensions::DomainValues::Discrete(vals) => vals,
-            _ => vec![],
-        };
-        domain_vals.sort_by(scalar_total_cmp);
-
-        // For uniform Free scaling, use max cell count instead of actual domain length
-        let num_rows = coord_ctx
-            .get_uniform_cell_count()
-            .unwrap_or(domain_vals.len())
-            .max(1);
-
-        // === PASS 1: Measure with zero gap ===
-        let pass1_band_height = plot_height / num_rows as f32;
-
-        debug!(
-            "FacetRowGuide: Pass 1 - measuring {} rows with zero gap, band_height={:.2}",
-            num_rows, pass1_band_height
-        );
-
-        let mut row_overflows: Vec<OverflowSpaceRequirement> = Vec::with_capacity(num_rows);
-        let mut aggregated_spacing: std::collections::HashMap<String, f32> =
-            std::collections::HashMap::new();
-
-        // Get the first facet source (primary source for measurement)
-        let source = &self.facet_sources[0];
-
-        // Get facet expression
-        let facet_expr = source
-            .data
-            .channels()
-            .get(RowDimensionConfig::channel_name())
-            .and_then(|cv| cv.expr(ctx));
-
-        // Get the dataframe for measurement
-        let df = data_override
-            .cloned()
-            .or_else(|| source.data.dataframe_with_context(ctx));
-
-        if let (Some(expr), Some(df)) = (facet_expr, df) {
-            use datafusion::logical_expr::lit;
-
-            // Build scales for subplot measurement
-            let builder = source
-                .subplot
-                .build_scale_builder_from_dataframe(ctx, params, &df)
-                .await?;
-            let subplot_scales = source
-                .subplot
-                .build_scales_from_builder(&builder, plot_width, pass1_band_height, ctx, params)
-                .await?;
-
-            // Convert to ConfiguredScale for measure_with_coordination trait method
-            let subplot_scales_configured: HashMap<String, ConfiguredScale> = subplot_scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.configured().clone()))
-                .collect();
-
-            // Compute scale sharing from marks
-            let scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
-
-            // Measure each row in Pass 1
-            for (row_idx, domain_val) in domain_vals.iter().enumerate() {
-                use crate::facet::context::FacetContext;
-
-                let filter_df = df
-                    .clone()
-                    .filter(expr.clone().eq(lit(domain_val.clone())))?;
-
-                // Create FacetContext for this cell, including NESTED_MEASUREMENT marker
-                // to prevent child facet guides from doing their own 2-pass measurement
-                let measure_params = {
-                    let mut updated_params = params.clone();
-                    let facet_ctx = FacetContext {
-                        position: (row_idx, 0),
-                        grid_dimensions: (num_rows, 1),
-                        unified_channels: RowDimensionConfig::unified_channels()
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                        scale_sharing: scale_sharing.clone(),
-                    };
-                    for (k, v) in facet_ctx.to_params() {
-                        updated_params.insert(k, v);
-                    }
-                    // Add NESTED_MEASUREMENT marker to coordination context
-                    let mut nested_ctx = coord_ctx.clone();
-                    nested_ctx
-                        .coordinated_spacing
-                        .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
-                    for (k, v) in nested_ctx.to_params() {
-                        updated_params.insert(k, v);
-                    }
-                    updated_params
-                };
-
-                // Call measure_with_coordination on child guide to get MeasurementResult
-                let child_result = if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                    guide
-                        .measure_with_coordination(
-                            &subplot_scales_configured,
-                            None,
-                            col_overflow,
-                            plot_width,
-                            pass1_band_height,
-                            theme,
-                            &measure_params,
-                            Some(&filter_df),
-                            ctx,
-                        )
-                        .await?
-                } else {
-                    // Fallback: measure directly
-                    let (_, total_overflow, _, _) = source
-                        .subplot
-                        .measure_with_scales(
-                            plot_width,
-                            pass1_band_height,
-                            ctx,
-                            &measure_params,
-                            &subplot_scales,
-                            Some(&filter_df),
-                        )
-                        .await?;
-                    MeasurementResult::new(total_overflow)
-                };
-
-                row_overflows.push(child_result.overflow);
-
-                // Aggregate child spacing_needs
-                for (key, value) in child_result.spacing_needs {
-                    aggregated_spacing
-                        .entry(key)
-                        .and_modify(|v| *v = v.max(value))
-                        .or_insert(value);
-                }
-            }
-        } else {
-            // No data or expression - use measure_overflow fallback
-            let overflow = self
-                .measure_overflow(
-                    scales,
-                    _row_overflow,
-                    col_overflow,
-                    plot_width,
-                    plot_height,
-                    theme,
-                    params,
-                    data_override,
-                    ctx,
-                )
-                .await?;
-            return Ok(MeasurementResult::new(overflow));
-        }
-
-        // === Compute gap from Pass 1 ===
-        let computed_gap = calculate_inter_row_gap(&row_overflows, GAP_SAFETY_MARGIN);
-
-        debug!(
-            "FacetRowGuide: Computed inter_row_gap={:.2} (with {:.1}px safety margin)",
-            computed_gap, GAP_SAFETY_MARGIN
-        );
-
-        // === PASS 2: Re-measure with computed gap ===
-        let total_gap = computed_gap * (num_rows.saturating_sub(1)) as f32;
-        let pass2_band_height = (plot_height - total_gap) / num_rows as f32;
-
-        debug!(
-            "FacetRowGuide: Pass 2 - re-measuring with gap={:.2}, band_height={:.2}",
-            computed_gap, pass2_band_height
-        );
-
-        // Create params with computed gap for nested guides
-        // IMPORTANT: Also include aggregated spacing from Pass 1 to enable recursion guards
-        // for nested facets (e.g., FacetRow inside FacetCol should not re-compute its gap)
-        let pass2_params = {
-            let mut new_ctx = coord_ctx.clone();
-            // Add our own computed gap
-            new_ctx
-                .coordinated_spacing
-                .insert(spacing_keys::INTER_ROW_GAP.to_string(), computed_gap);
-            // Add all aggregated spacing from children (enables recursion guards for nested facets)
-            for (key, value) in &aggregated_spacing {
-                new_ctx.coordinated_spacing.insert(key.clone(), *value);
-            }
-            // Add NESTED_MEASUREMENT marker for child guides
-            new_ctx
-                .coordinated_spacing
-                .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
-            let mut new_params = params.clone();
-            for (k, v) in new_ctx.to_params() {
-                new_params.insert(k, v);
-            }
-            new_params
-        };
-
-        let source = &self.facet_sources[0];
-        let facet_expr = source
-            .data
-            .channels()
-            .get(RowDimensionConfig::channel_name())
-            .and_then(|cv| cv.expr(ctx));
-
-        let df = data_override
-            .cloned()
-            .or_else(|| source.data.dataframe_with_context(ctx));
-
-        let mut final_overflows: Vec<OverflowSpaceRequirement> = Vec::with_capacity(num_rows);
-        aggregated_spacing.clear(); // Reset for Pass 2 aggregation
-
-        if let (Some(expr), Some(df)) = (facet_expr, df) {
-            use datafusion::logical_expr::lit;
-
-            // Rebuild scales with Pass 2 band height
-            let builder = source
-                .subplot
-                .build_scale_builder_from_dataframe(ctx, &pass2_params, &df)
-                .await?;
-            let subplot_scales = source
-                .subplot
-                .build_scales_from_builder(
-                    &builder,
-                    plot_width,
-                    pass2_band_height,
-                    ctx,
-                    &pass2_params,
-                )
-                .await?;
-
-            // Convert to ConfiguredScale for measure_with_coordination trait method
-            let subplot_scales_configured: HashMap<String, ConfiguredScale> = subplot_scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.configured().clone()))
-                .collect();
-
-            let scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
-
-            for (row_idx, domain_val) in domain_vals.iter().enumerate() {
-                use crate::facet::context::FacetContext;
-
-                let filter_df = df
-                    .clone()
-                    .filter(expr.clone().eq(lit(domain_val.clone())))?;
-
-                // Create cell params - pass2_params already includes NESTED_MEASUREMENT from the
-                // coord_ctx propagation, so child facets will skip 2-pass
-                let measure_params = {
-                    let mut updated_params = pass2_params.clone();
-                    let facet_ctx = FacetContext {
-                        position: (row_idx, 0),
-                        grid_dimensions: (num_rows, 1),
-                        unified_channels: RowDimensionConfig::unified_channels()
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                        scale_sharing: scale_sharing.clone(),
-                    };
-                    for (k, v) in facet_ctx.to_params() {
-                        updated_params.insert(k, v);
-                    }
-                    updated_params
-                };
-
-                let child_result = if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                    guide
-                        .measure_with_coordination(
-                            &subplot_scales_configured,
-                            None,
-                            col_overflow,
-                            plot_width,
-                            pass2_band_height,
-                            theme,
-                            &measure_params,
-                            Some(&filter_df),
-                            ctx,
-                        )
-                        .await?
-                } else {
-                    let (_, total_overflow, _, _) = source
-                        .subplot
-                        .measure_with_scales(
-                            plot_width,
-                            pass2_band_height,
-                            ctx,
-                            &measure_params,
-                            &subplot_scales,
-                            Some(&filter_df),
-                        )
-                        .await?;
-                    MeasurementResult::new(total_overflow)
-                };
-
-                final_overflows.push(child_result.overflow);
-
-                for (key, value) in child_result.spacing_needs {
-                    aggregated_spacing
-                        .entry(key)
-                        .and_modify(|v| *v = v.max(value))
-                        .or_insert(value);
-                }
-            }
-        }
-
-        // Aggregate final overflow
-        let final_overflow = aggregate_overflow(&final_overflows);
-
-        // Build result with our computed gap and child spacing
-        Ok(MeasurementResult::new(final_overflow)
-            .with_spacing(spacing_keys::INTER_ROW_GAP, computed_gap)
-            .merge_spacing_needs(aggregated_spacing))
+        // Use generic implementation with RowDimensionConfig
+        measure_with_coordination_impl::<RowDimensionConfig>(
+            &self.facet_sources,
+            self.unified_y_title.as_ref(),
+            scales,
+            _row_overflow,
+            col_overflow,
+            plot_width,
+            plot_height,
+            theme,
+            params,
+            data_override,
+            ctx,
+            RowMeasureOverflowWrapper { guide: self },
+        )
+        .await
     }
 
     async fn evaluate(
@@ -1408,8 +1634,6 @@ impl CompiledGuide for FacetRowGuide {
         data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, crate::error::AvengerChartError> {
         use crate::scales::ConfiguredScaleLegendExt;
-        use avenger_scenegraph::marks::text::SceneTextMark;
-        use avenger_text::types::{TextAlign, TextBaseline};
         use std::sync::Arc as StdArc;
 
         let mut marks: Vec<SceneMark> = Vec::new();
@@ -1621,54 +1845,36 @@ impl CompiledGuide for FacetRowGuide {
                     );
                 }
             } else {
-                let y_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                    .child("facet")
-                    .child("title");
-                let y_font_px = theme.font_size(&y_ctx).unwrap_or(12.0_f32);
-                let y_color = theme.text_color(&y_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]);
-                let y_family_owned = theme
-                    .font_family(&y_ctx)
-                    .unwrap_or_else(|| "sans-serif".to_string());
-                // Use axis_on_right from visibility struct
+                use crate::facet::guide_utils::{
+                    UnifiedTitleRenderConfig, render_unified_axis_title,
+                };
+
                 let axis_on_right = visibility.axis_on_right;
                 let gap = 6.0_f32;
-                // Position title adjacent to subplot axis labels (max_left/right_child is just label space)
-                // Center the title in the gap between labels and plot edge
-                let x_bottom = if axis_on_right {
+                let x_pos = if axis_on_right {
                     plot_bounds.x + plot_width + max_right_child + gap
                 } else {
                     plot_bounds.x - max_left_child - gap
                 };
                 let y_center = plot_bounds.y + 0.5 * plot_height;
+
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
                         "FacetRowGuide RENDER unified_y_title='{}' at x={:.3} y={:.3} (plot_bounds.x={:.3} max_left_child={:.3} gap={:.3} axis_on_right={})",
-                        y_title,
-                        x_bottom,
-                        y_center,
-                        plot_bounds.x,
-                        max_left_child,
-                        gap,
-                        axis_on_right
+                        y_title, x_pos, y_center, plot_bounds.x, max_left_child, gap, axis_on_right
                     );
                 }
-                let y_mark = SceneTextMark {
-                    text: y_title.clone().into(),
-                    x: x_bottom.into(),
-                    y: y_center.into(),
-                    align: TextAlign::Center.into(),
-                    baseline: TextBaseline::Bottom.into(),
-                    font: y_family_owned.clone().into(),
-                    font_size: y_font_px.into(),
-                    angle: if axis_on_right {
-                        90.0_f32.into()
-                    } else {
-                        (-90.0_f32).into()
-                    },
-                    color: avenger_common::types::ColorOrGradient::Color(y_color).into(),
-                    zindex: Some(6),
-                    ..Default::default()
+
+                let title_config = UnifiedTitleRenderConfig {
+                    title: y_title.clone(),
+                    font_family: title_font_family.clone(),
+                    font_size_px: title_font_px,
+                    x: x_pos,
+                    y: y_center,
+                    angle: if axis_on_right { 90.0 } else { -90.0 },
+                    axis_at_far_edge: axis_on_right,
                 };
+                let y_mark = render_unified_axis_title(&title_config, theme, params);
                 marks.push(SceneMark::Text(StdArc::new(y_mark)));
             }
         }
@@ -1811,21 +2017,14 @@ impl FacetColGuide {
                     }
                 }
 
-                // Aggregate top/bottom across all subplots for proper unified title positioning
-                for overflow_item in per_facet_overflow {
-                    top_max = top_max.max(overflow_item.top);
-                    bottom_max = bottom_max.max(overflow_item.bottom);
-                }
-
-                // Use first subplot's left overflow (leftmost column edge)
-                if let Some(first) = per_facet_overflow.first() {
-                    left_max = left_max.max(first.left);
-                }
-
-                // Use last subplot's right overflow (rightmost column edge)
-                if let Some(last) = per_facet_overflow.last() {
-                    right_max = right_max.max(last.right);
-                }
+                // Use helper to aggregate cached overflow
+                (top_max, bottom_max, left_max, right_max) = aggregate_cached_overflow(
+                    per_facet_overflow,
+                    top_max,
+                    bottom_max,
+                    left_max,
+                    right_max,
+                );
             } else if let Some(df) = data_override {
                 // No cached overflow but we have data - compute overflow by measuring subplots
                 // This is the nested facet case where the inner facet needs to measure its Cartesian subplots
@@ -2325,7 +2524,7 @@ impl CompiledGuide for FacetColGuide {
             })?;
 
         // Compute subplot overflow using shared helper
-        let (mut top_max, mut bottom_max, mut left_max, mut right_max) = self
+        let (top_max, bottom_max, left_max, right_max) = self
             .compute_max_subplot_overflow(
                 col_scale,
                 plot_width,
@@ -2339,26 +2538,9 @@ impl CompiledGuide for FacetColGuide {
             .await?;
 
         // Apply shared overflow from coordination context for uniform padding across rows
-        // This ensures plot areas align even when scales are not shared
-        {
-            use crate::facet::coordination::{
-                FacetCoordinationContext, SHARED_OVERFLOW_BOTTOM, SHARED_OVERFLOW_LEFT,
-                SHARED_OVERFLOW_RIGHT, SHARED_OVERFLOW_TOP,
-            };
-            let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
-            if let Some(shared_left) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_LEFT) {
-                left_max = left_max.max(shared_left);
-            }
-            if let Some(shared_right) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_RIGHT) {
-                right_max = right_max.max(shared_right);
-            }
-            if let Some(shared_top) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_TOP) {
-                top_max = top_max.max(shared_top);
-            }
-            if let Some(shared_bottom) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_BOTTOM) {
-                bottom_max = bottom_max.max(shared_bottom);
-            }
-        }
+        let mut overflow = (top_max, bottom_max, left_max, right_max);
+        apply_shared_overflow_coordination(&mut overflow, params);
+        let (top_max, bottom_max, left_max, right_max) = overflow;
 
         // Add facet guide space (labels/titles) on top of child overflows
         // Measure facet label slab (same theme contexts used elsewhere)
@@ -2671,394 +2853,22 @@ impl CompiledGuide for FacetColGuide {
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<MeasurementResult, crate::error::AvengerChartError> {
-        use crate::facet::coordination::FacetCoordinationContext;
-        use crate::facet::guide_measurement::{aggregate_overflow, calculate_inter_col_gap};
-        use tracing::debug;
-
-        /// Safety margin for gap calculation (accounts for potential measurement variance)
-        const GAP_SAFETY_MARGIN: f32 = 1.0;
-
-        // Guard: Invalid dimensions
-        if plot_height <= 0.0 || plot_width <= 0.0 {
-            return Ok(MeasurementResult::default());
-        }
-
-        // Guard: No facet sources
-        if self.facet_sources.is_empty() {
-            return Ok(MeasurementResult::default());
-        }
-
-        // Parse coordination context ONCE
-        let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
-
-        // RECURSION GUARD: If already coordinated, use single pass (measure_overflow)
-        if coord_ctx
-            .get_coordinated_spacing(spacing_keys::INTER_COL_GAP)
-            .is_some()
-        {
-            debug!("FacetColGuide: Recursion guard - using pre-coordinated inter_col_gap");
-            let overflow = self
-                .measure_overflow(
-                    scales,
-                    row_overflow,
-                    _col_overflow,
-                    plot_width,
-                    plot_height,
-                    theme,
-                    params,
-                    data_override,
-                    ctx,
-                )
-                .await?;
-            return Ok(MeasurementResult::new(overflow));
-        }
-
-        // NESTING GUARD: If we're inside another guide's measure_with_coordination,
-        // skip 2-pass to avoid deep async recursion causing stack overflow.
-        // This happens when FacetRow contains FacetCol or vice versa.
-        if coord_ctx
-            .get_coordinated_spacing(spacing_keys::NESTED_MEASUREMENT)
-            .is_some()
-        {
-            debug!("FacetColGuide: Nesting guard - NESTED_MEASUREMENT set, using single-pass");
-            let overflow = self
-                .measure_overflow(
-                    scales,
-                    row_overflow,
-                    _col_overflow,
-                    plot_width,
-                    plot_height,
-                    theme,
-                    params,
-                    data_override,
-                    ctx,
-                )
-                .await?;
-            return Ok(MeasurementResult::new(overflow));
-        }
-
-        // Get col scale
-        let col_scale = scales
-            .get(ColumnDimensionConfig::channel_name())
-            .ok_or_else(|| {
-                crate::error::AvengerChartError::InternalError(
-                    format!(
-                        "Missing '{}' scale for FacetColGuide",
-                        ColumnDimensionConfig::channel_name()
-                    )
-                    .into(),
-                )
-            })?;
-
-        // Extract domain values
-        let mut domain_vals = match col_scale.domain_values()? {
-            crate::scales::extensions::DomainValues::Discrete(vals) => vals,
-            _ => vec![],
-        };
-        domain_vals.sort_by(scalar_total_cmp);
-
-        // For uniform Free scaling, use max cell count instead of actual domain length
-        let num_cols = coord_ctx
-            .get_uniform_cell_count()
-            .unwrap_or(domain_vals.len())
-            .max(1);
-
-        // === PASS 1: Measure with zero gap ===
-        let pass1_band_width = plot_width / num_cols as f32;
-
-        debug!(
-            "FacetColGuide: Pass 1 - measuring {} cols with zero gap, band_width={:.2}",
-            num_cols, pass1_band_width
-        );
-
-        let mut col_overflows: Vec<OverflowSpaceRequirement> = Vec::with_capacity(num_cols);
-        let mut aggregated_spacing: std::collections::HashMap<String, f32> =
-            std::collections::HashMap::new();
-
-        // Get the first facet source (primary source for measurement)
-        let source = &self.facet_sources[0];
-
-        // Get facet expression
-        let facet_expr = source
-            .data
-            .channels()
-            .get(ColumnDimensionConfig::channel_name())
-            .and_then(|cv| cv.expr(ctx));
-
-        // Get the dataframe for measurement
-        let df = data_override
-            .cloned()
-            .or_else(|| source.data.dataframe_with_context(ctx));
-
-        if let (Some(expr), Some(df)) = (facet_expr, df) {
-            use datafusion::logical_expr::lit;
-
-            // Build scales for subplot measurement
-            let builder = source
-                .subplot
-                .build_scale_builder_from_dataframe(ctx, params, &df)
-                .await?;
-            let subplot_scales = source
-                .subplot
-                .build_scales_from_builder(&builder, pass1_band_width, plot_height, ctx, params)
-                .await?;
-
-            // Convert to ConfiguredScale for measure_with_coordination trait method
-            let subplot_scales_configured: HashMap<String, ConfiguredScale> = subplot_scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.configured().clone()))
-                .collect();
-
-            // Compute scale sharing from marks
-            let scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
-
-            // Measure each column in Pass 1
-            for (col_idx, domain_val) in domain_vals.iter().enumerate() {
-                use crate::facet::context::FacetContext;
-
-                let filter_df = df
-                    .clone()
-                    .filter(expr.clone().eq(lit(domain_val.clone())))?;
-
-                // Create FacetContext for this cell with NESTED_MEASUREMENT marker
-                let measure_params = {
-                    let mut updated_params = params.clone();
-                    let facet_ctx = FacetContext {
-                        position: (0, col_idx),
-                        grid_dimensions: (1, num_cols),
-                        unified_channels: ColumnDimensionConfig::unified_channels()
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                        scale_sharing: scale_sharing.clone(),
-                    };
-                    for (k, v) in facet_ctx.to_params() {
-                        updated_params.insert(k, v);
-                    }
-                    // Add NESTED_MEASUREMENT marker to coordination context
-                    // This tells child guides to skip 2-pass measurement
-                    let mut nested_ctx = coord_ctx.clone();
-                    nested_ctx
-                        .coordinated_spacing
-                        .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
-                    for (k, v) in nested_ctx.to_params() {
-                        updated_params.insert(k, v);
-                    }
-                    updated_params
-                };
-
-                // Call measure_with_coordination on child guide to get MeasurementResult
-                let child_result = if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                    guide
-                        .measure_with_coordination(
-                            &subplot_scales_configured,
-                            row_overflow,
-                            None,
-                            pass1_band_width,
-                            plot_height,
-                            theme,
-                            &measure_params,
-                            Some(&filter_df),
-                            ctx,
-                        )
-                        .await?
-                } else {
-                    // Fallback: measure directly
-                    let (_, total_overflow, _, _) = source
-                        .subplot
-                        .measure_with_scales(
-                            pass1_band_width,
-                            plot_height,
-                            ctx,
-                            &measure_params,
-                            &subplot_scales,
-                            Some(&filter_df),
-                        )
-                        .await?;
-                    MeasurementResult::new(total_overflow)
-                };
-
-                col_overflows.push(child_result.overflow);
-
-                // Aggregate child spacing_needs
-                for (key, value) in child_result.spacing_needs {
-                    aggregated_spacing
-                        .entry(key)
-                        .and_modify(|v| *v = v.max(value))
-                        .or_insert(value);
-                }
-            }
-        } else {
-            // No data or expression - use measure_overflow fallback
-            let overflow = self
-                .measure_overflow(
-                    scales,
-                    row_overflow,
-                    _col_overflow,
-                    plot_width,
-                    plot_height,
-                    theme,
-                    params,
-                    data_override,
-                    ctx,
-                )
-                .await?;
-            return Ok(MeasurementResult::new(overflow));
-        }
-
-        // === Compute gap from Pass 1 ===
-        let computed_gap = calculate_inter_col_gap(&col_overflows, GAP_SAFETY_MARGIN);
-
-        debug!(
-            "FacetColGuide: Computed inter_col_gap={:.2} (with {:.1}px safety margin)",
-            computed_gap, GAP_SAFETY_MARGIN
-        );
-
-        // === PASS 2: Re-measure with computed gap ===
-        let total_gap = computed_gap * (num_cols.saturating_sub(1)) as f32;
-        let pass2_band_width = (plot_width - total_gap) / num_cols as f32;
-
-        debug!(
-            "FacetColGuide: Pass 2 - re-measuring with gap={:.2}, band_width={:.2}",
-            computed_gap, pass2_band_width
-        );
-
-        // Create params with computed gap for nested guides
-        // IMPORTANT: Also include aggregated spacing from Pass 1 to enable recursion guards
-        // for nested facets (e.g., FacetCol inside FacetRow should not re-compute its gap)
-        let pass2_params = {
-            let mut new_ctx = coord_ctx.clone();
-            // Add our own computed gap
-            new_ctx
-                .coordinated_spacing
-                .insert(spacing_keys::INTER_COL_GAP.to_string(), computed_gap);
-            // Add all aggregated spacing from children (enables recursion guards for nested facets)
-            for (key, value) in &aggregated_spacing {
-                new_ctx.coordinated_spacing.insert(key.clone(), *value);
-            }
-            // Add NESTED_MEASUREMENT marker for child guides
-            new_ctx
-                .coordinated_spacing
-                .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
-            let mut new_params = params.clone();
-            for (k, v) in new_ctx.to_params() {
-                new_params.insert(k, v);
-            }
-            new_params
-        };
-
-        let source = &self.facet_sources[0];
-        let facet_expr = source
-            .data
-            .channels()
-            .get(ColumnDimensionConfig::channel_name())
-            .and_then(|cv| cv.expr(ctx));
-
-        let df = data_override
-            .cloned()
-            .or_else(|| source.data.dataframe_with_context(ctx));
-
-        let mut final_overflows: Vec<OverflowSpaceRequirement> = Vec::with_capacity(num_cols);
-        aggregated_spacing.clear(); // Reset for Pass 2 aggregation
-
-        if let (Some(expr), Some(df)) = (facet_expr, df) {
-            use datafusion::logical_expr::lit;
-
-            // Rebuild scales with Pass 2 band width
-            let builder = source
-                .subplot
-                .build_scale_builder_from_dataframe(ctx, &pass2_params, &df)
-                .await?;
-            let subplot_scales = source
-                .subplot
-                .build_scales_from_builder(
-                    &builder,
-                    pass2_band_width,
-                    plot_height,
-                    ctx,
-                    &pass2_params,
-                )
-                .await?;
-
-            // Convert to ConfiguredScale for measure_with_coordination trait method
-            let subplot_scales_configured: HashMap<String, ConfiguredScale> = subplot_scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.configured().clone()))
-                .collect();
-
-            let scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
-
-            for (col_idx, domain_val) in domain_vals.iter().enumerate() {
-                use crate::facet::context::FacetContext;
-
-                let filter_df = df
-                    .clone()
-                    .filter(expr.clone().eq(lit(domain_val.clone())))?;
-
-                let measure_params = {
-                    let mut updated_params = pass2_params.clone();
-                    let facet_ctx = FacetContext {
-                        position: (0, col_idx),
-                        grid_dimensions: (1, num_cols),
-                        unified_channels: ColumnDimensionConfig::unified_channels()
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                        scale_sharing: scale_sharing.clone(),
-                    };
-                    for (k, v) in facet_ctx.to_params() {
-                        updated_params.insert(k, v);
-                    }
-                    updated_params
-                };
-
-                let child_result = if let Some(guide) = source.subplot.compiled_guide.as_ref() {
-                    guide
-                        .measure_with_coordination(
-                            &subplot_scales_configured,
-                            row_overflow,
-                            None,
-                            pass2_band_width,
-                            plot_height,
-                            theme,
-                            &measure_params,
-                            Some(&filter_df),
-                            ctx,
-                        )
-                        .await?
-                } else {
-                    let (_, total_overflow, _, _) = source
-                        .subplot
-                        .measure_with_scales(
-                            pass2_band_width,
-                            plot_height,
-                            ctx,
-                            &measure_params,
-                            &subplot_scales,
-                            Some(&filter_df),
-                        )
-                        .await?;
-                    MeasurementResult::new(total_overflow)
-                };
-
-                final_overflows.push(child_result.overflow);
-
-                for (key, value) in child_result.spacing_needs {
-                    aggregated_spacing
-                        .entry(key)
-                        .and_modify(|v| *v = v.max(value))
-                        .or_insert(value);
-                }
-            }
-        }
-
-        // Aggregate final overflow
-        let final_overflow = aggregate_overflow(&final_overflows);
-
-        // Build result with our computed gap and child spacing
-        Ok(MeasurementResult::new(final_overflow)
-            .with_spacing(spacing_keys::INTER_COL_GAP, computed_gap)
-            .merge_spacing_needs(aggregated_spacing))
+        // Use generic implementation with ColumnDimensionConfig
+        measure_with_coordination_impl::<ColumnDimensionConfig>(
+            &self.facet_sources,
+            self.unified_x_title.as_ref(),
+            scales,
+            _col_overflow,
+            row_overflow,
+            plot_width,
+            plot_height,
+            theme,
+            params,
+            data_override,
+            ctx,
+            ColMeasureOverflowWrapper { guide: self },
+        )
+        .await
     }
 
     async fn evaluate(
@@ -3075,8 +2885,6 @@ impl CompiledGuide for FacetColGuide {
         data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, crate::error::AvengerChartError> {
         use crate::scales::ConfiguredScaleLegendExt;
-        use avenger_scenegraph::marks::text::SceneTextMark;
-        use avenger_text::types::{TextAlign, TextBaseline};
         use std::sync::Arc as StdArc;
 
         let mut marks: Vec<SceneMark> = Vec::new();
@@ -3267,29 +3075,16 @@ impl CompiledGuide for FacetColGuide {
                     );
                 }
             } else {
-                let unified_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                    .child("facet")
-                    .child("title");
-                let unified_font_px = theme.font_size(&unified_ctx).unwrap_or(12.0_f32);
-                let unified_font_family_owned = theme
-                    .font_family(&unified_ctx)
-                    .or_else(|| theme.font_family(&root_ctx))
-                    .unwrap_or_else(|| "sans-serif".to_string());
-                let unified_font_family = unified_font_family_owned.as_str();
+                use crate::facet::guide_utils::{
+                    UnifiedTitleRenderConfig, render_unified_axis_title,
+                };
 
-                // Use visibility struct for x-axis position (already computed)
                 let x_axis_at_top = visibility.x_axis_at_top;
-
-                // Configurable gap (matching measure_overflow and FacetRowGuide)
                 let gap_axis = 6.0_f32;
 
                 let y_unified = if x_axis_at_top {
-                    // X-axis at top: unified title goes above plot, positioned above subplot guides
-                    // subplot_max_top tells us where the x-axis labels end above the plot
                     plot_bounds.y - subplot_max_top - gap_axis
                 } else {
-                    // X-axis at bottom (default): unified title goes just below x-axis labels
-                    // subplot_max_bottom tells us where the x-axis labels end
                     plot_bounds.y + plot_height + subplot_max_bottom + gap_axis
                 };
 
@@ -3305,77 +3100,45 @@ impl CompiledGuide for FacetColGuide {
                     );
                 }
 
-                let unified_mark = SceneTextMark {
-                    text: unified_title.clone().into(),
-                    x: (plot_bounds.x + plot_width / 2.0).into(),
-                    y: y_unified.into(),
-                    align: TextAlign::Center.into(),
-                    baseline: if x_axis_at_top {
-                        TextBaseline::Bottom
-                    } else {
-                        TextBaseline::Top
-                    }
-                    .into(),
-                    angle: 0.0_f32.into(),
-                    font: unified_font_family.to_string().into(),
-                    font_size: unified_font_px.into(),
-                    color: avenger_common::types::ColorOrGradient::Color(
-                        theme
-                            .text_color(&unified_ctx)
-                            .unwrap_or([0.0, 0.0, 0.0, 1.0]),
-                    )
-                    .into(),
-                    zindex: Some(6),
-                    ..Default::default()
+                let title_config = UnifiedTitleRenderConfig {
+                    title: unified_title.clone(),
+                    font_family: title_font_family.clone(),
+                    font_size_px: title_font_px,
+                    x: plot_bounds.x + plot_width / 2.0,
+                    y: y_unified,
+                    angle: 0.0,
+                    axis_at_far_edge: !x_axis_at_top, // bottom is "far edge" for x-axis
                 };
+                let unified_mark = render_unified_axis_title(&title_config, theme, params);
                 marks.push(SceneMark::Text(StdArc::new(unified_mark)));
             }
         }
 
         // Render unified y-axis title if available (rotated 90 degrees, on the left side)
+        // This is only used for FacetCol with nested FacetRow - the outer col renders the unified y-title
         if let Some(unified_y_title) = &self.unified_y_title {
-            let unified_y_ctx = crate::theme::ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("title");
-            let unified_y_font_px = theme.font_size(&unified_y_ctx).unwrap_or(12.0_f32);
-            let unified_y_font_family_owned = theme
-                .font_family(&unified_y_ctx)
-                .or_else(|| theme.font_family(&root_ctx))
-                .unwrap_or_else(|| "sans-serif".to_string());
+            use crate::facet::guide_utils::{UnifiedTitleRenderConfig, render_unified_axis_title};
 
-            // Use visibility struct for y-axis position (already computed)
             let y_axis_on_right = visibility.y_axis_on_right;
-
-            // Gap between subplot axis labels and unified title
             let gap_y_axis = 6.0_f32;
 
-            // Measure the title width (height when rotated) for proper centering
+            // Measure the title height (becomes width when rotated) for positioning
             let title_measurer = avenger_text::measurement::default_text_measurer();
             let title_cfg = avenger_text::measurement::TextMeasurementConfig {
                 text: unified_y_title,
-                font: unified_y_font_family_owned.as_str(),
-                font_size: unified_y_font_px,
+                font: title_font_family.as_str(),
+                font_size: title_font_px,
                 font_weight: &avenger_text::types::FontWeight::Name(
                     avenger_text::types::FontWeightNameSpec::Normal,
                 ),
                 font_style: &avenger_text::types::FontStyle::Normal,
             };
             let title_bounds = title_measurer.measure_text_bounds(&title_cfg);
-            let title_height = title_bounds.height; // becomes width when rotated
-
-            // Calculate y_axis_title_space using same formula as measure_overflow (lines 2370-2379)
-            // This is the space allocated for the unified y-axis title on the outer edge
+            let title_height = title_bounds.height;
             let y_axis_title_space = gap_y_axis + title_height + 1.0;
 
-            // The unified y-title should be positioned at the FAR LEFT of the total left overflow.
-            // The total left overflow = subplot_y_axis_overflow + y_axis_title_space
-            //
-            // The _left/_right values computed earlier come from per-facet overflow which may include
-            // nested guide labels (FacetRowGuide row labels). For unified y-title positioning, we need
-            // the actual Cartesian subplot overflow, not the nested facet overflow.
-            //
-            // Re-measure subplot overflow with None for overflow parameter to get true subplot values.
-            // This is the same path taken during measure_overflow() to compute outer overflow.
+            // Re-measure subplot overflow with None to get true Cartesian subplot values
+            // (not including nested facet labels)
             let (_, _, subplot_left_actual, subplot_right_actual) = self
                 .compute_max_subplot_overflow(
                     col_scale,
@@ -3402,15 +3165,10 @@ impl CompiledGuide for FacetColGuide {
             };
 
             let x_unified_y = if y_axis_on_right {
-                // Y-axis on right: unified y title goes to the right of the subplot guides
-                // Position the title at the left edge of the title allocation space (gap from labels)
                 plot_bounds.x + plot_width + outer_right - gap_y_axis - title_height / 2.0
             } else {
-                // Y-axis on left (default): unified y title goes to the left of subplot guides
-                // Position centered in the title allocation space at the left edge
                 plot_bounds.x - outer_left + gap_y_axis + title_height / 2.0
             };
-
             let y_center = plot_bounds.y + plot_height / 2.0;
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -3427,28 +3185,16 @@ impl CompiledGuide for FacetColGuide {
                 );
             }
 
-            let unified_y_mark = SceneTextMark {
-                text: unified_y_title.clone().into(),
-                x: x_unified_y.into(),
-                y: y_center.into(),
-                align: TextAlign::Center.into(),
-                baseline: TextBaseline::Bottom.into(),
-                angle: if y_axis_on_right {
-                    90.0_f32.into()
-                } else {
-                    (-90.0_f32).into()
-                },
-                font: unified_y_font_family_owned.to_string().into(),
-                font_size: unified_y_font_px.into(),
-                color: avenger_common::types::ColorOrGradient::Color(
-                    theme
-                        .text_color(&unified_y_ctx)
-                        .unwrap_or([0.0, 0.0, 0.0, 1.0]),
-                )
-                .into(),
-                zindex: Some(6),
-                ..Default::default()
+            let title_config = UnifiedTitleRenderConfig {
+                title: unified_y_title.clone(),
+                font_family: title_font_family.clone(),
+                font_size_px: title_font_px,
+                x: x_unified_y,
+                y: y_center,
+                angle: if y_axis_on_right { 90.0 } else { -90.0 },
+                axis_at_far_edge: y_axis_on_right,
             };
+            let unified_y_mark = render_unified_axis_title(&title_config, theme, params);
             marks.push(SceneMark::Text(StdArc::new(unified_y_mark)));
         }
 

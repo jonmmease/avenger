@@ -148,66 +148,18 @@ let domain_from_coordination = coordination_context.as_ref().and_then(|ctx| {
 });
 ```
 
-## Grouping Logic
+## Scale Builder Selection
 
-The `ScaleGrouping` system manages which subplots share scale builders.
+Scale builders are selected per-subplot based on the `ScaleSharing` mode:
 
-**Location**: `avenger-chart/src/facet/scale_grouping.rs`
+| Mode | Behavior |
+|------|----------|
+| `Shared` | Use scale builder from full dataset |
+| `Free` | Use scale builder from filtered cell data |
+| `Level(0)` | Same as Free |
+| `Level(n)` where n >= 1 | Use domain from parent at level n |
 
-### GroupKey Structure
-
-```rust
-struct GroupKey {
-    row: Option<usize>,  // None = shared across rows
-    col: Option<usize>,  // None = shared across columns
-}
-```
-
-### Grouping by ScaleSharing Mode
-
-| Mode | GroupKey | Effect |
-|------|----------|--------|
-| `Shared` | `{ row: None, col: None }` | One builder for all cells |
-| `Free` | `{ row: Some(r), col: Some(c) }` | One builder per cell |
-| `Level(0)` | Same as Free | Independent per cell |
-| `Level(u8::MAX)` | Same as Shared | Global sharing |
-| `Level(1..254)` | Same as Free in grid context | Per-cell in grids |
-
-**GroupKey Computation** (`scale_grouping.rs:32-67`):
-
-```rust
-impl GroupKey {
-    fn for_cell(row_idx: usize, col_idx: usize, mode: ScaleSharing) -> Self {
-        match mode {
-            ScaleSharing::Shared => GroupKey { row: None, col: None },
-            ScaleSharing::Free => GroupKey { row: Some(row_idx), col: Some(col_idx) },
-            ScaleSharing::Level(n) => {
-                if n == 0 {
-                    GroupKey { row: Some(row_idx), col: Some(col_idx) }
-                } else if n == u8::MAX {
-                    GroupKey { row: None, col: None }
-                } else {
-                    // Intermediate levels: per-cell in grid context
-                    GroupKey { row: Some(row_idx), col: Some(col_idx) }
-                }
-            }
-        }
-    }
-}
-```
-
-### ScaleGrouping Build Process
-
-1. **Build fallback builder** from full dataset
-2. **For each channel with scale sharing**:
-   - Collect unique group keys based on mode
-   - For each group key, filter data appropriately:
-     - `{ row: None, col: None }` -> use full dataset
-     - `{ row: Some(r), col: None }` -> filter by row value only
-     - `{ row: None, col: Some(c) }` -> filter by column value only
-     - `{ row: Some(r), col: Some(c) }` -> filter by both
-   - Build ScaleBuilder from filtered data
-3. **Store builders** in `HashMap<GroupKey, ScaleBuilder>`
+The actual scale building logic is in `facet_evaluation.rs` within `measure_pass()` and `render_pass()`.
 
 ## Fallback Scale Handling
 

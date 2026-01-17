@@ -33,8 +33,6 @@ avenger-chart/src/facet/
 |
 +-- scale_helpers.rs          Scale building utilities for facet measurement
 |
-+-- scale_grouping.rs         Scale extent aggregation across facets
-|
 +-- band_positions.rs         Band scale position computation
 |
 +-- subplot_iterator.rs       Iterator over subplot cells with data filtering
@@ -47,7 +45,7 @@ avenger-chart/src/facet/
 |
 +-- scalar_cmp.rs             Scalar value comparison for domain sorting
 |
-+-- keys.rs                   Spacing key constants
++-- keys.rs                   FacetKeyExtractor for domain value extraction
 ```
 
 ## Core Types
