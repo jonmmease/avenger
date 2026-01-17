@@ -1,0 +1,311 @@
+use super::datasets;
+use crate::visual_tests::helpers::assert_visual_match_default;
+use avenger_chart::prelude::*;
+use datafusion::prelude::*;
+
+/// Test nested faceting with shared categorical x-axis (Band scale)
+///
+/// This test verifies that categorical scale sharing works correctly in nested facets:
+/// - Outer FacetColumn facets by "group" (2 groups)
+/// - Inner plot has categorical x-axis with Band scale
+/// - Group1 has categories A, B, C
+/// - Group2 has categories B, C, D
+/// - With ScaleSharing::Shared, both facets should show all categories A, B, C, D
+#[test]
+fn test_nested_facet_shared_categorical_x() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build runtime");
+
+            rt.block_on(async {
+                let ctx = SessionContext::new();
+                let df = datasets::categorical_sharing_test_data();
+
+                let outer = Plot::<FacetColumn>::new()
+                    .data(df)
+                    .canvas_size(600, 300)
+                    .mark(
+                        Facet::new()
+                            .col_with(col("group"), |c| c.facet(|f| f.title("Group")))
+                            .subplot(
+                                Plot::<Cartesian>::new().mark(
+                                    Rect::new()
+                                        .x_with(col("category"), |c| {
+                                            c.scale_with::<Band>(|s| s)
+                                                .with_scale_sharing(ScaleSharing::Shared)
+                                                .axis(|a| a.title("Category"))
+                                        })
+                                        .x2_with(col(":x"), |c| c.band(1.0))
+                                        .y(0.0)
+                                        .y2_with(col("value"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Shared)
+                                                .axis(|a| a.title("Value"))
+                                        })
+                                        .fill("#4682b4"),
+                                ),
+                            ),
+                    );
+
+                let compiled = outer.compile(&ctx).await.expect("compile nested facets");
+                assert_visual_match_default(
+                    &compiled,
+                    &ctx,
+                    None,
+                    "facet",
+                    "nested_facet_shared_categorical_x",
+                )
+                .await;
+            });
+        })
+        .expect("failed to spawn thread")
+        .join()
+        .expect("thread panicked");
+}
+
+/// Test nested faceting with shared categorical y-axis (Band scale for horizontal bars)
+///
+/// This test verifies categorical scale sharing on the y-axis:
+/// - Outer FacetRow facets by "group"
+/// - Inner plot has categorical y-axis (horizontal bars)
+/// - With ScaleSharing::Shared, both facets should show all categories
+#[test]
+fn test_nested_facet_shared_categorical_y() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build runtime");
+
+            rt.block_on(async {
+                let ctx = SessionContext::new();
+                let df = datasets::categorical_sharing_test_data();
+
+                let outer = Plot::<FacetRow>::new().data(df).canvas_size(400, 400).mark(
+                    Facet::new()
+                        .row_with(col("group"), |c| c.facet(|f| f.title("Group")))
+                        .subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Rect::new()
+                                    .y_with(col("category"), |c| {
+                                        c.scale_with::<Band>(|s| s)
+                                            .with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Category"))
+                                    })
+                                    .y2_with(col(":y"), |c| c.band(1.0))
+                                    .x(0.0)
+                                    .x2_with(col("value"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                            .axis(|a| a.title("Value"))
+                                    })
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                );
+
+                let compiled = outer.compile(&ctx).await.expect("compile nested facets");
+                assert_visual_match_default(
+                    &compiled,
+                    &ctx,
+                    None,
+                    "facet",
+                    "nested_facet_shared_categorical_y",
+                )
+                .await;
+            });
+        })
+        .expect("failed to spawn thread")
+        .join()
+        .expect("thread panicked");
+}
+
+/// Test deeply nested facets with categorical scale sharing
+///
+/// This is the key test for the categorical scale sharing fix.
+/// It verifies that categorical scale sharing works in nested facets
+/// where data flows through evaluate_shared_scale_nested_facet:
+/// - Outer FacetColumn facets by "group"
+/// - Inner FacetRow facets by "sub_group" (requires nested facet path)
+/// - Innermost plot has categorical x-axis
+/// - With ScaleSharing::Shared, all facets should show unified categories
+#[test]
+fn test_deeply_nested_categorical_scale_sharing() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build runtime");
+
+            rt.block_on(async {
+                use datafusion::arrow::array::{Float64Array, StringArray};
+                use datafusion::arrow::datatypes::{DataType, Field, Schema};
+                use datafusion::arrow::record_batch::RecordBatch;
+                use std::sync::Arc;
+
+                let ctx = SessionContext::new();
+
+                // Create data with:
+                // - 2 outer groups (G1, G2)
+                // - 2 sub_groups per outer (S1, S2)
+                // - Different categories in each combination
+                // G1+S1: cats A,B | G1+S2: cats B,C | G2+S1: cats C,D | G2+S2: cats A,D
+                let outer_groups = StringArray::from(vec![
+                    "G1", "G1", "G1", "G1", // S1: A,B; S2: B,C
+                    "G2", "G2", "G2", "G2", // S1: C,D; S2: A,D
+                ]);
+                let sub_groups = StringArray::from(vec![
+                    "S1", "S1", "S2", "S2", // G1
+                    "S1", "S1", "S2", "S2", // G2
+                ]);
+                let categories = StringArray::from(vec![
+                    "A", "B", "B", "C", // G1 (S1: A,B; S2: B,C)
+                    "C", "D", "A", "D", // G2 (S1: C,D; S2: A,D)
+                ]);
+                let values = Float64Array::from(vec![
+                    10.0, 20.0, 15.0, 25.0, // G1
+                    30.0, 40.0, 35.0, 45.0, // G2
+                ]);
+
+                let schema = Arc::new(Schema::new(vec![
+                    Field::new("outer_group", DataType::Utf8, false),
+                    Field::new("sub_group", DataType::Utf8, false),
+                    Field::new("category", DataType::Utf8, false),
+                    Field::new("value", DataType::Float64, false),
+                ]));
+
+                let batch = RecordBatch::try_new(
+                    schema,
+                    vec![
+                        Arc::new(outer_groups),
+                        Arc::new(sub_groups),
+                        Arc::new(categories),
+                        Arc::new(values),
+                    ],
+                )
+                .expect("create batch");
+
+                let df = ctx.read_batch(batch).expect("read batch");
+
+                // Outer: FacetColumn by outer_group
+                // Inner: FacetRow by sub_group (nested facet triggers evaluate_shared_scale_nested_facet)
+                // Innermost: Bar chart with categorical x-axis
+                let outer = Plot::<FacetColumn>::new()
+                    .data(df)
+                    .canvas_size(700, 500)
+                    .mark(
+                        Facet::new()
+                            .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group")))
+                            .subplot(
+                                Plot::<FacetRow>::new().mark(
+                                    Facet::new()
+                                        .row_with(col("sub_group"), |c| {
+                                            c.facet(|f| f.title("Sub Group"))
+                                        })
+                                        .subplot(
+                                            Plot::<Cartesian>::new().mark(
+                                                Rect::new()
+                                                    .x_with(col("category"), |c| {
+                                                        c.scale_with::<Band>(|s| s)
+                                                            .with_scale_sharing(
+                                                                ScaleSharing::Shared,
+                                                            )
+                                                            .axis(|a| a.title("Category"))
+                                                    })
+                                                    .x2_with(col(":x"), |c| c.band(1.0))
+                                                    .y(0.0)
+                                                    .y2_with(col("value"), |c| {
+                                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                                            .axis(|a| a.title("Value"))
+                                                    })
+                                                    .fill("#4682b4"),
+                                            ),
+                                        ),
+                                ),
+                            ),
+                    );
+
+                let compiled = outer
+                    .compile(&ctx)
+                    .await
+                    .expect("compile deeply nested facets");
+                assert_visual_match_default(
+                    &compiled,
+                    &ctx,
+                    None,
+                    "facet",
+                    "deeply_nested_categorical_sharing",
+                )
+                .await;
+            });
+        })
+        .expect("failed to spawn thread")
+        .join()
+        .expect("thread panicked");
+}
+
+/// Test Level(1) sharing on categorical channel
+///
+/// This test verifies that Level-based scale sharing works for categorical scales:
+/// - Uses Level(1) instead of Shared
+/// - Should produce the same result as Shared for single-level nesting
+#[test]
+fn test_nested_facet_level1_categorical() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build runtime");
+
+            rt.block_on(async {
+                let ctx = SessionContext::new();
+                let df = datasets::categorical_sharing_test_data();
+
+                let outer = Plot::<FacetColumn>::new()
+                    .data(df)
+                    .canvas_size(600, 300)
+                    .mark(
+                        Facet::new()
+                            .col_with(col("group"), |c| c.facet(|f| f.title("Group")))
+                            .subplot(
+                                Plot::<Cartesian>::new().mark(
+                                    Rect::new()
+                                        .x_with(col("category"), |c| {
+                                            c.scale_with::<Band>(|s| s)
+                                                .with_scale_sharing(ScaleSharing::Level(1))
+                                                .axis(|a| a.title("Category"))
+                                        })
+                                        .x2_with(col(":x"), |c| c.band(1.0))
+                                        .y(0.0)
+                                        .y2_with(col("value"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Level(1))
+                                                .axis(|a| a.title("Value"))
+                                        })
+                                        .fill("#4682b4"),
+                                ),
+                            ),
+                    );
+
+                let compiled = outer.compile(&ctx).await.expect("compile nested facets");
+                assert_visual_match_default(
+                    &compiled,
+                    &ctx,
+                    None,
+                    "facet",
+                    "nested_facet_level1_categorical",
+                )
+                .await;
+            });
+        })
+        .expect("failed to spawn thread")
+        .join()
+        .expect("thread panicked");
+}

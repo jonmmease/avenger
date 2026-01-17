@@ -48,7 +48,7 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::ScalarValue;
 use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::lit;
+use datafusion::logical_expr::{ExprSchemable, lit};
 use datafusion::prelude::SessionContext;
 use futures::{StreamExt, stream};
 use indexmap::IndexMap;
@@ -2245,12 +2245,26 @@ async fn detect_nested_facet_and_compute_coordination(
         // Now compute extents based on share mode
         for (channel_name, channel_expr, share_mode) in &channel_info {
             if matches!(share_mode, ScaleSharing::Shared) {
-                // Compute from full dataset
-                if let Ok(extents) = compute_numeric_extents(df, channel_expr, ctx).await {
+                // Determine if channel is categorical based on expression data type
+                let data_type = channel_expr
+                    .get_type(df.schema())
+                    .ok()
+                    .map(|dt| is_categorical_data_type(&dt))
+                    .unwrap_or(false);
+
+                // Compute extents using appropriate method based on data type
+                let extents_result = if data_type {
+                    compute_categorical_extents(df, channel_expr, ctx).await
+                } else {
+                    compute_numeric_extents(df, channel_expr, ctx).await
+                };
+
+                if let Ok(extents) = extents_result {
                     shared_data_extents.insert(channel_name.clone(), extents);
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                         eprintln!(
-                            "  Computed shared extents for {}: {:?}",
+                            "  Computed shared {} extents for {}: {:?}",
+                            if data_type { "categorical" } else { "numeric" },
                             channel_name,
                             shared_data_extents.get(channel_name)
                         );
@@ -2363,15 +2377,33 @@ async fn detect_nested_facet_and_compute_coordination(
     for (channel_name, channel_expr, share_mode) in &channel_info {
         let level = share_mode.to_level();
         if level >= 1 {
+            // Determine if channel is categorical based on expression data type
+            let is_categorical = channel_expr
+                .get_type(df.schema())
+                .ok()
+                .map(|dt| is_categorical_data_type(&dt))
+                .unwrap_or(false);
+
             // For Level(1+) channels, compute domain from the outer's full dataset
             // This ensures all inner facets share the same scale domain
-            if let Ok(extents) = compute_numeric_extents(df, channel_expr, ctx).await {
+            let extents_result = if is_categorical {
+                compute_categorical_extents(df, channel_expr, ctx).await
+            } else {
+                compute_numeric_extents(df, channel_expr, ctx).await
+            };
+
+            if let Ok(extents) = extents_result {
                 let key = LevelChannelKey::new(1, channel_name);
                 level_domains.insert(key, extents);
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "  Added level_domain for level=1, channel={}: {:?}",
+                        "  Added level_domain for level=1, channel={} ({}): {:?}",
                         channel_name,
+                        if is_categorical {
+                            "categorical"
+                        } else {
+                            "numeric"
+                        },
                         level_domains.get(&LevelChannelKey::new(1, channel_name))
                     );
                 }
@@ -2444,6 +2476,71 @@ async fn compute_numeric_extents(
     let max_val = extract_f64_from_array(max_col, 0)?;
 
     Ok(SerializableDataExtents::interval(min_val, max_val))
+}
+
+/// Compute categorical extents (unique values) for an expression from a DataFrame
+///
+/// This is a lightweight operation that runs a DISTINCT query to get unique values.
+/// Used for categorical scale sharing in nested facets.
+async fn compute_categorical_extents(
+    df: &DataFrame,
+    expr: &datafusion::logical_expr::Expr,
+    _ctx: &SessionContext,
+) -> Result<crate::facet::coordination::SerializableDataExtents, AvengerChartError> {
+    use crate::facet::coordination::SerializableDataExtents;
+
+    // Use DISTINCT to get unique values
+    let distinct_df = df.clone().select(vec![expr.clone()])?.distinct()?;
+    let batches = distinct_df.collect().await?;
+
+    // Extract values into Vec<ScalarValue>
+    let mut values = Vec::new();
+    for batch in &batches {
+        let col = batch.column(0);
+        for i in 0..col.len() {
+            values.push(ScalarValue::try_from_array(col, i)?);
+        }
+    }
+
+    // Sort for consistent ordering across facet cells
+    values.sort_by(scalar_total_cmp);
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "  compute_categorical_extents: extracted {} unique values",
+            values.len()
+        );
+    }
+
+    Ok(SerializableDataExtents::discrete(values))
+}
+
+/// Check if a data type represents categorical data based on Arrow type
+///
+/// This detection is based on the column's data type, not the scale type.
+/// It correctly identifies string, boolean, and dictionary-encoded columns as categorical.
+///
+/// # Limitation
+///
+/// Numeric columns (Int*, UInt*, Float*) used with Band/Point/Ordinal scales
+/// will NOT be detected as categorical by this function. They will be treated
+/// as numeric and compute interval extents instead of discrete extents.
+/// This means numeric-coded categories (e.g., 1,2,3 for Low/Medium/High) won't
+/// share domains correctly in nested facets.
+///
+/// A more robust solution would check the scale type (Band/Point/Ordinal) rather
+/// than the data type, but that requires architectural changes to pass scale
+/// configuration information to the extent computation phase.
+fn is_categorical_data_type(data_type: &datafusion::arrow::datatypes::DataType) -> bool {
+    use datafusion::arrow::datatypes::DataType;
+    matches!(
+        data_type,
+        DataType::Utf8
+            | DataType::LargeUtf8
+            | DataType::Utf8View
+            | DataType::Boolean
+            | DataType::Dictionary(_, _)
+    )
 }
 
 /// Extract f64 value from an Arrow array at the given index

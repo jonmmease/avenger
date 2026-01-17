@@ -424,6 +424,13 @@ impl SerializableDomainValue {
             }
             ScalarValue::Date64(Some(ms)) => SerializableDomainValue::TimestampMs(*ms),
 
+            // Dictionary types - unwrap to the underlying value
+            // This handles Arrow Dictionary-encoded columns which are common for categorical data
+            ScalarValue::Dictionary(_, inner) => {
+                // Recursively convert the inner value
+                Self::from_scalar(inner.as_ref())
+            }
+
             // Everything else becomes Null
             _ => SerializableDomainValue::Null,
         }
@@ -1467,6 +1474,27 @@ mod tests {
         // Test null
         let n = SerializableDomainValue::from_scalar(&ScalarValue::Null);
         assert!(matches!(n, SerializableDomainValue::Null));
+
+        // Test Dictionary - should unwrap to underlying value
+        use datafusion::arrow::datatypes::DataType;
+        let dict_value = ScalarValue::Dictionary(
+            Box::new(DataType::Int32),
+            Box::new(ScalarValue::Utf8(Some("category".to_string()))),
+        );
+        let d = SerializableDomainValue::from_scalar(&dict_value);
+        assert!(matches!(d, SerializableDomainValue::String(ref s) if s == "category"));
+        assert_eq!(d.to_scalar(), ScalarValue::Utf8(Some("category".to_string())));
+
+        // Test nested Dictionary (Dictionary containing Dictionary)
+        let nested_dict = ScalarValue::Dictionary(
+            Box::new(DataType::Int32),
+            Box::new(ScalarValue::Dictionary(
+                Box::new(DataType::Int8),
+                Box::new(ScalarValue::Int64(Some(42))),
+            )),
+        );
+        let nd = SerializableDomainValue::from_scalar(&nested_dict);
+        assert!(matches!(nd, SerializableDomainValue::Int(42)));
     }
 
     // ========================================================================

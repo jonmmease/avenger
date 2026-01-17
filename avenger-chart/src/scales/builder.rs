@@ -315,8 +315,24 @@ impl ScaleBuilder {
                                 *local_min = (*local_min).min(*shared_min);
                                 *local_max = (*local_max).max(*shared_max);
                             }
-                            // For discrete extents, we could merge unique values, but that's more complex
-                            // For now, just leave discrete extents unchanged
+                            (
+                                DataExtents::Discrete(local_values),
+                                SerializableDataExtents::Discrete(shared_values),
+                            ) => {
+                                // For categorical scale sharing, replace local values with shared values.
+                                // The shared values represent the full dataset's unique values in sorted order,
+                                // ensuring consistent category ordering across all facet cells.
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                    eprintln!(
+                                        "  Extending {} discrete extents: local={} values -> shared={} values",
+                                        channel,
+                                        local_values.len(),
+                                        shared_values.len()
+                                    );
+                                }
+                                *local_values =
+                                    shared_values.iter().map(|v| v.to_scalar()).collect();
+                            }
                             _ => {
                                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                                     eprintln!(
