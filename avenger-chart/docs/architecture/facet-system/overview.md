@@ -99,6 +99,8 @@ Both implement:
 - Shared/Level facet domains prefer explicit scale domains (e.g., `scale.domain_discrete(...)` or `scale.domain_interval(...)`) when provided. These explicit values are propagated instead of recomputing extents from data.
 - Categorical detection for shared domains prioritizes the scale's domain kind (Band/Point/Ordinal → categorical) and only falls back to Arrow data type inspection.
 - Temporal shared domains preserve temporal min/max as Unix timestamps to keep temporal scales consistent across nested facets.
+- `ScaleSharing::Level(n)` uses the outer facet's full dataset to compute level-1 domains unless an explicit scale domain is provided; explicit domains always take precedence for Level sharing.
+- Conditional channels (`ChannelValue::Conditional`) do not currently contribute to shared/level extent computation; only non-conditional channel expressions are used.
 
 ## Key Traits
 

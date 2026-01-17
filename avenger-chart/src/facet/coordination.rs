@@ -1295,7 +1295,10 @@ mod tests {
         );
         let d = SerializableDomainValue::from_scalar(&dict_value);
         assert!(matches!(d, SerializableDomainValue::String(ref s) if s == "category"));
-        assert_eq!(d.to_scalar(), ScalarValue::Utf8(Some("category".to_string())));
+        assert_eq!(
+            d.to_scalar(),
+            ScalarValue::Utf8(Some("category".to_string()))
+        );
 
         // Test nested Dictionary (Dictionary containing Dictionary)
         let nested_dict = ScalarValue::Dictionary(
