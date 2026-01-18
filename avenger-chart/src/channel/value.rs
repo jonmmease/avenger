@@ -257,13 +257,13 @@ impl ChannelValue {
         }
     }
 
-    /// Get expression for domain inference.
+    /// Get expression for domain inference (includes all branches).
     ///
     /// For conditional values, builds a CASE expression that combines all branches,
-    /// allowing domain inference to consider all possible output values.
+    /// allowing type inference to consider all possible output values.
     ///
-    /// This should be used for scale domain inference and type inference,
-    /// NOT for filtering or rendering where the original conditional logic matters.
+    /// Note: For scale domain collection, use `scale_input_expr()` instead, which
+    /// excludes literal Value branches that bypass the scale.
     pub fn expr_for_domain(&self, ctx: &SessionContext) -> Option<Expr> {
         match self {
             ChannelValue::Scaled { expr, .. } => expr.to_expr(ctx).ok(),
@@ -289,6 +289,66 @@ impl ChannelValue {
                 if when_then_exprs.is_empty() && else_expr.is_none() {
                     return None;
                 }
+
+                Some(Expr::Case(Case::new(None, when_then_exprs, else_expr)))
+            }
+        }
+    }
+
+    /// Get expression for scale domain collection.
+    ///
+    /// Returns an expression representing only values that pass through the scale.
+    /// Literal `Value` branches that bypass the scale are replaced with NULL so they
+    /// don't affect domain computation (min/max, distinct values).
+    ///
+    /// - `Scaled` → returns the expression
+    /// - `Value` → returns None (literals don't use scales)
+    /// - `Conditional` → CASE expression with NULL for Value branches, expression for Scaled
+    ///
+    /// Returns None if there are no scaled values (pure literal conditional or Value variant).
+    pub fn scale_input_expr(&self, ctx: &SessionContext) -> Option<Expr> {
+        match self {
+            ChannelValue::Scaled { expr, .. } => expr.to_expr(ctx).ok(),
+            ChannelValue::Value { .. } => None, // Literals bypass scale, no domain needed
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                ..
+            } => {
+                // Check if there are any Scaled branches
+                let has_scaled = conditions
+                    .iter()
+                    .any(|(_, val)| matches!(val, ConditionalValue::Scaled { .. }))
+                    || matches!(otherwise, ConditionalValue::Scaled { .. });
+
+                if !has_scaled {
+                    // All branches are literals - no scale input
+                    return None;
+                }
+
+                // Build CASE with NULL for Value branches, expression for Scaled branches
+                let when_then_exprs: Vec<(Box<Expr>, Box<Expr>)> = conditions
+                    .iter()
+                    .filter_map(|(cond, val)| {
+                        let cond_expr = cond.to_expr(ctx).ok()?;
+                        let val_expr = match val {
+                            ConditionalValue::Scaled { expr } => expr.to_expr(ctx).ok()?,
+                            ConditionalValue::Value { .. } => {
+                                // Use NULL for literal values - they bypass the scale
+                                lit(datafusion::scalar::ScalarValue::Null)
+                            }
+                        };
+                        Some((Box::new(cond_expr), Box::new(val_expr)))
+                    })
+                    .collect();
+
+                let else_expr = match otherwise {
+                    ConditionalValue::Scaled { expr } => expr.to_expr(ctx).ok().map(Box::new),
+                    ConditionalValue::Value { .. } => {
+                        // Use NULL for literal otherwise value
+                        Some(Box::new(lit(datafusion::scalar::ScalarValue::Null)))
+                    }
+                };
 
                 Some(Expr::Case(Case::new(None, when_then_exprs, else_expr)))
             }
@@ -962,6 +1022,170 @@ mod tests {
             when_count, 2,
             "Expected 2 WHEN clauses, got {}: {}",
             when_count, expr_str
+        );
+    }
+
+    #[test]
+    fn test_scale_input_expr_scaled() {
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+
+        // Scaled variant should return same as expr()
+        let cv: ChannelValue = col("x").into();
+        let expr = cv.expr(&ctx);
+        let scale_expr = cv.scale_input_expr(&ctx);
+        assert!(expr.is_some());
+        assert!(scale_expr.is_some());
+        assert_eq!(expr.unwrap().to_string(), scale_expr.unwrap().to_string());
+    }
+
+    #[test]
+    fn test_scale_input_expr_value() {
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+
+        // Value variant should return None (literals bypass scale)
+        let cv: ChannelValue = 42.into();
+        let scale_expr = cv.scale_input_expr(&ctx);
+        assert!(scale_expr.is_none());
+    }
+
+    #[test]
+    fn test_scale_input_expr_conditional_mixed() {
+        use super::ConditionalValue;
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+
+        // Build a conditional with mixed branches:
+        // if highlight then "red" (literal) else value (scaled)
+        let cv = ChannelValue::Conditional {
+            conditions: vec![(
+                LogicalExprNode::from_expr(col("highlight"))
+                    .expect("Failed to serialize condition"),
+                ConditionalValue::Value {
+                    expr: LogicalExprNode::from_expr(lit("red"))
+                        .expect("Failed to serialize value"),
+                },
+            )],
+            otherwise: ConditionalValue::Scaled {
+                expr: LogicalExprNode::from_expr(col("value"))
+                    .expect("Failed to serialize otherwise"),
+            },
+            scale_config: None,
+            legend_config: None,
+            share_mode: None,
+        };
+
+        // scale_input_expr() should return CASE with NULL for literal branches
+        let scale_expr = cv.scale_input_expr(&ctx);
+        assert!(scale_expr.is_some());
+        let expr_str = scale_expr.unwrap().to_string();
+        // Should be a CASE expression
+        assert!(
+            expr_str.contains("WHEN"),
+            "Expected CASE expression, got: {}",
+            expr_str
+        );
+        // Should contain NULL for the literal branch
+        assert!(
+            expr_str.contains("NULL"),
+            "Expected NULL for literal branch, got: {}",
+            expr_str
+        );
+        // Should contain the column reference for scaled branch
+        assert!(
+            expr_str.contains("value"),
+            "Expected 'value' column in expression, got: {}",
+            expr_str
+        );
+    }
+
+    #[test]
+    fn test_scale_input_expr_conditional_all_literals() {
+        use super::ConditionalValue;
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+
+        // Build a conditional with all literal branches:
+        // if category == "A" then "red" else "blue"
+        let cv = ChannelValue::Conditional {
+            conditions: vec![(
+                LogicalExprNode::from_expr(col("category").eq(lit("A")))
+                    .expect("Failed to serialize condition"),
+                ConditionalValue::Value {
+                    expr: LogicalExprNode::from_expr(lit("red"))
+                        .expect("Failed to serialize value"),
+                },
+            )],
+            otherwise: ConditionalValue::Value {
+                expr: LogicalExprNode::from_expr(lit("blue"))
+                    .expect("Failed to serialize otherwise"),
+            },
+            scale_config: None,
+            legend_config: None,
+            share_mode: None,
+        };
+
+        // scale_input_expr() should return None when all branches are literals
+        let scale_expr = cv.scale_input_expr(&ctx);
+        assert!(
+            scale_expr.is_none(),
+            "Expected None for all-literal conditional"
+        );
+    }
+
+    #[test]
+    fn test_scale_input_expr_conditional_all_scaled() {
+        use super::ConditionalValue;
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+
+        // Build a conditional with all scaled branches:
+        // if is_large then big_value else small_value
+        let cv = ChannelValue::Conditional {
+            conditions: vec![(
+                LogicalExprNode::from_expr(col("is_large"))
+                    .expect("Failed to serialize condition"),
+                ConditionalValue::Scaled {
+                    expr: LogicalExprNode::from_expr(col("big_value"))
+                        .expect("Failed to serialize value"),
+                },
+            )],
+            otherwise: ConditionalValue::Scaled {
+                expr: LogicalExprNode::from_expr(col("small_value"))
+                    .expect("Failed to serialize otherwise"),
+            },
+            scale_config: None,
+            legend_config: None,
+            share_mode: None,
+        };
+
+        // scale_input_expr() should return CASE without NULL (all branches use scale)
+        let scale_expr = cv.scale_input_expr(&ctx);
+        assert!(scale_expr.is_some());
+        let expr_str = scale_expr.unwrap().to_string();
+        // Should be a CASE expression
+        assert!(
+            expr_str.contains("WHEN"),
+            "Expected CASE expression, got: {}",
+            expr_str
+        );
+        // Should NOT contain NULL since all branches are scaled
+        assert!(
+            !expr_str.contains("NULL"),
+            "Did not expect NULL in all-scaled conditional, got: {}",
+            expr_str
+        );
+        // Should contain both column references
+        assert!(
+            expr_str.contains("big_value"),
+            "Expected 'big_value' column, got: {}",
+            expr_str
+        );
+        assert!(
+            expr_str.contains("small_value"),
+            "Expected 'small_value' column, got: {}",
+            expr_str
         );
     }
 }

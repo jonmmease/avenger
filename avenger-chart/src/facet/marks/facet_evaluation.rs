@@ -2327,7 +2327,7 @@ async fn detect_nested_facet_and_compute_coordination(
                 let channels = mark.data_context().channels();
                 if let Some(channel_value) = channels.get(channel_name) {
                     if channel_expr.is_none() {
-                        channel_expr = channel_value.expr_for_domain(ctx);
+                        channel_expr = channel_value.scale_input_expr(ctx);
                         share_mode = channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
                     }
 
@@ -2702,6 +2702,14 @@ async fn compute_numeric_extents(
     let min_col = batch.column(0);
     let max_col = batch.column(1);
 
+    // Check for NULL min/max values - this happens when all values are NULL
+    // (e.g., all rows hit literal branches in a conditional)
+    if min_col.is_null(0) || max_col.is_null(0) {
+        return Err(AvengerChartError::InternalError(
+            "No numeric data for extent computation (all values may be NULL from conditional literals)".to_string(),
+        ));
+    }
+
     // Try to extract numeric values
     let min_val = extract_f64_from_array(min_col, 0)?;
     let max_val = extract_f64_from_array(max_col, 0)?;
@@ -2731,6 +2739,11 @@ async fn compute_categorical_extents(
         let col = batch.column(0);
         for i in 0..col.len() {
             let scalar = ScalarValue::try_from_array(col, i)?;
+            // Skip NULL values - these come from conditional literal branches
+            // that use NULL placeholders and shouldn't affect the domain
+            if scalar.is_null() {
+                continue;
+            }
             values.push(normalize_domain_scalar(scalar));
         }
     }
@@ -2778,6 +2791,15 @@ async fn compute_temporal_extents(
     }
 
     let batch = &batches[0];
+
+    // Check for NULL min/max values - this happens when all values are NULL
+    // (e.g., all rows hit literal branches in a conditional)
+    if batch.column(0).is_null(0) || batch.column(1).is_null(0) {
+        return Err(AvengerChartError::InternalError(
+            "No temporal data for extent computation (all values may be NULL from conditional literals)".to_string(),
+        ));
+    }
+
     let min_val = ScalarValue::try_from_array(batch.column(0), 0)?;
     let max_val = ScalarValue::try_from_array(batch.column(1), 0)?;
 

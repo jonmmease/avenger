@@ -272,11 +272,13 @@ async fn build_scale_for_channel(
         let resolved = resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 
         if let Some(channel_value) = resolved.get(channel) {
-            // Use expr_for_domain for all channel types (including conditional)
-            // This produces a CASE expression for conditionals, allowing type inference
-            // to consider all branches rather than just the 'otherwise' branch.
+            // Use scale_input_expr for type inference - we only care about the type
+            // of values that actually pass through the scale. For conditionals with
+            // literal Value branches, those branches are replaced with NULL so they
+            // don't affect type inference (e.g., a numeric scaled branch with a
+            // string literal override should infer as numeric, not string).
             let maybe_dt = {
-                if let Some(expr) = channel_value.expr_for_domain(ctx) {
+                if let Some(expr) = channel_value.scale_input_expr(ctx) {
                     // Try to infer type using the mark's own DataFrame first,
                     // then fall back to plot-level DataFrame if available.
                     let mark_df = mark.data_context().dataframe_with_context(ctx);
@@ -722,38 +724,12 @@ async fn cache_domain_data(
                             entries.push((df.clone(), expr_df, per_mark_radius));
                         };
 
-                        // For domain collection, only include expressions that go through
-                        // the scale (Scaled variants). Literal Value branches bypass the
-                        // scale and shouldn't affect domain computation.
-                        match channel_value {
-                            crate::marks::ChannelValue::Scaled { expr, .. } => {
-                                if let Ok(expr_df) = expr.to_expr(ctx) {
-                                    push_entry(expr_df);
-                                }
-                            }
-                            crate::marks::ChannelValue::Value { .. } => {
-                                // Identity values don't use scales, skip domain collection
-                            }
-                            crate::marks::ChannelValue::Conditional {
-                                conditions,
-                                otherwise,
-                                ..
-                            } => {
-                                // Only collect Scaled branches - they need scale transformation
-                                // Value branches (literals) bypass the scale entirely
-                                for (_cond, val) in conditions {
-                                    if let crate::marks::ConditionalValue::Scaled { expr } = val {
-                                        if let Ok(expr_df) = expr.to_expr(ctx) {
-                                            push_entry(expr_df);
-                                        }
-                                    }
-                                }
-                                if let crate::marks::ConditionalValue::Scaled { expr } = otherwise {
-                                    if let Ok(expr_df) = expr.to_expr(ctx) {
-                                        push_entry(expr_df);
-                                    }
-                                }
-                            }
+                        // Use scale_input_expr to get an expression for domain collection.
+                        // For conditionals, this returns a CASE expression with NULL for
+                        // literal Value branches (they bypass the scale and shouldn't
+                        // affect domain computation like min/max or distinct values).
+                        if let Some(expr_df) = channel_value.scale_input_expr(ctx) {
+                            push_entry(expr_df);
                         }
                     }
                 }
@@ -1095,6 +1071,11 @@ async fn cache_categorical_data(
             let value_array = batch.column(0);
             for i in 0..value_array.len() {
                 let scalar = ScalarValue::try_from_array(value_array, i)?;
+                // Skip NULL values - these come from conditional literal branches
+                // that use NULL placeholders and shouldn't affect the domain
+                if scalar.is_null() {
+                    continue;
+                }
                 if !all_unique_values.iter().any(|v| v == &scalar) {
                     all_unique_values.push(scalar);
                 }
@@ -1232,8 +1213,16 @@ async fn cache_numeric_data(
 
         if !batches.is_empty() && batches[0].num_rows() > 0 {
             let batch = &batches[0];
-            let min_val = crate::utils::array_value_to_f64(batch.column(0), 0, dt)?;
-            let max_val = crate::utils::array_value_to_f64(batch.column(1), 0, dt)?;
+            let min_col = batch.column(0);
+            let max_col = batch.column(1);
+
+            // Skip if min/max are NULL (all values were NULL from conditional literals)
+            if min_col.is_null(0) || max_col.is_null(0) {
+                continue;
+            }
+
+            let min_val = crate::utils::array_value_to_f64(min_col, 0, dt)?;
+            let max_val = crate::utils::array_value_to_f64(max_col, 0, dt)?;
 
             global_min_val = Some(global_min_val.map_or(min_val, |current| current.min(min_val)));
             global_max_val = Some(global_max_val.map_or(max_val, |current| current.max(max_val)));
