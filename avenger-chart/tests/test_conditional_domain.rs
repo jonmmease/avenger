@@ -138,4 +138,3 @@ async fn test_conditional_type_inference_numeric_with_string_literal() {
         .await
         .expect("Failed to evaluate - type inference may have incorrectly used string type");
 }
-

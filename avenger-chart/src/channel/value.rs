@@ -1144,8 +1144,7 @@ mod tests {
         // if is_large then big_value else small_value
         let cv = ChannelValue::Conditional {
             conditions: vec![(
-                LogicalExprNode::from_expr(col("is_large"))
-                    .expect("Failed to serialize condition"),
+                LogicalExprNode::from_expr(col("is_large")).expect("Failed to serialize condition"),
                 ConditionalValue::Scaled {
                     expr: LogicalExprNode::from_expr(col("big_value"))
                         .expect("Failed to serialize value"),
