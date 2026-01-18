@@ -7,6 +7,7 @@ use datafusion::dataframe::DataFrame;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
+use crate::channel::value::strip_trailing_numbers;
 use crate::error::AvengerChartError;
 use crate::facet::scalar_cmp::scalar_total_cmp;
 use crate::scales::Scale;
@@ -132,9 +133,11 @@ pub(crate) async fn build_scale_builder_from_marks(
             )
             .await?
         {
-            // Cache the domain data (adds to builder.channel_builders)
+            // Cache the domain data under the BASE name (strip trailing numbers)
+            // This ensures y2 channel's scale is stored under "y", matching lookup semantics
+            let base_name = strip_trailing_numbers(channel);
             cache_domain_data(
-                channel,
+                base_name,
                 &spec,
                 &dt,
                 options,
@@ -203,9 +206,11 @@ pub(crate) async fn build_scale_builder_from_marks(
                 )
             };
 
-            // Cache the domain data
+            // Cache the domain data under the BASE name (strip trailing numbers)
+            // This ensures y2 channel's scale is stored under "y", matching lookup semantics
+            let base_name = strip_trailing_numbers(channel);
             cache_domain_data(
-                channel,
+                base_name,
                 &spec,
                 &dt,
                 options,
@@ -263,15 +268,31 @@ async fn build_scale_for_channel(
         )
     };
 
-    // Find first mark that uses this channel and get its expr and preferred scale type
+    // Find first mark that uses this channel (or a channel mapping to it) and get its expr and preferred scale type.
+    // For positional channels like "y", we also check "y2" since both map to the same scale.
     let mut chosen_spec: Option<Box<dyn crate::scales::ScaleSpec>> = None;
     let mut data_type: Option<DataType> = None;
 
-    for mark in compiled_marks {
+    'outer: for mark in compiled_marks {
         let channels = mark.data_context().channels();
         let resolved = resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 
-        if let Some(channel_value) = resolved.get(channel) {
+        // Look for any channel whose scale name matches the target channel
+        // This allows y2's data to be used when building scale "y"
+        for (channel_name, channel_value) in &resolved {
+            // Check if this channel maps to our target scale
+            let maps_to_target =
+                if let Some(scale_name) = channel_value.get_scale_name(channel_name) {
+                    scale_name == channel
+                } else {
+                    // Value channels don't have scales but exact name match counts
+                    channel_name == channel
+                };
+
+            if !maps_to_target {
+                continue;
+            }
+
             // Use scale_input_expr for type inference - we only care about the type
             // of values that actually pass through the scale. For conditionals with
             // literal Value branches, those branches are replaced with NULL so they
@@ -316,24 +337,37 @@ async fn build_scale_for_channel(
 
             if let Some(dt) = maybe_dt {
                 data_type = Some(dt.clone());
-                chosen_spec = mark.preferred_scale_type(channel, &dt);
-                break;
+                chosen_spec = mark.preferred_scale_type(channel_name, &dt);
+                break 'outer;
             }
         }
     }
 
     // Check for explicit scale config (type, domain, options like nice, zero, etc.)
+    // Look for any channel whose scale maps to the target channel
     let mut chosen_scale_config: Option<Scale<Auto>> = None;
-    for mark in compiled_marks {
+    'config_outer: for mark in compiled_marks {
         let channels = mark.data_context().channels();
         let resolved = resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 
-        if let Some(channel_value) = resolved.get(channel) {
+        for (channel_name, channel_value) in &resolved {
+            // Check if this channel maps to our target scale
+            let maps_to_target =
+                if let Some(scale_name) = channel_value.get_scale_name(channel_name) {
+                    scale_name == channel
+                } else {
+                    channel_name == channel
+                };
+
+            if !maps_to_target {
+                continue;
+            }
+
             if let Some(scale_config) = channel_value.get_scale_config() {
                 // Capture any scale config, not just those with explicit domains
                 // This ensures options like nice(false) and zero(false) are preserved
                 chosen_scale_config = Some(scale_config.clone());
-                break;
+                break 'config_outer;
             }
         }
     }
@@ -393,10 +427,17 @@ async fn build_scale_for_channel(
             scale = scale.option(&k, lit(v));
         }
 
-        if let Some(mark) = compiled_marks
-            .iter()
-            .find(|m| m.data_context().channels().contains_key(channel))
-        {
+        // Find mark that has a channel mapping to this scale
+        if let Some(mark) = compiled_marks.iter().find(|m| {
+            let channels = m.data_context().channels();
+            channels.iter().any(|(ch_name, ch_val)| {
+                if let Some(scale_name) = ch_val.get_scale_name(ch_name) {
+                    scale_name == channel
+                } else {
+                    ch_name == channel
+                }
+            })
+        }) {
             let mark_opts = mark.default_scale_options(channel, scale_impl.as_ref(), &dt);
             for (k, v) in mark_opts {
                 // Skip domain-affecting options if user set explicit domain
