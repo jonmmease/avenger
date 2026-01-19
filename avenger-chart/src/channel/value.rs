@@ -648,6 +648,67 @@ pub(crate) fn strip_trailing_numbers(name: &str) -> &str {
     name.trim_end_matches(char::is_numeric)
 }
 
+/// Channel name with trailing numbers stripped (y2 -> y, x10 -> x).
+///
+/// This newtype ensures that scales are stored and retrieved using consistent
+/// base names, preventing runtime errors from mismatched lookups (e.g., looking
+/// up "y2" when scale is stored under "y").
+///
+/// # Example
+/// ```
+/// use avenger_chart::channel::value::BaseChannelName;
+///
+/// let base = BaseChannelName::from_raw("y2");
+/// assert_eq!(base.as_str(), "y");
+///
+/// let base = BaseChannelName::from_raw("color");
+/// assert_eq!(base.as_str(), "color");
+/// ```
+#[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct BaseChannelName(String);
+
+impl BaseChannelName {
+    /// Create a BaseChannelName by stripping trailing numbers from the raw name.
+    pub fn from_raw(name: &str) -> Self {
+        Self(strip_trailing_numbers(name).to_string())
+    }
+
+    /// Return the base channel name as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for BaseChannelName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::fmt::Debug for BaseChannelName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BaseChannelName({})", self.0)
+    }
+}
+
+impl From<&str> for BaseChannelName {
+    fn from(name: &str) -> Self {
+        Self::from_raw(name)
+    }
+}
+
+impl From<String> for BaseChannelName {
+    fn from(name: String) -> Self {
+        Self::from_raw(&name)
+    }
+}
+
+impl AsRef<str> for BaseChannelName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 // Smart conversion for &str - always literals, identity by default
 impl From<&str> for ChannelValue {
     fn from(s: &str) -> Self {
@@ -725,6 +786,117 @@ mod tests {
         assert_eq!(strip_trailing_numbers("x123"), "x");
         assert_eq!(strip_trailing_numbers("color2"), "color");
         assert_eq!(strip_trailing_numbers("foo"), "foo");
+    }
+
+    #[test]
+    fn test_base_channel_name_from_raw() {
+        // Basic stripping
+        assert_eq!(BaseChannelName::from_raw("y").as_str(), "y");
+        assert_eq!(BaseChannelName::from_raw("y2").as_str(), "y");
+        assert_eq!(BaseChannelName::from_raw("y10").as_str(), "y");
+
+        // Multiple characters
+        assert_eq!(BaseChannelName::from_raw("color").as_str(), "color");
+        assert_eq!(BaseChannelName::from_raw("color2").as_str(), "color");
+
+        // Edge cases
+        assert_eq!(BaseChannelName::from_raw("x123").as_str(), "x");
+    }
+
+    #[test]
+    fn test_base_channel_name_equality() {
+        let y1 = BaseChannelName::from_raw("y");
+        let y2 = BaseChannelName::from_raw("y2");
+        let y10 = BaseChannelName::from_raw("y10");
+
+        // All variants of y should be equal
+        assert_eq!(y1, y2);
+        assert_eq!(y2, y10);
+        assert_eq!(y1, y10);
+
+        // Different base names should not be equal
+        let x = BaseChannelName::from_raw("x");
+        assert_ne!(y1, x);
+    }
+
+    #[test]
+    fn test_base_channel_name_hash() {
+        use std::collections::HashSet;
+
+        let mut set = HashSet::new();
+        set.insert(BaseChannelName::from_raw("y"));
+        set.insert(BaseChannelName::from_raw("y2"));
+        set.insert(BaseChannelName::from_raw("y10"));
+
+        // All should resolve to the same base name, so set should have 1 element
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn test_base_channel_name_display() {
+        let base = BaseChannelName::from_raw("y2");
+        assert_eq!(format!("{}", base), "y");
+    }
+
+    #[test]
+    fn test_base_channel_name_debug() {
+        let base = BaseChannelName::from_raw("y2");
+        assert_eq!(format!("{:?}", base), "BaseChannelName(y)");
+    }
+
+    #[test]
+    fn test_base_channel_name_from_traits() {
+        // From &str
+        let base: BaseChannelName = "y2".into();
+        assert_eq!(base.as_str(), "y");
+
+        // From String
+        let base: BaseChannelName = "color2".to_string().into();
+        assert_eq!(base.as_str(), "color");
+    }
+
+    #[test]
+    fn test_base_channel_name_serialization_roundtrip() {
+        // Test that serialization and deserialization work correctly
+        let original = BaseChannelName::from_raw("y2");
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&original).expect("serialize");
+        assert_eq!(json, "\"y\""); // Should serialize as just the base name
+
+        // Deserialize from JSON
+        let deserialized: BaseChannelName = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, deserialized);
+        assert_eq!(deserialized.as_str(), "y");
+    }
+
+    #[test]
+    fn test_base_channel_name_hashmap_lookup() {
+        use std::collections::HashMap;
+
+        // This test validates the primary use case: storing scales by base name
+        // and looking them up with either the base or numbered variant
+        let mut scales: HashMap<BaseChannelName, &str> = HashMap::new();
+
+        // Store scale under "y"
+        scales.insert(BaseChannelName::from_raw("y"), "y_scale");
+
+        // Lookup should work with y, y2, y10
+        assert_eq!(
+            scales.get(&BaseChannelName::from_raw("y")),
+            Some(&"y_scale")
+        );
+        assert_eq!(
+            scales.get(&BaseChannelName::from_raw("y2")),
+            Some(&"y_scale")
+        );
+        assert_eq!(
+            scales.get(&BaseChannelName::from_raw("y10")),
+            Some(&"y_scale")
+        );
+
+        // x should not find anything
+        assert_eq!(scales.get(&BaseChannelName::from_raw("x")), None);
     }
 
     #[test]

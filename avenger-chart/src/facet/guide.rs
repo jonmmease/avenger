@@ -16,9 +16,12 @@ use avenger_text::measurement::TextMeasurer;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+// Note: aggregate_overflow_edges logic is now in FacetDimensionConfig::aggregate_overflow_edges
+// trait method, which provides dimension-specific behavior (row vs column).
+// Use RowDimensionConfig::aggregate_overflow_edges or ColumnDimensionConfig::aggregate_overflow_edges
 
 /// Default overflow fallback values (left, right, top, bottom) used when
 /// measurement cannot be performed (e.g., in data_override path without facet expression).
@@ -36,10 +39,6 @@ pub const DEFAULT_OVERFLOW_FALLBACK: (f32, f32, f32, f32) = (30.0, 30.0, 40.0, 2
 pub fn default_overflow_fallback() -> (f32, f32, f32, f32) {
     DEFAULT_OVERFLOW_FALLBACK
 }
-
-// Note: aggregate_overflow_edges logic is now in FacetDimensionConfig::aggregate_overflow_edges
-// trait method, which provides dimension-specific behavior (row vs column).
-// Use RowDimensionConfig::aggregate_overflow_edges or ColumnDimensionConfig::aggregate_overflow_edges
 
 /// Unified title references for measure_overflow and evaluate generic helpers.
 ///

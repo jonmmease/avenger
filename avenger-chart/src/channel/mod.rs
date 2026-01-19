@@ -16,7 +16,7 @@ mod position;
 #[macro_use]
 mod position_macros;
 pub(crate) mod resolution;
-pub(crate) mod value;
+pub mod value;
 
 // Re-export main types
 pub use self::config_traits::{ChannelConfig, LegendableChannel};
@@ -26,4 +26,4 @@ pub use self::configs::{
 };
 pub use self::descriptor::{ChannelDefault, ChannelDescriptor};
 pub use self::position::{GenericPositionConfig, PositionConfig};
-pub use self::value::{ChannelValue, ConditionalValue};
+pub use self::value::{BaseChannelName, ChannelValue, ConditionalValue};

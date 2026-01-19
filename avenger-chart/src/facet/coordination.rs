@@ -176,6 +176,109 @@ pub enum GuideOwnership {
     Suppress,
 }
 
+// ============================================================================
+// Accessor View Types
+// ============================================================================
+// These view types provide focused access to logical groups of fields in
+// FacetCoordinationContext, making it clear which fields are needed for
+// specific operations.
+
+/// View into guide-related fields for visibility decisions
+///
+/// Use this when you need to determine whether to render guides (axes, labels, titles).
+/// The view provides access to guide ownership and position information without
+/// exposing unrelated coordination fields.
+#[derive(Debug, Clone, Copy)]
+pub struct GuideContextView {
+    /// Controls whether this subplot renders guides
+    pub ownership: GuideOwnership,
+    /// Position within the outer facet (0-indexed)
+    pub outer_position: usize,
+    /// Total count of subplots in the outer facet
+    pub outer_count: usize,
+}
+
+impl GuideContextView {
+    /// Check if guides should be suppressed for this subplot
+    pub fn should_suppress(&self) -> bool {
+        matches!(self.ownership, GuideOwnership::Suppress)
+    }
+
+    /// Check if this subplot should render guides (Full or Edge ownership)
+    pub fn should_render(&self) -> bool {
+        !self.should_suppress()
+    }
+
+    /// Check if this is the last (edge) position in the outer facet
+    pub fn is_edge_position(&self) -> bool {
+        self.outer_count > 0 && self.outer_position == self.outer_count - 1
+    }
+}
+
+/// View into overflow coordination fields
+///
+/// Use this when aggregating overflow measurements across nested facets.
+/// Provides access to per-row and per-column overflow values without
+/// exposing unrelated coordination fields.
+#[derive(Debug, Clone)]
+pub struct OverflowContextView<'a> {
+    /// Per-row overflow measurements (max heights across all columns)
+    pub row_overflow: Option<&'a Vec<OverflowSpaceRequirement>>,
+    /// Per-column overflow measurements (max widths across all rows)
+    pub col_overflow: Option<&'a Vec<OverflowSpaceRequirement>>,
+}
+
+impl<'a> OverflowContextView<'a> {
+    /// Get the overflow for a specific row index
+    pub fn row_at(&self, index: usize) -> Option<&OverflowSpaceRequirement> {
+        self.row_overflow.and_then(|v| v.get(index))
+    }
+
+    /// Get the overflow for a specific column index
+    pub fn col_at(&self, index: usize) -> Option<&OverflowSpaceRequirement> {
+        self.col_overflow.and_then(|v| v.get(index))
+    }
+}
+
+/// View into scale sharing configuration
+///
+/// Use this when determining how scales should be shared across nested facets.
+/// Provides access to sharing levels, domains, and nesting depth without
+/// exposing unrelated coordination fields.
+#[derive(Debug, Clone)]
+pub struct ScaleSharingView<'a> {
+    /// Per-channel sharing levels (0 = Free, 1-254 = Level(N), 255 = Shared)
+    pub levels: &'a std::collections::HashMap<String, u8>,
+    /// Level-based domain lookups
+    pub domains: &'a IndexMap<LevelChannelKey, SerializableDataExtents>,
+    /// Current depth in hierarchy (0 = outermost)
+    pub nesting_depth: usize,
+}
+
+impl<'a> ScaleSharingView<'a> {
+    /// Get the sharing level for a channel (0 = Free, 255 = Shared)
+    pub fn get_level(&self, channel: &str) -> u8 {
+        self.levels.get(channel).copied().unwrap_or(0)
+    }
+
+    /// Check if a channel should use the parent facet's domain
+    pub fn should_use_parent_domain(&self, channel: &str) -> bool {
+        self.get_level(channel) > 0
+    }
+
+    /// Get the domain for a channel based on its sharing level
+    pub fn get_domain(&self, channel: &str) -> Option<&SerializableDataExtents> {
+        let level = self.get_level(channel);
+        if level == 0 || self.nesting_depth == 0 {
+            return None;
+        }
+
+        let effective_level = std::cmp::min(level as usize, self.nesting_depth);
+        let key = LevelChannelKey::new(effective_level, channel);
+        self.domains.get(&key)
+    }
+}
+
 /// Axis position for determining edge-based visibility
 ///
 /// Re-export from context module for use in coordination context
@@ -955,6 +1058,75 @@ impl FacetCoordinationContext {
     }
 
     // ========================================================================
+    // Accessor View Methods
+    // ========================================================================
+    // These methods provide focused views into logical groups of fields,
+    // making it clear which fields are needed for specific operations.
+
+    /// Returns guide-related fields for visibility decisions
+    ///
+    /// Use this view when determining whether to render guides (axes, labels, titles)
+    /// for a subplot. The view encapsulates the ownership mode and position information
+    /// needed for edge-based guide rendering.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let guide_view = coord_ctx.guide_view();
+    /// if guide_view.should_render() {
+    ///     // Render guides for this subplot
+    /// }
+    /// ```
+    pub fn guide_view(&self) -> GuideContextView {
+        GuideContextView {
+            ownership: self.guide_ownership,
+            outer_position: self.outer_position,
+            outer_count: self.outer_count,
+        }
+    }
+
+    /// Returns overflow coordination fields
+    ///
+    /// Use this view when aggregating overflow measurements across nested facets
+    /// or when applying coordinated overflow values during rendering.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let overflow_view = coord_ctx.overflow_view();
+    /// if let Some(overflow) = overflow_view.row_at(row_index) {
+    ///     // Use coordinated overflow for this row
+    /// }
+    /// ```
+    pub fn overflow_view(&self) -> OverflowContextView<'_> {
+        OverflowContextView {
+            row_overflow: self.row_overflow_by_index.as_ref(),
+            col_overflow: self.col_overflow_by_index.as_ref(),
+        }
+    }
+
+    /// Returns scale sharing configuration
+    ///
+    /// Use this view when determining how scales should be shared across nested facets.
+    /// The view provides access to per-channel sharing levels, level-based domains,
+    /// and the current nesting depth.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let sharing_view = coord_ctx.scale_sharing_view();
+    /// if sharing_view.should_use_parent_domain("y") {
+    ///     if let Some(domain) = sharing_view.get_domain("y") {
+    ///         // Use shared domain for y-axis
+    ///     }
+    /// }
+    /// ```
+    pub fn scale_sharing_view(&self) -> ScaleSharingView<'_> {
+        ScaleSharingView {
+            levels: &self.channel_sharing_levels,
+            domains: &self.level_domains,
+            nesting_depth: self.nesting_depth,
+        }
+    }
+
+    // ========================================================================
     // Level-based scale sharing methods (Phase 2)
     // ========================================================================
 
@@ -1145,6 +1317,97 @@ impl FacetCoordinationContext {
         ctx.upgrade_from_legacy();
         ctx
     }
+
+    // ========================================================================
+    // Debug Assertions
+    // ========================================================================
+
+    /// Validate context consistency invariants (debug builds only)
+    ///
+    /// This function checks critical invariants that must hold for correct operation:
+    /// - inner_channel must be "row" or "col" when present
+    /// - position_path length should be consistent with nesting_depth
+    ///
+    /// # Panics (debug builds only)
+    /// Panics with a descriptive message if any invariant is violated.
+    #[cfg(debug_assertions)]
+    pub fn validate_consistency(&self, context: &str) {
+        // Invariant: inner_channel must be "row" or "col" when set
+        if let Some(ref channel) = self.inner_channel {
+            debug_assert!(
+                channel == "row" || channel == "col",
+                "[FacetCoordinationContext] {context}: inner_channel must be 'row' or 'col', got '{channel}'"
+            );
+        }
+
+        // Invariant: position_path length should equal nesting_depth when both are set
+        // Note: This is a soft invariant - some code paths may not set position_path
+        if !self.position_path.is_empty() && self.nesting_depth > 0 {
+            // position_path may be shorter during construction
+            debug_assert!(
+                self.position_path.len() <= self.nesting_depth + 1,
+                "[FacetCoordinationContext] {context}: position_path.len() ({}) should not exceed nesting_depth + 1 ({})",
+                self.position_path.len(),
+                self.nesting_depth + 1
+            );
+        }
+
+        // Invariant: level_counts should match position_path length when both are set
+        if !self.position_path.is_empty() && !self.level_counts.is_empty() {
+            debug_assert!(
+                self.position_path.len() == self.level_counts.len(),
+                "[FacetCoordinationContext] {context}: position_path.len() ({}) must equal level_counts.len() ({})",
+                self.position_path.len(),
+                self.level_counts.len()
+            );
+        }
+
+        // Invariant: position < count for each level in position_path/level_counts
+        for (i, (pos, count)) in self
+            .position_path
+            .iter()
+            .zip(self.level_counts.iter())
+            .enumerate()
+        {
+            debug_assert!(
+                *pos < *count || *count == 0,
+                "[FacetCoordinationContext] {context}: position[{i}] ({pos}) must be < count[{i}] ({count})"
+            );
+        }
+
+        tracing::trace!(
+            "[FacetCoordinationContext] {context}: consistency check passed (nesting_depth={}, position_path.len()={})",
+            self.nesting_depth,
+            self.position_path.len()
+        );
+    }
+
+    /// No-op for release builds
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    pub fn validate_consistency(&self, _context: &str) {
+        // Intentionally empty - validation only runs in debug builds
+    }
+}
+
+/// Log an invariant check result (debug builds only)
+///
+/// This helper provides structured logging for invariant checks, making it easier
+/// to trace invariant validation during debugging.
+#[cfg(debug_assertions)]
+pub fn log_invariant_check(name: &str, passed: bool, context: &str) {
+    if passed {
+        tracing::trace!("[Invariant] {name}: PASSED ({context})");
+    } else {
+        tracing::warn!("[Invariant] {name}: FAILED ({context})");
+    }
+}
+
+/// No-op for release builds
+#[cfg(not(debug_assertions))]
+#[inline]
+pub fn log_invariant_check(_name: &str, _passed: bool, _context: &str) {
+    // Intentionally empty - logging only in debug builds
 }
 
 #[cfg(test)]
@@ -2185,5 +2448,120 @@ mod tests {
             vec!["zebra", "apple", "mango", "banana"],
             "IndexMap should preserve insertion order through JSON serialization"
         );
+    }
+
+    // ========================================================================
+    // Accessor View Tests
+    // ========================================================================
+
+    #[test]
+    fn test_guide_context_view() {
+        let ctx = FacetCoordinationContext::new(
+            "row",
+            ScaleSharing::Shared,
+            GuideOwnership::Edge,
+            2, // outer_position
+            3, // outer_count
+            3,
+        );
+
+        let view = ctx.guide_view();
+        assert_eq!(view.ownership, GuideOwnership::Edge);
+        assert_eq!(view.outer_position, 2);
+        assert_eq!(view.outer_count, 3);
+        assert!(view.should_render());
+        assert!(!view.should_suppress());
+        assert!(view.is_edge_position()); // position 2 of 3 is the last (edge)
+
+        // Test non-edge position
+        let ctx_interior = FacetCoordinationContext::new(
+            "row",
+            ScaleSharing::Shared,
+            GuideOwnership::Suppress,
+            0,
+            3,
+            3,
+        );
+        let view_interior = ctx_interior.guide_view();
+        assert!(!view_interior.is_edge_position());
+        assert!(view_interior.should_suppress());
+    }
+
+    #[test]
+    fn test_overflow_context_view() {
+        let mut ctx = FacetCoordinationContext::default();
+        ctx.row_overflow_by_index = Some(vec![
+            OverflowSpaceRequirement::default(),
+            OverflowSpaceRequirement::default(),
+        ]);
+
+        let view = ctx.overflow_view();
+        assert!(view.row_overflow.is_some());
+        assert!(view.col_overflow.is_none());
+        assert!(view.row_at(0).is_some());
+        assert!(view.row_at(5).is_none()); // Out of bounds
+        assert!(view.col_at(0).is_none()); // Not set
+    }
+
+    #[test]
+    fn test_scale_sharing_view() {
+        let mut levels = HashMap::new();
+        levels.insert("x".to_string(), 0_u8); // Free
+        levels.insert("y".to_string(), 1_u8); // Level(1)
+        levels.insert("color".to_string(), 255_u8); // Shared
+
+        let mut domains = IndexMap::new();
+        domains.insert(
+            LevelChannelKey::new(1, "y"),
+            SerializableDataExtents::interval(0.0, 100.0),
+        );
+
+        let ctx = FacetCoordinationContext::default()
+            .with_nesting_depth(2)
+            .with_channel_sharing_levels(levels)
+            .with_level_domains(domains);
+
+        let view = ctx.scale_sharing_view();
+        assert_eq!(view.get_level("x"), 0);
+        assert_eq!(view.get_level("y"), 1);
+        assert_eq!(view.get_level("color"), 255);
+        assert_eq!(view.get_level("nonexistent"), 0); // Default
+
+        assert!(!view.should_use_parent_domain("x")); // Free
+        assert!(view.should_use_parent_domain("y")); // Level(1)
+        assert!(view.should_use_parent_domain("color")); // Shared
+
+        // Can look up domain for y at level 1
+        assert!(view.get_domain("y").is_some());
+        // No domain for x (Free sharing)
+        assert!(view.get_domain("x").is_none());
+    }
+
+    #[test]
+    fn test_validate_consistency_passes() {
+        // Valid context should pass validation
+        let ctx = FacetCoordinationContext::new(
+            "row",
+            ScaleSharing::Shared,
+            GuideOwnership::Edge,
+            1,
+            3,
+            3,
+        )
+        .with_nesting_depth(1);
+
+        // This should not panic
+        ctx.validate_consistency("test");
+    }
+
+    #[test]
+    fn test_validate_consistency_with_position_path() {
+        let mut ctx = FacetCoordinationContext::default().with_nesting_depth(2);
+        ctx.position_path = vec![0, 1];
+        ctx.level_counts = vec![3, 4];
+        ctx.inner_channel = Some("col".to_string());
+
+        // This should not panic - all invariants hold
+        ctx.validate_consistency("test_position_path");
     }
 }
