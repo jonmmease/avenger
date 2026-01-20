@@ -433,21 +433,26 @@ The following nesting patterns are fully supported:
 - `FacetRow` containing `FacetColumn`
 - 3+ levels of nesting (with adequate stack size)
 
-### Level(N) with N > 1
+### Level(N) for Deep Nesting
 
-Currently, `Level(2)` and higher are **not fully implemented** for nested facets. The domain propagation mechanism only supports sharing with the immediate parent (Level 1).
+`Level(N)` enables hierarchical scale sharing across N levels of facet nesting:
 
-For deeper nesting hierarchies, use either:
-- `ScaleSharing::Shared` (global sharing across all cells)
-- `ScaleSharing::Level(1)` (sharing with immediate parent)
-- `ScaleSharing::Free` (independent per cell)
+- `Level(1)`: Share with immediate parent facet
+- `Level(2)`: Share with grandparent facet (for 3+ level nesting)
+- `Level(N)`: Share N levels up in the hierarchy
+
+**Example**: In a 3-level structure `FacetColumn > FacetRow > Cartesian`:
+- `Level(1)` on Y shares within each column (per-column Y range)
+- `Level(2)` on Y shares globally (same Y range for all cells)
+
+The domain lookup uses the formula: `target_depth = nesting_depth - level + 2`, clamped to valid range. Higher Level values produce more global sharing.
 
 ## Summary
 
 Nested facets enable:
 - Multi-level categorical decomposition
 - Hierarchical data exploration with clear visual structure
-- Flexible scale sharing at different levels via `Level(1)`
+- Flexible scale sharing at different levels via `Level(N)`
 
 Key principles:
 - Data flows from outer to inner via automatic filtering

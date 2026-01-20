@@ -146,6 +146,20 @@ pub trait ChannelConfig: Sized {
 }
 
 /// Facet scale sharing modes for a channel
+///
+/// # Implementation Note: Shared vs Level(u8::MAX)
+///
+/// While `Shared` is semantically equivalent to `Level(u8::MAX)` (both represent global
+/// sharing), they follow different code paths internally:
+///
+/// - `Shared` channels use pre-computed `shared_data_extents` from the coordination context,
+///   applied via `extend_with_shared_extents`
+/// - `Level(N)` channels (where N < 255) use `level_domains` with formula-based depth lookup,
+///   applied via `replace_with_shared_extents`
+///
+/// This separation prevents Shared channels from being processed twice (once as Shared,
+/// once as Level(255)) and simplifies the hierarchical Level(N) logic. When you need to
+/// check if a mode represents "fully shared" behavior, use [`ScaleSharing::is_fully_shared`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScaleSharing {

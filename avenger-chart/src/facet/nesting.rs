@@ -15,6 +15,7 @@ use crate::facet::marks::facet_extents::{
     scalar_to_timestamp_ms,
 };
 use crate::facet::scalar_cmp::scalar_total_cmp;
+use crate::marks::CompiledMark;
 use crate::plot::CompiledPlot;
 use avenger_scales::scales::DomainKind;
 use datafusion::common::ScalarValue;
@@ -22,6 +23,75 @@ use datafusion::dataframe::DataFrame;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 use std::sync::Arc;
+
+/// Information about a channel found by recursive search
+struct FoundChannelInfo {
+    expr: datafusion::logical_expr::Expr,
+    share_mode: ScaleSharing,
+    domain_kind: Option<DomainKind>,
+}
+
+/// Recursively search through marks (including nested facets) to find x/y channel info.
+/// This is needed for Level(N>1) where the actual channel definitions are in deeply nested subplots.
+fn find_channel_in_marks(
+    marks: &[Arc<dyn CompiledMark>],
+    channel_name: &str,
+    ctx: &SessionContext,
+    max_depth: usize,
+) -> Option<FoundChannelInfo> {
+    use crate::facet::marks::facet::{CompiledFacetCol, CompiledFacetRow};
+
+    if max_depth == 0 {
+        return None;
+    }
+
+    for mark in marks {
+        let channels = mark.data_context().channels();
+
+        // Check if this mark has the channel directly
+        if let Some(channel_value) = channels.get(channel_name) {
+            if let Some(expr) = channel_value.scale_input_expr(ctx) {
+                let share_mode = channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
+                let domain_kind = channel_value
+                    .get_scale_config()
+                    .and_then(|s| s.domain_kind());
+                return Some(FoundChannelInfo {
+                    expr,
+                    share_mode,
+                    domain_kind,
+                });
+            }
+        }
+
+        // If not found, check if this is a facet mark and recurse into its subplot
+        let mark_type = mark.mark_type();
+        if mark_type == "facet_row" {
+            if let Some(facet) = mark.as_any().downcast_ref::<CompiledFacetRow>() {
+                if let Some(info) = find_channel_in_marks(
+                    &facet.compiled_subplot.marks,
+                    channel_name,
+                    ctx,
+                    max_depth - 1,
+                ) {
+                    return Some(info);
+                }
+            }
+        } else if mark_type == "facet_col" {
+            if let Some(facet) = mark.as_any().downcast_ref::<CompiledFacetCol>() {
+                if let Some(info) = find_channel_in_marks(
+                    &facet.compiled_subplot.marks,
+                    channel_name,
+                    ctx,
+                    max_depth - 1,
+                ) {
+                    return Some(info);
+                }
+            }
+        }
+    }
+
+    None
+}
 
 /// Detect nested facet and compute coordination context
 ///
@@ -42,6 +112,7 @@ use std::sync::Arc;
 /// * `_outer_is_row_facet` - Whether the outer facet is a row facet (currently unused)
 /// * `outer_facet_expr` - Expression for the outer facet's grouping channel
 /// * `params` - Parameter map for expression evaluation
+/// * `incoming_coord_ctx` - Coordination context from parent facet (for deep nesting)
 ///
 /// # Returns
 /// Some(FacetCoordinationContext) if a nested facet is found, None otherwise
@@ -52,6 +123,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     _outer_is_row_facet: bool,
     outer_facet_expr: &datafusion::logical_expr::Expr,
     params: &indexmap::IndexMap<String, ScalarValue>,
+    incoming_coord_ctx: Option<&FacetCoordinationContext>,
 ) -> Result<Option<FacetCoordinationContext>, AvengerChartError> {
     use crate::facet::coordination::{GuideOwnership, LevelChannelKey, SerializableDataExtents};
     use crate::facet::keys::FacetKeyExtractor;
@@ -227,6 +299,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
                 None;
             let mut domain_sort: Option<DomainSort> = None;
 
+            // First, try to find channel directly in inner_subplot marks
             for mark in &inner_subplot.marks {
                 let channels = mark.data_context().channels();
                 if let Some(channel_value) = channels.get(channel_name) {
@@ -255,6 +328,25 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
                         if let Some(scale) = scale_config {
                             domain_sort = scale_sort_order(scale, ctx, params).await?;
                         }
+                    }
+                }
+            }
+
+            // If not found directly, recursively search through nested facets
+            // This is needed for Level(N>1) where channels are defined in deeply nested subplots
+            if channel_expr.is_none() {
+                if let Some(found) =
+                    find_channel_in_marks(&inner_subplot.marks, channel_name, ctx, 5)
+                {
+                    channel_expr = Some(found.expr);
+                    share_mode = found.share_mode;
+                    domain_kind = found.domain_kind;
+
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "  Found {} channel via recursive search: share_mode={:?}",
+                            channel_name, share_mode
+                        );
                     }
                 }
             }
@@ -432,26 +524,50 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
 
     // ========== BUILD LEVEL_DOMAINS IndexMap (Level-based domain propagation) ==========
     // For channels with Level(N) where N >= 1, compute domain extents and store
-    // at the appropriate level. Level 1 domains come from the outer's filtered df.
-    // For 2-level nesting (outer > inner), we're at nesting_depth = 1.
+    // at the appropriate level.
+    //
+    // For deep nesting (3+ levels), we inherit domains from the incoming coordination
+    // context and add domains at the current level. This enables Level(2), Level(3), etc.
+    // to share domains with grandparent facets.
+    //
+    // current_depth = incoming_depth + 1 (or 1 if no incoming context)
+    // - For 2-level nesting (A > B): current_depth = 1
+    // - For 3-level nesting (A > B > C): B has current_depth = 1, C has current_depth = 2
     //
     // Note: This function is called from the OUTER facet while processing nested facets.
     // The df parameter is the OUTER facet's full dataset (before per-cell filtering).
-    // Level 1 domains use this full dataset to unify scales across all cells.
     // Uses IndexMap for deterministic iteration order during serialization.
-    let mut level_domains: IndexMap<LevelChannelKey, SerializableDataExtents> = IndexMap::new();
+
+    // Determine current nesting depth based on incoming context
+    let current_depth = incoming_coord_ctx
+        .map(|ctx| ctx.nesting_depth + 1)
+        .unwrap_or(1);
+
+    // Start with level_domains from incoming context (preserves ancestor domains)
+    let mut level_domains: IndexMap<LevelChannelKey, SerializableDataExtents> = incoming_coord_ctx
+        .map(|ctx| ctx.level_domains.clone())
+        .unwrap_or_default();
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "  Level domain computation: current_depth={}, inherited {} domains from parent",
+            current_depth,
+            level_domains.len()
+        );
+    }
 
     for channel in &channel_info {
         let level = channel.share_mode.to_level();
         if level >= 1 {
             if let Some(explicit_extents) = &channel.explicit_domain {
-                let key = LevelChannelKey::new(1, &channel.name);
+                let key = LevelChannelKey::new(current_depth, &channel.name);
                 level_domains.insert(key, explicit_extents.clone());
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "  Added explicit level_domain for level=1, channel={}: {:?}",
+                        "  Added explicit level_domain for level={}, channel={}: {:?}",
+                        current_depth,
                         channel.name,
-                        level_domains.get(&LevelChannelKey::new(1, &channel.name))
+                        level_domains.get(&LevelChannelKey::new(current_depth, &channel.name))
                     );
                 }
                 continue;
@@ -464,7 +580,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
                 compute_extents(kind, df, &channel.expr, ctx, channel.sort_order()).await;
 
             if let Ok(extents) = extents_result {
-                let key = LevelChannelKey::new(1, &channel.name);
+                let key = LevelChannelKey::new(current_depth, &channel.name);
                 level_domains.insert(key, extents);
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     let kind_label = match kind {
@@ -473,10 +589,11 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
                         ChannelDataKind::Numeric => "numeric",
                     };
                     eprintln!(
-                        "  Added level_domain for level=1, channel={} ({}): {:?}",
+                        "  Added level_domain for level={}, channel={} ({}): {:?}",
+                        current_depth,
                         channel.name,
                         kind_label,
-                        level_domains.get(&LevelChannelKey::new(1, &channel.name))
+                        level_domains.get(&LevelChannelKey::new(current_depth, &channel.name))
                     );
                 }
             }
@@ -484,14 +601,15 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     }
 
     if !level_domains.is_empty() {
-        // Set nesting depth to 1 (we're one level deep from the outer facet)
+        // Set nesting depth to current level
         coord_ctx = coord_ctx
-            .with_nesting_depth(1)
+            .with_nesting_depth(current_depth)
             .with_level_domains(level_domains);
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "  Added level_domains to coord context: {} entries, nesting_depth=1",
-                coord_ctx.level_domains.len()
+                "  Added level_domains to coord context: {} entries, nesting_depth={}",
+                coord_ctx.level_domains.len(),
+                current_depth
             );
         }
     }

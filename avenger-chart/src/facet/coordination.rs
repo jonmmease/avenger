@@ -240,45 +240,6 @@ impl<'a> OverflowContextView<'a> {
     }
 }
 
-/// View into scale sharing configuration
-///
-/// Use this when determining how scales should be shared across nested facets.
-/// Provides access to sharing levels, domains, and nesting depth without
-/// exposing unrelated coordination fields.
-#[derive(Debug, Clone)]
-pub struct ScaleSharingView<'a> {
-    /// Per-channel sharing levels (0 = Free, 1-254 = Level(N), 255 = Shared)
-    pub levels: &'a std::collections::HashMap<String, u8>,
-    /// Level-based domain lookups
-    pub domains: &'a IndexMap<LevelChannelKey, SerializableDataExtents>,
-    /// Current depth in hierarchy (0 = outermost)
-    pub nesting_depth: usize,
-}
-
-impl<'a> ScaleSharingView<'a> {
-    /// Get the sharing level for a channel (0 = Free, 255 = Shared)
-    pub fn get_level(&self, channel: &str) -> u8 {
-        self.levels.get(channel).copied().unwrap_or(0)
-    }
-
-    /// Check if a channel should use the parent facet's domain
-    pub fn should_use_parent_domain(&self, channel: &str) -> bool {
-        self.get_level(channel) > 0
-    }
-
-    /// Get the domain for a channel based on its sharing level
-    pub fn get_domain(&self, channel: &str) -> Option<&SerializableDataExtents> {
-        let level = self.get_level(channel);
-        if level == 0 || self.nesting_depth == 0 {
-            return None;
-        }
-
-        let effective_level = std::cmp::min(level as usize, self.nesting_depth);
-        let key = LevelChannelKey::new(effective_level, channel);
-        self.domains.get(&key)
-    }
-}
-
 /// Axis position for determining edge-based visibility
 ///
 /// Re-export from context module for use in coordination context
@@ -1103,29 +1064,6 @@ impl FacetCoordinationContext {
         }
     }
 
-    /// Returns scale sharing configuration
-    ///
-    /// Use this view when determining how scales should be shared across nested facets.
-    /// The view provides access to per-channel sharing levels, level-based domains,
-    /// and the current nesting depth.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let sharing_view = coord_ctx.scale_sharing_view();
-    /// if sharing_view.should_use_parent_domain("y") {
-    ///     if let Some(domain) = sharing_view.get_domain("y") {
-    ///         // Use shared domain for y-axis
-    ///     }
-    /// }
-    /// ```
-    pub fn scale_sharing_view(&self) -> ScaleSharingView<'_> {
-        ScaleSharingView {
-            levels: &self.channel_sharing_levels,
-            domains: &self.level_domains,
-            nesting_depth: self.nesting_depth,
-        }
-    }
-
     // ========================================================================
     // Level-based scale sharing methods (Phase 2)
     // ========================================================================
@@ -1182,15 +1120,46 @@ impl FacetCoordinationContext {
             return None;
         }
 
-        // Clamp level to nesting_depth (can't share beyond hierarchy depth)
-        // Use effective_level = min(level as usize, nesting_depth)
-        // But if nesting_depth is 0 (outermost), there's nothing to share with
+        // Level(N) means "share across N levels of facet hierarchy from innermost"
+        // Higher Level = more global sharing (Level(1) = local, Level(max) = global)
+        //
+        // Domain storage:
+        // - depth 1 = global domain (computed at outermost facet)
+        // - depth 2 = per-outer-cell domain (computed at second facet level)
+        // - etc.
+        //
+        // Formula: target_depth = nesting_depth - level + 2
+        // - Level(N) at nesting_depth D looks up depth (D - N + 2)
+        // - Clamped to [1, nesting_depth] for valid range
+        //
+        // Examples with 4-level structure (nesting_depth=2):
+        // - Level(2) → depth 2 (per-Division)
+        // - Level(3) → depth 1 (global)
         if self.nesting_depth == 0 {
             return None;
         }
 
-        let effective_level = std::cmp::min(level as usize, self.nesting_depth);
-        let key = LevelChannelKey::new(effective_level, channel);
+        let target_depth = (self.nesting_depth as i32) - (level as i32) + 2;
+        let clamped_depth = target_depth.clamp(1, self.nesting_depth as i32) as usize;
+
+        // Only use per_cell_depth fallback when target_depth was clamped DOWN from above.
+        // This handles 3-level structures where Level(1) wants per-parent domains (depth=2)
+        // but the formula gives target_depth=2 which gets clamped to nesting_depth=1.
+        // In that case, per_cell_depth=2 might have the domains we want.
+        //
+        // We must NOT use this fallback when target_depth <= nesting_depth (no clamping occurred)
+        // because that would cause 4-level Level(2) to incorrectly prefer depth=3 over depth=2.
+        let target_was_clamped_down = target_depth > self.nesting_depth as i32;
+        if target_was_clamped_down {
+            let per_cell_depth = self.nesting_depth + 1;
+            let per_cell_key = LevelChannelKey::new(per_cell_depth, channel);
+            if let Some(domain) = self.level_domains.get(&per_cell_key) {
+                return Some(domain);
+            }
+        }
+
+        // Use formula-computed depth
+        let key = LevelChannelKey::new(clamped_depth, channel);
         self.level_domains.get(&key)
     }
 
@@ -1668,23 +1637,28 @@ mod tests {
     #[test]
     fn test_get_domain_for_channel_with_populated_domains() {
         // Set up sharing levels
+        // With formula: target_depth = nesting_depth - level + 2
+        // At nesting_depth=2:
+        // - Level(1) → depth = 2-1+2 = 3, clamped to 2
+        // - Level(2) → depth = 2-2+2 = 2
+        // - Level(3) → depth = 2-3+2 = 1 (global)
         let mut levels = HashMap::new();
         levels.insert("x".to_string(), 0u8); // Free - no domain lookup
-        levels.insert("y".to_string(), 1u8); // Level(1) - look up at level 1
-        levels.insert("color".to_string(), 2u8); // Level(2) - look up at level 2
+        levels.insert("y".to_string(), 2u8); // Level(2) - look up at depth 2
+        levels.insert("color".to_string(), 3u8); // Level(3) - look up at depth 1 (global)
 
         // Set up level domains (using IndexMap for deterministic iteration)
         let mut domains = IndexMap::new();
         domains.insert(
-            LevelChannelKey::new(1, "y"),
-            SerializableDataExtents::interval(0.0, 100.0),
-        );
-        domains.insert(
-            LevelChannelKey::new(2, "color"),
+            LevelChannelKey::new(1, "color"),
             SerializableDataExtents::discrete(vec![
                 ScalarValue::Utf8(Some("red".to_string())),
                 ScalarValue::Utf8(Some("blue".to_string())),
             ]),
+        );
+        domains.insert(
+            LevelChannelKey::new(2, "y"),
+            SerializableDataExtents::interval(0.0, 100.0),
         );
 
         let ctx = FacetCoordinationContext::default()
@@ -1695,7 +1669,7 @@ mod tests {
         // Free channel (x) returns None
         assert!(ctx.get_domain_for_channel("x").is_none());
 
-        // Level(1) channel (y) returns the domain at level 1
+        // Level(2) channel (y) returns the domain at depth 2
         let y_domain = ctx.get_domain_for_channel("y");
         assert!(y_domain.is_some());
         match y_domain.unwrap() {
@@ -1706,7 +1680,7 @@ mod tests {
             _ => panic!("Expected Interval"),
         }
 
-        // Level(2) channel (color) returns the domain at level 2
+        // Level(3) channel (color) returns the domain at depth 1 (global)
         let color_domain = ctx.get_domain_for_channel("color");
         assert!(color_domain.is_some());
         match color_domain.unwrap() {
@@ -1734,14 +1708,16 @@ mod tests {
     #[test]
     fn test_get_domain_for_channel_level_clamping() {
         // Set up a channel with Level(5) but nesting_depth is only 2
+        // With formula: target_depth = nesting_depth - level + 2 = 2 - 5 + 2 = -1
+        // Clamped to 1 (global level)
         let mut levels = HashMap::new();
         levels.insert("y".to_string(), 5u8);
 
-        // Domain at level 2 (the nesting depth)
+        // Domain at level 1 (global, where high Level values clamp to)
         let mut domains = IndexMap::new();
         domains.insert(
-            LevelChannelKey::new(2, "y"),
-            SerializableDataExtents::interval(0.0, 50.0),
+            LevelChannelKey::new(1, "y"),
+            SerializableDataExtents::interval(0.0, 100.0),
         );
 
         let ctx = FacetCoordinationContext::default()
@@ -1749,13 +1725,13 @@ mod tests {
             .with_channel_sharing_levels(levels)
             .with_level_domains(domains);
 
-        // Should clamp to nesting_depth (2) and find the domain
+        // Should clamp to depth 1 (global) for high Level values
         let domain = ctx.get_domain_for_channel("y");
         assert!(domain.is_some());
         match domain.unwrap() {
             SerializableDataExtents::Interval { min, max } => {
                 assert_eq!(*min, 0.0);
-                assert_eq!(*max, 50.0);
+                assert_eq!(*max, 100.0);
             }
             _ => panic!("Expected Interval"),
         }
@@ -1849,18 +1825,23 @@ mod tests {
     #[test]
     fn test_serialization_round_trip_with_level_fields() {
         // Create context with all level-based fields populated
+        // With nesting_depth=2, the formula target_depth = nesting_depth - level + 2:
+        // - Level(3) for y: target_depth = 2 - 3 + 2 = 1 -> looks up depth 1
+        // - Level(2) for color: target_depth = 2 - 2 + 2 = 2 -> looks up depth 2
         let mut levels = HashMap::new();
         levels.insert("x".to_string(), 0u8);
-        levels.insert("y".to_string(), 1u8);
-        levels.insert("color".to_string(), 255u8);
+        levels.insert("y".to_string(), 3u8); // Level(3) looks up depth 1
+        levels.insert("color".to_string(), 2u8); // Level(2) looks up depth 2
 
         let mut domains = IndexMap::new();
+        // Store y domain at depth 1 (matches Level(3) lookup)
         domains.insert(
             LevelChannelKey::new(1, "y"),
             SerializableDataExtents::interval(0.0, 100.0),
         );
+        // Store color domain at depth 2 (matches Level(2) lookup)
         domains.insert(
-            LevelChannelKey::new(1, "color"),
+            LevelChannelKey::new(2, "color"),
             SerializableDataExtents::discrete(vec![ScalarValue::Utf8(Some("red".to_string()))]),
         );
 
@@ -1890,22 +1871,33 @@ mod tests {
         assert_eq!(restored.nesting_depth, 2);
         assert_eq!(restored.channel_sharing_levels.len(), 3);
         assert_eq!(restored.get_channel_level("x"), 0);
-        assert_eq!(restored.get_channel_level("y"), 1);
-        assert_eq!(restored.get_channel_level("color"), 255);
+        assert_eq!(restored.get_channel_level("y"), 3); // Level(3)
+        assert_eq!(restored.get_channel_level("color"), 2); // Level(2)
         // level_domains now round-trips via custom serialization (Vec of tuples)
         assert_eq!(restored.level_domains.len(), 2);
         assert_eq!(restored.position_path, vec![1, 2]);
         assert_eq!(restored.level_counts, vec![3, 4]);
 
         // Verify domain lookup works after round-trip
+        // y has Level(3), which at nesting_depth=2 looks up depth 1
         let y_domain = restored.get_domain_for_channel("y");
-        assert!(y_domain.is_some());
+        assert!(y_domain.is_some(), "y domain should be found at depth 1");
         match y_domain.unwrap() {
             SerializableDataExtents::Interval { min, max } => {
                 assert_eq!(*min, 0.0);
                 assert_eq!(*max, 100.0);
             }
             _ => panic!("Expected Interval for y domain"),
+        }
+
+        // color has Level(2), which at nesting_depth=2 looks up depth 2
+        let color_domain = restored.get_domain_for_channel("color");
+        assert!(color_domain.is_some(), "color domain should be found at depth 2");
+        match color_domain.unwrap() {
+            SerializableDataExtents::Discrete(values) => {
+                assert_eq!(values.len(), 1);
+            }
+            _ => panic!("Expected Discrete for color domain"),
         }
     }
 
@@ -2501,40 +2493,6 @@ mod tests {
         assert!(view.row_at(0).is_some());
         assert!(view.row_at(5).is_none()); // Out of bounds
         assert!(view.col_at(0).is_none()); // Not set
-    }
-
-    #[test]
-    fn test_scale_sharing_view() {
-        let mut levels = HashMap::new();
-        levels.insert("x".to_string(), 0_u8); // Free
-        levels.insert("y".to_string(), 1_u8); // Level(1)
-        levels.insert("color".to_string(), 255_u8); // Shared
-
-        let mut domains = IndexMap::new();
-        domains.insert(
-            LevelChannelKey::new(1, "y"),
-            SerializableDataExtents::interval(0.0, 100.0),
-        );
-
-        let ctx = FacetCoordinationContext::default()
-            .with_nesting_depth(2)
-            .with_channel_sharing_levels(levels)
-            .with_level_domains(domains);
-
-        let view = ctx.scale_sharing_view();
-        assert_eq!(view.get_level("x"), 0);
-        assert_eq!(view.get_level("y"), 1);
-        assert_eq!(view.get_level("color"), 255);
-        assert_eq!(view.get_level("nonexistent"), 0); // Default
-
-        assert!(!view.should_use_parent_domain("x")); // Free
-        assert!(view.should_use_parent_domain("y")); // Level(1)
-        assert!(view.should_use_parent_domain("color")); // Shared
-
-        // Can look up domain for y at level 1
-        assert!(view.get_domain("y").is_some());
-        // No domain for x (Free sharing)
-        assert!(view.get_domain("x").is_none());
     }
 
     #[test]
