@@ -395,6 +395,15 @@ impl SerializableDomainValue {
 pub enum SerializableDataExtents {
     /// Numeric interval: (min, max)
     Interval { min: f64, max: f64 },
+    /// Numeric interval with radius-aware padding info for symbols.
+    /// Stores the max radius values so domain expansion can be computed correctly
+    /// when sharing domains across cells with radius-aware scales.
+    RadiusAwareInterval {
+        min: f64,
+        max: f64,
+        max_radius_lower: f64,
+        max_radius_upper: f64,
+    },
     /// Categorical: unique values
     Discrete(Vec<SerializableDomainValue>),
     /// Temporal interval: (min, max) as Unix timestamps
@@ -405,6 +414,21 @@ impl SerializableDataExtents {
     /// Create from a numeric interval
     pub fn interval(min: f64, max: f64) -> Self {
         Self::Interval { min, max }
+    }
+
+    /// Create from a numeric interval with radius-aware padding info
+    pub fn radius_aware_interval(
+        min: f64,
+        max: f64,
+        max_radius_lower: f64,
+        max_radius_upper: f64,
+    ) -> Self {
+        Self::RadiusAwareInterval {
+            min,
+            max,
+            max_radius_lower,
+            max_radius_upper,
+        }
     }
 
     /// Create from temporal interval (timestamps)
@@ -1163,6 +1187,54 @@ impl FacetCoordinationContext {
         self.level_domains.get(&key)
     }
 
+    /// Get the shared domain for a Level(N) channel with explicitly provided level
+    ///
+    /// Unlike `get_domain_for_channel`, this method accepts the level as a parameter
+    /// instead of looking it up from `channel_sharing_levels`. This is useful when
+    /// the level is known from `scale_sharing_by_channel` but not stored in the
+    /// coordination context.
+    ///
+    /// # Arguments
+    /// * `channel` - Channel name (e.g., "x", "y")
+    /// * `level` - The sharing level (1..254)
+    ///
+    /// # Returns
+    /// The shared domain if available, None otherwise
+    pub fn get_domain_for_channel_with_level(
+        &self,
+        channel: &str,
+        level: u8,
+    ) -> Option<&SerializableDataExtents> {
+        if level == 0 || level == 255 {
+            return None;
+        }
+
+        // For single-level facets (nesting_depth=0), Level(N) shares across all cells.
+        // The domain is stored at per_cell_depth = nesting_depth + 1 = 1.
+        if self.nesting_depth == 0 {
+            let per_cell_depth = 1;
+            let per_cell_key = LevelChannelKey::new(per_cell_depth, channel);
+            return self.level_domains.get(&per_cell_key);
+        }
+
+        let target_depth = (self.nesting_depth as i32) - (level as i32) + 2;
+        let clamped_depth = target_depth.clamp(1, self.nesting_depth as i32) as usize;
+
+        // Only use per_cell_depth fallback when target_depth was clamped DOWN from above
+        let target_was_clamped_down = target_depth > self.nesting_depth as i32;
+        if target_was_clamped_down {
+            let per_cell_depth = self.nesting_depth + 1;
+            let per_cell_key = LevelChannelKey::new(per_cell_depth, channel);
+            if let Some(domain) = self.level_domains.get(&per_cell_key) {
+                return Some(domain);
+            }
+        }
+
+        // Use formula-computed depth
+        let key = LevelChannelKey::new(clamped_depth, channel);
+        self.level_domains.get(&key)
+    }
+
     /// Check if this position is at the edge for a given hierarchy level
     ///
     /// Uses position_path and level_counts to determine if the current position
@@ -1892,7 +1964,10 @@ mod tests {
 
         // color has Level(2), which at nesting_depth=2 looks up depth 2
         let color_domain = restored.get_domain_for_channel("color");
-        assert!(color_domain.is_some(), "color domain should be found at depth 2");
+        assert!(
+            color_domain.is_some(),
+            "color domain should be found at depth 2"
+        );
         match color_domain.unwrap() {
             SerializableDataExtents::Discrete(values) => {
                 assert_eq!(values.len(), 1);

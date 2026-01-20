@@ -396,7 +396,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
 
         // Now compute extents based on share mode
         for channel in &channel_info {
-            if matches!(channel.share_mode, ScaleSharing::Shared) {
+            if channel.share_mode.is_fully_shared() {
                 if let Some(explicit_extents) = &channel.explicit_domain {
                     shared_data_extents.insert(channel.name.clone(), explicit_extents.clone());
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {

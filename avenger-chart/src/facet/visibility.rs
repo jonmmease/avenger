@@ -143,7 +143,10 @@ impl FacetRowVisibility {
         // NOT the data y-axis scale sharing. These are different concepts:
         // - Facet arrangement sharing: Whether the row structure is the same across all columns
         // - Data scale sharing: Whether the y-axis domain is the same across all columns
-        let facet_is_shared = matches!(input.facet_scale_sharing, Some(ScaleSharing::Shared));
+        let facet_is_shared = input
+            .facet_scale_sharing
+            .map(|s| s.is_fully_shared())
+            .unwrap_or(false);
         let render_facet_labels = if nested_in_col_facet && !facet_is_shared {
             true // Inner facet labels repeat because row arrangement can differ per outer column
         } else {
@@ -336,7 +339,10 @@ impl FacetColVisibility {
         // NOT the data x-axis scale sharing. These are different concepts:
         // - Facet arrangement sharing: Whether the column structure is the same across all rows
         // - Data scale sharing: Whether the x-axis domain is the same across all rows
-        let facet_is_shared = matches!(input.facet_scale_sharing, Some(ScaleSharing::Shared));
+        let facet_is_shared = input
+            .facet_scale_sharing
+            .map(|s| s.is_fully_shared())
+            .unwrap_or(false);
         let render_facet_labels = if nested_in_row_facet && !facet_is_shared {
             true // Inner facet labels repeat because column arrangement can differ per outer row
         } else {

@@ -2229,50 +2229,46 @@ async fn hierarchical_regional_data() -> datafusion::dataframe::DataFrame {
         (
             "region",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
-                "North", "North", "North", "North", "North", "North", "North", "North",
-                "North", "North", "North", "North", "North", "North", "North", "North",
-                "South", "South", "South", "South", "South", "South", "South", "South",
-                "South", "South", "South", "South", "South", "South", "South", "South",
+                "North", "North", "North", "North", "North", "North", "North", "North", "North",
+                "North", "North", "North", "North", "North", "North", "North", "South", "South",
+                "South", "South", "South", "South", "South", "South", "South", "South", "South",
+                "South", "South", "South", "South", "South",
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "country",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
-                "USA", "USA", "USA", "USA", "Canada", "Canada", "Canada", "Canada",
-                "USA", "USA", "USA", "USA", "Canada", "Canada", "Canada", "Canada",
-                "Mexico", "Mexico", "Mexico", "Mexico", "Brazil", "Brazil", "Brazil", "Brazil",
-                "Mexico", "Mexico", "Mexico", "Mexico", "Brazil", "Brazil", "Brazil", "Brazil",
+                "USA", "USA", "USA", "USA", "Canada", "Canada", "Canada", "Canada", "USA", "USA",
+                "USA", "USA", "Canada", "Canada", "Canada", "Canada", "Mexico", "Mexico", "Mexico",
+                "Mexico", "Brazil", "Brazil", "Brazil", "Brazil", "Mexico", "Mexico", "Mexico",
+                "Mexico", "Brazil", "Brazil", "Brazil", "Brazil",
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "category",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
-                "A", "A", "B", "B", "A", "A", "B", "B",
-                "A", "A", "B", "B", "A", "A", "B", "B",
-                "A", "A", "B", "B", "A", "A", "B", "B",
-                "A", "A", "B", "B", "A", "A", "B", "B",
+                "A", "A", "B", "B", "A", "A", "B", "B", "A", "A", "B", "B", "A", "A", "B", "B",
+                "A", "A", "B", "B", "A", "A", "B", "B", "A", "A", "B", "B", "A", "A", "B", "B",
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "x_val",
             std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
                 // North region: X values 1-5
-                1.0, 2.0, 3.0, 4.0, 1.5, 2.5, 3.5, 4.5,
-                1.2, 2.2, 3.2, 4.2, 1.7, 2.7, 3.7, 4.7,
+                1.0, 2.0, 3.0, 4.0, 1.5, 2.5, 3.5, 4.5, 1.2, 2.2, 3.2, 4.2, 1.7, 2.7, 3.7, 4.7,
                 // South region: X values 10-15 (different range!)
-                10.0, 11.0, 12.0, 13.0, 10.5, 11.5, 12.5, 13.5,
-                10.2, 11.2, 12.2, 13.2, 10.7, 11.7, 12.7, 13.7,
+                10.0, 11.0, 12.0, 13.0, 10.5, 11.5, 12.5, 13.5, 10.2, 11.2, 12.2, 13.2, 10.7, 11.7,
+                12.7, 13.7,
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "y_val",
             std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
                 // North region: higher values (70-130)
-                80.0, 95.0, 110.0, 125.0, 75.0, 90.0, 105.0, 120.0,
-                85.0, 100.0, 115.0, 130.0, 70.0, 85.0, 100.0, 115.0,
-                // South region: lower values (10-70)
-                20.0, 35.0, 50.0, 65.0, 15.0, 30.0, 45.0, 60.0,
-                25.0, 40.0, 55.0, 70.0, 10.0, 25.0, 40.0, 55.0,
+                80.0, 95.0, 110.0, 125.0, 75.0, 90.0, 105.0, 120.0, 85.0, 100.0, 115.0, 130.0, 70.0,
+                85.0, 100.0, 115.0, // South region: lower values (10-70)
+                20.0, 35.0, 50.0, 65.0, 15.0, 30.0, 45.0, 60.0, 25.0, 40.0, 55.0, 70.0, 10.0, 25.0,
+                40.0, 55.0,
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
     ])
@@ -2325,14 +2321,8 @@ fn test_three_level_level2_y() {
             .compile(&ctx)
             .await
             .expect("compile 3-level nesting level2 y");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "nested_grid",
-            "three_level_level2_y",
-        )
-        .await;
+        assert_visual_match_default(&compiled, &ctx, None, "nested_grid", "three_level_level2_y")
+            .await;
     });
 }
 
@@ -2381,14 +2371,8 @@ fn test_three_level_level1_y() {
             .compile(&ctx)
             .await
             .expect("compile 3-level nesting level1 y");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "nested_grid",
-            "three_level_level1_y",
-        )
-        .await;
+        assert_visual_match_default(&compiled, &ctx, None, "nested_grid", "three_level_level1_y")
+            .await;
     });
 }
 
@@ -2403,57 +2387,46 @@ async fn hierarchical_4level_data() -> datafusion::dataframe::DataFrame {
             "division",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
                 // Engineering division (higher values)
-                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng",
-                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng",
-                // Operations division (lower values)
-                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops",
-                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops",
+                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng",
+                "Eng", "Eng", "Eng", "Eng", // Operations division (lower values)
+                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops",
+                "Ops", "Ops", "Ops", "Ops",
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "department",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
-                "Frontend", "Frontend", "Frontend", "Frontend",
-                "Backend", "Backend", "Backend", "Backend",
-                "Frontend", "Frontend", "Frontend", "Frontend",
-                "Backend", "Backend", "Backend", "Backend",
-                "Support", "Support", "Support", "Support",
-                "DevOps", "DevOps", "DevOps", "DevOps",
-                "Support", "Support", "Support", "Support",
-                "DevOps", "DevOps", "DevOps", "DevOps",
+                "Frontend", "Frontend", "Frontend", "Frontend", "Backend", "Backend", "Backend",
+                "Backend", "Frontend", "Frontend", "Frontend", "Frontend", "Backend", "Backend",
+                "Backend", "Backend", "Support", "Support", "Support", "Support", "DevOps",
+                "DevOps", "DevOps", "DevOps", "Support", "Support", "Support", "Support", "DevOps",
+                "DevOps", "DevOps", "DevOps",
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "team",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
-                "Alpha", "Alpha", "Beta", "Beta",
-                "Alpha", "Alpha", "Beta", "Beta",
-                "Alpha", "Alpha", "Beta", "Beta",
-                "Alpha", "Alpha", "Beta", "Beta",
-                "Alpha", "Alpha", "Beta", "Beta",
-                "Alpha", "Alpha", "Beta", "Beta",
-                "Alpha", "Alpha", "Beta", "Beta",
+                "Alpha", "Alpha", "Beta", "Beta", "Alpha", "Alpha", "Beta", "Beta", "Alpha",
+                "Alpha", "Beta", "Beta", "Alpha", "Alpha", "Beta", "Beta", "Alpha", "Alpha",
+                "Beta", "Beta", "Alpha", "Alpha", "Beta", "Beta", "Alpha", "Alpha", "Beta", "Beta",
                 "Alpha", "Alpha", "Beta", "Beta",
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "x_val",
             std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
-                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
-                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
-                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
-                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "y_val",
             std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
                 // Engineering: higher values (70-150)
-                90.0, 100.0, 85.0, 95.0, 110.0, 120.0, 105.0, 115.0,
-                95.0, 105.0, 90.0, 100.0, 115.0, 125.0, 110.0, 120.0,
-                // Operations: lower values (20-70)
-                40.0, 50.0, 35.0, 45.0, 55.0, 65.0, 50.0, 60.0,
-                45.0, 55.0, 40.0, 50.0, 60.0, 70.0, 55.0, 65.0,
+                90.0, 100.0, 85.0, 95.0, 110.0, 120.0, 105.0, 115.0, 95.0, 105.0, 90.0, 100.0,
+                115.0, 125.0, 110.0, 120.0, // Operations: lower values (20-70)
+                40.0, 50.0, 35.0, 45.0, 55.0, 65.0, 50.0, 60.0, 45.0, 55.0, 40.0, 50.0, 60.0, 70.0,
+                55.0, 65.0,
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
     ])
@@ -2486,9 +2459,7 @@ fn test_four_level_level2_y() {
                                 .subplot(
                                     Plot::<FacetColumn>::new().mark(
                                         Facet::new()
-                                            .col_with(col("team"), |c| {
-                                                c.facet(|f| f.title("Team"))
-                                            })
+                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
                                             .subplot(
                                                 Plot::<Cartesian>::new().mark(
                                                     Symbol::new()
@@ -2514,14 +2485,8 @@ fn test_four_level_level2_y() {
             .compile(&ctx)
             .await
             .expect("compile 4-level nesting level2 y");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "nested_grid",
-            "four_level_level2_y",
-        )
-        .await;
+        assert_visual_match_default(&compiled, &ctx, None, "nested_grid", "four_level_level2_y")
+            .await;
     });
 }
 
@@ -2550,9 +2515,7 @@ fn test_four_level_level3_y() {
                                 .subplot(
                                     Plot::<FacetColumn>::new().mark(
                                         Facet::new()
-                                            .col_with(col("team"), |c| {
-                                                c.facet(|f| f.title("Team"))
-                                            })
+                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
                                             .subplot(
                                                 Plot::<Cartesian>::new().mark(
                                                     Symbol::new()
@@ -2578,14 +2541,8 @@ fn test_four_level_level3_y() {
             .compile(&ctx)
             .await
             .expect("compile 4-level nesting level3 y");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "nested_grid",
-            "four_level_level3_y",
-        )
-        .await;
+        assert_visual_match_default(&compiled, &ctx, None, "nested_grid", "four_level_level3_y")
+            .await;
     });
 }
 
@@ -2638,8 +2595,7 @@ fn assert_images_identical(img1: &RgbaImage, img2: &RgbaImage, msg: &str) {
         img2.dimensions()
     );
 
-    let result = image_compare::rgba_hybrid_compare(img1, img2)
-        .expect("Image comparison failed");
+    let result = image_compare::rgba_hybrid_compare(img1, img2).expect("Image comparison failed");
 
     // Require 99.99% similarity for "identical" output
     assert!(
@@ -2838,13 +2794,9 @@ fn test_color_channel_with_level1() {
 /// Level(255) should be semantically equivalent to Shared (global scale domains).
 /// Both configurations should produce visually identical rendered output.
 ///
-/// NOTE: This test is currently ignored because the implementation follows different
-/// code paths for Shared vs Level(255), resulting in different visual output (~65% similarity).
-/// While they are documented as semantically equivalent, `Shared` uses `extend_with_shared_extents`
-/// and `Level(255)` uses `replace_with_shared_extents`, which may handle edge cases differently.
-/// This is a potential area for future improvement to ensure true equivalence.
+/// Both Shared and Level(255) now use unified UNION semantics via `extend_with_shared_extents`,
+/// and all internal checks use `is_fully_shared()` which treats them identically.
 #[test]
-#[ignore = "Level(255) and Shared follow different code paths, producing ~65% similarity"]
 fn test_level255_equivalent_to_shared() {
     run_with_large_stack(|| async {
         let ctx = SessionContext::new();

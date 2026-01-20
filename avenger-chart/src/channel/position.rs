@@ -38,8 +38,11 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
 
     /// Configure whether this channel's scale is shared across facets or free per facet
     ///
-    /// Supports full ScaleSharing enum: Shared, Free, SharedInRow, SharedInColumn
+    /// Supports full ScaleSharing enum: Shared, Free, Level(n)
+    /// Note: Free and Shared are normalized to Level(0) and Level(255) internally.
     pub fn with_scale_sharing(self, mode: crate::channel::config_traits::ScaleSharing) -> Self {
+        // Normalize Free/Shared to Level representation for internal consistency
+        let normalized = mode.to_normalized();
         let updated = match self.inner {
             ChannelValue::Scaled {
                 expr,
@@ -54,7 +57,7 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
                 band,
                 scale_config,
                 legend_config,
-                share_mode: Some(mode),
+                share_mode: Some(normalized),
             },
             ChannelValue::Conditional {
                 conditions,
@@ -67,7 +70,7 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
                 otherwise,
                 scale_config,
                 legend_config,
-                share_mode: Some(mode),
+                share_mode: Some(normalized),
             },
             other => other,
         };

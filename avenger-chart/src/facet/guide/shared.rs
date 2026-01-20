@@ -150,22 +150,18 @@ pub fn compute_scale_sharing_from_marks(
         }
     }
 
-    // Determine sharing mode for each channel
+    // Determine sharing mode for each channel using max level
+    // (higher level = more global sharing)
     for ch in all_channels {
-        let mut mode = ScaleSharing::Free;
+        let mut max_level: u8 = 0; // Start with Free/Level(0)
         for m in marks {
             if let Some(cv) = m.data_context().channels().get(&ch) {
                 if let Some(share_mode) = cv.get_share_mode() {
-                    mode = match (mode, share_mode) {
-                        (ScaleSharing::Free, new_mode) => new_mode,
-                        (ScaleSharing::Shared, _) => ScaleSharing::Shared,
-                        (_, ScaleSharing::Shared) => ScaleSharing::Shared,
-                        (existing, _) => existing,
-                    };
+                    max_level = max_level.max(share_mode.to_level());
                 }
             }
         }
-        scale_sharing_by_channel.insert(ch, mode);
+        scale_sharing_by_channel.insert(ch, ScaleSharing::from_level(max_level));
     }
 
     scale_sharing_by_channel

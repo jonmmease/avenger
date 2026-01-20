@@ -97,7 +97,10 @@ pub trait ChannelConfig: Sized {
     /// Configure whether this channel's scale is shared across facets or free per facet
     ///
     /// Supports full ScaleSharing enum: Shared, Free, Level(n)
+    /// Note: Free and Shared are normalized to Level(0) and Level(255) internally.
     fn with_scale_sharing(mut self, mode: ScaleSharing) -> Self {
+        // Normalize Free/Shared to Level representation for internal consistency
+        let normalized = mode.to_normalized();
         let mut value = self.get_value().clone();
         value = match value {
             ChannelValue::Scaled {
@@ -113,7 +116,7 @@ pub trait ChannelConfig: Sized {
                 band,
                 scale_config,
                 legend_config,
-                share_mode: Some(mode),
+                share_mode: Some(normalized),
             },
             ChannelValue::Conditional {
                 conditions,
@@ -126,7 +129,7 @@ pub trait ChannelConfig: Sized {
                 otherwise,
                 scale_config,
                 legend_config,
-                share_mode: Some(mode),
+                share_mode: Some(normalized),
             },
             other => other,
         };
@@ -147,18 +150,14 @@ pub trait ChannelConfig: Sized {
 
 /// Facet scale sharing modes for a channel
 ///
-/// # Implementation Note: Shared vs Level(u8::MAX)
+/// # Implementation Note: Unified UNION Semantics
 ///
-/// While `Shared` is semantically equivalent to `Level(u8::MAX)` (both represent global
-/// sharing), they follow different code paths internally:
+/// All sharing modes (`Shared`, `Free`, and `Level(N)`) use UNION semantics via
+/// `extend_with_shared_extents`. This ensures that local domains can only grow
+/// (never shrink) when shared extents are applied.
 ///
-/// - `Shared` channels use pre-computed `shared_data_extents` from the coordination context,
-///   applied via `extend_with_shared_extents`
-/// - `Level(N)` channels (where N < 255) use `level_domains` with formula-based depth lookup,
-///   applied via `replace_with_shared_extents`
-///
-/// This separation prevents Shared channels from being processed twice (once as Shared,
-/// once as Level(255)) and simplifies the hierarchical Level(N) logic. When you need to
+/// While `Shared` is semantically equivalent to `Level(u8::MAX)`, they currently
+/// follow different code paths internally for historical reasons. When you need to
 /// check if a mode represents "fully shared" behavior, use [`ScaleSharing::is_fully_shared`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -204,15 +203,12 @@ impl ScaleSharing {
 
     /// Create a ScaleSharing from a level value
     ///
-    /// - 0 → Free
-    /// - u8::MAX → Shared
+    /// Returns normalized Level values for internal consistency:
+    /// - 0 → Level(0)
+    /// - u8::MAX → Level(255)
     /// - n → Level(n)
     pub fn from_level(level: u8) -> Self {
-        match level {
-            0 => ScaleSharing::Free,
-            u8::MAX => ScaleSharing::Shared,
-            n => ScaleSharing::Level(n),
-        }
+        ScaleSharing::Level(level)
     }
 
     /// Check if this is free (independent per facet cell)
@@ -241,6 +237,21 @@ impl ScaleSharing {
     /// These modes share domains across all nesting levels.
     pub fn is_fully_shared(self) -> bool {
         matches!(self, ScaleSharing::Shared | ScaleSharing::Level(u8::MAX))
+    }
+
+    /// Normalize to Level representation for internal consistency.
+    ///
+    /// - Free → Level(0)
+    /// - Shared → Level(u8::MAX)
+    /// - Level(n) → Level(n) (unchanged)
+    ///
+    /// This ensures all internal code only needs to handle the Level variant.
+    pub fn to_normalized(self) -> Self {
+        match self {
+            ScaleSharing::Free => ScaleSharing::Level(0),
+            ScaleSharing::Shared => ScaleSharing::Level(u8::MAX),
+            level => level,
+        }
     }
 }
 
@@ -488,13 +499,12 @@ mod tests {
 
     #[test]
     fn test_scale_sharing_from_level() {
-        // 0 => Free
-        assert_eq!(ScaleSharing::from_level(0), ScaleSharing::Free);
-
-        // u8::MAX => Shared
-        assert_eq!(ScaleSharing::from_level(u8::MAX), ScaleSharing::Shared);
-
-        // 1..254 => Level(n)
+        // from_level now returns normalized Level values
+        assert_eq!(ScaleSharing::from_level(0), ScaleSharing::Level(0));
+        assert_eq!(
+            ScaleSharing::from_level(u8::MAX),
+            ScaleSharing::Level(u8::MAX)
+        );
         assert_eq!(ScaleSharing::from_level(1), ScaleSharing::Level(1));
         assert_eq!(ScaleSharing::from_level(2), ScaleSharing::Level(2));
         assert_eq!(ScaleSharing::from_level(127), ScaleSharing::Level(127));
@@ -503,20 +513,19 @@ mod tests {
 
     #[test]
     fn test_scale_sharing_level_round_trip() {
-        // Test that from_level(to_level(x)) preserves semantics
-        // Note: Level(0) round-trips to Free, Level(u8::MAX) round-trips to Shared
-        // This is by design - they are semantically equivalent
+        // Test that from_level(to_level(x)) preserves level semantics
+        // Note: Free and Shared are converted to their Level equivalents
 
-        // Free <-> 0
+        // Free -> 0 -> Level(0) (normalized)
         assert_eq!(
             ScaleSharing::from_level(ScaleSharing::Free.to_level()),
-            ScaleSharing::Free
+            ScaleSharing::Level(0)
         );
 
-        // Shared <-> u8::MAX
+        // Shared -> u8::MAX -> Level(255) (normalized)
         assert_eq!(
             ScaleSharing::from_level(ScaleSharing::Shared.to_level()),
-            ScaleSharing::Shared
+            ScaleSharing::Level(u8::MAX)
         );
 
         // Level(n) for intermediate values
@@ -527,16 +536,16 @@ mod tests {
             );
         }
 
-        // Level(0) normalizes to Free
+        // Level(0) stays as Level(0) (normalized form)
         assert_eq!(
             ScaleSharing::from_level(ScaleSharing::Level(0).to_level()),
-            ScaleSharing::Free
+            ScaleSharing::Level(0)
         );
 
-        // Level(u8::MAX) normalizes to Shared
+        // Level(u8::MAX) stays as Level(255) (normalized form)
         assert_eq!(
             ScaleSharing::from_level(ScaleSharing::Level(u8::MAX).to_level()),
-            ScaleSharing::Shared
+            ScaleSharing::Level(u8::MAX)
         );
     }
 
@@ -581,6 +590,36 @@ mod tests {
         assert!(!ScaleSharing::Level(100).is_free());
         assert!(!ScaleSharing::Level(u8::MAX).is_free());
         assert!(!ScaleSharing::Shared.is_free());
+    }
+
+    #[test]
+    fn test_scale_sharing_to_normalized() {
+        // Free normalizes to Level(0)
+        assert_eq!(ScaleSharing::Free.to_normalized(), ScaleSharing::Level(0));
+
+        // Shared normalizes to Level(255)
+        assert_eq!(
+            ScaleSharing::Shared.to_normalized(),
+            ScaleSharing::Level(u8::MAX)
+        );
+
+        // Level values are unchanged
+        assert_eq!(
+            ScaleSharing::Level(0).to_normalized(),
+            ScaleSharing::Level(0)
+        );
+        assert_eq!(
+            ScaleSharing::Level(1).to_normalized(),
+            ScaleSharing::Level(1)
+        );
+        assert_eq!(
+            ScaleSharing::Level(100).to_normalized(),
+            ScaleSharing::Level(100)
+        );
+        assert_eq!(
+            ScaleSharing::Level(u8::MAX).to_normalized(),
+            ScaleSharing::Level(u8::MAX)
+        );
     }
 
     #[test]

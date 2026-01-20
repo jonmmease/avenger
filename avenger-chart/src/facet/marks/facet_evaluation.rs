@@ -37,7 +37,7 @@ use crate::facet::marks::facet::determine_facet_band_align;
 use crate::facet::nesting::detect_nested_facet_and_compute_coordination;
 use crate::facet::phantom_cells::PhantomPlacement;
 use crate::facet::scalar_cmp::scalar_total_cmp;
-use crate::facet::scale_helpers::build_scales_helper_with_fallback;
+use crate::facet::scale_helpers::build_scales_per_channel;
 use crate::facet::subplot_iterator::SubplotIteration;
 use crate::marks::CompiledMarkState;
 use crate::plot::CompiledPlot;
@@ -123,6 +123,7 @@ async fn measure_pass<DimConfig: FacetDimensionConfig, SubplotDimsFn>(
     compiled_subplot: &Arc<CompiledPlot>,
     dimension_scale: &ConfiguredScaleWithSpec,
     scale_sharing_by_channel: &HashMap<String, ScaleSharing>,
+    scale_sharing_for_visibility: &HashMap<String, ScaleSharing>,
     df: &DataFrame,
     facet_expr: &datafusion::logical_expr::Expr,
     facet_spacing: Option<f32>,
@@ -158,7 +159,10 @@ where
             ctx.channel_sharing_levels
         );
         for (key, value) in &ctx.level_domains {
-            eprintln!("  level_domain: level={} channel={} -> {:?}", key.level, key.channel, value);
+            eprintln!(
+                "  level_domain: level={} channel={} -> {:?}",
+                key.level, key.channel, value
+            );
         }
     }
     let current_channel = DimConfig::channel_name();
@@ -242,24 +246,24 @@ where
         };
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "  scale_sharing_by_channel: {:?}",
-            scale_sharing_by_channel
-        );
+        eprintln!("  scale_sharing_by_channel: {:?}", scale_sharing_by_channel);
         if !level_based_extents.is_empty() {
             eprintln!(
                 "  Level-based extents extracted for channels: {:?}, values={:?}, coord_nesting_depth={:?}",
                 level_based_extents.keys().collect::<Vec<_>>(),
-                level_based_extents.iter().map(|(k, v)| (k, format!("{:?}", v))).collect::<Vec<_>>(),
+                level_based_extents
+                    .iter()
+                    .map(|(k, v)| (k, format!("{:?}", v)))
+                    .collect::<Vec<_>>(),
                 coordination_context.as_ref().map(|c| c.nesting_depth)
             );
         }
     }
 
-    // Determine shared-scale usage
+    // Determine shared-scale usage (Shared or Level(255))
     let any_shared = scale_sharing_by_channel
         .values()
-        .any(|v| *v == ScaleSharing::Shared);
+        .any(|v| v.is_fully_shared());
 
     // Check if any channels use Level(N) sharing with N >= 1
     let any_level_shared = scale_sharing_by_channel.values().any(|v| {
@@ -278,14 +282,14 @@ where
             .build_scale_builder_from_dataframe(&context.session_context, &context.params, df)
             .await?;
 
-        // Extend with shared data extents ONLY for channels with ScaleSharing::Shared
+        // Extend with shared data extents ONLY for channels with is_fully_shared (Shared/Level(255))
         if let Some(ref extents) = shared_data_extents {
             let shared_only_extents: std::collections::HashMap<String, _> = extents
                 .iter()
                 .filter(|(channel, _)| {
                     scale_sharing_by_channel
                         .get(*channel)
-                        .map(|mode| *mode == ScaleSharing::Shared)
+                        .map(|mode| mode.is_fully_shared())
                         .unwrap_or(false)
                 })
                 .map(|(k, v)| (k.clone(), v.clone()))
@@ -301,20 +305,34 @@ where
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
                     "FACET_LEVEL: BEFORE extension, builder y len={}",
-                    builder.channel_builders().get("y").map(|b| match b {
-                        crate::scales::builder::ChannelScaleBuilder::RadiusAware { position_data, .. } => position_data.len(),
-                        _ => 0
-                    }).unwrap_or(0)
+                    builder
+                        .channel_builders()
+                        .get("y")
+                        .map(|b| match b {
+                            crate::scales::builder::ChannelScaleBuilder::RadiusAware {
+                                position_data,
+                                ..
+                            } => position_data.len(),
+                            _ => 0,
+                        })
+                        .unwrap_or(0)
                 );
             }
             builder.extend_with_shared_extents(&level_based_extents);
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
                     "FACET_LEVEL: AFTER extension, builder y len={}, extents={:?}",
-                    builder.channel_builders().get("y").map(|b| match b {
-                        crate::scales::builder::ChannelScaleBuilder::RadiusAware { position_data, .. } => position_data.len(),
-                        _ => 0
-                    }).unwrap_or(0),
+                    builder
+                        .channel_builders()
+                        .get("y")
+                        .map(|b| match b {
+                            crate::scales::builder::ChannelScaleBuilder::RadiusAware {
+                                position_data,
+                                ..
+                            } => position_data.len(),
+                            _ => 0,
+                        })
+                        .unwrap_or(0),
                     level_based_extents.keys().collect::<Vec<_>>()
                 );
             }
@@ -331,10 +349,17 @@ where
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "FACET_LEVEL: Building initial_shared_scales, builder y len={}",
-                builder.channel_builders().get("y").map(|b| match b {
-                    crate::scales::builder::ChannelScaleBuilder::RadiusAware { position_data, .. } => position_data.len(),
-                    _ => 0
-                }).unwrap_or(0)
+                builder
+                    .channel_builders()
+                    .get("y")
+                    .map(|b| match b {
+                        crate::scales::builder::ChannelScaleBuilder::RadiusAware {
+                            position_data,
+                            ..
+                        } => position_data.len(),
+                        _ => 0,
+                    })
+                    .unwrap_or(0)
             );
         }
         let (width, height) = subplot_dims(adjusted_initial_bandwidth, context);
@@ -487,7 +512,7 @@ where
     let subplot_iter = SubplotIterator::<DimConfig>::new(
         domain_vals.clone(),
         subplot_params.clone(),
-        scale_sharing_by_channel.clone(),
+        scale_sharing_for_visibility.clone(),
     );
 
     let channel_name = DimConfig::channel_name();
@@ -612,19 +637,28 @@ where
     // Use phantom layout's prepend count for position adjustment
     let phantom_offset = phantom_layout.prepend_count();
 
-    // Pre-compute per-parent-cell domains for Level(N >= 2) channels BEFORE cell iteration.
+    // Pre-compute per-parent-cell domains for Level(N >= 1) channels BEFORE cell iteration.
     // This ensures the parent-level domain (e.g., per-Division) is available and won't be
     // overwritten by child-cell domains (e.g., per-Department).
-    // NOTE: Level(1) in 3-level structures has a limitation - the Row facet can't extract
-    // y domains from the Cartesian until after evaluation.
-    let subplot_params = if let Some(coord_ctx) = FacetCoordinationContext::from_params(&subplot_params) {
-        // Check if any channels have Level(N >= 2) sharing
-        let has_level_2_plus = coord_ctx
+    // For Level(1) in 3-level structures, this enables per-row sharing in FacetRow > FacetColumn
+    // hierarchies by extracting domains from the filtered per-species data.
+    let subplot_params = if let Some(coord_ctx) =
+        FacetCoordinationContext::from_params(&subplot_params)
+    {
+        // Check if any channels have Level(N >= 1) sharing
+        let has_level_sharing = coord_ctx
             .channel_sharing_levels
             .values()
-            .any(|&level| level >= 2);
+            .any(|&level| level >= 1);
 
-        if has_level_2_plus {
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "PRE-ITER check: has_level_sharing={}, channel_sharing_levels={:?}, nesting_depth={}",
+                has_level_sharing, coord_ctx.channel_sharing_levels, coord_ctx.nesting_depth
+            );
+        }
+
+        if has_level_sharing {
             // Build scale builder from full df (parent-cell filtered data)
             let parent_scale_builder = compiled_subplot
                 .build_scale_builder_from_dataframe(&context.session_context, &subplot_params, df)
@@ -634,12 +668,21 @@ where
             let level_channels: Vec<String> = coord_ctx
                 .channel_sharing_levels
                 .iter()
-                .filter(|(_, level)| **level >= 2)
+                .filter(|(_, level)| **level >= 1)
                 .map(|(ch, _)| ch.clone())
                 .collect();
 
             let channel_refs: Vec<&str> = level_channels.iter().map(|s| s.as_str()).collect();
             let extents = parent_scale_builder.extract_serializable_extents(&channel_refs);
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "PRE-ITER extents (measurement): level_channels={:?}, extents.len()={}, extents={:?}",
+                    level_channels,
+                    extents.len(),
+                    extents
+                );
+            }
 
             if !extents.is_empty() {
                 let cell_depth = coord_ctx.nesting_depth + 1;
@@ -765,7 +808,7 @@ where
                         .filter(|(channel, _)| {
                             scale_sharing_by_channel
                                 .get(*channel)
-                                .map(|mode| *mode == ScaleSharing::Shared)
+                                .map(|mode| mode.is_fully_shared())
                                 .unwrap_or(false)
                         })
                         .map(|(k, v)| (k.clone(), v.clone()))
@@ -897,12 +940,12 @@ where
                                 level_extents
                             );
                         }
-                        free_scale_builder.replace_with_shared_extents(&level_extents);
-                        // ALSO replace in fallback_builder since it may have channels (like y)
+                        free_scale_builder.extend_with_shared_extents(&level_extents);
+                        // ALSO extend in fallback_builder since it may have channels (like y)
                         // that aren't in the free_scale_builder at this facet level.
                         // The y scale is often backfilled from fallback_builder.
                         if let Some(ref mut builder) = fallback_builder {
-                            builder.replace_with_shared_extents(&level_extents);
+                            builder.extend_with_shared_extents(&level_extents);
                         }
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             // Debug: check channel_builders after extension
@@ -949,130 +992,21 @@ where
                     eprintln!("CELL: About to build scales from builder");
                 }
 
-                // Determine if we should pass free_scale_builder to the helper
-                // When any channel is Shared, we rely on initial_shared_scales and overlay later
-                let free_scale_builder_pass1 = if scale_sharing_by_channel
-                    .values()
-                    .any(|v| *v == ScaleSharing::Shared)
-                {
-                    None
-                } else {
-                    Some(free_scale_builder.clone())
-                };
-
-                let mut scales = build_scales_helper_with_fallback(
+                // Build scales directly per-channel based on sharing mode
+                // This eliminates the two-step (initial build + overlay) approach
+                let scales = build_scales_per_channel(
                     &compiled_subplot,
+                    &scale_sharing_by_channel,
                     &initial_shared_scales,
-                    &free_scale_builder_pass1,
+                    &Some(free_scale_builder.clone()),
+                    FacetCoordinationContext::from_params(&params_base).as_ref(),
                     &fallback_builder,
-                    &filter_df,
                     width,
                     height,
                     &ctx,
                     &params_base,
                 )
                 .await?;
-
-                // Overlay step: For non-Shared channels, replace shared scales with free scales
-                // This ensures Free/Level(N) channels use their correct (per-channel) domains
-                // while Shared channels continue to use the full dataset domain.
-                //
-                // This overlay is needed when:
-                // 1. There are Shared channels (need to separate Shared vs Free behavior)
-                // 2. There are Level(N) channels (need to use per-cell extended builders)
-                // Check both scale_sharing_by_channel and coord_ctx.channel_sharing_levels
-                let has_shared = scale_sharing_by_channel.values().any(|v| {
-                    matches!(v, ScaleSharing::Shared) ||
-                    matches!(v, ScaleSharing::Level(n) if *n >= 1)
-                });
-                let has_level_n = FacetCoordinationContext::from_params(&params_base)
-                    .map(|ctx| ctx.channel_sharing_levels.values().any(|&level| level >= 1))
-                    .unwrap_or(false);
-                if has_shared || has_level_n {
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "MEASURE_OVERLAY: has_shared={}, has_level_n={}, building facet_scales",
-                            has_shared, has_level_n
-                        );
-                        // Check free_scale_builder y channel
-                        if let Some(b) = free_scale_builder.channel_builders().get("y") {
-                            eprintln!(
-                                "MEASURE_OVERLAY: free_scale_builder y = {:?}",
-                                match b {
-                                    crate::scales::builder::ChannelScaleBuilder::RadiusAware { position_data, .. } => {
-                                        format!("RadiusAware(len={})", position_data.len())
-                                    }
-                                    _ => "Other".to_string(),
-                                }
-                            );
-                        } else {
-                            eprintln!("MEASURE_OVERLAY: free_scale_builder has no y channel");
-                        }
-                        // Check fallback_builder y channel
-                        if let Some(ref fb) = fallback_builder {
-                            if let Some(b) = fb.channel_builders().get("y") {
-                                eprintln!(
-                                    "MEASURE_OVERLAY: fallback_builder y = {:?}",
-                                    match b {
-                                        crate::scales::builder::ChannelScaleBuilder::RadiusAware { position_data, .. } => {
-                                            format!("RadiusAware(len={})", position_data.len())
-                                        }
-                                        _ => "Other".to_string(),
-                                    }
-                                );
-                            } else {
-                                eprintln!("MEASURE_OVERLAY: fallback_builder has no y channel");
-                            }
-                        } else {
-                            eprintln!("MEASURE_OVERLAY: fallback_builder is None");
-                        }
-                    }
-                    let facet_scales = build_scales_helper_with_fallback(
-                        &compiled_subplot,
-                        &None,
-                        &Some(free_scale_builder),
-                        &fallback_builder,
-                        &filter_df,
-                        width,
-                        height,
-                        &ctx,
-                        &params_base,
-                    )
-                    .await?;
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "MEASURE_OVERLAY: facet_scales keys = {:?}",
-                            facet_scales.keys().collect::<Vec<_>>()
-                        );
-                    }
-                    // Replace scales for non-Shared channels with the per-cell extended ones
-                    // First check scale_sharing_by_channel at this level
-                    for (ch, sharing_mode) in &scale_sharing_by_channel {
-                        if *sharing_mode != ScaleSharing::Shared {
-                            if let Some(s) = facet_scales.get(ch) {
-                                scales.insert(ch.clone(), s.clone());
-                            }
-                        }
-                    }
-                    // Also check channel_sharing_levels from coord_ctx for Level(N) channels
-                    // Exclude u8::MAX (Shared) since it's handled above via scale_sharing_by_channel
-                    if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
-                        for (ch, &level) in &coord_ctx.channel_sharing_levels {
-                            if level >= 1 && level < u8::MAX {
-                                // Level(N) channels should use the per-cell extended scales
-                                if let Some(s) = facet_scales.get(ch) {
-                                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                        eprintln!(
-                                            "MEASURE_OVERLAY: replacing {} scale (level={})",
-                                            ch, level
-                                        );
-                                    }
-                                    scales.insert(ch.clone(), s.clone());
-                                }
-                            }
-                        }
-                    }
-                }
 
                 let (guide_only, total_overflow, legend_positions, spacing_needs) =
                     measure_subplot(
@@ -1672,6 +1606,7 @@ async fn render_pass<DimConfig: FacetDimensionConfig, GroupOriginFn>(
     facet_expr: &datafusion::logical_expr::Expr,
     context: &RenderContext,
     scale_sharing_by_channel: HashMap<String, ScaleSharing>,
+    scale_sharing_for_visibility: HashMap<String, ScaleSharing>,
     pass1: FacetPass1Result,
     group_origin: &GroupOriginFn,
 ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError>
@@ -1693,10 +1628,12 @@ where
         .phantom_layout
         .update_params_with_phantom_context(&context.params);
 
+    // Use scale_sharing_for_visibility for SubplotIterator to control axis visibility
+    // (not scale_sharing_by_channel which includes paired channels for scale domain building)
     let subplot_iter_pass2 = SubplotIterator::<DimConfig>::new(
         domain_vals_final,
         subplot_params_pass2.clone(),
-        scale_sharing_by_channel.clone(),
+        scale_sharing_for_visibility.clone(),
     );
 
     assert_eq!(
@@ -1762,63 +1699,69 @@ where
     // Clone fallback builder for render pass
     let fallback_builder = pass1.fallback_builder.clone();
 
-    // Pre-compute per-parent-cell domains for Level(N >= 2) channels BEFORE cell iteration.
+    // Pre-compute per-parent-cell domains for Level(N >= 1) channels BEFORE cell iteration.
     // This ensures the parent-level domain (e.g., per-Division) is available and won't be
     // overwritten by child-cell domains (e.g., per-Department).
-    // NOTE: Level(1) in 3-level structures has a limitation - domains can't be extracted.
-    let subplot_params_pass2 = if let Some(coord_ctx) = FacetCoordinationContext::from_params(&subplot_params_pass2) {
-        // Check if any channels have Level(N >= 2) sharing
-        let has_level_2_plus = coord_ctx
-            .channel_sharing_levels
-            .values()
-            .any(|&level| level >= 2);
-
-        if has_level_2_plus {
-            // Build scale builder from full df (parent-cell filtered data)
-            let parent_scale_builder = compiled_subplot
-                .build_scale_builder_from_dataframe(&context.session_context, &subplot_params_pass2, df)
-                .await?;
-
-            // Collect channels that need per-parent-cell domains
-            let level_channels: Vec<String> = coord_ctx
+    // For Level(1) in 3-level structures, this enables per-row sharing in FacetRow > FacetColumn
+    // hierarchies by extracting domains from the filtered per-species data.
+    let subplot_params_pass2 =
+        if let Some(coord_ctx) = FacetCoordinationContext::from_params(&subplot_params_pass2) {
+            // Check if any channels have Level(N >= 1) sharing
+            let has_level_sharing = coord_ctx
                 .channel_sharing_levels
-                .iter()
-                .filter(|(_, level)| **level >= 2)
-                .map(|(ch, _)| ch.clone())
-                .collect();
+                .values()
+                .any(|&level| level >= 1);
 
-            let channel_refs: Vec<&str> = level_channels.iter().map(|s| s.as_str()).collect();
-            let extents = parent_scale_builder.extract_serializable_extents(&channel_refs);
+            if has_level_sharing {
+                // Build scale builder from full df (parent-cell filtered data)
+                let parent_scale_builder = compiled_subplot
+                    .build_scale_builder_from_dataframe(
+                        &context.session_context,
+                        &subplot_params_pass2,
+                        df,
+                    )
+                    .await?;
 
-            if !extents.is_empty() {
-                let cell_depth = coord_ctx.nesting_depth + 1;
-                let mut new_level_domains = coord_ctx.level_domains.clone();
+                // Collect channels that need per-parent-cell domains
+                let level_channels: Vec<String> = coord_ctx
+                    .channel_sharing_levels
+                    .iter()
+                    .filter(|(_, level)| **level >= 1)
+                    .map(|(ch, _)| ch.clone())
+                    .collect();
 
-                for (channel, serializable) in extents {
-                    let key = LevelChannelKey::new(cell_depth, &channel);
-                    // Always add parent-level domains - they take precedence
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "PRE-ITER: Adding per-parent domain for {} at depth={}: {:?}",
-                            channel, cell_depth, serializable
-                        );
+                let channel_refs: Vec<&str> = level_channels.iter().map(|s| s.as_str()).collect();
+                let extents = parent_scale_builder.extract_serializable_extents(&channel_refs);
+
+                if !extents.is_empty() {
+                    let cell_depth = coord_ctx.nesting_depth + 1;
+                    let mut new_level_domains = coord_ctx.level_domains.clone();
+
+                    for (channel, serializable) in extents {
+                        let key = LevelChannelKey::new(cell_depth, &channel);
+                        // Always add parent-level domains - they take precedence
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "PRE-ITER: Adding per-parent domain for {} at depth={}: {:?}",
+                                channel, cell_depth, serializable
+                            );
+                        }
+                        new_level_domains.insert(key, serializable);
                     }
-                    new_level_domains.insert(key, serializable);
-                }
 
-                let updated_ctx = coord_ctx.clone().with_level_domains(new_level_domains);
-                let mut new_params = subplot_params_pass2.clone();
-                new_params.extend(updated_ctx.to_params());
-                new_params
+                    let updated_ctx = coord_ctx.clone().with_level_domains(new_level_domains);
+                    let mut new_params = subplot_params_pass2.clone();
+                    new_params.extend(updated_ctx.to_params());
+                    new_params
+                } else {
+                    subplot_params_pass2
+                }
             } else {
                 subplot_params_pass2
             }
         } else {
             subplot_params_pass2
-        }
-    } else {
-        subplot_params_pass2
-    };
+        };
 
     let results: Vec<_> = stream::iter(work_items)
         .map(|(idx, iteration, rect)| {
@@ -1915,7 +1858,7 @@ where
                         .filter(|(channel, _)| {
                             scale_sharing_by_channel
                                 .get(*channel)
-                                .map(|mode| *mode == ScaleSharing::Shared)
+                                .map(|mode| mode.is_fully_shared())
                                 .unwrap_or(false)
                         })
                         .map(|(k, v)| (k.clone(), v.clone()))
@@ -2031,85 +1974,32 @@ where
                                 level_extents.iter().map(|(k, v)| (k, format!("{:?}", v))).collect::<Vec<_>>()
                             );
                         }
-                        free_scale_builder.replace_with_shared_extents(&level_extents);
-                        // ALSO replace in fallback_builder since it may have channels (like y)
+                        free_scale_builder.extend_with_shared_extents(&level_extents);
+                        // ALSO extend in fallback_builder since it may have channels (like y)
                         // that aren't in the free_scale_builder at this facet level.
                         // The y scale is often backfilled from fallback_builder.
                         if let Some(ref mut builder) = fallback_builder {
-                            builder.replace_with_shared_extents(&level_extents);
+                            builder.extend_with_shared_extents(&level_extents);
                         }
                     }
                 }
 
-                let mut scales = build_scales_helper_with_fallback(
+                // Build scales directly per-channel based on sharing mode
+                // This eliminates the two-step (initial build + overlay) approach
+                // and ensures Pass 2 uses identical logic to Pass 1
+                let scales = build_scales_per_channel(
                     &compiled_subplot,
+                    &scale_sharing_by_channel,
                     &final_shared_scales,
-                    &if scale_sharing_by_channel
-                        .values()
-                        .any(|v| *v == ScaleSharing::Shared)
-                    {
-                        None
-                    } else {
-                        Some(free_scale_builder.clone())
-                    },
+                    &Some(free_scale_builder.clone()),
+                    FacetCoordinationContext::from_params(&params_base).as_ref(),
                     &fallback_builder,
-                    &filter_df,
                     width,
                     height,
                     &ctx,
                     &params_base,
                 )
                 .await?;
-
-                // Overlay step: For non-Shared channels, replace shared scales with free scales
-                // This ensures Free/Level(N) channels use their correct (per-channel) domains
-                // while Shared channels continue to use the full dataset domain.
-                //
-                // This overlay is needed when:
-                // 1. There are Shared channels (need to separate Shared vs Free behavior)
-                // 2. There are Level(N) channels (need to use per-cell extended builders)
-                // Check both scale_sharing_by_channel and coord_ctx.channel_sharing_levels
-                let has_shared = scale_sharing_by_channel
-                    .values()
-                    .any(|v| *v == ScaleSharing::Shared);
-                let has_level_n = FacetCoordinationContext::from_params(&params_base)
-                    .map(|ctx| ctx.channel_sharing_levels.values().any(|&level| level >= 1))
-                    .unwrap_or(false);
-                if has_shared || has_level_n {
-                    let facet_scales = build_scales_helper_with_fallback(
-                        &compiled_subplot,
-                        &None,
-                        &Some(free_scale_builder),
-                        &fallback_builder,
-                        &filter_df,
-                        width,
-                        height,
-                        &ctx,
-                        &params_base,
-                    )
-                    .await?;
-                    // Replace scales for non-Shared channels with the per-cell extended ones
-                    // First check scale_sharing_by_channel at this level
-                    for (ch, sharing_mode) in &scale_sharing_by_channel {
-                        if *sharing_mode != ScaleSharing::Shared {
-                            if let Some(s) = facet_scales.get(ch) {
-                                scales.insert(ch.clone(), s.clone());
-                            }
-                        }
-                    }
-                    // Also check channel_sharing_levels from coord_ctx for Level(N) channels
-                    // Exclude u8::MAX (Shared) since it's handled above via scale_sharing_by_channel
-                    if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
-                        for (ch, &level) in &coord_ctx.channel_sharing_levels {
-                            if level >= 1 && level < u8::MAX {
-                                // Level(N) channels should use the per-cell extended scales
-                                if let Some(s) = facet_scales.get(ch) {
-                                    scales.insert(ch.clone(), s.clone());
-                                }
-                            }
-                        }
-                    }
-                }
 
                 let scale_provider = crate::plot::compiled::scale_provider::PrebuiltScaleProvider {
                     scales: scales.clone(),
@@ -2414,33 +2304,65 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     // Extract scale sharing modes from subplot marks.
     //
-    // SILENT BEHAVIOR: When multiple marks specify different sharing modes for the
-    // same channel, the following precedence applies:
-    // 1. ScaleSharing::Shared always wins (once set, cannot be overridden)
-    // 2. First non-Free mode wins over Free
-    // 3. Subsequent non-Shared modes are ignored
+    // When multiple marks specify different sharing modes for the same channel,
+    // the maximum level wins (higher level = more global sharing):
+    // - Level(0)/Free = most local (each cell independent)
+    // - Level(N) = share N levels up the hierarchy
+    // - Level(255)/Shared = most global (share across all facets)
     //
     // For consistent behavior, use the same scale sharing mode across all marks
     // in a subplot. Mixed modes may produce unexpected results.
-    let mut scale_sharing_by_channel: HashMap<String, ScaleSharing> = HashMap::new();
+    //
+    // We compute TWO maps:
+    // 1. scale_sharing_for_scales: Includes paired channels (x2/y2) for scale domain building.
+    //    This ensures that if y2 has Level(1), the y-scale uses the unified domain.
+    // 2. scale_sharing_for_visibility: Only uses primary channel's sharing for axis visibility.
+    //    This ensures axis labels aren't hidden based on paired channel settings.
+    let mut scale_sharing_for_scales: HashMap<String, ScaleSharing> = HashMap::new();
+    let mut scale_sharing_for_visibility: HashMap<String, ScaleSharing> = HashMap::new();
+
     for &ch in &required_channels {
-        let mut mode = ScaleSharing::Free;
+        let mut max_level_for_scales: u8 = 0; // Includes paired channels
+        let mut max_level_for_visibility: u8 = 0; // Primary channel only
+
+        // Determine the paired channel (x2 for x, y2 for y)
+        let paired_ch = match ch {
+            "x" => Some("x2"),
+            "y" => Some("y2"),
+            _ => None,
+        };
+
         for m in &compiled_subplot.marks {
+            // Check the primary channel (used for both scales and visibility)
             if let Some(cv) = m.data_context().channels().get(ch) {
                 if let Some(share_mode) = cv.get_share_mode() {
-                    mode = match (mode, share_mode) {
-                        (ScaleSharing::Free, new_mode) => new_mode,
-                        (ScaleSharing::Shared, _) => ScaleSharing::Shared,
-                        (_, ScaleSharing::Shared) => ScaleSharing::Shared,
-                        (existing, _) => existing,
-                    };
+                    let level = share_mode.to_level();
+                    max_level_for_scales = max_level_for_scales.max(level);
+                    max_level_for_visibility = max_level_for_visibility.max(level);
+                }
+            }
+            // Check the paired channel (x2/y2) - ONLY for scale domain building
+            // Visibility should only consider the primary channel's explicit settings
+            if let Some(paired) = paired_ch {
+                if let Some(cv) = m.data_context().channels().get(paired) {
+                    if let Some(share_mode) = cv.get_share_mode() {
+                        max_level_for_scales = max_level_for_scales.max(share_mode.to_level());
+                    }
                 }
             }
         }
-        scale_sharing_by_channel.insert(ch.to_string(), mode);
+        scale_sharing_for_scales.insert(
+            ch.to_string(),
+            ScaleSharing::from_level(max_level_for_scales),
+        );
+        scale_sharing_for_visibility.insert(
+            ch.to_string(),
+            ScaleSharing::from_level(max_level_for_visibility),
+        );
     }
 
-    let mut scale_sharing_by_channel: HashMap<String, ScaleSharing> = scale_sharing_by_channel;
+    // scale_sharing_by_channel is used for scale building (includes paired channels)
+    let mut scale_sharing_by_channel: HashMap<String, ScaleSharing> = scale_sharing_for_scales;
 
     // Extract incoming coordination context from outer facet (if nested)
     // This is used for:
@@ -2515,6 +2437,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         compiled_subplot,
         dimension_scale,
         &scale_sharing_by_channel,
+        &scale_sharing_for_visibility,
         &df,
         &facet_expr,
         facet_spacing,
@@ -2582,6 +2505,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 compiled_subplot,
                 &pass1.final_dimension_scale,
                 &scale_sharing_by_channel,
+                &scale_sharing_for_visibility,
                 &df,
                 &facet_expr,
                 facet_spacing,
@@ -2633,6 +2557,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         &facet_expr,
         &final_context,
         scale_sharing_by_channel,
+        scale_sharing_for_visibility,
         final_pass,
         &group_origin,
     )

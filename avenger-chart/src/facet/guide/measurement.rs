@@ -5,9 +5,9 @@
 //! between FacetRowGuide and FacetColGuide.
 
 use crate::facet::dimension_config::FacetDimensionConfig;
-use crate::facet::guide::shared::{compute_scale_sharing_for_nested_facet, FacetSource};
+use crate::facet::guide::shared::{FacetSource, compute_scale_sharing_for_nested_facet};
 use crate::facet::scalar_cmp::scalar_total_cmp;
-use crate::guide::{spacing_keys, MeasurementResult, OverflowSpaceRequirement};
+use crate::guide::{MeasurementResult, OverflowSpaceRequirement, spacing_keys};
 use crate::scales::ConfiguredScaleLegendExt;
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::prelude::SessionContext;

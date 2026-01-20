@@ -755,18 +755,16 @@ impl CompiledPlot {
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 if let Some(y_scale) = configured_scales.get("y") {
                     let domain = y_scale.domain();
-                    if let Some(float_arr) = domain.as_any().downcast_ref::<arrow::array::Float32Array>() {
+                    if let Some(float_arr) =
+                        domain.as_any().downcast_ref::<arrow::array::Float32Array>()
+                    {
                         let vals: Vec<f32> = float_arr.iter().filter_map(|v| v).collect();
-                        eprintln!(
-                            "create_guide_marks: y scale domain = {:?}",
-                            vals
-                        );
-                    } else if let Some(float_arr) = domain.as_any().downcast_ref::<arrow::array::Float64Array>() {
+                        eprintln!("create_guide_marks: y scale domain = {:?}", vals);
+                    } else if let Some(float_arr) =
+                        domain.as_any().downcast_ref::<arrow::array::Float64Array>()
+                    {
                         let vals: Vec<f64> = float_arr.iter().filter_map(|v| v).collect();
-                        eprintln!(
-                            "create_guide_marks: y scale domain = {:?}",
-                            vals
-                        );
+                        eprintln!("create_guide_marks: y scale domain = {:?}", vals);
                     } else {
                         eprintln!(
                             "create_guide_marks: y scale domain type = {:?}",

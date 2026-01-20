@@ -213,17 +213,32 @@ impl ScaleBuilder {
                         };
                         result.insert(channel.to_string(), serializable);
                     }
-                    ChannelScaleBuilder::RadiusAware { position_data, .. } => {
+                    ChannelScaleBuilder::RadiusAware {
+                        position_data,
+                        radius_lower_data,
+                        radius_upper_data,
+                        ..
+                    } => {
                         // For radius-aware scales, compute min/max from position data
+                        // and include max radius values for proper domain expansion
                         if !position_data.is_empty() {
                             let min = position_data.iter().cloned().fold(f64::INFINITY, f64::min);
                             let max = position_data
                                 .iter()
                                 .cloned()
                                 .fold(f64::NEG_INFINITY, f64::max);
+                            let max_radius_lower =
+                                radius_lower_data.iter().cloned().fold(0.0_f64, f64::max);
+                            let max_radius_upper =
+                                radius_upper_data.iter().cloned().fold(0.0_f64, f64::max);
                             result.insert(
                                 channel.to_string(),
-                                SerializableDataExtents::interval(min, max),
+                                SerializableDataExtents::radius_aware_interval(
+                                    min,
+                                    max,
+                                    max_radius_lower,
+                                    max_radius_upper,
+                                ),
                             );
                         }
                     }
@@ -349,143 +364,65 @@ impl ScaleBuilder {
                         ..
                     } => {
                         // For RadiusAware scales, we need to add synthetic data points at the shared extents
-                        // to ensure the domain includes them. The radius values are 0.0 since they don't
-                        // affect min/max computation, only padding.
-                        if let SerializableDataExtents::Interval {
-                            min: shared_min,
-                            max: shared_max,
-                        } = shared_extent
-                        {
-                            let len_before = position_data.len();
+                        // to ensure the domain includes them. Use shared radius values if available.
+                        match shared_extent {
+                            SerializableDataExtents::RadiusAwareInterval {
+                                min: shared_min,
+                                max: shared_max,
+                                max_radius_lower,
+                                max_radius_upper,
+                            } => {
+                                let len_before = position_data.len();
 
-                            // Add synthetic points at shared min and max
-                            position_data.push(*shared_min);
-                            radius_lower_data.push(0.0);
-                            radius_upper_data.push(0.0);
+                                // Add synthetic points at shared min and max with proper radius values
+                                position_data.push(*shared_min);
+                                radius_lower_data.push(*max_radius_lower);
+                                radius_upper_data.push(0.0);
 
-                            position_data.push(*shared_max);
-                            radius_lower_data.push(0.0);
-                            radius_upper_data.push(0.0);
+                                position_data.push(*shared_max);
+                                radius_lower_data.push(0.0);
+                                radius_upper_data.push(*max_radius_upper);
 
-                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                eprintln!(
-                                    "  Extended RadiusAware {} with shared extents ({}, {}), len {} -> {}",
-                                    channel, shared_min, shared_max, len_before, position_data.len()
-                                );
-                            }
-                        }
-                    }
-                    ChannelScaleBuilder::ExplicitDomain { .. } => {
-                        // Explicit domains should not be modified by shared extents
-                    }
-                }
-            }
-        }
-    }
-
-    /// Replace data extents with shared extents (for Level(N) scale sharing)
-    ///
-    /// Unlike `extend_with_shared_extents` which takes the union of local and shared,
-    /// this method REPLACES the local domain entirely with the shared domain. This
-    /// ensures all cells in a Level(N) sharing group have exactly the same domain,
-    /// which is critical for consistent axis labels across nested facets.
-    ///
-    /// Use this method for Level(N) sharing where domain consistency is more important
-    /// than preserving per-cell radius padding adjustments.
-    pub fn replace_with_shared_extents(
-        &mut self,
-        shared_extents: &std::collections::HashMap<
-            String,
-            crate::facet::coordination::SerializableDataExtents,
-        >,
-    ) {
-        use crate::facet::coordination::SerializableDataExtents;
-
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "replace_with_shared_extents called with {} channels",
-                shared_extents.len()
-            );
-            for (ch, ext) in shared_extents {
-                eprintln!("  shared extent {}: {:?}", ch, ext);
-            }
-        }
-
-        for (channel, shared_extent) in shared_extents {
-            if let Some(channel_builder) = self.channel_builders.get_mut(channel) {
-                match channel_builder {
-                    ChannelScaleBuilder::Standard { data_extents, .. } => {
-                        match (data_extents, shared_extent) {
-                            (
-                                DataExtents::Interval(local_min, local_max),
-                                SerializableDataExtents::Interval {
-                                    min: shared_min,
-                                    max: shared_max,
-                                },
-                            ) => {
                                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                                     eprintln!(
-                                        "  Replacing {} extents: local=({}, {}) -> shared=({}, {})",
-                                        channel, local_min, local_max, shared_min, shared_max
+                                        "  Extended RadiusAware {} with shared radius-aware extents ({}, {}), radii=({}, {}), len {} -> {}",
+                                        channel,
+                                        shared_min,
+                                        shared_max,
+                                        max_radius_lower,
+                                        max_radius_upper,
+                                        len_before,
+                                        position_data.len()
                                     );
                                 }
-                                // Replace with shared extents (not union)
-                                *local_min = *shared_min;
-                                *local_max = *shared_max;
                             }
-                            (
-                                DataExtents::Temporal(local_min, local_max),
-                                SerializableDataExtents::Temporal {
-                                    min: shared_min,
-                                    max: shared_max,
-                                },
-                            ) => {
-                                *local_min = *shared_min;
-                                *local_max = *shared_max;
-                            }
-                            (
-                                DataExtents::Discrete(local_values),
-                                SerializableDataExtents::Discrete(shared_values),
-                            ) => {
-                                *local_values =
-                                    shared_values.iter().map(|v| v.to_scalar()).collect();
+                            SerializableDataExtents::Interval {
+                                min: shared_min,
+                                max: shared_max,
+                            } => {
+                                let len_before = position_data.len();
+
+                                // Add synthetic points at shared min and max
+                                position_data.push(*shared_min);
+                                radius_lower_data.push(0.0);
+                                radius_upper_data.push(0.0);
+
+                                position_data.push(*shared_max);
+                                radius_lower_data.push(0.0);
+                                radius_upper_data.push(0.0);
+
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                    eprintln!(
+                                        "  Extended RadiusAware {} with shared extents ({}, {}), len {} -> {}",
+                                        channel,
+                                        shared_min,
+                                        shared_max,
+                                        len_before,
+                                        position_data.len()
+                                    );
+                                }
                             }
                             _ => {}
-                        }
-                    }
-                    ChannelScaleBuilder::RadiusAware {
-                        position_data,
-                        radius_lower_data,
-                        radius_upper_data,
-                        ..
-                    } => {
-                        // For RadiusAware scales with Level(N) sharing, replace existing data with
-                        // the shared extent boundaries. This ensures all cells in the sharing group
-                        // have exactly the same domain.
-                        if let SerializableDataExtents::Interval {
-                            min: shared_min,
-                            max: shared_max,
-                        } = shared_extent
-                        {
-                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                eprintln!(
-                                    "  Replacing RadiusAware {} data (len={}) with shared extents ({}, {})",
-                                    channel, position_data.len(), shared_min, shared_max
-                                );
-                            }
-
-                            // Clear existing data and replace with shared extent boundaries
-                            position_data.clear();
-                            radius_lower_data.clear();
-                            radius_upper_data.clear();
-
-                            position_data.push(*shared_min);
-                            radius_lower_data.push(0.0);
-                            radius_upper_data.push(0.0);
-
-                            position_data.push(*shared_max);
-                            radius_lower_data.push(0.0);
-                            radius_upper_data.push(0.0);
                         }
                     }
                     ChannelScaleBuilder::ExplicitDomain { .. } => {
@@ -542,7 +479,8 @@ impl ScaleBuilder {
                     ChannelScaleBuilder::RadiusAware { position_data, .. } => {
                         eprintln!(
                             "build_scales: starting {} with RadiusAware(len={})",
-                            channel_name, position_data.len()
+                            channel_name,
+                            position_data.len()
                         );
                     }
                     _ => {}
@@ -711,10 +649,16 @@ impl ScaleBuilder {
                     )?;
 
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && channel_name == "y" {
-                        let data_preview: Vec<f64> = position_data.iter().take(12).cloned().collect();
+                        let data_preview: Vec<f64> =
+                            position_data.iter().take(12).cloned().collect();
                         eprintln!(
                             "  RadiusAware {} domain after compute_domain_from_data: ({:.2}, {:.2}), position_data len={}, range_width={:.2}, data={:?}",
-                            channel_name, d_min, d_max, position_data.len(), range_width, data_preview
+                            channel_name,
+                            d_min,
+                            d_max,
+                            position_data.len(),
+                            range_width,
+                            data_preview
                         );
                     }
 
@@ -726,7 +670,12 @@ impl ScaleBuilder {
                     scale = scale.normalize_domain(width, height, ctx, params).await?;
 
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && channel_name == "y" {
-                        if let Ok((norm_min, norm_max)) = scale.clone().create_configured_scale(width, height, ctx, params).await.and_then(|c| Ok(c.numeric_interval_domain()?)) {
+                        if let Ok((norm_min, norm_max)) = scale
+                            .clone()
+                            .create_configured_scale(width, height, ctx, params)
+                            .await
+                            .and_then(|c| Ok(c.numeric_interval_domain()?))
+                        {
                             eprintln!(
                                 "  RadiusAware {} domain after normalize: ({:.2}, {:.2})",
                                 channel_name, norm_min, norm_max

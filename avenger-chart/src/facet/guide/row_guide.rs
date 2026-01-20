@@ -6,10 +6,10 @@
 
 use crate::channel::config_traits::ScaleSharing;
 use crate::facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig};
-use crate::facet::guide::measurement::{measure_with_coordination_impl, AsyncMeasureOverflowFn};
+use crate::facet::guide::measurement::{AsyncMeasureOverflowFn, measure_with_coordination_impl};
 use crate::facet::guide::shared::{
-    aggregate_cached_overflow, apply_shared_overflow_coordination,
-    compute_scale_sharing_for_nested_facet, default_overflow_fallback, FacetSource,
+    FacetSource, aggregate_cached_overflow, apply_shared_overflow_coordination,
+    compute_scale_sharing_for_nested_facet, default_overflow_fallback,
 };
 use crate::facet::phantom_cells::PhantomPlacement;
 use crate::facet::scalar_cmp::scalar_total_cmp;
