@@ -3637,7 +3637,7 @@ fn test_four_level_row_row_row_row() {
 
         let outer = Plot::<FacetRow>::new()
             .data(df)
-            .canvas_size(1000, 900)
+            .canvas_size(1000, 1400)
             .mark(
                 Facet::new()
                     .row_with(col("division"), |c| c.facet(|f| f.title("Division")))
@@ -3705,7 +3705,7 @@ fn test_four_level_col_col_col_col() {
 
         let outer = Plot::<FacetColumn>::new()
             .data(df)
-            .canvas_size(1200, 600)
+            .canvas_size(1800, 500)
             .mark(
                 Facet::new()
                     .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
