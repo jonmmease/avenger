@@ -4,11 +4,13 @@
 //! and the `AsyncMeasureOverflowFn` trait that enable shared measurement logic
 //! between FacetRowGuide and FacetColGuide.
 
+use crate::facet::coordination::SerializableDataExtents;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use crate::facet::guide::shared::{FacetSource, compute_scale_sharing_for_nested_facet};
 use crate::facet::scalar_cmp::scalar_total_cmp;
 use crate::guide::{MeasurementResult, OverflowSpaceRequirement, spacing_keys};
 use crate::scales::ConfiguredScaleLegendExt;
+use crate::channel::config_traits::ScaleSharing;
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
@@ -200,11 +202,44 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
     if let (Some(expr), Some(df)) = (facet_expr, df) {
         use datafusion::logical_expr::lit;
 
+        // Compute scale sharing from marks BEFORE building scales
+        // (needed for Level(N) domain extension)
+        let scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
+
         // Build scales for subplot measurement
-        let builder = source
+        let mut builder = source
             .subplot
             .build_scale_builder_from_dataframe(ctx, params, &df)
             .await?;
+
+        // Extend with level-based extents from coordination context for Level(N>=1) channels
+        // ONLY for innermost subplots (Cartesian) - not for nested facet guides.
+        // When the subplot has a compiled_guide, it's a nested facet that will handle
+        // its own scale extension during its measurement. We only extend here when
+        // measuring Cartesian subplots directly.
+        if source.subplot.compiled_guide.is_none() {
+            let level_extents: HashMap<String, SerializableDataExtents> = scale_sharing
+                .iter()
+                .filter_map(|(channel, mode)| {
+                    if let ScaleSharing::Level(n) = mode {
+                        if *n >= 1 {
+                            coord_ctx
+                                .get_domain_for_channel_with_level(channel, *n)
+                                .map(|extents| (channel.clone(), extents.clone()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if !level_extents.is_empty() {
+                builder.extend_with_shared_extents(&level_extents);
+            }
+        }
+
         let subplot_scales = source
             .subplot
             .build_scales_from_builder(&builder, pass1_width, pass1_height, ctx, params)
@@ -215,9 +250,6 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
             .iter()
             .map(|(k, v)| (k.clone(), v.configured().clone()))
             .collect();
-
-        // Compute scale sharing from marks
-        let scale_sharing = compute_scale_sharing_for_nested_facet(&source.subplot.marks);
 
         // Measure each cell in Pass 1
         for (cell_idx, domain_val) in domain_vals.iter().enumerate() {

@@ -25,15 +25,15 @@ use indexmap::IndexMap;
 use std::sync::Arc;
 
 /// Information about a channel found by recursive search
-struct FoundChannelInfo {
-    expr: datafusion::logical_expr::Expr,
-    share_mode: ScaleSharing,
-    domain_kind: Option<DomainKind>,
+pub struct FoundChannelInfo {
+    pub expr: datafusion::logical_expr::Expr,
+    pub share_mode: ScaleSharing,
+    pub domain_kind: Option<DomainKind>,
 }
 
 /// Recursively search through marks (including nested facets) to find x/y channel info.
 /// This is needed for Level(N>1) where the actual channel definitions are in deeply nested subplots.
-fn find_channel_in_marks(
+pub fn find_channel_in_marks(
     marks: &[Arc<dyn CompiledMark>],
     channel_name: &str,
     ctx: &SessionContext,
@@ -409,6 +409,23 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
                     continue;
                 }
 
+                // Inherit from incoming coordination context if available
+                // This is critical for deep nesting (3+ levels) where the middle facet
+                // receives filtered data but should use the global domain from the outer facet
+                if let Some(inherited_extents) = incoming_coord_ctx
+                    .and_then(|ctx| ctx.shared_data_extents.as_ref())
+                    .and_then(|extents| extents.get(&channel.name))
+                {
+                    shared_data_extents.insert(channel.name.clone(), inherited_extents.clone());
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "  Inherited shared {} extents from outer facet: {:?}",
+                            channel.name, inherited_extents
+                        );
+                    }
+                    continue;
+                }
+
                 let kind = channel.data_kind(df.schema());
                 let extents_result =
                     compute_extents(kind, df, &channel.expr, ctx, channel.sort_order()).await;
@@ -499,6 +516,15 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     // Add shared data extents if we computed any
     // This still helps with scale ranges for shared scales
     if !shared_data_extents.is_empty() {
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "  Adding shared_data_extents to coord_ctx: {:?}",
+                shared_data_extents.keys().collect::<Vec<_>>()
+            );
+            for (ch, ext) in &shared_data_extents {
+                eprintln!("    {}: {:?}", ch, ext);
+            }
+        }
         coord_ctx = coord_ctx.with_shared_data_extents(shared_data_extents);
     }
 

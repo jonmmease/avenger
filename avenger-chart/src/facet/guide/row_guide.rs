@@ -209,11 +209,43 @@ impl FacetRowGuide {
                         total_gap,
                     );
 
+                    // Compute scale sharing from marks for Level(N) domain extension
+                    let computed_scale_sharing =
+                        compute_scale_sharing_for_nested_facet(&source.subplot.marks);
+
                     // Build scales for subplot measurement using two-step pattern for data override
-                    let builder = source
+                    let mut builder = source
                         .subplot
                         .build_scale_builder_from_dataframe(ctx, params, df)
                         .await?;
+
+                    // Extend with level-based extents from coordination context for Level(N>=1) channels
+                    {
+                        use crate::facet::coordination::SerializableDataExtents;
+                        let level_extents: HashMap<String, SerializableDataExtents> =
+                            computed_scale_sharing
+                                .iter()
+                                .filter_map(|(channel, mode)| {
+                                    if let ScaleSharing::Level(n) = mode {
+                                        if *n >= 1 {
+                                            coord_ctx.as_ref().and_then(|ctx| {
+                                                ctx.get_domain_for_channel_with_level(channel, *n)
+                                                    .map(|extents| (channel.clone(), extents.clone()))
+                                            })
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+
+                        if !level_extents.is_empty() {
+                            builder.extend_with_shared_extents(&level_extents);
+                        }
+                    }
+
                     let subplot_scales = source
                         .subplot
                         .build_scales_from_builder(&builder, plot_width, band_height, ctx, params)

@@ -194,11 +194,130 @@ impl FacetColGuide {
                         total_gap,
                     );
 
+                    // Compute scale sharing from marks so subplots know which axes to measure
+                    // Use nested facet version to correctly handle FacetRow inside FacetCol
+                    let computed_scale_sharing =
+                        compute_scale_sharing_for_nested_facet(&source.subplot.marks);
+
                     // Build scales for subplot measurement using two-step pattern for data override
-                    let builder = source
+                    let mut builder = source
                         .subplot
                         .build_scale_builder_from_dataframe(ctx, params, df)
                         .await?;
+
+                    // For nested facet subplots, compute level_domains for Level(N>=1) channels
+                    // so they can be passed down via coordination context.
+                    // This is needed because level_domains are normally computed during evaluation,
+                    // but measurement happens before evaluation.
+                    let measurement_coord_ctx = if source.subplot.compiled_guide.is_some() {
+                        use crate::facet::coordination::LevelChannelKey;
+
+                        // Find which channels need Level(N>=1) sharing, preserving the level value
+                        let level_channels: Vec<(&str, u8)> = computed_scale_sharing
+                            .iter()
+                            .filter_map(|(channel, mode)| {
+                                if let ScaleSharing::Level(n) = mode {
+                                    if *n >= 1 {
+                                        Some((channel.as_str(), *n))
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        if !level_channels.is_empty() {
+                            use crate::facet::marks::facet_extents::{
+                                classify_channel, compute_extents, DomainSort,
+                            };
+                            use crate::facet::nesting::find_channel_in_marks;
+
+                            // Child nesting depth: one more than current
+                            let child_nesting_depth = coord_ctx
+                                .as_ref()
+                                .map(|ctx| ctx.nesting_depth + 1)
+                                .unwrap_or(1);
+
+                            // Build level_domains by recursively finding channel expressions
+                            // and computing extents from the full dataframe
+                            let mut level_domains = IndexMap::new();
+                            for (channel, level) in &level_channels {
+                                if let Some(found) =
+                                    find_channel_in_marks(&source.subplot.marks, channel, ctx, 5)
+                                {
+                                    let kind = classify_channel(
+                                        &found.expr,
+                                        found.domain_kind,
+                                        df.schema(),
+                                    );
+                                    if let Ok(extents) = compute_extents(
+                                        kind,
+                                        df,
+                                        &found.expr,
+                                        ctx,
+                                        DomainSort::None,
+                                    )
+                                    .await
+                                    {
+                                        // Storage depth must align with lookup formula:
+                                        // Lookup uses target_depth = nesting_depth - level + 2
+                                        // So storage_depth = child_nesting_depth - level + 2
+                                        let storage_depth =
+                                            (child_nesting_depth as i32 - *level as i32 + 2).max(1)
+                                                as usize;
+                                        let key = LevelChannelKey::new(storage_depth, *channel);
+                                        level_domains.insert(key, extents);
+                                    }
+                                }
+                            }
+
+                            if !level_domains.is_empty() {
+                                let base_ctx = coord_ctx.clone().unwrap_or_default();
+                                Some(
+                                    base_ctx
+                                        .with_nesting_depth(child_nesting_depth)
+                                        .with_level_domains(level_domains),
+                                )
+                            } else {
+                                coord_ctx.clone()
+                            }
+                        } else {
+                            coord_ctx.clone()
+                        }
+                    } else {
+                        coord_ctx.clone()
+                    };
+
+                    // Extend with level-based extents from coordination context for Level(N>=1) channels
+                    // ONLY for innermost subplots (Cartesian) - not for nested facet guides.
+                    if source.subplot.compiled_guide.is_none() {
+                        use crate::facet::coordination::SerializableDataExtents;
+                        let level_extents: HashMap<String, SerializableDataExtents> =
+                            computed_scale_sharing
+                                .iter()
+                                .filter_map(|(channel, mode)| {
+                                    if let ScaleSharing::Level(n) = mode {
+                                        if *n >= 1 {
+                                            coord_ctx.as_ref().and_then(|ctx| {
+                                                ctx.get_domain_for_channel_with_level(channel, *n)
+                                                    .map(|extents| (channel.clone(), extents.clone()))
+                                            })
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+
+                        if !level_extents.is_empty() {
+                            builder.extend_with_shared_extents(&level_extents);
+                        }
+                    }
+
                     let subplot_scales = source
                         .subplot
                         .build_scales_from_builder(&builder, band_width, plot_height, ctx, params)
@@ -207,11 +326,6 @@ impl FacetColGuide {
                     // Measure each subplot with correct per-subplot FacetContext
                     let has_unified_y = self.unified_y_title.is_some();
                     let mut computed_overflow = Vec::new();
-
-                    // Compute scale sharing from marks so subplots know which axes to measure
-                    // Use nested facet version to correctly handle FacetRow inside FacetCol
-                    let computed_scale_sharing =
-                        compute_scale_sharing_for_nested_facet(&source.subplot.marks);
 
                     for (col_idx, (domain_val, has_data)) in iteration_domain.iter().enumerate() {
                         // Get the DataFrame for this cell - either filtered data or empty
@@ -267,6 +381,12 @@ impl FacetColGuide {
                             let ctx_params = facet_ctx.to_params();
                             for (k, v) in ctx_params {
                                 updated_params.insert(k, v);
+                            }
+                            // Add coordination context with level_domains to params
+                            if let Some(ref mcoord_ctx) = measurement_coord_ctx {
+                                for (k, v) in mcoord_ctx.to_params() {
+                                    updated_params.insert(k, v);
+                                }
                             }
                             updated_params
                         };
@@ -346,11 +466,102 @@ impl FacetColGuide {
                         total_gap,
                     );
 
+                    // Compute scale sharing from marks so subplots know which axes to measure
+                    // Use nested facet version to correctly handle FacetRow inside FacetCol
+                    let scale_sharing =
+                        compute_scale_sharing_for_nested_facet(&source.subplot.marks);
+
                     // Build scales for subplot measurement using two-step pattern for data override
                     let builder = source
                         .subplot
                         .build_scale_builder_from_dataframe(ctx, params, &df)
                         .await?;
+
+                    // For nested facet subplots, compute level_domains for Level(N>=1) channels
+                    // so they can be passed down via coordination context.
+                    // This is needed because level_domains are normally computed during evaluation,
+                    // but measurement happens before evaluation.
+                    let measurement_coord_ctx = if source.subplot.compiled_guide.is_some() {
+                        use crate::facet::coordination::LevelChannelKey;
+
+                        // Find which channels need Level(N>=1) sharing, preserving the level value
+                        let level_channels: Vec<(&str, u8)> = scale_sharing
+                            .iter()
+                            .filter_map(|(channel, mode)| {
+                                if let ScaleSharing::Level(n) = mode {
+                                    if *n >= 1 {
+                                        Some((channel.as_str(), *n))
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        if !level_channels.is_empty() {
+                            use crate::facet::marks::facet_extents::{
+                                classify_channel, compute_extents, DomainSort,
+                            };
+                            use crate::facet::nesting::find_channel_in_marks;
+
+                            // Child nesting depth: one more than current
+                            let child_nesting_depth = coord_ctx
+                                .as_ref()
+                                .map(|ctx| ctx.nesting_depth + 1)
+                                .unwrap_or(1);
+
+                            // Build level_domains by recursively finding channel expressions
+                            // and computing extents from the full dataframe
+                            let mut level_domains = IndexMap::new();
+                            for (channel, level) in &level_channels {
+                                if let Some(found) =
+                                    find_channel_in_marks(&source.subplot.marks, channel, ctx, 5)
+                                {
+                                    let kind = classify_channel(
+                                        &found.expr,
+                                        found.domain_kind,
+                                        df.schema(),
+                                    );
+                                    if let Ok(extents) = compute_extents(
+                                        kind,
+                                        &df,
+                                        &found.expr,
+                                        ctx,
+                                        DomainSort::None,
+                                    )
+                                    .await
+                                    {
+                                        // Storage depth must align with lookup formula:
+                                        // Lookup uses target_depth = nesting_depth - level + 2
+                                        // So storage_depth = child_nesting_depth - level + 2
+                                        let storage_depth =
+                                            (child_nesting_depth as i32 - *level as i32 + 2).max(1)
+                                                as usize;
+                                        let key = LevelChannelKey::new(storage_depth, *channel);
+                                        level_domains.insert(key, extents);
+                                    }
+                                }
+                            }
+
+                            if !level_domains.is_empty() {
+                                let base_ctx = coord_ctx.clone().unwrap_or_default();
+                                Some(
+                                    base_ctx
+                                        .with_nesting_depth(child_nesting_depth)
+                                        .with_level_domains(level_domains),
+                                )
+                            } else {
+                                coord_ctx.clone()
+                            }
+                        } else {
+                            coord_ctx.clone()
+                        }
+                    } else {
+                        coord_ctx.clone()
+                    };
+
                     let subplot_scales = source
                         .subplot
                         .build_scales_from_builder(&builder, band_width, plot_height, ctx, params)
@@ -360,11 +571,6 @@ impl FacetColGuide {
                     let has_unified_y = self.unified_y_title.is_some();
                     let mut computed_overflow = Vec::new();
                     let num_cols = domain_vals.len();
-
-                    // Compute scale sharing from marks so subplots know which axes to measure
-                    // Use nested facet version to correctly handle FacetRow inside FacetCol
-                    let scale_sharing =
-                        compute_scale_sharing_for_nested_facet(&source.subplot.marks);
 
                     for (col_idx, domain_val) in domain_vals.iter().enumerate() {
                         use datafusion::logical_expr::lit;
@@ -428,6 +634,12 @@ impl FacetColGuide {
                             let ctx_params = facet_ctx.to_params();
                             for (k, v) in ctx_params {
                                 updated_params.insert(k, v);
+                            }
+                            // Add coordination context with level_domains to params
+                            if let Some(ref mcoord_ctx) = measurement_coord_ctx {
+                                for (k, v) in mcoord_ctx.to_params() {
+                                    updated_params.insert(k, v);
+                                }
                             }
                             updated_params
                         };

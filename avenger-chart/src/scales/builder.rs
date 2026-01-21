@@ -402,21 +402,37 @@ impl ScaleBuilder {
                             } => {
                                 let len_before = position_data.len();
 
-                                // Add synthetic points at shared min and max
+                                // Compute max radius values from existing data to ensure proper
+                                // domain extension. Without this, Level(N) domains stored as plain
+                                // Interval would not extend beyond exact min/max, while Shared
+                                // domains with RadiusAwareInterval would extend properly.
+                                let max_radius_lower = radius_lower_data
+                                    .iter()
+                                    .copied()
+                                    .fold(0.0_f64, f64::max);
+                                let max_radius_upper = radius_upper_data
+                                    .iter()
+                                    .copied()
+                                    .fold(0.0_f64, f64::max);
+
+                                // Add synthetic points at shared min and max with proper radius
+                                // values to ensure radius-aware domain padding is applied
                                 position_data.push(*shared_min);
-                                radius_lower_data.push(0.0);
+                                radius_lower_data.push(max_radius_lower);
                                 radius_upper_data.push(0.0);
 
                                 position_data.push(*shared_max);
                                 radius_lower_data.push(0.0);
-                                radius_upper_data.push(0.0);
+                                radius_upper_data.push(max_radius_upper);
 
                                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                                     eprintln!(
-                                        "  Extended RadiusAware {} with shared extents ({}, {}), len {} -> {}",
+                                        "  Extended RadiusAware {} with shared extents ({}, {}), radii=({:.1}, {:.1}), len {} -> {}",
                                         channel,
                                         shared_min,
                                         shared_max,
+                                        max_radius_lower,
+                                        max_radius_upper,
                                         len_before,
                                         position_data.len()
                                     );

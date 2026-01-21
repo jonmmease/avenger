@@ -1156,9 +1156,12 @@ impl FacetCoordinationContext {
         // - Level(N) at nesting_depth D looks up depth (D - N + 2)
         // - Clamped to [1, nesting_depth] for valid range
         //
-        // Examples with 4-level structure (nesting_depth=2):
-        // - Level(2) → depth 2 (per-Division)
-        // - Level(3) → depth 1 (global)
+        // Note: The +2 compensates for nesting_depth typically being 1 less than
+        // the actual depth hierarchy due to how coordination context is propagated.
+        //
+        // Examples with nesting_depth=1 (2-level facet structure):
+        // - Level(1) → depth = 1-1+2 = 2, clamped down triggers fallback to per_cell_depth
+        // - Level(2) → depth = 1-2+2 = 1 (global)
         if self.nesting_depth == 0 {
             return None;
         }
@@ -1898,12 +1901,12 @@ mod tests {
     fn test_serialization_round_trip_with_level_fields() {
         // Create context with all level-based fields populated
         // With nesting_depth=2, the formula target_depth = nesting_depth - level + 2:
-        // - Level(3) for y: target_depth = 2 - 3 + 2 = 1 -> looks up depth 1
-        // - Level(2) for color: target_depth = 2 - 2 + 2 = 2 -> looks up depth 2
+        // - Level(3) for y: target_depth = 2 - 3 + 2 = 1 -> looks up depth 1 (global)
+        // - Level(2) for color: target_depth = 2 - 2 + 2 = 2 -> looks up depth 2 (per-parent)
         let mut levels = HashMap::new();
         levels.insert("x".to_string(), 0u8);
-        levels.insert("y".to_string(), 3u8); // Level(3) looks up depth 1
-        levels.insert("color".to_string(), 2u8); // Level(2) looks up depth 2
+        levels.insert("y".to_string(), 3u8); // Level(3) looks up depth 1 (global)
+        levels.insert("color".to_string(), 2u8); // Level(2) looks up depth 2 (per-parent)
 
         let mut domains = IndexMap::new();
         // Store y domain at depth 1 (matches Level(3) lookup)
@@ -1951,7 +1954,7 @@ mod tests {
         assert_eq!(restored.level_counts, vec![3, 4]);
 
         // Verify domain lookup works after round-trip
-        // y has Level(3), which at nesting_depth=2 looks up depth 1
+        // y has Level(3), which at nesting_depth=2 looks up depth 1 (global)
         let y_domain = restored.get_domain_for_channel("y");
         assert!(y_domain.is_some(), "y domain should be found at depth 1");
         match y_domain.unwrap() {
@@ -1962,7 +1965,7 @@ mod tests {
             _ => panic!("Expected Interval for y domain"),
         }
 
-        // color has Level(2), which at nesting_depth=2 looks up depth 2
+        // color has Level(2), which at nesting_depth=2 looks up depth 2 (per-parent)
         let color_domain = restored.get_domain_for_channel("color");
         assert!(
             color_domain.is_some(),

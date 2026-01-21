@@ -212,6 +212,13 @@ where
     let shared_data_extents = coordination_context
         .as_ref()
         .and_then(|ctx| ctx.shared_data_extents.clone());
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "evaluate_facet: shared_data_extents present={}, channels={:?}",
+            shared_data_extents.is_some(),
+            shared_data_extents.as_ref().map(|e| e.keys().collect::<Vec<_>>())
+        );
+    }
 
     // ========== LEVEL-BASED DOMAIN EXTRACTION (Level(N) sharing) ==========
     // For channels with Level(N) sharing where N >= 1, extract domains from level_domains.

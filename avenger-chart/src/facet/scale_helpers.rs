@@ -299,6 +299,8 @@ pub async fn build_scales_per_channel(
     }
 
     // Step 1: Handle Level(255)/Shared channels - copy from pre-built shared_scales
+    // If not in shared_scales, fall back to extending free_scale_builder with shared_data_extents
+    let mut shared_fallback_channels: Vec<String> = Vec::new();
     for channel in &shared_channels {
         if let Some(scales) = shared_scales {
             if let Some(scale) = scales.get(channel) {
@@ -306,12 +308,70 @@ pub async fn build_scales_per_channel(
                 if debug {
                     eprintln!("  Shared channel '{}': using pre-built scale", channel);
                 }
-            } else if debug {
-                eprintln!(
-                    "  WARNING: Shared channel '{}' not in shared_scales (keys: {:?})",
-                    channel,
-                    scales.keys().collect::<Vec<_>>()
-                );
+                continue;
+            }
+        }
+        // Channel not in shared_scales - need fallback
+        shared_fallback_channels.push(channel.clone());
+        if debug {
+            eprintln!(
+                "  Shared channel '{}' not in shared_scales - will try shared_data_extents fallback",
+                channel
+            );
+        }
+    }
+
+    // Handle Shared channels that weren't in shared_scales by extending free_scale_builder
+    // with inherited shared_data_extents from coordination context
+    if !shared_fallback_channels.is_empty() {
+        if let Some(coord) = coord_ctx {
+            if let Some(shared_extents) = &coord.shared_data_extents {
+                // Filter to only channels we need
+                let needed_extents: std::collections::HashMap<String, _> = shared_extents
+                    .iter()
+                    .filter(|(ch, _)| shared_fallback_channels.contains(ch))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+
+                if !needed_extents.is_empty() {
+                    if let Some(builder) = free_scale_builder.as_ref().or(fallback_builder.as_ref())
+                    {
+                        // Clone and extend the builder with inherited shared extents
+                        let mut extended_builder = builder.clone();
+                        extended_builder.extend_with_shared_extents(&needed_extents);
+
+                        if debug {
+                            eprintln!(
+                                "  Extended builder with inherited shared_data_extents for channels: {:?}",
+                                needed_extents.keys().collect::<Vec<_>>()
+                            );
+                        }
+
+                        // Build scales from extended builder
+                        let built_scales = compiled_subplot
+                            .build_scales_from_builder(
+                                &extended_builder,
+                                plot_width,
+                                plot_height,
+                                ctx,
+                                params,
+                            )
+                            .await?;
+
+                        // Extract the Shared channels
+                        for channel in &shared_fallback_channels {
+                            if let Some(scale) = built_scales.get(channel) {
+                                result_scales.insert(channel.clone(), scale.clone());
+                                if debug {
+                                    eprintln!(
+                                        "  Shared channel '{}': built from extended free_scale_builder with inherited extents",
+                                        channel
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

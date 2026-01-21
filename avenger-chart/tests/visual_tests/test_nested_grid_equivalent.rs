@@ -2087,6 +2087,120 @@ fn test_nested_level1_mixed_x_free_y_level1() {
     });
 }
 
+/// Test 3-level nesting with Level(2) Y sharing and RIGHT axis position
+///
+/// Layout: FacetColumn(region) > FacetRow(country) > Cartesian (3 levels)
+/// With Level(2) on Y and axis on RIGHT, Y axis labels should appear only
+/// on the rightmost column (South), not on the left column (North).
+/// This tests non-default axis positioning with Level(N) sharing.
+#[test]
+fn test_three_level_level2_y_right_axis() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_regional_data().await;
+
+        // 3-level nesting with Level(2) on Y, axis on RIGHT
+        // Y axis should only appear on rightmost column (South)
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(800, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.axis(|a| a.position("right"))
+                                                    .with_scale_sharing(ScaleSharing::Level(2))
+                                            })
+                                            .size(40.0)
+                                            .fill("#2ecc71"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile 3-level level2 y right axis");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "three_level_level2_y_right_axis",
+        )
+        .await;
+    });
+}
+
+/// Test 3-level nesting with Level(2) X sharing and TOP axis position
+///
+/// Layout: FacetColumn(region) > FacetRow(country) > Cartesian (3 levels)
+/// With Level(2) on X and axis on TOP, X axis labels should appear only
+/// on the top row (Canada, Brazil), not on the bottom row (USA, Mexico).
+/// This tests non-default axis positioning with Level(N) sharing.
+#[test]
+fn test_three_level_level2_x_top_axis() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_regional_data().await;
+
+        // 3-level nesting with Level(2) on X, axis on TOP
+        // X axis should only appear on top row (Canada, Brazil)
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(800, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.axis(|a| a.position("top"))
+                                                    .with_scale_sharing(ScaleSharing::Level(2))
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .size(40.0)
+                                            .fill("#9b59b6"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile 3-level level2 x top axis");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "three_level_level2_x_top_axis",
+        )
+        .await;
+    });
+}
+
 // =============================================================================
 // Three-Level Nesting Tests
 // =============================================================================
@@ -2373,6 +2487,224 @@ fn test_three_level_level1_y() {
             .expect("compile 3-level nesting level1 y");
         assert_visual_match_default(&compiled, &ctx, None, "nested_grid", "three_level_level1_y")
             .await;
+    });
+}
+
+/// Test 3-level nesting with Level(2) X sharing
+///
+/// Layout: FacetColumn(region) > FacetRow(country) > Cartesian
+/// With Level(2), X domain should be shared with grandparent (FacetColumn),
+/// meaning all cells across both regions share the same X-axis range (0-15).
+/// The data has different X ranges per region:
+/// - North: X values 1-5
+/// - South: X values 10-15
+/// With Level(2), both regions should show the combined range.
+#[test]
+fn test_three_level_level2_x() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_regional_data().await;
+
+        // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
+        // Level(2) on X should share domain with grandparent (global across regions)
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(800, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(2))
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .size(40.0)
+                                            .fill("#27ae60"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile 3-level nesting level2 x");
+        assert_visual_match_default(&compiled, &ctx, None, "nested_grid", "three_level_level2_x")
+            .await;
+    });
+}
+
+/// Test 3-level nesting with Level(1) X sharing
+///
+/// Layout: FacetColumn(region) > FacetRow(country) > Cartesian
+/// With Level(1), X domain should be shared with immediate parent (FacetRow),
+/// meaning cells in each region share X-axis within that region:
+/// - North: X range 1-5
+/// - South: X range 10-15
+#[test]
+fn test_three_level_level1_x() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_regional_data().await;
+
+        // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
+        // Level(1) on X should share domain with parent (per-region sharing)
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(800, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(1))
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .size(40.0)
+                                            .fill("#9b59b6"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile 3-level nesting level1 x");
+        assert_visual_match_default(&compiled, &ctx, None, "nested_grid", "three_level_level1_x")
+            .await;
+    });
+}
+
+/// Test 3-level nesting with mixed X=Shared, Y=Level(2)
+///
+/// Layout: FacetColumn(region) > FacetRow(country) > Cartesian
+/// X=Shared and Y=Level(2) should both produce global domains in 3-level nesting.
+/// - X: Shared → global (0-15)
+/// - Y: Level(2) → grandparent = global (0-140)
+/// Both charts should show the same unified global domain for both axes.
+#[test]
+fn test_three_level_mixed_x_shared_y_level2() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_regional_data().await;
+
+        // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
+        // X=Shared, Y=Level(2) - both should produce global domains
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(800, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(2))
+                                            })
+                                            .size(40.0)
+                                            .fill("#f39c12"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile 3-level mixed x_shared y_level2");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "three_level_mixed_x_shared_y_level2",
+        )
+        .await;
+    });
+}
+
+/// Test 3-level nesting with mixed X=Level(2), Y=Shared
+///
+/// Layout: FacetColumn(region) > FacetRow(country) > Cartesian
+/// X=Level(2) and Y=Shared should both produce global domains in 3-level nesting.
+/// - X: Level(2) → grandparent = global (0-15)
+/// - Y: Shared → global (0-140)
+/// Both charts should show the same unified global domain for both axes.
+#[test]
+fn test_three_level_mixed_x_level2_y_shared() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_regional_data().await;
+
+        // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
+        // X=Level(2), Y=Shared - both should produce global domains
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(800, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(2))
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                            })
+                                            .size(40.0)
+                                            .fill("#1abc9c"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile 3-level mixed x_level2 y_shared");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "three_level_mixed_x_level2_y_shared",
+        )
+        .await;
     });
 }
 
@@ -2735,6 +3067,162 @@ fn test_explicit_domain_with_level1() {
             None,
             "nested_grid",
             "explicit_domain_with_level1",
+        )
+        .await;
+    });
+}
+
+/// Test explicit domain configuration with Level(2) scale sharing
+///
+/// Verifies that when an explicit domain is specified via `.scale(|s| s.domain(...))`,
+/// it takes precedence over Level(2) computed domain. The explicit domain should
+/// be applied to all cells (global sharing at Level(2) in 3-level nesting).
+#[test]
+fn test_explicit_domain_with_level2() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_regional_data().await;
+
+        // 3-level nesting: FacetColumn > FacetRow > Cartesian
+        // Level(2) on Y should share globally, but explicit domain (0.0, 100.0)
+        // should override the computed domain (10-130)
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(800, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("country"), |c| c.facet(|f| f.title("Country")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Free)
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(2))
+                                                    .scale(|s| s.domain((0.0, 100.0)))
+                                            })
+                                            .size(40.0)
+                                            .fill("#1abc9c"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile explicit domain with level2");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "explicit_domain_with_level2",
+        )
+        .await;
+    });
+}
+
+/// Test Level(N) when nesting depth < N (clamp to max available)
+///
+/// In a 2-level nesting (FacetColumn > Cartesian), Level(3) should clamp
+/// to the maximum available depth, behaving like Shared (global domain).
+#[test]
+fn test_level_exceeds_nesting_depth() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_regional_data().await;
+
+        // 2-level nesting: FacetColumn > Cartesian (no FacetRow)
+        // Level(3) on Y exceeds nesting depth, should clamp to global
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 400)
+            .mark(
+                Facet::new()
+                    .col_with(col("region"), |c| c.facet(|f| f.title("Region")))
+                    .subplot(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x(col("x_val"))
+                                .y_with(col("y_val"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Level(3))
+                                })
+                                .size(40.0)
+                                .fill("#c0392b"),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile level exceeds nesting depth");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "level_exceeds_nesting_depth",
+        )
+        .await;
+    });
+}
+
+/// Test Level(N) in non-nested context (simple Cartesian plot)
+///
+/// When Level(N) is used in a non-faceted context (just Plot::<Cartesian>),
+/// it should gracefully degrade to Free behavior since there's no
+/// facet hierarchy to share across.
+#[test]
+fn test_level_non_nested_context() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+
+        // Simple dataset for non-nested test
+        let batch = datafusion::arrow::array::RecordBatch::try_from_iter(vec![
+            (
+                "x",
+                std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
+                    1.0, 2.0, 3.0, 4.0, 5.0,
+                ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+            ),
+            (
+                "y",
+                std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
+                    10.0, 20.0, 15.0, 25.0, 30.0,
+                ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+            ),
+        ])
+        .expect("create record batch");
+
+        let df = ctx.read_batch(batch).expect("create dataframe");
+
+        // Non-faceted plot with Level(1) - should degrade to Free
+        let plot = Plot::<Cartesian>::new()
+            .data(df)
+            .canvas_size(400, 300)
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y_with(col("y"), |c| c.with_scale_sharing(ScaleSharing::Level(1)))
+                    .size(50.0)
+                    .fill("#3498db"),
+            );
+
+        let compiled = plot.compile(&ctx).await.expect("compile non-nested level1");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "level_non_nested_context",
         )
         .await;
     });
