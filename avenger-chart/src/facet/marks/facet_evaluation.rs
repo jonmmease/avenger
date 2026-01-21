@@ -95,8 +95,7 @@ struct FacetPass1Result {
     /// Fallback scale builder for empty cells (built from full dataset)
     fallback_builder: Option<ScaleBuilder>,
     /// Shared data extents from coordination context for nested facets (ScaleSharing::Shared)
-    shared_data_extents:
-        Option<HashMap<String, crate::facet::coordination::SerializableDataExtents>>,
+    shared_data_extents: Option<HashMap<String, crate::scales::DomainExtent>>,
     /// Named spacing needs reported by this facet for coordination with parent facets
     ///
     /// Inner facets compute their own gap needs based on cell overflow and report them here.
@@ -228,7 +227,7 @@ where
     // coordination disabled), Level(N) modes silently fall back to Free behavior
     // since there's no parent to share domains with. This ensures graceful
     // degradation in all contexts without errors.
-    let level_based_extents: HashMap<String, crate::facet::coordination::SerializableDataExtents> =
+    let level_based_extents: HashMap<String, crate::scales::DomainExtent> =
         if let Some(ref ctx) = coordination_context {
             scale_sharing_by_channel
                 .iter()
@@ -302,7 +301,7 @@ where
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             if !shared_only_extents.is_empty() {
-                builder.extend_with_shared_extents(&shared_only_extents);
+                builder.extend_with_domain_extents(&shared_only_extents);
             }
         }
 
@@ -325,7 +324,7 @@ where
                         .unwrap_or(0)
                 );
             }
-            builder.extend_with_shared_extents(&level_based_extents);
+            builder.extend_with_domain_extents(&level_based_extents);
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
                     "FACET_LEVEL: AFTER extension, builder y len={}, extents={:?}",
@@ -680,7 +679,7 @@ where
                 .collect();
 
             let channel_refs: Vec<&str> = level_channels.iter().map(|s| s.as_str()).collect();
-            let extents = parent_scale_builder.extract_serializable_extents(&channel_refs);
+            let extents = parent_scale_builder.extract_domain_extents(&channel_refs);
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
@@ -821,7 +820,7 @@ where
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
                     if !shared_only_extents.is_empty() {
-                        free_scale_builder.extend_with_shared_extents(&shared_only_extents);
+                        free_scale_builder.extend_with_domain_extents(&shared_only_extents);
                     }
                 }
 
@@ -852,7 +851,7 @@ where
 
                         // Extract domains from free_scale_builder for Level(N >= 2) channels
                         let channel_refs: Vec<&str> = level_channels.iter().map(|s| s.as_str()).collect();
-                        let extents = free_scale_builder.extract_serializable_extents(&channel_refs);
+                        let extents = free_scale_builder.extract_domain_extents(&channel_refs);
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             eprintln!(
                                 "CELL: level_channels={:?}, extracted extents count={}",
@@ -925,7 +924,7 @@ where
                             .filter_map(|(channel, &level)| {
                                 // Level >= 1 && < u8::MAX means the channel uses Level(N) sharing
                                 // We exclude u8::MAX (Shared) because it's handled separately
-                                // via extend_with_shared_extents from shared_data_extents
+                                // via extend_with_domain_extents from shared_data_extents
                                 if level >= 1 && level < u8::MAX {
                                     let domain = coord_ctx.get_domain_for_channel(channel);
                                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -947,12 +946,12 @@ where
                                 level_extents
                             );
                         }
-                        free_scale_builder.extend_with_shared_extents(&level_extents);
+                        free_scale_builder.extend_with_domain_extents(&level_extents);
                         // ALSO extend in fallback_builder since it may have channels (like y)
                         // that aren't in the free_scale_builder at this facet level.
                         // The y scale is often backfilled from fallback_builder.
                         if let Some(ref mut builder) = fallback_builder {
-                            builder.extend_with_shared_extents(&level_extents);
+                            builder.extend_with_domain_extents(&level_extents);
                         }
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             // Debug: check channel_builders after extension
@@ -1738,22 +1737,22 @@ where
                     .collect();
 
                 let channel_refs: Vec<&str> = level_channels.iter().map(|s| s.as_str()).collect();
-                let extents = parent_scale_builder.extract_serializable_extents(&channel_refs);
+                let extents = parent_scale_builder.extract_domain_extents(&channel_refs);
 
                 if !extents.is_empty() {
                     let cell_depth = coord_ctx.nesting_depth + 1;
                     let mut new_level_domains = coord_ctx.level_domains.clone();
 
-                    for (channel, serializable) in extents {
+                    for (channel, domain_extent) in extents {
                         let key = LevelChannelKey::new(cell_depth, &channel);
                         // Always add parent-level domains - they take precedence
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             eprintln!(
                                 "PRE-ITER: Adding per-parent domain for {} at depth={}: {:?}",
-                                channel, cell_depth, serializable
+                                channel, cell_depth, domain_extent
                             );
                         }
-                        new_level_domains.insert(key, serializable);
+                        new_level_domains.insert(key, domain_extent);
                     }
 
                     let updated_ctx = coord_ctx.clone().with_level_domains(new_level_domains);
@@ -1871,7 +1870,7 @@ where
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
                     if !shared_only_extents.is_empty() {
-                        free_scale_builder.extend_with_shared_extents(&shared_only_extents);
+                        free_scale_builder.extend_with_domain_extents(&shared_only_extents);
                     }
                 }
 
@@ -1900,7 +1899,7 @@ where
 
                         // Extract domains from free_scale_builder for Level(N >= 2) channels
                         let channel_refs: Vec<&str> = level_channels.iter().map(|s| s.as_str()).collect();
-                        let extents = free_scale_builder.extract_serializable_extents(&channel_refs);
+                        let extents = free_scale_builder.extract_domain_extents(&channel_refs);
                         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                             eprintln!(
                                 "CELL: level_channels={:?}, extracted extents count={}",
@@ -1908,7 +1907,7 @@ where
                             );
                         }
 
-                        for (channel, serializable) in extents {
+                        for (channel, domain_extent) in extents {
                             let key = LevelChannelKey::new(cell_depth, &channel);
                             // Only add if not already present - don't overwrite parent facet's
                             // per-cell domains. This ensures outer facet (e.g., Region) domains
@@ -1924,10 +1923,10 @@ where
                                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                                     eprintln!(
                                         "CELL: Adding per-cell domain for {} at depth={}: {:?}",
-                                        channel, cell_depth, serializable
+                                        channel, cell_depth, domain_extent
                                     );
                                 }
-                                new_level_domains.insert(key, serializable);
+                                new_level_domains.insert(key, domain_extent);
                             } else if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                                 eprintln!(
                                     "CELL: Skipping per-cell domain for {} at depth={} (already exists)",
@@ -1963,7 +1962,7 @@ where
                         .filter_map(|(channel, &level)| {
                             // Level >= 1 && < u8::MAX means the channel uses Level(N) sharing
                             // We exclude u8::MAX (Shared) because it's handled separately
-                            // via extend_with_shared_extents from shared_data_extents
+                            // via extend_with_domain_extents from shared_data_extents
                             if level >= 1 && level < u8::MAX {
                                 coord_ctx.get_domain_for_channel(channel)
                                     .map(|extents| (channel.clone(), extents.clone()))
@@ -1981,12 +1980,12 @@ where
                                 level_extents.iter().map(|(k, v)| (k, format!("{:?}", v))).collect::<Vec<_>>()
                             );
                         }
-                        free_scale_builder.extend_with_shared_extents(&level_extents);
+                        free_scale_builder.extend_with_domain_extents(&level_extents);
                         // ALSO extend in fallback_builder since it may have channels (like y)
                         // that aren't in the free_scale_builder at this facet level.
                         // The y scale is often backfilled from fallback_builder.
                         if let Some(ref mut builder) = fallback_builder {
-                            builder.extend_with_shared_extents(&level_extents);
+                            builder.extend_with_domain_extents(&level_extents);
                         }
                     }
                 }

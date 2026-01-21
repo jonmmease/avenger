@@ -268,7 +268,7 @@ impl FacetColGuide {
                                             (child_nesting_depth as i32 - *level as i32 + 2).max(1)
                                                 as usize;
                                         let key = LevelChannelKey::new(storage_depth, *channel);
-                                        level_domains.insert(key, extents);
+                                        level_domains.insert(key, extents.into());
                                     }
                                 }
                             }
@@ -293,8 +293,8 @@ impl FacetColGuide {
                     // Extend with level-based extents from coordination context for Level(N>=1) channels
                     // ONLY for innermost subplots (Cartesian) - not for nested facet guides.
                     if source.subplot.compiled_guide.is_none() {
-                        use crate::facet::coordination::SerializableDataExtents;
-                        let level_extents: HashMap<String, SerializableDataExtents> =
+                        use crate::scales::DomainExtent;
+                        let level_extents: HashMap<String, DomainExtent> =
                             computed_scale_sharing
                                 .iter()
                                 .filter_map(|(channel, mode)| {
@@ -314,7 +314,7 @@ impl FacetColGuide {
                                 .collect();
 
                         if !level_extents.is_empty() {
-                            builder.extend_with_shared_extents(&level_extents);
+                            builder.extend_with_domain_extents(&level_extents);
                         }
                     }
 
@@ -540,7 +540,7 @@ impl FacetColGuide {
                                             (child_nesting_depth as i32 - *level as i32 + 2).max(1)
                                                 as usize;
                                         let key = LevelChannelKey::new(storage_depth, *channel);
-                                        level_domains.insert(key, extents);
+                                        level_domains.insert(key, extents.into());
                                     }
                                 }
                             }

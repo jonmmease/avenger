@@ -87,14 +87,15 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 
-/// Custom serialization module for IndexMap<LevelChannelKey, SerializableDataExtents>
+/// Custom serialization module for IndexMap<LevelChannelKey, DomainExtent>
 /// JSON doesn't support non-string keys in objects, so we serialize as Vec of tuples.
 /// Uses IndexMap instead of HashMap for deterministic iteration order during serialization.
 mod level_domains_serde {
     use super::*;
+    use crate::scales::DomainExtent;
 
     pub fn serialize<S>(
-        map: &IndexMap<LevelChannelKey, SerializableDataExtents>,
+        map: &IndexMap<LevelChannelKey, DomainExtent>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -102,18 +103,18 @@ mod level_domains_serde {
     {
         // Convert IndexMap to Vec of tuples for JSON-compatible serialization
         // IndexMap preserves insertion order, ensuring deterministic output
-        let vec: Vec<(&LevelChannelKey, &SerializableDataExtents)> = map.iter().collect();
+        let vec: Vec<(&LevelChannelKey, &DomainExtent)> = map.iter().collect();
         vec.serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<IndexMap<LevelChannelKey, SerializableDataExtents>, D::Error>
+    ) -> Result<IndexMap<LevelChannelKey, DomainExtent>, D::Error>
     where
         D: Deserializer<'de>,
     {
         // Deserialize Vec of tuples back to IndexMap
-        let vec: Vec<(LevelChannelKey, SerializableDataExtents)> = Vec::deserialize(deserializer)?;
+        let vec: Vec<(LevelChannelKey, DomainExtent)> = Vec::deserialize(deserializer)?;
         Ok(vec.into_iter().collect())
     }
 }
@@ -390,7 +391,7 @@ impl SerializableDomainValue {
 /// This enables outer facets to pass pre-computed data extents (min/max or discrete values)
 /// to inner facets, allowing shared scale domains to be computed from the full dataset
 /// rather than per-column filtered data.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SerializableDataExtents {
     /// Numeric interval: (min, max)
@@ -539,9 +540,9 @@ pub struct FacetCoordinationContext {
     /// scale domains across all subplots, even when individual cells have limited data.
     ///
     /// Key: channel name (e.g., "x", "y")
-    /// Value: data extents (numeric interval, discrete values, or temporal interval)
+    /// Value: DomainExtent (numeric/discrete/temporal bounds with optional radius)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shared_data_extents: Option<HashMap<String, SerializableDataExtents>>,
+    pub shared_data_extents: Option<HashMap<String, crate::scales::DomainExtent>>,
 
     // ========================================================================
     // Level-based scale sharing fields (Phase 2)
@@ -575,12 +576,12 @@ pub struct FacetCoordinationContext {
     /// Level > nesting_depth domains come from full_df (global scope).
     ///
     /// Key: LevelChannelKey { level, channel }
-    /// Value: SerializableDataExtents (numeric interval, discrete, or temporal)
+    /// Value: DomainExtent (numeric/discrete/temporal bounds with optional radius)
     ///
     /// Note: Uses custom serialization to handle non-string keys in JSON.
     /// Uses IndexMap for deterministic iteration order during serialization.
     #[serde(default, with = "level_domains_serde")]
-    pub level_domains: IndexMap<LevelChannelKey, SerializableDataExtents>,
+    pub level_domains: IndexMap<LevelChannelKey, crate::scales::DomainExtent>,
 
     /// Position path through the facet hierarchy
     ///
@@ -898,14 +899,14 @@ impl FacetCoordinationContext {
     /// full dataset rather than per-cell filtered data.
     pub fn with_shared_data_extents(
         mut self,
-        extents: HashMap<String, SerializableDataExtents>,
+        extents: HashMap<String, crate::scales::DomainExtent>,
     ) -> Self {
         self.shared_data_extents = Some(extents);
         self
     }
 
     /// Get shared data extents for a channel
-    pub fn get_shared_data_extents(&self, channel: &str) -> Option<&SerializableDataExtents> {
+    pub fn get_shared_data_extents(&self, channel: &str) -> Option<&crate::scales::DomainExtent> {
         self.shared_data_extents
             .as_ref()
             .and_then(|extents| extents.get(channel))
@@ -1138,7 +1139,7 @@ impl FacetCoordinationContext {
     ///
     /// # Returns
     /// The shared domain if available and level > 0, None otherwise
-    pub fn get_domain_for_channel(&self, channel: &str) -> Option<&SerializableDataExtents> {
+    pub fn get_domain_for_channel(&self, channel: &str) -> Option<&crate::scales::DomainExtent> {
         let level = self.get_channel_level(channel);
         if level == 0 {
             return None;
@@ -1207,7 +1208,7 @@ impl FacetCoordinationContext {
         &self,
         channel: &str,
         level: u8,
-    ) -> Option<&SerializableDataExtents> {
+    ) -> Option<&crate::scales::DomainExtent> {
         if level == 0 || level == 255 {
             return None;
         }
@@ -1300,7 +1301,7 @@ impl FacetCoordinationContext {
     /// Uses IndexMap to preserve insertion order for deterministic serialization.
     pub fn with_level_domains(
         mut self,
-        domains: IndexMap<LevelChannelKey, SerializableDataExtents>,
+        domains: IndexMap<LevelChannelKey, crate::scales::DomainExtent>,
     ) -> Self {
         self.level_domains = domains;
         self
@@ -1723,17 +1724,19 @@ mod tests {
         levels.insert("color".to_string(), 3u8); // Level(3) - look up at depth 1 (global)
 
         // Set up level domains (using IndexMap for deterministic iteration)
+        use crate::scales::DomainBounds;
         let mut domains = IndexMap::new();
         domains.insert(
             LevelChannelKey::new(1, "color"),
             SerializableDataExtents::discrete(vec![
                 ScalarValue::Utf8(Some("red".to_string())),
                 ScalarValue::Utf8(Some("blue".to_string())),
-            ]),
+            ])
+            .into(),
         );
         domains.insert(
             LevelChannelKey::new(2, "y"),
-            SerializableDataExtents::interval(0.0, 100.0),
+            SerializableDataExtents::interval(0.0, 100.0).into(),
         );
 
         let ctx = FacetCoordinationContext::default()
@@ -1747,19 +1750,19 @@ mod tests {
         // Level(2) channel (y) returns the domain at depth 2
         let y_domain = ctx.get_domain_for_channel("y");
         assert!(y_domain.is_some());
-        match y_domain.unwrap() {
-            SerializableDataExtents::Interval { min, max } => {
+        match &y_domain.unwrap().bounds {
+            DomainBounds::Numeric { min, max } => {
                 assert_eq!(*min, 0.0);
                 assert_eq!(*max, 100.0);
             }
-            _ => panic!("Expected Interval"),
+            _ => panic!("Expected Numeric"),
         }
 
         // Level(3) channel (color) returns the domain at depth 1 (global)
         let color_domain = ctx.get_domain_for_channel("color");
         assert!(color_domain.is_some());
-        match color_domain.unwrap() {
-            SerializableDataExtents::Discrete(values) => {
+        match &color_domain.unwrap().bounds {
+            DomainBounds::Discrete(values) => {
                 assert_eq!(values.len(), 2);
             }
             _ => panic!("Expected Discrete"),
@@ -1789,10 +1792,11 @@ mod tests {
         levels.insert("y".to_string(), 5u8);
 
         // Domain at level 1 (global, where high Level values clamp to)
+        use crate::scales::DomainBounds;
         let mut domains = IndexMap::new();
         domains.insert(
             LevelChannelKey::new(1, "y"),
-            SerializableDataExtents::interval(0.0, 100.0),
+            SerializableDataExtents::interval(0.0, 100.0).into(),
         );
 
         let ctx = FacetCoordinationContext::default()
@@ -1803,12 +1807,12 @@ mod tests {
         // Should clamp to depth 1 (global) for high Level values
         let domain = ctx.get_domain_for_channel("y");
         assert!(domain.is_some());
-        match domain.unwrap() {
-            SerializableDataExtents::Interval { min, max } => {
+        match &domain.unwrap().bounds {
+            DomainBounds::Numeric { min, max } => {
                 assert_eq!(*min, 0.0);
                 assert_eq!(*max, 100.0);
             }
-            _ => panic!("Expected Interval"),
+            _ => panic!("Expected Numeric"),
         }
     }
 
@@ -1879,7 +1883,7 @@ mod tests {
         let mut domains = IndexMap::new();
         domains.insert(
             LevelChannelKey::new(1, "y"),
-            SerializableDataExtents::interval(0.0, 100.0),
+            SerializableDataExtents::interval(0.0, 100.0).into(),
         );
 
         let ctx = FacetCoordinationContext::default()
@@ -1912,12 +1916,13 @@ mod tests {
         // Store y domain at depth 1 (matches Level(3) lookup)
         domains.insert(
             LevelChannelKey::new(1, "y"),
-            SerializableDataExtents::interval(0.0, 100.0),
+            SerializableDataExtents::interval(0.0, 100.0).into(),
         );
         // Store color domain at depth 2 (matches Level(2) lookup)
         domains.insert(
             LevelChannelKey::new(2, "color"),
-            SerializableDataExtents::discrete(vec![ScalarValue::Utf8(Some("red".to_string()))]),
+            SerializableDataExtents::discrete(vec![ScalarValue::Utf8(Some("red".to_string()))])
+                .into(),
         );
 
         let ctx = FacetCoordinationContext::default()
@@ -1955,14 +1960,15 @@ mod tests {
 
         // Verify domain lookup works after round-trip
         // y has Level(3), which at nesting_depth=2 looks up depth 1 (global)
+        use crate::scales::DomainBounds;
         let y_domain = restored.get_domain_for_channel("y");
         assert!(y_domain.is_some(), "y domain should be found at depth 1");
-        match y_domain.unwrap() {
-            SerializableDataExtents::Interval { min, max } => {
+        match &y_domain.unwrap().bounds {
+            DomainBounds::Numeric { min, max } => {
                 assert_eq!(*min, 0.0);
                 assert_eq!(*max, 100.0);
             }
-            _ => panic!("Expected Interval for y domain"),
+            _ => panic!("Expected Numeric for y domain"),
         }
 
         // color has Level(2), which at nesting_depth=2 looks up depth 2 (per-parent)
@@ -1971,8 +1977,8 @@ mod tests {
             color_domain.is_some(),
             "color domain should be found at depth 2"
         );
-        match color_domain.unwrap() {
-            SerializableDataExtents::Discrete(values) => {
+        match &color_domain.unwrap().bounds {
+            DomainBounds::Discrete(values) => {
                 assert_eq!(values.len(), 1);
             }
             _ => panic!("Expected Discrete for color domain"),
@@ -1985,7 +1991,7 @@ mod tests {
         let mut shared_extents = HashMap::new();
         shared_extents.insert(
             "y".to_string(),
-            SerializableDataExtents::interval(0.0, 100.0),
+            SerializableDataExtents::interval(0.0, 100.0).into(),
         );
 
         let mut ctx = FacetCoordinationContext::new(
@@ -2281,11 +2287,11 @@ mod tests {
         let mut domains = IndexMap::new();
         domains.insert(
             LevelChannelKey::new(0, "x"),
-            SerializableDataExtents::interval(0.0, 100.0),
+            SerializableDataExtents::interval(0.0, 100.0).into(),
         );
         domains.insert(
             LevelChannelKey::new(1, "y"),
-            SerializableDataExtents::interval(-50.0, 50.0),
+            SerializableDataExtents::interval(-50.0, 50.0).into(),
         );
         domains.insert(
             LevelChannelKey::new(2, "color"),
@@ -2293,7 +2299,8 @@ mod tests {
                 ScalarValue::Utf8(Some("a".to_string())),
                 ScalarValue::Utf8(Some("b".to_string())),
                 ScalarValue::Utf8(Some("c".to_string())),
-            ]),
+            ])
+            .into(),
         );
 
         let ctx = FacetCoordinationContext::default()
@@ -2443,7 +2450,7 @@ mod tests {
                 let channel = format!("channel_{}", i);
                 domains.insert(
                     LevelChannelKey::new(i % 3, &channel),
-                    SerializableDataExtents::interval(i as f64 * 10.0, (i + 1) as f64 * 10.0),
+                    SerializableDataExtents::interval(i as f64 * 10.0, (i + 1) as f64 * 10.0).into(),
                 );
             }
 
@@ -2496,7 +2503,7 @@ mod tests {
         for (i, key) in keys.iter().enumerate() {
             domains.insert(
                 LevelChannelKey::new(0, *key),
-                SerializableDataExtents::interval(i as f64, i as f64 + 1.0),
+                SerializableDataExtents::interval(i as f64, i as f64 + 1.0).into(),
             );
         }
 

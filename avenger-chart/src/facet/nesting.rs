@@ -125,7 +125,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     params: &indexmap::IndexMap<String, ScalarValue>,
     incoming_coord_ctx: Option<&FacetCoordinationContext>,
 ) -> Result<Option<FacetCoordinationContext>, AvengerChartError> {
-    use crate::facet::coordination::{GuideOwnership, LevelChannelKey, SerializableDataExtents};
+    use crate::facet::coordination::{GuideOwnership, LevelChannelKey};
     use crate::facet::keys::FacetKeyExtractor;
     use crate::facet::marks::facet::{CompiledFacetCol, CompiledFacetRow};
     use std::collections::HashMap;
@@ -266,7 +266,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
             .map(|f| &f.compiled_subplot)
     };
 
-    let mut shared_data_extents: HashMap<String, SerializableDataExtents> = HashMap::new();
+    let mut shared_data_extents: HashMap<String, crate::scales::DomainExtent> = HashMap::new();
 
     // First, collect channel expressions, share modes, and scale-derived domain kinds
     struct ChannelInfo {
@@ -274,7 +274,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
         expr: datafusion::logical_expr::Expr,
         share_mode: ScaleSharing,
         domain_kind: Option<DomainKind>,
-        explicit_domain: Option<crate::facet::coordination::SerializableDataExtents>,
+        explicit_domain: Option<crate::scales::DomainExtent>,
         domain_sort: Option<DomainSort>,
     }
 
@@ -295,8 +295,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
             let mut channel_expr: Option<datafusion::logical_expr::Expr> = None;
             let mut share_mode = ScaleSharing::Free;
             let mut domain_kind: Option<DomainKind> = None;
-            let mut explicit_domain: Option<crate::facet::coordination::SerializableDataExtents> =
-                None;
+            let mut explicit_domain: Option<crate::scales::DomainExtent> = None;
             let mut domain_sort: Option<DomainSort> = None;
 
             // First, try to find channel directly in inner_subplot marks
@@ -431,7 +430,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
                     compute_extents(kind, df, &channel.expr, ctx, channel.sort_order()).await;
 
                 if let Ok(extents) = extents_result {
-                    shared_data_extents.insert(channel.name.clone(), extents);
+                    shared_data_extents.insert(channel.name.clone(), extents.into());
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                         let kind_label = match kind {
                             ChannelDataKind::Categorical => "categorical",
@@ -570,7 +569,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
         .unwrap_or(1);
 
     // Start with level_domains from incoming context (preserves ancestor domains)
-    let mut level_domains: IndexMap<LevelChannelKey, SerializableDataExtents> = incoming_coord_ctx
+    let mut level_domains: IndexMap<LevelChannelKey, crate::scales::DomainExtent> = incoming_coord_ctx
         .map(|ctx| ctx.level_domains.clone())
         .unwrap_or_default();
 
@@ -607,7 +606,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
 
             if let Ok(extents) = extents_result {
                 let key = LevelChannelKey::new(current_depth, &channel.name);
-                level_domains.insert(key, extents);
+                level_domains.insert(key, extents.into());
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     let kind_label = match kind {
                         ChannelDataKind::Categorical => "categorical",
@@ -662,7 +661,7 @@ async fn explicit_domain_extents_from_scale(
     scale: &crate::scales::Scale<crate::scales::spec::Auto>,
     ctx: &SessionContext,
     params: &indexmap::IndexMap<String, ScalarValue>,
-) -> Result<Option<crate::facet::coordination::SerializableDataExtents>, AvengerChartError> {
+) -> Result<Option<crate::scales::DomainExtent>, AvengerChartError> {
     use crate::scales::ScaleDefaultDomain;
 
     let Some(domain) = scale.get_domain() else {
@@ -682,7 +681,7 @@ async fn explicit_domain_extents_from_scale(
             let normalized: Vec<ScalarValue> =
                 scalars.into_iter().map(normalize_domain_scalar).collect();
             Ok(Some(
-                crate::facet::coordination::SerializableDataExtents::discrete(normalized),
+                crate::facet::coordination::SerializableDataExtents::discrete(normalized).into(),
             ))
         }
         ScaleDefaultDomain::Interval(start, end) => {
@@ -715,7 +714,7 @@ async fn explicit_domain_extents_from_scale(
                 )
             };
 
-            Ok(Some(extents))
+            Ok(Some(extents.into()))
         }
         ScaleDefaultDomain::DomainExprs(_) | ScaleDefaultDomain::NoDefault => Ok(None),
     }

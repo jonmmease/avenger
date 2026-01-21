@@ -1,6 +1,7 @@
 // Public submodules
 pub mod builder;
 pub mod codec;
+pub mod domain_extent;
 pub mod extensions;
 pub mod udf;
 
@@ -15,6 +16,7 @@ pub mod spec;
 // Re-export the main types
 pub use builder::{ChannelScaleBuilder, ScaleBuilder};
 pub use codec::AvengerChartExtensionCodec;
+pub use domain_extent::{DomainBounds, DomainExtent, RadiusPadding};
 pub use defaults::default_range_for_channel;
 pub use domain::{DomainExpr, ResolvedDomain, ScaleDefaultDomain, ScaleDomain};
 pub use extensions::{ConfiguredScaleDataFusionExt, ConfiguredScaleLegendExt, DomainValues};

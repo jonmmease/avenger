@@ -221,8 +221,8 @@ impl FacetRowGuide {
 
                     // Extend with level-based extents from coordination context for Level(N>=1) channels
                     {
-                        use crate::facet::coordination::SerializableDataExtents;
-                        let level_extents: HashMap<String, SerializableDataExtents> =
+                        use crate::scales::DomainExtent;
+                        let level_extents: HashMap<String, DomainExtent> =
                             computed_scale_sharing
                                 .iter()
                                 .filter_map(|(channel, mode)| {
@@ -242,7 +242,7 @@ impl FacetRowGuide {
                                 .collect();
 
                         if !level_extents.is_empty() {
-                            builder.extend_with_shared_extents(&level_extents);
+                            builder.extend_with_domain_extents(&level_extents);
                         }
                     }
 

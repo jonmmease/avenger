@@ -183,35 +183,40 @@ impl ScaleBuilder {
         &self.channel_builders
     }
 
-    /// Extract data extents for specified channels as SerializableDataExtents
+    /// Extract data extents for specified channels as DomainExtent
     ///
-    /// This is used to extract extents from a ScaleBuilder to pass to inner facets
-    /// for SharedInColumn mode. Returns a HashMap of channel name to serializable extents.
-    pub fn extract_serializable_extents(
-        &self,
-        channels: &[&str],
-    ) -> std::collections::HashMap<String, crate::facet::coordination::SerializableDataExtents>
-    {
-        use crate::facet::coordination::SerializableDataExtents;
+    /// This is the unified method for extracting extents from a ScaleBuilder.
+    /// It returns a HashMap of channel name to DomainExtent, preserving radius
+    /// information when present. This is used for Level(N) and Shared domain
+    /// computation to ensure consistent domain representation.
+    ///
+    /// # Arguments
+    /// * `channels` - List of channel names to extract extents for
+    ///
+    /// # Returns
+    /// HashMap mapping channel names to their DomainExtent values
+    pub fn extract_domain_extents(&self, channels: &[&str]) -> HashMap<String, super::DomainExtent> {
+        use super::{DomainBounds, DomainExtent, RadiusPadding};
+        use crate::facet::coordination::SerializableDomainValue;
 
-        let mut result = std::collections::HashMap::new();
+        let mut result = HashMap::new();
 
         for channel in channels {
             if let Some(builder) = self.channel_builders.get(*channel) {
                 match builder {
                     ChannelScaleBuilder::Standard { data_extents, .. } => {
-                        let serializable = match data_extents {
-                            DataExtents::Interval(min, max) => {
-                                SerializableDataExtents::interval(*min, *max)
-                            }
-                            DataExtents::Temporal(min, max) => {
-                                SerializableDataExtents::temporal(*min, *max)
-                            }
+                        let extent = match data_extents {
+                            DataExtents::Interval(min, max) => DomainExtent::numeric(*min, *max),
+                            DataExtents::Temporal(min, max) => DomainExtent::temporal(*min, *max),
                             DataExtents::Discrete(values) => {
-                                SerializableDataExtents::discrete(values.clone())
+                                let serializable_values: Vec<SerializableDomainValue> = values
+                                    .iter()
+                                    .map(SerializableDomainValue::from_scalar)
+                                    .collect();
+                                DomainExtent::discrete(serializable_values)
                             }
                         };
-                        result.insert(channel.to_string(), serializable);
+                        result.insert(channel.to_string(), extent);
                     }
                     ChannelScaleBuilder::RadiusAware {
                         position_data,
@@ -233,12 +238,13 @@ impl ScaleBuilder {
                                 radius_upper_data.iter().cloned().fold(0.0_f64, f64::max);
                             result.insert(
                                 channel.to_string(),
-                                SerializableDataExtents::radius_aware_interval(
-                                    min,
-                                    max,
-                                    max_radius_lower,
-                                    max_radius_upper,
-                                ),
+                                DomainExtent {
+                                    bounds: DomainBounds::Numeric { min, max },
+                                    radius: Some(RadiusPadding {
+                                        max_lower: max_radius_lower,
+                                        max_upper: max_radius_upper,
+                                    }),
+                                },
                             );
                         }
                     }
@@ -252,27 +258,20 @@ impl ScaleBuilder {
         result
     }
 
-    /// Extend data extents using shared extents from coordination context
+    /// Extend data extents using DomainExtent values
     ///
-    /// This is used for nested facets with shared scales. The outer facet computes
-    /// the data extents from the FULL dataset and passes them through the coordination
-    /// context. This method extends the local extents (computed from filtered data)
-    /// to include the full dataset range, ensuring consistent scale domains across
-    /// all subplots.
+    /// This is the unified method for extending scale domains with shared extents.
+    /// It properly handles the `DomainExtent.radius` field to ensure radius-aware
+    /// domain padding is preserved through the pipeline.
     ///
-    /// For interval extents, the resulting domain is the union (min of mins, max of maxes).
-    pub fn extend_with_shared_extents(
-        &mut self,
-        shared_extents: &std::collections::HashMap<
-            String,
-            crate::facet::coordination::SerializableDataExtents,
-        >,
-    ) {
-        use crate::facet::coordination::SerializableDataExtents;
+    /// # Arguments
+    /// * `shared_extents` - HashMap mapping channel names to their shared DomainExtent values
+    pub fn extend_with_domain_extents(&mut self, shared_extents: &HashMap<String, super::DomainExtent>) {
+        use super::DomainBounds;
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "extend_with_shared_extents called with {} channels",
+                "extend_with_domain_extents called with {} channels",
                 shared_extents.len()
             );
             for (ch, ext) in shared_extents {
@@ -296,13 +295,14 @@ impl ScaleBuilder {
                     };
                     eprintln!("  Processing channel {}: builder={}", channel, variant);
                 }
+
                 match channel_builder {
                     ChannelScaleBuilder::Standard { data_extents, .. } => {
                         // Extend the local extents with shared extents
-                        match (data_extents, shared_extent) {
+                        match (&mut *data_extents, &shared_extent.bounds) {
                             (
                                 DataExtents::Interval(local_min, local_max),
-                                SerializableDataExtents::Interval {
+                                DomainBounds::Numeric {
                                     min: shared_min,
                                     max: shared_max,
                                 },
@@ -322,7 +322,7 @@ impl ScaleBuilder {
                             }
                             (
                                 DataExtents::Temporal(local_min, local_max),
-                                SerializableDataExtents::Temporal {
+                                DomainBounds::Temporal {
                                     min: shared_min,
                                     max: shared_max,
                                 },
@@ -332,11 +332,9 @@ impl ScaleBuilder {
                             }
                             (
                                 DataExtents::Discrete(local_values),
-                                SerializableDataExtents::Discrete(shared_values),
+                                DomainBounds::Discrete(shared_values),
                             ) => {
                                 // For categorical scale sharing, replace local values with shared values.
-                                // The shared values represent the full dataset's unique values in sorted order,
-                                // ensuring consistent category ordering across all facet cells.
                                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                                     eprintln!(
                                         "  Extending {} discrete extents: local={} values -> shared={} values",
@@ -363,82 +361,52 @@ impl ScaleBuilder {
                         radius_upper_data,
                         ..
                     } => {
-                        // For RadiusAware scales, we need to add synthetic data points at the shared extents
-                        // to ensure the domain includes them. Use shared radius values if available.
-                        match shared_extent {
-                            SerializableDataExtents::RadiusAwareInterval {
-                                min: shared_min,
-                                max: shared_max,
-                                max_radius_lower,
-                                max_radius_upper,
-                            } => {
-                                let len_before = position_data.len();
+                        // For RadiusAware scales, add synthetic data points at shared extents
+                        if let DomainBounds::Numeric {
+                            min: shared_min,
+                            max: shared_max,
+                        } = &shared_extent.bounds
+                        {
+                            let len_before = position_data.len();
 
-                                // Add synthetic points at shared min and max with proper radius values
-                                position_data.push(*shared_min);
-                                radius_lower_data.push(*max_radius_lower);
-                                radius_upper_data.push(0.0);
+                            // Get radius values from shared extent, or compute from local data
+                            let (max_radius_lower, max_radius_upper) =
+                                if let Some(radius) = &shared_extent.radius {
+                                    (radius.max_lower, radius.max_upper)
+                                } else {
+                                    // Fall back to computing from local data
+                                    let lower = radius_lower_data
+                                        .iter()
+                                        .copied()
+                                        .fold(0.0_f64, f64::max);
+                                    let upper = radius_upper_data
+                                        .iter()
+                                        .copied()
+                                        .fold(0.0_f64, f64::max);
+                                    (lower, upper)
+                                };
 
-                                position_data.push(*shared_max);
-                                radius_lower_data.push(0.0);
-                                radius_upper_data.push(*max_radius_upper);
+                            // Add synthetic points at shared min and max with proper radius values
+                            position_data.push(*shared_min);
+                            radius_lower_data.push(max_radius_lower);
+                            radius_upper_data.push(0.0);
 
-                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                    eprintln!(
-                                        "  Extended RadiusAware {} with shared radius-aware extents ({}, {}), radii=({}, {}), len {} -> {}",
-                                        channel,
-                                        shared_min,
-                                        shared_max,
-                                        max_radius_lower,
-                                        max_radius_upper,
-                                        len_before,
-                                        position_data.len()
-                                    );
-                                }
+                            position_data.push(*shared_max);
+                            radius_lower_data.push(0.0);
+                            radius_upper_data.push(max_radius_upper);
+
+                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                eprintln!(
+                                    "  Extended RadiusAware {} with shared extents ({}, {}), radii=({:.1}, {:.1}), len {} -> {}",
+                                    channel,
+                                    shared_min,
+                                    shared_max,
+                                    max_radius_lower,
+                                    max_radius_upper,
+                                    len_before,
+                                    position_data.len()
+                                );
                             }
-                            SerializableDataExtents::Interval {
-                                min: shared_min,
-                                max: shared_max,
-                            } => {
-                                let len_before = position_data.len();
-
-                                // Compute max radius values from existing data to ensure proper
-                                // domain extension. Without this, Level(N) domains stored as plain
-                                // Interval would not extend beyond exact min/max, while Shared
-                                // domains with RadiusAwareInterval would extend properly.
-                                let max_radius_lower = radius_lower_data
-                                    .iter()
-                                    .copied()
-                                    .fold(0.0_f64, f64::max);
-                                let max_radius_upper = radius_upper_data
-                                    .iter()
-                                    .copied()
-                                    .fold(0.0_f64, f64::max);
-
-                                // Add synthetic points at shared min and max with proper radius
-                                // values to ensure radius-aware domain padding is applied
-                                position_data.push(*shared_min);
-                                radius_lower_data.push(max_radius_lower);
-                                radius_upper_data.push(0.0);
-
-                                position_data.push(*shared_max);
-                                radius_lower_data.push(0.0);
-                                radius_upper_data.push(max_radius_upper);
-
-                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                    eprintln!(
-                                        "  Extended RadiusAware {} with shared extents ({}, {}), radii=({:.1}, {:.1}), len {} -> {}",
-                                        channel,
-                                        shared_min,
-                                        shared_max,
-                                        max_radius_lower,
-                                        max_radius_upper,
-                                        len_before,
-                                        position_data.len()
-                                    );
-                                }
-                            }
-                            _ => {}
                         }
                     }
                     ChannelScaleBuilder::ExplicitDomain { .. } => {
@@ -1167,5 +1135,252 @@ mod tests {
             padding2,
             padding1
         );
+    }
+
+    #[test]
+    fn test_extract_domain_extents_standard() {
+        use crate::scales::spec::Linear;
+
+        let mut builder = ScaleBuilder::new();
+        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let data_extents = DataExtents::Interval(0.0, 100.0);
+        let options = HashMap::new();
+
+        builder.add_standard("x".to_string(), scale_spec, data_extents, options);
+
+        let extents = builder.extract_domain_extents(&["x"]);
+
+        assert_eq!(extents.len(), 1);
+        let x_extent = extents.get("x").unwrap();
+        assert_eq!(x_extent.numeric_bounds(), Some((0.0, 100.0)));
+        assert!(!x_extent.has_radius());
+    }
+
+    #[test]
+    fn test_extract_domain_extents_radius_aware() {
+        use crate::scales::spec::Linear;
+
+        let mut builder = ScaleBuilder::new();
+        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let position_data = vec![0.0, 50.0, 100.0];
+        let radius_lower = vec![5.0, 3.0, 5.0];
+        let radius_upper = vec![7.0, 7.0, 4.0];
+        let options = HashMap::new();
+
+        builder.add_radius_aware(
+            "y".to_string(),
+            scale_spec,
+            position_data,
+            radius_lower,
+            radius_upper,
+            options,
+        );
+
+        let extents = builder.extract_domain_extents(&["y"]);
+
+        assert_eq!(extents.len(), 1);
+        let y_extent = extents.get("y").unwrap();
+        assert_eq!(y_extent.numeric_bounds(), Some((0.0, 100.0)));
+        assert!(y_extent.has_radius());
+
+        // Check radius values are the max of the arrays
+        let radius = y_extent.radius.as_ref().unwrap();
+        assert_eq!(radius.max_lower, 5.0);
+        assert_eq!(radius.max_upper, 7.0);
+    }
+
+    #[test]
+    fn test_extract_domain_extents_mixed() {
+        use crate::scales::spec::Linear;
+        use datafusion_common::ScalarValue;
+
+        let mut builder = ScaleBuilder::new();
+
+        // Add standard scale
+        let scale_spec1 = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        builder.add_standard(
+            "x".to_string(),
+            scale_spec1,
+            DataExtents::Interval(0.0, 100.0),
+            HashMap::new(),
+        );
+
+        // Add radius-aware scale
+        let scale_spec2 = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        builder.add_radius_aware(
+            "y".to_string(),
+            scale_spec2,
+            vec![10.0, 20.0],
+            vec![2.0, 3.0],
+            vec![4.0, 5.0],
+            HashMap::new(),
+        );
+
+        // Add discrete scale
+        let scale_spec3 = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        builder.add_standard(
+            "color".to_string(),
+            scale_spec3,
+            DataExtents::Discrete(vec![
+                ScalarValue::Utf8(Some("red".to_string())),
+                ScalarValue::Utf8(Some("blue".to_string())),
+            ]),
+            HashMap::new(),
+        );
+
+        let extents = builder.extract_domain_extents(&["x", "y", "color", "missing"]);
+
+        // Should have 3 channels (missing is ignored)
+        assert_eq!(extents.len(), 3);
+
+        // x: numeric without radius
+        let x = extents.get("x").unwrap();
+        assert_eq!(x.numeric_bounds(), Some((0.0, 100.0)));
+        assert!(!x.has_radius());
+
+        // y: numeric with radius
+        let y = extents.get("y").unwrap();
+        assert_eq!(y.numeric_bounds(), Some((10.0, 20.0)));
+        assert!(y.has_radius());
+
+        // color: discrete
+        let color = extents.get("color").unwrap();
+        assert!(color.discrete_values().is_some());
+        assert_eq!(color.discrete_values().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_standard_numeric() {
+        use crate::scales::spec::Linear;
+        use crate::scales::DomainExtent;
+
+        let mut builder = ScaleBuilder::new();
+        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        builder.add_standard(
+            "x".to_string(),
+            scale_spec,
+            DataExtents::Interval(10.0, 50.0),
+            HashMap::new(),
+        );
+
+        // Create shared extent with wider range
+        let mut shared = HashMap::new();
+        shared.insert("x".to_string(), DomainExtent::numeric(0.0, 100.0));
+
+        builder.extend_with_domain_extents(&shared);
+
+        // Verify extents were extended
+        let extents = builder.extract_domain_extents(&["x"]);
+        let x = extents.get("x").unwrap();
+        assert_eq!(x.numeric_bounds(), Some((0.0, 100.0))); // Union of (10,50) and (0,100)
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_radius_aware_with_radius() {
+        use crate::scales::spec::Linear;
+        use crate::scales::DomainExtent;
+
+        let mut builder = ScaleBuilder::new();
+        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        builder.add_radius_aware(
+            "y".to_string(),
+            scale_spec,
+            vec![10.0, 20.0],
+            vec![2.0, 3.0],
+            vec![4.0, 5.0],
+            HashMap::new(),
+        );
+
+        // Create shared extent WITH radius info
+        let mut shared = HashMap::new();
+        shared.insert(
+            "y".to_string(),
+            DomainExtent::numeric_with_radius(0.0, 100.0, 10.0, 15.0),
+        );
+
+        builder.extend_with_domain_extents(&shared);
+
+        // Verify extents include synthetic points with shared radius values
+        let extents = builder.extract_domain_extents(&["y"]);
+        let y = extents.get("y").unwrap();
+        assert_eq!(y.numeric_bounds(), Some((0.0, 100.0)));
+        assert!(y.has_radius());
+
+        // The max radius should be the max of local (3, 5) and shared (10, 15)
+        let radius = y.radius.as_ref().unwrap();
+        assert_eq!(radius.max_lower, 10.0); // Shared 10 > local 3
+        assert_eq!(radius.max_upper, 15.0); // Shared 15 > local 5
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_radius_aware_without_radius() {
+        use crate::scales::spec::Linear;
+        use crate::scales::DomainExtent;
+
+        let mut builder = ScaleBuilder::new();
+        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        builder.add_radius_aware(
+            "y".to_string(),
+            scale_spec,
+            vec![10.0, 20.0],
+            vec![2.0, 3.0],
+            vec![4.0, 5.0],
+            HashMap::new(),
+        );
+
+        // Create shared extent WITHOUT radius info
+        let mut shared = HashMap::new();
+        shared.insert("y".to_string(), DomainExtent::numeric(0.0, 100.0));
+
+        builder.extend_with_domain_extents(&shared);
+
+        // Verify extents include synthetic points
+        let extents = builder.extract_domain_extents(&["y"]);
+        let y = extents.get("y").unwrap();
+        assert_eq!(y.numeric_bounds(), Some((0.0, 100.0)));
+        assert!(y.has_radius());
+
+        // When shared extent has no radius, local radius values should be used
+        let radius = y.radius.as_ref().unwrap();
+        // Local max values: lower=3.0, upper=5.0
+        // These should be preserved since shared has no radius info
+        assert!(radius.max_lower >= 3.0);
+        assert!(radius.max_upper >= 5.0);
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_discrete() {
+        use crate::facet::coordination::SerializableDomainValue;
+        use crate::scales::spec::Linear;
+        use crate::scales::DomainExtent;
+        use datafusion_common::ScalarValue;
+
+        let mut builder = ScaleBuilder::new();
+        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        builder.add_standard(
+            "color".to_string(),
+            scale_spec,
+            DataExtents::Discrete(vec![ScalarValue::Utf8(Some("red".to_string()))]),
+            HashMap::new(),
+        );
+
+        // Create shared discrete extent with more values
+        let mut shared = HashMap::new();
+        shared.insert(
+            "color".to_string(),
+            DomainExtent::discrete(vec![
+                SerializableDomainValue::String("red".to_string()),
+                SerializableDomainValue::String("green".to_string()),
+                SerializableDomainValue::String("blue".to_string()),
+            ]),
+        );
+
+        builder.extend_with_domain_extents(&shared);
+
+        // Verify discrete values were replaced
+        let extents = builder.extract_domain_extents(&["color"]);
+        let color = extents.get("color").unwrap();
+        let values = color.discrete_values().unwrap();
+        assert_eq!(values.len(), 3);
     }
 }

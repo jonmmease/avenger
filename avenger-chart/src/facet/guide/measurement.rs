@@ -4,7 +4,7 @@
 //! and the `AsyncMeasureOverflowFn` trait that enable shared measurement logic
 //! between FacetRowGuide and FacetColGuide.
 
-use crate::facet::coordination::SerializableDataExtents;
+use crate::scales::DomainExtent;
 use crate::facet::dimension_config::FacetDimensionConfig;
 use crate::facet::guide::shared::{FacetSource, compute_scale_sharing_for_nested_facet};
 use crate::facet::scalar_cmp::scalar_total_cmp;
@@ -218,7 +218,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
         // its own scale extension during its measurement. We only extend here when
         // measuring Cartesian subplots directly.
         if source.subplot.compiled_guide.is_none() {
-            let level_extents: HashMap<String, SerializableDataExtents> = scale_sharing
+            let level_extents: HashMap<String, DomainExtent> = scale_sharing
                 .iter()
                 .filter_map(|(channel, mode)| {
                     if let ScaleSharing::Level(n) = mode {
@@ -236,7 +236,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                 .collect();
 
             if !level_extents.is_empty() {
-                builder.extend_with_shared_extents(&level_extents);
+                builder.extend_with_domain_extents(&level_extents);
             }
         }
 

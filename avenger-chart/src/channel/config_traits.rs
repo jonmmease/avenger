@@ -153,7 +153,7 @@ pub trait ChannelConfig: Sized {
 /// # Implementation Note: Unified UNION Semantics
 ///
 /// All sharing modes (`Shared`, `Free`, and `Level(N)`) use UNION semantics via
-/// `extend_with_shared_extents`. This ensures that local domains can only grow
+/// `extend_with_domain_extents`. This ensures that local domains can only grow
 /// (never shrink) when shared extents are applied.
 ///
 /// While `Shared` is semantically equivalent to `Level(u8::MAX)`, they currently

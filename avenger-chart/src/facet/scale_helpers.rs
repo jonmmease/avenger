@@ -5,7 +5,7 @@
 
 use crate::channel::config_traits::ScaleSharing;
 use crate::error::AvengerChartError;
-use crate::facet::coordination::{FacetCoordinationContext, SerializableDataExtents};
+use crate::facet::coordination::FacetCoordinationContext;
 use crate::plot::compiled::CompiledPlot;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::scales::builder::ScaleBuilder;
@@ -338,7 +338,7 @@ pub async fn build_scales_per_channel(
                     {
                         // Clone and extend the builder with inherited shared extents
                         let mut extended_builder = builder.clone();
-                        extended_builder.extend_with_shared_extents(&needed_extents);
+                        extended_builder.extend_with_domain_extents(&needed_extents);
 
                         if debug {
                             eprintln!(
@@ -529,7 +529,7 @@ pub async fn build_scales_per_channel(
         // Use get_domain_for_channel_with_level which accepts the level explicitly,
         // since the level comes from scale_sharing_by_channel and may not be in
         // coord_ctx.channel_sharing_levels
-        let mut extents: HashMap<String, SerializableDataExtents> = HashMap::new();
+        let mut extents: HashMap<String, crate::scales::DomainExtent> = HashMap::new();
         let mut channels_with_no_domain: Vec<(String, u8)> = Vec::new();
 
         for (channel, level) in &level_n_channels {
@@ -555,7 +555,7 @@ pub async fn build_scales_per_channel(
 
         // Apply all extensions at once (UNION semantics)
         if !extents.is_empty() {
-            extended_builder.extend_with_shared_extents(&extents);
+            extended_builder.extend_with_domain_extents(&extents);
         }
 
         // Build scales from extended builder for channels that had domains
