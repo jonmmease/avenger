@@ -2767,6 +2767,87 @@ async fn hierarchical_4level_data() -> datafusion::dataframe::DataFrame {
     ctx.read_batch(batch).expect("create dataframe")
 }
 
+/// Creates hierarchical data with 5 levels for deep same-type facet nesting tests.
+///
+/// Structure: Division > Department > Team > Subteam > Values
+/// This provides 4 categorical columns for testing Row > Row > Row > Row or Col > Col > Col > Col
+async fn hierarchical_5level_data() -> datafusion::dataframe::DataFrame {
+    let ctx = SessionContext::new();
+
+    // Create data with 4 categorical levels: division(2) x department(2) x team(2) x subteam(2) = 16 combinations
+    // Each combination gets 2 data points = 32 total rows
+    let batch = datafusion::arrow::array::RecordBatch::try_from_iter(vec![
+        (
+            "division",
+            std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                // Eng: 16 rows
+                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng",
+                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng",
+                // Ops: 16 rows
+                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops",
+                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops",
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "department",
+            std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                // Eng departments
+                "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend",
+                "Backend", "Backend", "Backend", "Backend", "Backend", "Backend", "Backend", "Backend",
+                // Ops departments
+                "Support", "Support", "Support", "Support", "Support", "Support", "Support", "Support",
+                "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps",
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "team",
+            std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                // Eng/Frontend teams
+                "Alpha", "Alpha", "Alpha", "Alpha", "Beta", "Beta", "Beta", "Beta",
+                // Eng/Backend teams
+                "Alpha", "Alpha", "Alpha", "Alpha", "Beta", "Beta", "Beta", "Beta",
+                // Ops/Support teams
+                "Alpha", "Alpha", "Alpha", "Alpha", "Beta", "Beta", "Beta", "Beta",
+                // Ops/DevOps teams
+                "Alpha", "Alpha", "Alpha", "Alpha", "Beta", "Beta", "Beta", "Beta",
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "subteam",
+            std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                // Each team has 2 subteams (X, Y), 2 points each
+                "X", "X", "Y", "Y", "X", "X", "Y", "Y",
+                "X", "X", "Y", "Y", "X", "X", "Y", "Y",
+                "X", "X", "Y", "Y", "X", "X", "Y", "Y",
+                "X", "X", "Y", "Y", "X", "X", "Y", "Y",
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "x_val",
+            std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "y_val",
+            std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
+                // Eng values (higher): 70-130 range
+                90.0, 95.0, 85.0, 90.0, 100.0, 105.0, 95.0, 100.0,
+                110.0, 115.0, 105.0, 110.0, 120.0, 125.0, 115.0, 120.0,
+                // Ops values (lower): 30-70 range
+                40.0, 45.0, 35.0, 40.0, 50.0, 55.0, 45.0, 50.0,
+                55.0, 60.0, 50.0, 55.0, 65.0, 70.0, 60.0, 65.0,
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+    ])
+    .expect("create record batch");
+
+    ctx.read_batch(batch).expect("create dataframe")
+}
+
 /// Test 4-level nesting with Level(2) Y sharing
 ///
 /// Layout: FacetColumn(division) > FacetRow(department) > FacetColumn(team) > Cartesian
@@ -3541,6 +3622,142 @@ fn test_four_level_row_row_col_col() {
             None,
             "nested_grid",
             "four_level_row_row_col_col",
+        )
+        .await;
+    });
+}
+
+/// Test 4-level pure row nesting: Row > Row > Row > Row > Cartesian
+/// Tests facet guide label stacking with all same-type row facets
+#[test]
+fn test_four_level_row_row_row_row() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_data().await;
+
+        let outer = Plot::<FacetRow>::new()
+            .data(df)
+            .canvas_size(1000, 900)
+            .mark(
+                Facet::new()
+                    .row_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetRow>::new().mark(
+                                        Facet::new()
+                                            .row_with(col("team"), |c| c.facet(|f| f.title("Team")))
+                                            .subplot(
+                                                Plot::<FacetRow>::new().mark(
+                                                    Facet::new()
+                                                        .row_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .size(40.0)
+                                                                    .fill("#e74c3c"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile row>row>row>row nesting");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_row_row_row_row",
+        )
+        .await;
+    });
+}
+
+/// Test 4-level pure column nesting: Col > Col > Col > Col > Cartesian
+/// Tests facet guide label stacking with all same-type column facets
+#[test]
+fn test_four_level_col_col_col_col() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_data().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(1200, 600)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
+                                            .subplot(
+                                                Plot::<FacetColumn>::new().mark(
+                                                    Facet::new()
+                                                        .col_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .size(40.0)
+                                                                    .fill("#9b59b6"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col>col>col nesting");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_col_col_col_col",
         )
         .await;
     });
