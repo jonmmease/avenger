@@ -166,6 +166,17 @@ impl FacetRowVisibility {
         let render_unified_y_title =
             input.has_unified_y_title && !parent_unified_y && !nested_in_col_facet;
 
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && input.has_unified_y_title {
+            eprintln!(
+                "FacetRowVisibility: render_unified_y_title={} (has_title={} parent_unified_y={} nested_in_col_facet={} grid_dims={:?})",
+                render_unified_y_title,
+                input.has_unified_y_title,
+                parent_unified_y,
+                nested_in_col_facet,
+                parent_ctx.map(|ctx| ctx.grid_dimensions)
+            );
+        }
+
         Self {
             axis_on_right,
             is_left_edge,

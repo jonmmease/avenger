@@ -1455,9 +1455,18 @@ impl CompiledGuide for FacetColGuide {
             }
         }
 
-        // Render unified y-axis title if available (rotated 90 degrees, on the left side)
+        // Render unified y-axis title if available and visibility allows (rotated 90 degrees, on the left side)
         // This is only used for FacetCol with nested FacetRow - the outer col renders the unified y-title
+        // Skip if parent has already unified y-axis
         if let Some(unified_y_title) = &self.unified_y_title {
+            if !visibility.render_unified_y_title {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetColGuide SKIP unified_y_title='{}' (parent already unified y)",
+                        unified_y_title
+                    );
+                }
+            } else {
             use crate::facet::guide_utils::{UnifiedTitleRenderConfig, render_unified_axis_title};
 
             let y_axis_on_right = visibility.y_axis_on_right;
@@ -1537,6 +1546,7 @@ impl CompiledGuide for FacetColGuide {
             };
             let unified_y_mark = render_unified_axis_title(&title_config, theme, params);
             marks.push(SceneMark::Text(StdArc::new(unified_y_mark)));
+            }
         }
 
         Ok(marks)
