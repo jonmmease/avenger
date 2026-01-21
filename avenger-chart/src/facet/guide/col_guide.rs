@@ -1215,8 +1215,30 @@ impl CompiledGuide for FacetColGuide {
 
         let labels = col_scale.domain_labels()?;
 
-        // Compute subplot overflow using shared helper (no caching needed between calls)
-        // Pass data_override so nested facets use filtered data (matching measure_overflow behavior)
+        // Compute INTRINSIC subplot overflow for label positioning.
+        //
+        // The cached _col_overflow may contain INFLATED values if our subplot contains
+        // a nested FacetCol. This is because:
+        // - FacetCol adds labels on TOP/BOTTOM
+        // - FacetColGuide uses TOP/BOTTOM overflow to position its labels
+        // - If subplot has nested FacetCol, its TOP/BOTTOM overflow includes those labels
+        //
+        // We need to re-compute intrinsic overflow (ignoring nested facet labels) when:
+        // - The subplot contains a nested FacetCol (same-type nesting causes dimension overlap)
+        //
+        // For alternating nesting (FacetCol > FacetRow), the cached values are correct
+        // because FacetRow adds labels on LEFT/RIGHT, which don't affect TOP/BOTTOM.
+        use crate::facet::guide::shared::marks_contain_nested_facet_type;
+        let has_same_type_nested_facet = self
+            .facet_sources
+            .iter()
+            .any(|source| marks_contain_nested_facet_type(&source.subplot.marks, "facet_col"));
+
+        let overflow_for_computation = if has_same_type_nested_facet {
+            None // Same-type nesting: force re-computation to get intrinsic overflow
+        } else {
+            _col_overflow // Different-type or no nesting: cached values are correct
+        };
         let (subplot_max_top, subplot_max_bottom, _left, _right) = self
             .compute_max_subplot_overflow(
                 col_scale,
@@ -1225,7 +1247,7 @@ impl CompiledGuide for FacetColGuide {
                 theme,
                 params,
                 ctx,
-                _col_overflow,
+                overflow_for_computation,
                 data_override,
             )
             .await?;

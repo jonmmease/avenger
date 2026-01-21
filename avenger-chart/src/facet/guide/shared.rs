@@ -223,3 +223,49 @@ pub fn compute_scale_sharing_for_nested_facet(
 
     scale_sharing
 }
+
+/// Recursively check if marks contain a nested facet of the specified type.
+///
+/// This is used to determine whether cached overflow values need re-computation.
+/// When a guide's subplot (or any descendant) contains a same-type facet, the cached
+/// overflow includes that nested facet's labels in the same dimension the current
+/// guide uses, causing inflation. In this case, we need to re-compute intrinsic overflow.
+///
+/// The search is recursive because overflow values propagate up through the entire
+/// subtree. For example, in FacetCol > FacetRow > FacetCol > Cartesian:
+/// - The outermost FacetColGuide receives overflow from FacetRow
+/// - But FacetRow's overflow includes FacetCol (Team)'s TOP/BOTTOM labels
+/// - So we need to search the entire subtree, not just immediate children
+///
+/// # Arguments
+/// * `marks` - The marks to search through
+/// * `facet_type` - The facet type to look for ("facet_row" or "facet_col")
+///
+/// # Returns
+/// `true` if a nested facet of the specified type is found anywhere in the subtree
+pub fn marks_contain_nested_facet_type(marks: &[Arc<dyn CompiledMark>], facet_type: &str) -> bool {
+    for m in marks {
+        let mark_type = m.mark_type();
+
+        // Check if this mark is the type we're looking for
+        if mark_type == facet_type {
+            return true;
+        }
+
+        // Recursively search into nested facets
+        if mark_type == "facet_row" {
+            if let Some(facet_row) = m.as_any().downcast_ref::<CompiledFacetRow>() {
+                if marks_contain_nested_facet_type(&facet_row.compiled_subplot.marks, facet_type) {
+                    return true;
+                }
+            }
+        } else if mark_type == "facet_col" {
+            if let Some(facet_col) = m.as_any().downcast_ref::<CompiledFacetCol>() {
+                if marks_contain_nested_facet_type(&facet_col.compiled_subplot.marks, facet_type) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}

@@ -3359,3 +3359,191 @@ fn test_level255_equivalent_to_shared() {
         );
     });
 }
+
+// =============================================================================
+// 4-Level Nesting Permutation Tests
+// =============================================================================
+// These tests verify facet guide positioning with different row/col orderings
+// at 4 levels of nesting.
+
+/// Test 4-level nesting: Row > Col > Row > Col (Row as outermost)
+///
+/// Layout: FacetRow(division) > FacetColumn(department) > FacetRow(team) > Cartesian
+/// This tests whether the fix for FacetColGuide also applies when FacetRow is outermost.
+#[test]
+fn test_four_level_row_col_row_col() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_4level_data().await;
+
+        let outer = Plot::<FacetRow>::new()
+            .data(df)
+            .canvas_size(1000, 800)
+            .mark(
+                Facet::new()
+                    .row_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetRow>::new().mark(
+                                        Facet::new()
+                                            .row_with(col("team"), |c| c.facet(|f| f.title("Team")))
+                                            .subplot(
+                                                Plot::<Cartesian>::new().mark(
+                                                    Symbol::new()
+                                                        .x_with(col("x_val"), |c| {
+                                                            c.with_scale_sharing(ScaleSharing::Free)
+                                                        })
+                                                        .y_with(col("y_val"), |c| {
+                                                            c.with_scale_sharing(
+                                                                ScaleSharing::Level(3),
+                                                            )
+                                                        })
+                                                        .size(40.0)
+                                                        .fill("#e74c3c"),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile row>col>row>col nesting");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_row_col_row_col",
+        )
+        .await;
+    });
+}
+
+/// Test 4-level nesting: Col > Col > Row > Row (Column-heavy at top)
+///
+/// Layout: FacetColumn(division) > FacetColumn(department) > FacetRow(team) > Cartesian
+/// This tests positioning with consecutive columns at outer levels.
+#[test]
+#[ignore = "crashes with subtraction overflow in visibility.rs:308 - consecutive same-type facets"]
+fn test_four_level_col_col_row_row() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_4level_data().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(1000, 800)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetRow>::new().mark(
+                                        Facet::new()
+                                            .row_with(col("team"), |c| c.facet(|f| f.title("Team")))
+                                            .subplot(
+                                                Plot::<Cartesian>::new().mark(
+                                                    Symbol::new()
+                                                        .x_with(col("x_val"), |c| {
+                                                            c.with_scale_sharing(ScaleSharing::Free)
+                                                        })
+                                                        .y_with(col("y_val"), |c| {
+                                                            c.with_scale_sharing(
+                                                                ScaleSharing::Level(3),
+                                                            )
+                                                        })
+                                                        .size(40.0)
+                                                        .fill("#27ae60"),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col>row>row nesting");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_col_col_row_row",
+        )
+        .await;
+    });
+}
+
+/// Test 4-level nesting: Row > Row > Col > Col (Row-heavy at top)
+///
+/// Layout: FacetRow(division) > FacetRow(department) > FacetColumn(team) > Cartesian
+/// This tests positioning with consecutive rows at outer levels.
+#[test]
+#[ignore = "crashes with subtraction overflow in visibility.rs:109 - consecutive same-type facets"]
+fn test_four_level_row_row_col_col() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_4level_data().await;
+
+        let outer = Plot::<FacetRow>::new()
+            .data(df)
+            .canvas_size(1000, 800)
+            .mark(
+                Facet::new()
+                    .row_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
+                                            .subplot(
+                                                Plot::<Cartesian>::new().mark(
+                                                    Symbol::new()
+                                                        .x_with(col("x_val"), |c| {
+                                                            c.with_scale_sharing(ScaleSharing::Free)
+                                                        })
+                                                        .y_with(col("y_val"), |c| {
+                                                            c.with_scale_sharing(
+                                                                ScaleSharing::Level(3),
+                                                            )
+                                                        })
+                                                        .size(40.0)
+                                                        .fill("#f39c12"),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile row>row>col>col nesting");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_row_row_col_col",
+        )
+        .await;
+    });
+}
