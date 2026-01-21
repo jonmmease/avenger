@@ -184,21 +184,31 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                 let adjusted_index = index + coord_ctx.phantom_prepend_count;
 
                 let (pos, dims) = if DimConfig::is_row_facet() {
-                    // This is FacetRow inside FacetColumn
+                    // This is FacetRow inside another facet
                     // position: (row_index, column_position_from_outer)
                     // grid_dimensions: (num_rows, num_columns_from_outer)
                     let row = adjusted_index;
                     let col = coord_ctx.outer_position;
                     let num_rows = inner_count;
-                    let num_cols = coord_ctx.outer_count;
+                    // Use outer_count if valid, otherwise 1 (for same-type nesting like Row > Row)
+                    let num_cols = if coord_ctx.outer_count > 0 {
+                        coord_ctx.outer_count
+                    } else {
+                        1
+                    };
                     ((row, col), (num_rows, num_cols))
                 } else {
-                    // This is FacetColumn inside FacetRow
+                    // This is FacetColumn inside another facet
                     // position: (row_position_from_outer, column_index)
                     // grid_dimensions: (num_rows_from_outer, num_columns)
                     let row = coord_ctx.outer_position;
                     let col = adjusted_index;
-                    let num_rows = coord_ctx.outer_count;
+                    // Use outer_count if valid, otherwise 1 (for same-type nesting like Col > Col)
+                    let num_rows = if coord_ctx.outer_count > 0 {
+                        coord_ctx.outer_count
+                    } else {
+                        1
+                    };
                     let num_cols = inner_count;
                     ((row, col), (num_rows, num_cols))
                 };

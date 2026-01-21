@@ -103,10 +103,16 @@ impl FacetRowVisibility {
             .unwrap_or(false);
 
         // Determine if we're on left/right edge of parent grid
+        // Note: num_cols can be 0 for same-type consecutive nesting (Row > Row)
+        // where the grid is single-dimensional. Treat as both edges in this case.
         let (is_left_edge, is_right_edge) = if let Some(ctx) = parent_ctx {
             let col = ctx.position.1;
             let num_cols = ctx.grid_dimensions.1;
-            (col == 0, col == num_cols - 1)
+            if num_cols == 0 {
+                (true, true)
+            } else {
+                (col == 0, col == num_cols - 1)
+            }
         } else {
             (true, true) // No parent = standalone FacetRowGuide, both edges
         };
@@ -302,10 +308,16 @@ impl FacetColVisibility {
             .unwrap_or(false);
 
         // Determine if we're on top/bottom edge of parent grid
+        // Note: num_rows can be 0 for same-type consecutive nesting (Col > Col)
+        // where the grid is single-dimensional. Treat as both edges in this case.
         let (is_top_edge, is_bottom_edge) = if let Some(ctx) = parent_ctx {
             let row = ctx.position.0;
             let num_rows = ctx.grid_dimensions.0;
-            (row == 0, row == num_rows - 1)
+            if num_rows == 0 {
+                (true, true)
+            } else {
+                (row == 0, row == num_rows - 1)
+            }
         } else {
             (true, true) // No parent = standalone FacetColGuide, both edges
         };

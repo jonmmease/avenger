@@ -3431,7 +3431,6 @@ fn test_four_level_row_col_row_col() {
 /// Layout: FacetColumn(division) > FacetColumn(department) > FacetRow(team) > Cartesian
 /// This tests positioning with consecutive columns at outer levels.
 #[test]
-#[ignore = "crashes with subtraction overflow in visibility.rs:308 - consecutive same-type facets"]
 fn test_four_level_col_col_row_row() {
     run_with_large_stack(|| async {
         let ctx = SessionContext::new();
@@ -3492,7 +3491,6 @@ fn test_four_level_col_col_row_row() {
 /// Layout: FacetRow(division) > FacetRow(department) > FacetColumn(team) > Cartesian
 /// This tests positioning with consecutive rows at outer levels.
 #[test]
-#[ignore = "crashes with subtraction overflow in visibility.rs:109 - consecutive same-type facets"]
 fn test_four_level_row_row_col_col() {
     run_with_large_stack(|| async {
         let ctx = SessionContext::new();
