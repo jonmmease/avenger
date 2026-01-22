@@ -16,6 +16,11 @@ use crate::facet::dimension_config::FacetDimensionConfig;
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 
+/// Parameter key for additional unified channels beyond what DimConfig specifies.
+/// Used for same-type nesting (e.g., FacetRow wrapping FacetRow) where the outer
+/// FacetRow needs to unify "x" in addition to the default "y".
+pub const ADDITIONAL_UNIFIED_CHANNELS_KEY: &str = "FACET_ADDITIONAL_UNIFIED_CHANNELS";
+
 /// Iteration state for a single subplot in a faceted layout
 #[derive(Debug, Clone)]
 pub struct SubplotIteration {
@@ -114,7 +119,7 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
         use crate::facet::context::FacetContext;
 
         // Get unified_channels: merge parent's with this dimension's
-        let unified_channels =
+        let mut unified_channels =
             if let Some(parent_ctx) = FacetContext::from_params(&self.base_params) {
                 // Merge parent's unified_channels with this dimension's
                 let mut merged = parent_ctx.unified_channels;
@@ -127,6 +132,20 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                     .map(|s| s.to_string())
                     .collect()
             };
+
+        // Check for additional unified channels from same-type nesting
+        // (e.g., FacetRow with unified_x_title unifies both y and x)
+        // We use a simpler Utf8 scalar with comma-separated channel names
+        if let Some(ScalarValue::Utf8(Some(channels_str))) =
+            self.base_params.get(ADDITIONAL_UNIFIED_CHANNELS_KEY)
+        {
+            for ch in channels_str.split(',') {
+                let ch = ch.trim();
+                if !ch.is_empty() {
+                    unified_channels.insert(ch.to_string());
+                }
+            }
+        }
 
         // Check for FacetCoordinationContext from outer facet (for nested facets)
         // This provides outer_position and outer_count for computing proper grid positions

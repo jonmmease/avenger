@@ -40,6 +40,9 @@ pub struct FacetRowVisibility {
     /// Whether unified y-axis title should be rendered
     pub render_unified_y_title: bool,
 
+    /// Whether unified x-axis title should be rendered (at bottom)
+    pub render_unified_x_title: bool,
+
     /// Whether the parent facet has unified y-axis
     pub parent_unified_y: bool,
 
@@ -64,6 +67,9 @@ pub struct FacetRowVisibilityInput {
 
     /// Whether a unified y-axis title is configured
     pub has_unified_y_title: bool,
+
+    /// Whether a unified x-axis title is configured (for nested FacetRow case)
+    pub has_unified_x_title: bool,
 
     /// Scale sharing mode for this row facet variable (not the data y-scale).
     /// This determines whether the facet arrangement is shared (same rows in all columns)
@@ -166,6 +172,31 @@ impl FacetRowVisibility {
         let render_unified_y_title =
             input.has_unified_y_title && !parent_unified_y && !nested_in_col_facet;
 
+        // Check parent FacetContext for unified x
+        let parent_unified_x = parent_ctx
+            .map(|ctx| ctx.is_channel_unified("x"))
+            .unwrap_or(false);
+
+        // Determine if we're on bottom edge of parent grid (for x-axis title positioning)
+        let is_bottom_edge = if let Some(ctx) = parent_ctx {
+            let row = ctx.position.0;
+            let num_rows = ctx.grid_dimensions.0;
+            if num_rows == 0 {
+                true // Same-type nesting, treat as bottom edge
+            } else {
+                row == num_rows - 1
+            }
+        } else {
+            true // No parent = standalone, is bottom edge
+        };
+
+        // Unified x title is rendered only if:
+        // 1. A unified x title is configured
+        // 2. Parent hasn't already unified x
+        // 3. This is the bottom row (only show x title at the very bottom)
+        let render_unified_x_title =
+            input.has_unified_x_title && !parent_unified_x && is_bottom_edge;
+
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && input.has_unified_y_title {
             eprintln!(
                 "FacetRowVisibility: render_unified_y_title={} (has_title={} parent_unified_y={} nested_in_col_facet={} grid_dims={:?})",
@@ -173,6 +204,17 @@ impl FacetRowVisibility {
                 input.has_unified_y_title,
                 parent_unified_y,
                 nested_in_col_facet,
+                parent_ctx.map(|ctx| ctx.grid_dimensions)
+            );
+        }
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && input.has_unified_x_title {
+            eprintln!(
+                "FacetRowVisibility: render_unified_x_title={} (has_title={} parent_unified_x={} is_bottom_edge={} grid_dims={:?})",
+                render_unified_x_title,
+                input.has_unified_x_title,
+                parent_unified_x,
+                is_bottom_edge,
                 parent_ctx.map(|ctx| ctx.grid_dimensions)
             );
         }
@@ -186,6 +228,7 @@ impl FacetRowVisibility {
             render_facet_labels,
             facet_labels_on_left,
             render_unified_y_title,
+            render_unified_x_title,
             parent_unified_y,
             nested_in_col_facet,
         }
@@ -422,6 +465,7 @@ mod tests {
             max_left: 50.0,
             max_right: 10.0,
             has_unified_y_title: true,
+            has_unified_x_title: false,
             facet_scale_sharing: None,
         };
 
@@ -448,6 +492,7 @@ mod tests {
             max_left: 10.0,
             max_right: 50.0, // Right overflow larger = axis likely on right
             has_unified_y_title: false,
+            has_unified_x_title: false,
             facet_scale_sharing: None,
         };
 
@@ -460,6 +505,7 @@ mod tests {
             max_left: 10.0,
             max_right: 50.0, // Even though right is larger, explicit position wins
             has_unified_y_title: false,
+            has_unified_x_title: false,
             facet_scale_sharing: None,
         };
 
@@ -476,6 +522,7 @@ mod tests {
             max_left: 10.0,
             max_right: 50.0,
             has_unified_y_title: false,
+            has_unified_x_title: false,
             facet_scale_sharing: None,
         };
 

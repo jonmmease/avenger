@@ -506,6 +506,7 @@ where
     use crate::facet::phantom_cells::PhantomCellLayout;
     use crate::facet::subplot_iterator::SubplotIteration;
     use crate::facet::subplot_iterator::SubplotIterator;
+    use crate::facet::subplot_iterator::ADDITIONAL_UNIFIED_CHANNELS_KEY;
 
     // Compute phantom cell layout for uniform free scaling
     // This centralizes phantom positioning logic for use in both measurement and rendering
@@ -513,7 +514,52 @@ where
         PhantomCellLayout::compute(band_align, domain_vals.len(), uniform_cell_count);
 
     // Update coordination context params with phantom_prepend_count
-    let subplot_params = phantom_layout.update_params_with_phantom_context(&context.params);
+    let mut subplot_params = phantom_layout.update_params_with_phantom_context(&context.params);
+
+    // Check for same-type nesting and inject additional unified channels
+    // For Row facets wrapping Row facets, we need to unify "x" (perpendicular axis)
+    // For Col facets wrapping Col facets, we need to unify "y" (perpendicular axis)
+    if let Some(guide) = compiled_subplot.compiled_guide.as_ref() {
+        // Check if the inner subplot has a guide of the same facet type
+        let is_same_type_nesting = {
+            let channel = DimConfig::channel_name();
+            if channel == "row" {
+                // Check if inner guide is FacetRowGuide
+                guide
+                    .as_any()
+                    .downcast_ref::<crate::facet::guide::FacetRowGuide>()
+                    .is_some()
+            } else if channel == "col" {
+                // Check if inner guide is FacetColGuide
+                guide
+                    .as_any()
+                    .downcast_ref::<crate::facet::guide::FacetColGuide>()
+                    .is_some()
+            } else {
+                false
+            }
+        };
+
+        if is_same_type_nesting {
+            // Add perpendicular channel to unified channels
+            let perpendicular_channel = if DimConfig::channel_name() == "row" {
+                "x" // Row facet unifies y by default, add x for same-type nesting
+            } else {
+                "y" // Col facet unifies x by default, add y for same-type nesting
+            };
+            subplot_params.insert(
+                ADDITIONAL_UNIFIED_CHANNELS_KEY.to_string(),
+                ScalarValue::Utf8(Some(perpendicular_channel.to_string())),
+            );
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "facet_evaluation: same-type nesting detected for {}, adding {} to unified channels",
+                    DimConfig::channel_name(),
+                    perpendicular_channel
+                );
+            }
+        }
+    }
 
     let subplot_iter = SubplotIterator::<DimConfig>::new(
         domain_vals.clone(),
@@ -1630,9 +1676,42 @@ where
 
     // Update coordination context with phantom_prepend_count from pass1 for render pass
     // Reuse the phantom layout computed in Pass 1 to avoid duplicating logic
-    let subplot_params_pass2 = pass1
+    let mut subplot_params_pass2 = pass1
         .phantom_layout
         .update_params_with_phantom_context(&context.params);
+
+    // Check for same-type nesting and inject additional unified channels for pass 2 as well
+    use crate::facet::subplot_iterator::ADDITIONAL_UNIFIED_CHANNELS_KEY;
+    if let Some(guide) = compiled_subplot.compiled_guide.as_ref() {
+        let is_same_type_nesting = {
+            let channel = DimConfig::channel_name();
+            if channel == "row" {
+                guide
+                    .as_any()
+                    .downcast_ref::<crate::facet::guide::FacetRowGuide>()
+                    .is_some()
+            } else if channel == "col" {
+                guide
+                    .as_any()
+                    .downcast_ref::<crate::facet::guide::FacetColGuide>()
+                    .is_some()
+            } else {
+                false
+            }
+        };
+
+        if is_same_type_nesting {
+            let perpendicular_channel = if DimConfig::channel_name() == "row" {
+                "x"
+            } else {
+                "y"
+            };
+            subplot_params_pass2.insert(
+                ADDITIONAL_UNIFIED_CHANNELS_KEY.to_string(),
+                ScalarValue::Utf8(Some(perpendicular_channel.to_string())),
+            );
+        }
+    }
 
     // Use scale_sharing_for_visibility for SubplotIterator to control axis visibility
     // (not scale_sharing_by_channel which includes paired channels for scale domain building)

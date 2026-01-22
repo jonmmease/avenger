@@ -33,6 +33,8 @@ pub struct FacetRowGuide {
     /// Optional facet title rendered above the label column
     pub facet_title: Option<String>,
     unified_y_title: Option<String>,
+    /// Unified x-axis title for nested FacetRow cases (rendered at bottom)
+    unified_x_title: Option<String>,
     /// The channel that can be unified (from subplot guide declaration)
     unifiable_channel: Option<String>,
 }
@@ -276,6 +278,11 @@ impl FacetRowGuide {
                                     .map(|s| s.to_string())
                                     .collect();
 
+                            // Also unify "x" if we have a unified x-title (same-type nesting case)
+                            if self.unified_x_title.is_some() {
+                                unified_channels.insert("x".to_string());
+                            }
+
                             // Merge parent's unified_channels and scale_sharing if present
                             let (parent_col, parent_num_cols, mut merged_scale_sharing) =
                                 if let Some(parent_ctx) = FacetContext::from_params(params) {
@@ -480,13 +487,25 @@ impl FacetRowGuide {
                         let subplot_measure_params = {
                             use crate::facet::context::FacetContext;
                             let mut updated_params = params.clone();
+                            let mut unified_channels: std::collections::HashSet<String> =
+                                RowDimensionConfig::unified_channels()
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect();
+                            // Also unify "x" if we have a unified x-title (same-type nesting case)
+                            if self.unified_x_title.is_some() {
+                                unified_channels.insert("x".to_string());
+                            }
+                            // Merge parent's unified_channels to propagate x unification through nesting
+                            if let Some(parent_ctx) = FacetContext::from_params(params) {
+                                for ch in &parent_ctx.unified_channels {
+                                    unified_channels.insert(ch.clone());
+                                }
+                            }
                             let facet_ctx = FacetContext {
                                 position: (row_idx, 0), // Correct row position
                                 grid_dimensions: (num_rows, 1),
-                                unified_channels: RowDimensionConfig::unified_channels()
-                                    .iter()
-                                    .map(|s| s.to_string())
-                                    .collect(),
+                                unified_channels,
                                 scale_sharing: scale_sharing.clone(),
                             };
                             let ctx_params = facet_ctx.to_params();
@@ -596,6 +615,39 @@ impl CoordinateGuide for FacetRowGuide {
                 }) {
                     self.unifiable_channel = Some(info.channel);
                     self.unified_y_title = info.title;
+                }
+            }
+        }
+
+        // Derive unified x-axis title from subplot guide (for nested FacetRow case)
+        // This allows FacetRow to show ONE x-axis title at the bottom for nested FacetRow subplots.
+        //
+        // For same-type nesting (Row > Row > Row), we extract the x-axis title from the innermost
+        // subplot to display once at the bottom. The outer FacetRow unifies "x" to suppress
+        // intermediate x-axis titles.
+        if self.unified_x_title.is_none() {
+            if let Some(src) = self.facet_sources.first() {
+                if let Some(guide) = src.subplot.compiled_guide.as_ref() {
+                    // Check if this is same-type nesting (FacetRow wrapping FacetRow)
+                    // For same-type nesting, we always extract the x-axis title to unify it
+                    let is_same_type_nesting = guide
+                        .as_any()
+                        .downcast_ref::<FacetRowGuide>()
+                        .is_some();
+
+                    // Also extract if the nested guide already unifies x (e.g., deeply nested)
+                    let should_extract = is_same_type_nesting || guide.unifies_channel("x");
+
+                    if should_extract {
+                        use crate::facet::dimension_config::ColumnDimensionConfig;
+                        if let Some(info) = guide.facet_unifiable_channel(
+                            ColumnDimensionConfig::facet_direction(),
+                            src.subplot.marks(),
+                            _session_context,
+                        ) {
+                            self.unified_x_title = info.title;
+                        }
+                    }
                 }
             }
         }
@@ -720,6 +772,13 @@ impl CompiledGuide for FacetRowGuide {
             .and_then(|source| source.subplot.compiled_guide.as_ref())
             .and_then(|guide| guide.axis_position("y"));
 
+        // Extract x-axis position for unified x-title placement (top vs bottom)
+        let x_axis_position = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.subplot.compiled_guide.as_ref())
+            .and_then(|guide| guide.axis_position("x"));
+
         // Resolve visibility decisions using single source of truth
         // (moved before measurement so we can use render_facet_title)
         use crate::facet::context::FacetContext;
@@ -733,6 +792,7 @@ impl CompiledGuide for FacetRowGuide {
             max_left,
             max_right,
             has_unified_y_title: self.unified_y_title.is_some(),
+            has_unified_x_title: self.unified_x_title.is_some(),
             facet_scale_sharing,
         };
         let parent_ctx = FacetContext::from_params(params);
@@ -792,11 +852,51 @@ impl CompiledGuide for FacetRowGuide {
         } else {
             0.0
         };
-        let gap_axis = if self.unified_y_title.is_some() && !parent_unified_y {
+        let gap_y_axis = if self.unified_y_title.is_some() && !parent_unified_y {
             10.0
         } else {
             0.0
         };
+
+        // Measure unified x-title height (for top or bottom overflow based on x-axis position)
+        let unified_x_height = if visibility.render_unified_x_title {
+            if let Some(x_title) = &self.unified_x_title {
+                let x_ctx = crate::theme::ThemeContext::new("guide", params.clone())
+                    .child("facet")
+                    .child("title");
+                let x_font_px = theme.font_size(&x_ctx).unwrap_or(12.0_f32);
+                let x_family_owned = theme
+                    .font_family(&x_ctx)
+                    .unwrap_or_else(|| "sans-serif".to_string());
+                let cfg_x = avenger_text::measurement::TextMeasurementConfig {
+                    text: x_title,
+                    font: x_family_owned.as_str(),
+                    font_size: x_font_px,
+                    font_weight: &avenger_text::types::FontWeight::Name(
+                        avenger_text::types::FontWeightNameSpec::Normal,
+                    ),
+                    font_style: &avenger_text::types::FontStyle::Normal,
+                };
+                let b_x =
+                    avenger_text::measurement::default_text_measurer().measure_text_bounds(&cfg_x);
+                b_x.height + 1.0
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        let gap_x_axis = if unified_x_height > 0.0 { 10.0 } else { 0.0 };
+
+        // Add unified x-title space to top or bottom based on x-axis position
+        use crate::cartesian::axis::AxisPosition as CartesianAxisPosition;
+        let x_axis_at_top = matches!(x_axis_position, Some(CartesianAxisPosition::Top));
+        let (top_final, bottom_final) = if x_axis_at_top {
+            (top + gap_x_axis + unified_x_height, bottom)
+        } else {
+            (top, bottom + gap_x_axis + unified_x_height)
+        };
+
         // Unified y-title goes on the SAME side as the y-axis (it labels all rows together)
         // Facet labels go on the OPPOSITE side from the y-axis
         // Only include facet label space when labels will actually be rendered
@@ -814,7 +914,7 @@ impl CompiledGuide for FacetRowGuide {
             // Axis on left: left side has axis overflow + unified y-title
             adjusted_max_left
                 + if unified_y_height > 0.0 && is_left_edge {
-                    gap_axis + unified_y_height
+                    gap_y_axis + unified_y_height
                 } else {
                     0.0
                 }
@@ -823,7 +923,7 @@ impl CompiledGuide for FacetRowGuide {
             // Axis on right: right side has axis overflow + unified y-title
             adjusted_max_right
                 + if unified_y_height > 0.0 && is_right_edge {
-                    gap_axis + unified_y_height
+                    gap_y_axis + unified_y_height
                 } else {
                     0.0
                 }
@@ -833,7 +933,7 @@ impl CompiledGuide for FacetRowGuide {
         };
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FacetRowGuide measure_overflow: left_final={:.3} right_final={:.3} (max_left={:.3} adj_max_left={:.3} max_right={:.3} adj_max_right={:.3} estimated_right={:.3} adj_estimated_right={:.3} unified_y_height={:.3} gap_axis={:.3} axis_on_right={} is_left_edge={} is_right_edge={} render_facet_labels={})",
+                "FacetRowGuide measure_overflow: left_final={:.3} right_final={:.3} (max_left={:.3} adj_max_left={:.3} max_right={:.3} adj_max_right={:.3} estimated_right={:.3} adj_estimated_right={:.3} unified_y_height={:.3} gap_y_axis={:.3} axis_on_right={} is_left_edge={} is_right_edge={} render_facet_labels={})",
                 left_final,
                 right_final,
                 max_left,
@@ -843,7 +943,7 @@ impl CompiledGuide for FacetRowGuide {
                 estimated_right,
                 adjusted_estimated_right,
                 unified_y_height,
-                gap_axis,
+                gap_y_axis,
                 axis_on_right,
                 is_left_edge,
                 is_right_edge,
@@ -851,8 +951,8 @@ impl CompiledGuide for FacetRowGuide {
             );
         }
         Ok(OverflowSpaceRequirement {
-            top,
-            bottom,
+            top: top_final,
+            bottom: bottom_final,
             left: left_final,
             right: right_final,
         })
@@ -1079,7 +1179,7 @@ impl CompiledGuide for FacetRowGuide {
         } else {
             _row_overflow // Different-type or no nesting: cached values are correct
         };
-        let (_top, _bottom, max_left_child, max_right_child) = self
+        let (max_top_child, max_bottom_child, max_left_child, max_right_child) = self
             .compute_max_subplot_overflow(
                 row_scale,
                 plot_width,
@@ -1091,13 +1191,19 @@ impl CompiledGuide for FacetRowGuide {
                 data_override,
             )
             .await?;
-
         // Extract y-axis position from subplot guide for visibility resolution
         let y_axis_position = self
             .facet_sources
             .first()
             .and_then(|source| source.subplot.compiled_guide.as_ref())
             .and_then(|guide| guide.axis_position("y"));
+
+        // Extract x-axis position for unified x-title placement (top vs bottom)
+        let x_axis_position = self
+            .facet_sources
+            .first()
+            .and_then(|source| source.subplot.compiled_guide.as_ref())
+            .and_then(|guide| guide.axis_position("x"));
 
         // Resolve visibility decisions using single source of truth (same as measure_overflow)
         use crate::facet::context::FacetContext;
@@ -1111,6 +1217,7 @@ impl CompiledGuide for FacetRowGuide {
             max_left: max_left_child,
             max_right: max_right_child,
             has_unified_y_title: self.unified_y_title.is_some(),
+            has_unified_x_title: self.unified_x_title.is_some(),
             facet_scale_sharing,
         };
         let parent_ctx = FacetContext::from_params(params);
@@ -1216,6 +1323,56 @@ impl CompiledGuide for FacetRowGuide {
             }
         }
 
+        // Render unified x-axis title if visibility allows
+        // (visibility struct already checked parent_unified_x and is_bottom_edge)
+        if let Some(x_title) = &self.unified_x_title {
+            if !visibility.render_unified_x_title {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetRowGuide SKIP unified_x_title='{}' (parent already unified x or not bottom edge)",
+                        x_title
+                    );
+                }
+            } else {
+                use crate::facet::guide_utils::{
+                    UnifiedTitleRenderConfig, render_unified_axis_title,
+                };
+                use crate::cartesian::axis::AxisPosition as CartesianAxisPosition;
+
+                let gap = 6.0_f32;
+                let x_center = plot_bounds.x + 0.5 * plot_width;
+                let x_axis_at_top = matches!(x_axis_position, Some(CartesianAxisPosition::Top));
+
+                // Position at top or bottom based on x-axis position
+                let (y_pos, axis_at_far_edge) = if x_axis_at_top {
+                    // Title at top: position above the plot and top overflow
+                    (plot_bounds.y - max_top_child - gap, false)
+                } else {
+                    // Title at bottom: position below the plot and bottom overflow
+                    (plot_bounds.y + plot_height + max_bottom_child + gap, true)
+                };
+
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetRowGuide RENDER unified_x_title='{}' at x={:.3} y={:.3} (x_axis_at_top={} plot_bounds.y={:.3} plot_height={:.3} max_top={:.3} max_bottom={:.3} gap={:.3})",
+                        x_title, x_center, y_pos, x_axis_at_top, plot_bounds.y, plot_height, max_top_child, max_bottom_child, gap
+                    );
+                }
+
+                let title_config = UnifiedTitleRenderConfig {
+                    title: x_title.clone(),
+                    font_family: title_font_family.clone(),
+                    font_size_px: title_font_px,
+                    x: x_center,
+                    y: y_pos,
+                    angle: 0.0, // Horizontal, not rotated
+                    axis_at_far_edge,
+                };
+                let x_mark = render_unified_axis_title(&title_config, theme, params);
+                marks.push(SceneMark::Text(StdArc::new(x_mark)));
+            }
+        }
+
         Ok(marks)
     }
 
@@ -1279,7 +1436,15 @@ impl CompiledGuide for FacetRowGuide {
 
     fn unifies_channel(&self, channel: &str) -> bool {
         // FacetRowGuide unifies the y-channel (suppresses y-axis titles in subplots)
-        channel == RowDimensionConfig::unified_title_channel()
+        // It also unifies x-channel if unified_x_title is set (from nested FacetRow case)
+        if channel == RowDimensionConfig::unified_title_channel() {
+            return true;
+        }
+        // Unify x if we have a unified_x_title (nested FacetRow case)
+        if channel == "x" && self.unified_x_title.is_some() {
+            return true;
+        }
+        false
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
