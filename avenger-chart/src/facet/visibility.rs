@@ -433,7 +433,20 @@ impl FacetColVisibility {
         // Unified y title is rendered only if:
         // 1. A unified y title is configured
         // 2. Parent hasn't already unified y
-        let render_unified_y_title = input.has_unified_y_title && !parent_unified_y;
+        // 3. We're at the global left edge (for same-type Col>Col nesting with Level(N) y sharing)
+        //
+        // For same-type Col nesting (Col>Col>Col>Col), the y channel is globally tracked,
+        // meaning we should only show the unified y title at the absolute leftmost column.
+        // We check if y is tracked AND if we're at the global left edge.
+        let is_y_globally_tracked = parent_ctx
+            .map(|ctx| ctx.global_edge_tracked_channels.contains("y"))
+            .unwrap_or(false);
+        let at_global_left_edge = parent_ctx
+            .map(|ctx| ctx.global_edge_channels.contains("y"))
+            .unwrap_or(true); // No parent = at global edge
+        let render_unified_y_title = input.has_unified_y_title
+            && !parent_unified_y
+            && (!is_y_globally_tracked || at_global_left_edge);
 
         Self {
             place_below,
