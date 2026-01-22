@@ -502,6 +502,14 @@ pub struct FacetCoordinationContext {
     #[serde(default)]
     pub outer_count: usize,
 
+    /// The channel type of the outer facet (e.g., "row" or "column")
+    ///
+    /// Used to detect same-type nesting (Row>Row or Col>Col) vs cross-type nesting.
+    /// In same-type nesting, the orthogonal dimension is always 1.
+    /// In cross-type nesting, outer_position represents the orthogonal dimension.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outer_channel: Option<String>,
+
     /// Per-row overflow measurements across all columns (for nested coordination)
     ///
     /// When outer facet measures all inner facets, it computes max overflow
@@ -701,6 +709,7 @@ impl Default for FacetCoordinationContext {
             guide_ownership: GuideOwnership::Full,
             outer_position: 0,
             outer_count: 0,
+            outer_channel: None,
             row_overflow_by_index: None,
             enable_empty_cell_fallback: false,
             inner_domain_count: 0,
@@ -752,6 +761,7 @@ impl FacetCoordinationContext {
             guide_ownership,
             outer_position,
             outer_count,
+            outer_channel: None,
             row_overflow_by_index: None,
             enable_empty_cell_fallback: false,
             inner_domain_count,
@@ -793,6 +803,16 @@ impl FacetCoordinationContext {
     /// to the outer facet so it can account for the total inner spacing.
     pub fn with_inner_facet_spacing(mut self, spacing: f32) -> Self {
         self.inner_facet_spacing = Some(spacing);
+        self
+    }
+
+    /// Builder: Set the outer facet's channel type ("row" or "column")
+    ///
+    /// Used to detect same-type nesting (Row>Row or Col>Col) vs cross-type nesting.
+    /// In same-type nesting, the inner facet always has orthogonal dimension of 1.
+    /// In cross-type nesting, outer_position represents the orthogonal dimension.
+    pub fn with_outer_channel(mut self, channel: impl Into<String>) -> Self {
+        self.outer_channel = Some(channel.into());
         self
     }
 

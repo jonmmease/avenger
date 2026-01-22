@@ -120,7 +120,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     compiled_subplot: &Arc<CompiledPlot>,
     df: &DataFrame,
     ctx: &SessionContext,
-    _outer_is_row_facet: bool,
+    outer_is_row_facet: bool,
     outer_facet_expr: &datafusion::logical_expr::Expr,
     params: &indexmap::IndexMap<String, ScalarValue>,
     incoming_coord_ctx: Option<&FacetCoordinationContext>,
@@ -461,6 +461,9 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
         0 // Use 0 to indicate filtered data domain
     };
 
+    // Determine outer facet's channel for same-type nesting detection
+    let outer_channel = if outer_is_row_facet { "row" } else { "column" };
+
     let mut coord_ctx = FacetCoordinationContext::new(
         inner_channel,        // Channel name ("row" or "column") for the inner facet
         inner_scale_sharing,  // Scale sharing mode
@@ -468,7 +471,8 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
         0,                    // outer_position - will be set per-subplot in work_items
         0,                    // outer_count - will be set per-subplot in work_items
         inner_domain_count,   // Domain count: >0 for shared domain, 0 for filtered
-    );
+    )
+    .with_outer_channel(outer_channel);
 
     // Conditionally propagate domain for grid-like behavior
     if should_share_domain {

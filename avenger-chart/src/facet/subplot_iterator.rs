@@ -202,43 +202,64 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                 // When phantoms are prepended, actual data starts at position phantom_prepend_count
                 let adjusted_index = index + coord_ctx.phantom_prepend_count;
 
+                // Check if this is same-type nesting (Row>Row or Col>Col)
+                // In same-type nesting, the orthogonal dimension is always 1
+                // We detect same-type by checking if the outer facet's channel matches this facet type.
+                let is_same_type = coord_ctx
+                    .outer_channel
+                    .as_ref()
+                    .map(|outer| outer == current_channel)
+                    .unwrap_or(false);
+
                 let (pos, dims) = if DimConfig::is_row_facet() {
                     // This is FacetRow inside another facet
-                    // position: (row_index, column_position_from_outer)
-                    // grid_dimensions: (num_rows, num_columns_from_outer)
                     let row = adjusted_index;
-                    let col = coord_ctx.outer_position;
-                    let num_rows = inner_count;
-                    // Use outer_count if valid, otherwise 1 (for same-type nesting like Row > Row)
-                    let num_cols = if coord_ctx.outer_count > 0 {
-                        coord_ctx.outer_count
+                    if is_same_type {
+                        // Row inside Row: all rows are in column 0
+                        // position: (row_index, 0)
+                        // grid_dimensions: (num_rows, 1)
+                        ((row, 0), (inner_count, 1))
                     } else {
-                        1
-                    };
-                    ((row, col), (num_rows, num_cols))
+                        // Row inside Column (cross-type nesting)
+                        // position: (row_index, column_position_from_outer)
+                        // grid_dimensions: (num_rows, num_columns_from_outer)
+                        let col = coord_ctx.outer_position;
+                        let num_cols = if coord_ctx.outer_count > 0 {
+                            coord_ctx.outer_count
+                        } else {
+                            1
+                        };
+                        ((row, col), (inner_count, num_cols))
+                    }
                 } else {
                     // This is FacetColumn inside another facet
-                    // position: (row_position_from_outer, column_index)
-                    // grid_dimensions: (num_rows_from_outer, num_columns)
-                    let row = coord_ctx.outer_position;
                     let col = adjusted_index;
-                    // Use outer_count if valid, otherwise 1 (for same-type nesting like Col > Col)
-                    let num_rows = if coord_ctx.outer_count > 0 {
-                        coord_ctx.outer_count
+                    if is_same_type {
+                        // Col inside Col: all columns are in row 0
+                        // position: (0, col_index)
+                        // grid_dimensions: (1, num_cols)
+                        ((0, col), (1, inner_count))
                     } else {
-                        1
-                    };
-                    let num_cols = inner_count;
-                    ((row, col), (num_rows, num_cols))
+                        // Column inside Row (cross-type nesting)
+                        // position: (row_position_from_outer, column_index)
+                        // grid_dimensions: (num_rows_from_outer, num_columns)
+                        let row = coord_ctx.outer_position;
+                        let num_rows = if coord_ctx.outer_count > 0 {
+                            coord_ctx.outer_count
+                        } else {
+                            1
+                        };
+                        ((row, col), (num_rows, inner_count))
+                    }
                 };
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     eprintln!(
-                        "SubplotIterator: channel={} inner_channel={:?} coord matched! outer_pos={} outer_count={} inner_domain_count={} -> position=({},{}) grid=({},{})",
+                        "SubplotIterator: channel={} inner_channel={:?} is_same_type={} coord matched! outer_pos={} outer_count={} -> position=({},{}) grid=({},{})",
                         current_channel,
                         coord_ctx.inner_channel,
+                        is_same_type,
                         coord_ctx.outer_position,
                         coord_ctx.outer_count,
-                        coord_ctx.inner_domain_count,
                         pos.0,
                         pos.1,
                         dims.0,
