@@ -325,6 +325,22 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             }
         }
 
+        // Check if parent FacetContext exists and indicates same-type nesting
+        // This is used for both global edge tracking and unified_channels modification
+        let parent_facet_ctx = FacetContext::from_params(&self.base_params);
+        let is_same_type_nesting = {
+            let default_unified: std::collections::HashSet<&str> =
+                DimConfig::unified_channels().iter().copied().collect();
+            parent_facet_ctx
+                .as_ref()
+                .map(|ctx| {
+                    default_unified
+                        .iter()
+                        .any(|ch| ctx.unified_channels.contains(*ch))
+                })
+                .unwrap_or(false)
+        };
+
         // Compute global_edge_tracked_channels and global_edge_channels for same-type nesting.
         // global_edge_tracked_channels: channels using global edge logic (not filtered by position)
         // global_edge_channels: subset that are actually at the global edge position
@@ -341,17 +357,8 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                 .cloned()
                 .collect();
 
-            // Check if parent FacetContext exists and indicates same-type nesting
-            let parent_ctx = FacetContext::from_params(&self.base_params);
-            let is_same_type_nesting = parent_ctx
-                .as_ref()
-                .map(|ctx| {
-                    // Same-type nesting: parent also has the default channel unified
-                    default_unified
-                        .iter()
-                        .any(|ch| ctx.unified_channels.contains(*ch))
-                })
-                .unwrap_or(false);
+            // Use the pre-computed same-type nesting detection
+            let parent_ctx = parent_facet_ctx.as_ref();
 
             // For same-type nesting, also check if orthogonal channel has Level(2+) sharing.
             // Level(2+) means sharing across multiple nesting levels, so we need global edge logic.
@@ -448,6 +455,19 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                 (std::collections::HashSet::new(), std::collections::HashSet::new())
             }
         };
+
+        // For same-type nesting (Col>Col or Row>Row) with Level(2+) orthogonal channel sharing,
+        // add that channel to unified_channels to suppress subplot axis titles.
+        // The facet guide handles the unified title rendering at the global edge.
+        // Only do this when:
+        // 1. We're in same-type nesting (parent has the same default unified channels as us)
+        // 2. Global edge tracking is active for the channel
+        // For mixed nesting (Col>Row>Col), the Row facet handles unified y, so don't add here.
+        if is_same_type_nesting {
+            for ch in &global_edge_tracked_channels {
+                unified_channels.insert(ch.clone());
+            }
+        }
 
         let facet_ctx = FacetContext {
             position,
