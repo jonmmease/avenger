@@ -84,6 +84,17 @@ pub struct FacetContext {
     #[serde(deserialize_with = "deserialize_scale_sharing")]
     pub scale_sharing: HashMap<String, ScaleSharing>,
 
+    /// Channels that use global edge logic for label visibility.
+    ///
+    /// This tracks which channels (like "x" in Row>Row nesting) should only show
+    /// tick labels at the absolute edge of the entire grid. Unlike `global_edge_channels`,
+    /// this set is NOT filtered by position - it stays constant across all positions.
+    ///
+    /// A channel in this set will have its labels hidden unless the subplot is at
+    /// the global edge for that channel.
+    #[serde(default)]
+    pub global_edge_tracked_channels: HashSet<String>,
+
     /// Channels that are at the GLOBAL edge for their relevant axis position.
     ///
     /// For unified channels (like x in Row>Row>Row nesting), tick labels should only
@@ -240,18 +251,19 @@ impl FacetContext {
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "should_show_labels: channel={} position={:?} sharing_mode={:?} is_unified={} scale_is_shared={} at_global_edge={} grid_pos=({},{}) grid_dims=({},{})",
-                channel, position, sharing_mode, is_unified, scale_is_shared, at_global_edge, row, col, num_rows, num_cols
+                "should_show_labels: channel={} position={:?} sharing_mode={:?} is_unified={} scale_is_shared={} at_global_edge={} grid_pos=({},{}) grid_dims=({},{}) unified_channels={:?} global_edge_tracked={:?} global_edge_channels={:?}",
+                channel, position, sharing_mode, is_unified, scale_is_shared, at_global_edge, row, col, num_rows, num_cols, self.unified_channels, self.global_edge_tracked_channels, self.global_edge_channels
             );
         }
 
-        // If channel is unified AND scale is shared AND global edge tracking is active,
-        // only show labels at GLOBAL edge.
-        // This ensures tick labels appear only next to the unified axis title in same-type nesting.
-        // But if scale is Free, show labels on all subplots since they have independent scales.
-        // Note: Only apply global edge logic if global_edge_channels is non-empty (tracking is active).
-        // An empty global_edge_channels means we're in a context that doesn't track global edges.
-        if is_unified && scale_is_shared && !self.global_edge_channels.is_empty() {
+        // Global edge logic for same-type nesting (Row>Row or Col>Col):
+        // Channels in global_edge_tracked_channels should only show labels at global edges.
+        // The global_edge_channels set tracks which of those are actually at the edge position.
+        let is_globally_tracked = self.global_edge_tracked_channels.contains(channel);
+
+        // If channel is globally tracked and scale is shared, apply global edge logic
+        if is_globally_tracked && scale_is_shared {
+            // Only show labels if at global edge AND on relevant local edge
             return at_global_edge && self.is_on_relevant_edge(channel, position);
         }
 
@@ -304,6 +316,7 @@ impl FacetContext {
             grid_dimensions: D::build_grid_dimensions(num_cells, parent_other_dim),
             unified_channels,
             scale_sharing,
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         }
     }
@@ -327,6 +340,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: unified_channels.clone(),
             scale_sharing,
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
 
@@ -353,6 +367,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels,
             scale_sharing: HashMap::new(),
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
 
@@ -369,6 +384,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing: HashMap::new(),
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
 
@@ -386,6 +402,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing: HashMap::new(),
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
         assert!(ctx_bottom.is_on_relevant_edge("x", AxisPosition::Bottom));
@@ -397,6 +414,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing: HashMap::new(),
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
         assert!(!ctx_top.is_on_relevant_edge("x", AxisPosition::Bottom));
@@ -413,6 +431,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels,
             scale_sharing: HashMap::new(),
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
 
@@ -433,6 +452,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: unified_channels_bottom,
             scale_sharing: HashMap::new(),
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
 
@@ -453,6 +473,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing: scale_sharing.clone(),
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
 
@@ -470,6 +491,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing,
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
 
@@ -491,6 +513,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: unified_channels.clone(),
             scale_sharing: HashMap::new(),
+            global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
         };
 

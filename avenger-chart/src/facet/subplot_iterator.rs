@@ -304,10 +304,10 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             }
         }
 
-        // Compute global_edge_channels for same-type nesting with unified titles.
-        // This ensures that in Row>Row>Row nesting with unified_x_title, x-axis labels
-        // only appear on the absolute bottom row, not at intermediate boundaries.
-        let global_edge_channels = {
+        // Compute global_edge_tracked_channels and global_edge_channels for same-type nesting.
+        // global_edge_tracked_channels: channels using global edge logic (not filtered by position)
+        // global_edge_channels: subset that are actually at the global edge position
+        let (global_edge_tracked_channels, global_edge_channels) = {
             // Get the default unified channels for this facet type
             let default_unified: std::collections::HashSet<&str> =
                 DimConfig::unified_channels().iter().copied().collect();
@@ -332,49 +332,99 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
                 })
                 .unwrap_or(false);
 
+            // For same-type nesting, also check if orthogonal channel has Level(2+) sharing.
+            // Level(2+) means sharing across multiple nesting levels, so we need global edge logic.
+            // For Row faceting, orthogonal is "x"; for Col faceting, orthogonal is "y".
+            let orthogonal_channel = if DimConfig::is_row_facet() { "x" } else { "y" };
+            let orthogonal_has_multilevel_sharing = scale_sharing
+                .get(orthogonal_channel)
+                .map(|s| matches!(s, ScaleSharing::Level(n) if *n >= 2))
+                .unwrap_or(false);
+
+            // Channels that need global edge tracking: additional unified + orthogonal with Level(2+)
+            let mut channels_needing_global_edge = additional_unified.clone();
+            // Add orthogonal channel if it has multilevel sharing AND:
+            // - We're in same-type nesting (parent has default channel unified), OR
+            // - There's no parent (top level) - need to start tracking for child levels
+            if orthogonal_has_multilevel_sharing && (is_same_type_nesting || parent_ctx.is_none()) {
+                channels_needing_global_edge.insert(orthogonal_channel.to_string());
+            }
+
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
-                    "SubplotIterator global_edge: channel={} is_same_type={} additional_unified={:?} default_unified={:?} parent_unified={:?}",
+                    "SubplotIterator global_edge: channel={} is_same_type={} additional_unified={:?} orthogonal={} has_multilevel={} channels_needing={:?}",
                     DimConfig::channel_name(),
                     is_same_type_nesting,
                     additional_unified,
-                    default_unified,
-                    parent_ctx.as_ref().map(|c| &c.unified_channels)
+                    orthogonal_channel,
+                    orthogonal_has_multilevel_sharing,
+                    channels_needing_global_edge
                 );
             }
 
-            if is_same_type_nesting && !additional_unified.is_empty() {
-                // Same-type nesting with unified title(s)
-                // Inherit parent's global_edge_channels and filter by local edge
-                let parent_edge = parent_ctx
+            if is_same_type_nesting && !channels_needing_global_edge.is_empty() {
+                // Same-type nesting with channels needing global edge logic
+                // Inherit parent's tracked channels, adding any new ones we need to track
+                let mut tracked = parent_ctx
                     .as_ref()
-                    .map(|ctx| ctx.global_edge_channels.clone())
-                    .unwrap_or_else(|| additional_unified.clone());
+                    .map(|ctx| ctx.global_edge_tracked_channels.clone())
+                    .unwrap_or_default();
+                tracked.extend(channels_needing_global_edge.iter().cloned());
+
+                // Check if parent was already tracking global edges
+                let parent_was_tracking = parent_ctx
+                    .as_ref()
+                    .map(|ctx| !ctx.global_edge_tracked_channels.is_empty())
+                    .unwrap_or(false);
+
+                // Get parent's global_edge_channels - if parent wasn't tracking, start fresh
+                // If parent WAS tracking but has empty global_edge_channels, child inherits empty
+                let parent_edge = if parent_was_tracking {
+                    parent_ctx
+                        .as_ref()
+                        .map(|ctx| ctx.global_edge_channels.clone())
+                        .unwrap_or_default()
+                } else {
+                    // Parent wasn't tracking, so this is first level - start with all tracked
+                    channels_needing_global_edge.clone()
+                };
 
                 let (row, col) = position;
                 let (num_rows, _num_cols) = grid_dimensions;
 
-                // Only track additional unified channels (not default ones)
-                parent_edge
+                // Filter to only channels at local edge (and that we're tracking)
+                let at_edge: std::collections::HashSet<String> = parent_edge
                     .into_iter()
-                    .filter(|ch| additional_unified.contains(ch))
+                    .filter(|ch| tracked.contains(ch))
                     .filter(|ch| {
-                        // Keep only if at local edge for this channel
                         match ch.as_str() {
                             "x" => row == num_rows - 1, // Bottom edge
                             "y" => col == 0,           // Left edge
                             _ => true,
                         }
                     })
-                    .collect()
-            } else if parent_ctx.is_none() && !additional_unified.is_empty() {
-                // Top-level facet with unified title (no parent facet context)
-                // All additional channels start at global edge
-                additional_unified
+                    .collect();
+
+                (tracked, at_edge)
+            } else if parent_ctx.is_none() && !channels_needing_global_edge.is_empty() {
+                // Top-level facet with channels needing global edge (no parent facet context)
+                // Filter to only channels at edge based on position
+                let (row, col) = position;
+                let (num_rows, _num_cols) = grid_dimensions;
+                let at_edge: std::collections::HashSet<String> = channels_needing_global_edge
+                    .iter()
+                    .filter(|ch| match ch.as_str() {
+                        "x" => row == num_rows - 1, // Bottom edge
+                        "y" => col == 0,            // Left edge
+                        _ => true,
+                    })
+                    .cloned()
+                    .collect();
+                (channels_needing_global_edge, at_edge)
             } else {
-                // No unified title, not same-type nesting, or mixed nesting (e.g., Col>Row)
+                // No channels need global edge tracking
                 // Don't apply global edge logic
-                std::collections::HashSet::new()
+                (std::collections::HashSet::new(), std::collections::HashSet::new())
             }
         };
 
@@ -383,6 +433,7 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             grid_dimensions,
             unified_channels,
             scale_sharing,
+            global_edge_tracked_channels,
             global_edge_channels,
         };
 

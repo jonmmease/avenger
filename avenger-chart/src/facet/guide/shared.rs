@@ -171,57 +171,65 @@ pub fn compute_scale_sharing_from_marks(
 /// When the marks contain a nested facet (e.g., FacetRow inside FacetCol),
 /// we need to look at the INNERMOST subplot's marks to get the x/y channel
 /// scale sharing from the actual channel configurations (e.g., `.x_with(..., |c| c.with_scale_sharing(...))`).
+///
+/// This function recursively searches through all nesting levels to find x/y channel
+/// scale sharing from the deepest marks (e.g., Symbol, Line, etc.).
 pub fn compute_scale_sharing_for_nested_facet(
     marks: &[Arc<dyn CompiledMark>],
 ) -> HashMap<String, ScaleSharing> {
-    // First try the standard approach - this won't find x/y sharing for nested facets
-    // since the outer marks don't have x/y channels
-    let mut scale_sharing = compute_scale_sharing_from_marks(marks);
+    let mut scale_sharing = HashMap::new();
 
-    // Check if any mark is a nested facet and extract x/y sharing from its subplot
+    // Recursively extract scale sharing from marks
+    extract_scale_sharing_recursive(marks, &mut scale_sharing);
+
+    scale_sharing
+}
+
+/// Recursively extract x/y scale sharing from marks, traversing through nested facets.
+fn extract_scale_sharing_recursive(
+    marks: &[Arc<dyn CompiledMark>],
+    scale_sharing: &mut HashMap<String, ScaleSharing>,
+) {
     for m in marks {
         let mark_type = m.mark_type();
 
-        // Check for nested FacetRow (inside FacetCol)
+        // Check for nested FacetRow - recurse into its subplot
         if mark_type == "facet_row" {
             if let Some(facet_row) = m.as_any().downcast_ref::<CompiledFacetRow>() {
-                // Found a nested FacetRow - extract x/y sharing from its subplot's marks
-                let inner_marks = &facet_row.compiled_subplot.marks;
-                for inner_mark in inner_marks {
-                    let channels = inner_mark.data_context().channels();
-                    for channel_name in ["x", "y"] {
-                        if let Some(channel_value) = channels.get(channel_name) {
-                            let share_mode =
-                                channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
-                            scale_sharing.insert(channel_name.to_string(), share_mode);
-                        }
-                    }
-                }
-                break;
+                extract_scale_sharing_recursive(
+                    &facet_row.compiled_subplot.marks,
+                    scale_sharing,
+                );
+                continue;
             }
         }
 
-        // Check for nested FacetCol (inside FacetRow)
+        // Check for nested FacetCol - recurse into its subplot
         if mark_type == "facet_col" {
             if let Some(facet_col) = m.as_any().downcast_ref::<CompiledFacetCol>() {
-                // Found a nested FacetCol - extract x/y sharing from its subplot's marks
-                let inner_marks = &facet_col.compiled_subplot.marks;
-                for inner_mark in inner_marks {
-                    let channels = inner_mark.data_context().channels();
-                    for channel_name in ["x", "y"] {
-                        if let Some(channel_value) = channels.get(channel_name) {
-                            let share_mode =
-                                channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
-                            scale_sharing.insert(channel_name.to_string(), share_mode);
-                        }
-                    }
+                extract_scale_sharing_recursive(
+                    &facet_col.compiled_subplot.marks,
+                    scale_sharing,
+                );
+                continue;
+            }
+        }
+
+        // For non-facet marks, extract x/y channel scale sharing
+        let channels = m.data_context().channels();
+        for channel_name in ["x", "y"] {
+            if let Some(channel_value) = channels.get(channel_name) {
+                let share_mode = channel_value.get_share_mode().unwrap_or(ScaleSharing::Free);
+                // Only update if not Free (keep the most specific non-Free sharing mode)
+                if !share_mode.is_free() {
+                    scale_sharing.insert(channel_name.to_string(), share_mode);
+                } else if !scale_sharing.contains_key(channel_name) {
+                    // Set Free as default if no value set yet
+                    scale_sharing.insert(channel_name.to_string(), share_mode);
                 }
-                break;
             }
         }
     }
-
-    scale_sharing
 }
 
 /// Recursively check if marks contain a nested facet of the specified type.

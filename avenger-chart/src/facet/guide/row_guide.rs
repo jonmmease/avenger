@@ -359,28 +359,64 @@ impl FacetRowGuide {
                             // When phantoms are prepended, actual data starts at position phantom_prepend
                             let adjusted_row_idx = row_idx + phantom_prepend;
 
-                            // Compute global_edge_channels: inherit from parent ONLY if same-type nesting
-                            // Row's additional unified channel is "x" (when unified_x_title is set).
-                            // Only inherit if parent's global_edge_channels contains "x" (same-type: Row>Row).
-                            let global_edge_channels = if let Some(parent_ctx) = FacetContext::from_params(params) {
-                                // Check if parent's global_edge_channels has "x" (Row>Row same-type nesting)
-                                let is_same_type = parent_ctx.global_edge_channels.contains("x");
-                                if is_same_type {
+                            // Compute global_edge_tracked_channels and global_edge_channels
+                            // Row's orthogonal channel is "x". Track "x" for global edge if:
+                            // 1. Parent is already tracking "x" (from unified_x_title), OR
+                            // 2. "x" has Level(2+) sharing (multi-level sharing in same-type nesting)
+                            let x_has_multilevel_sharing = merged_scale_sharing
+                                .get("x")
+                                .map(|s| matches!(s, ScaleSharing::Level(n) if *n >= 2))
+                                .unwrap_or(false);
+
+                            let (global_edge_tracked_channels, global_edge_channels) = if let Some(parent_ctx) = FacetContext::from_params(params) {
+                                // Check if parent is tracking "x" OR if "x" has Level(2+) sharing
+                                let parent_tracking_x = parent_ctx.global_edge_tracked_channels.contains("x");
+                                let should_track_x = parent_tracking_x || x_has_multilevel_sharing;
+
+                                if should_track_x {
                                     let (row, col) = (adjusted_row_idx, parent_col);
                                     let (num_rows, _num_cols) = (grid_num_rows, parent_num_cols);
-                                    parent_ctx.global_edge_channels
+
+                                    // Start with parent's tracked channels
+                                    let mut tracked = parent_ctx.global_edge_tracked_channels.clone();
+                                    if x_has_multilevel_sharing {
+                                        tracked.insert("x".to_string());
+                                    }
+
+                                    // Inherit parent's global_edge_channels, or start fresh if parent wasn't tracking
+                                    let parent_edge = if parent_tracking_x {
+                                        parent_ctx.global_edge_channels.clone()
+                                    } else {
+                                        // Parent wasn't tracking, so all tracked channels start at edge
+                                        tracked.clone()
+                                    };
+
+                                    let at_edge = parent_edge
                                         .into_iter()
+                                        .filter(|ch| tracked.contains(ch))
                                         .filter(|ch| match ch.as_str() {
                                             "x" => row == num_rows - 1, // Bottom edge
                                             "y" => col == 0,           // Left edge
                                             _ => true,
                                         })
-                                        .collect()
+                                        .collect();
+                                    (tracked, at_edge)
+                                } else {
+                                    (std::collections::HashSet::new(), std::collections::HashSet::new())
+                                }
+                            } else if x_has_multilevel_sharing {
+                                // No parent but "x" has Level(2+) - start tracking at top level
+                                let mut tracked = std::collections::HashSet::new();
+                                tracked.insert("x".to_string());
+                                // Only mark as at-edge if at bottom row
+                                let at_edge: std::collections::HashSet<String> = if adjusted_row_idx == grid_num_rows - 1 {
+                                    tracked.clone()
                                 } else {
                                     std::collections::HashSet::new()
-                                }
+                                };
+                                (tracked, at_edge)
                             } else {
-                                std::collections::HashSet::new()
+                                (std::collections::HashSet::new(), std::collections::HashSet::new())
                             };
 
                             let facet_ctx = FacetContext {
@@ -388,6 +424,7 @@ impl FacetRowGuide {
                                 grid_dimensions: (grid_num_rows, parent_num_cols),
                                 unified_channels,
                                 scale_sharing: merged_scale_sharing,
+                                global_edge_tracked_channels,
                                 global_edge_channels,
                             };
                             let ctx_params = facet_ctx.to_params();
@@ -527,27 +564,62 @@ impl FacetRowGuide {
                                     unified_channels.insert(ch.clone());
                                 }
                             }
-                            // Compute global_edge_channels: inherit from parent ONLY if same-type nesting
-                            // Row's additional unified channel is "x" (when unified_x_title is set).
-                            // Only inherit if parent's global_edge_channels contains "x" (same-type: Row>Row).
-                            let global_edge_channels = if let Some(parent_ctx) = FacetContext::from_params(params) {
-                                // Check if parent's global_edge_channels has "x" (Row>Row same-type nesting)
-                                let is_same_type = parent_ctx.global_edge_channels.contains("x");
-                                if is_same_type {
+                            // Compute global_edge_tracked_channels and global_edge_channels
+                            // Row's orthogonal channel is "x". Track "x" for global edge if:
+                            // 1. Parent is already tracking "x" (from unified_x_title), OR
+                            // 2. "x" has Level(2+) sharing (multi-level sharing in same-type nesting)
+                            let x_has_multilevel_sharing = scale_sharing
+                                .get("x")
+                                .map(|s| matches!(s, ScaleSharing::Level(n) if *n >= 2))
+                                .unwrap_or(false);
+
+                            let (global_edge_tracked_channels, global_edge_channels) = if let Some(parent_ctx) = FacetContext::from_params(params) {
+                                // Check if parent is tracking "x" OR if "x" has Level(2+) sharing
+                                let parent_tracking_x = parent_ctx.global_edge_tracked_channels.contains("x");
+                                let should_track_x = parent_tracking_x || x_has_multilevel_sharing;
+
+                                if should_track_x {
                                     let (row, col) = (row_idx, 0);
-                                    parent_ctx.global_edge_channels
+
+                                    // Start with parent's tracked channels
+                                    let mut tracked = parent_ctx.global_edge_tracked_channels.clone();
+                                    if x_has_multilevel_sharing {
+                                        tracked.insert("x".to_string());
+                                    }
+
+                                    // Inherit parent's global_edge_channels, or start fresh if parent wasn't tracking
+                                    let parent_edge = if parent_tracking_x {
+                                        parent_ctx.global_edge_channels.clone()
+                                    } else {
+                                        tracked.clone()
+                                    };
+
+                                    let at_edge = parent_edge
                                         .into_iter()
+                                        .filter(|ch| tracked.contains(ch))
                                         .filter(|ch| match ch.as_str() {
                                             "x" => row == num_rows - 1, // Bottom edge
                                             "y" => col == 0,           // Left edge
                                             _ => true,
                                         })
-                                        .collect()
+                                        .collect();
+                                    (tracked, at_edge)
+                                } else {
+                                    (std::collections::HashSet::new(), std::collections::HashSet::new())
+                                }
+                            } else if x_has_multilevel_sharing {
+                                // No parent but "x" has Level(2+) - start tracking at top level
+                                let mut tracked = std::collections::HashSet::new();
+                                tracked.insert("x".to_string());
+                                // Only mark as at-edge if at bottom row
+                                let at_edge: std::collections::HashSet<String> = if row_idx == num_rows - 1 {
+                                    tracked.clone()
                                 } else {
                                     std::collections::HashSet::new()
-                                }
+                                };
+                                (tracked, at_edge)
                             } else {
-                                std::collections::HashSet::new()
+                                (std::collections::HashSet::new(), std::collections::HashSet::new())
                             };
 
                             let facet_ctx = FacetContext {
@@ -555,6 +627,7 @@ impl FacetRowGuide {
                                 grid_dimensions: (num_rows, 1),
                                 unified_channels,
                                 scale_sharing: scale_sharing.clone(),
+                                global_edge_tracked_channels,
                                 global_edge_channels,
                             };
                             let ctx_params = facet_ctx.to_params();

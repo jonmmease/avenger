@@ -33,6 +33,7 @@ use crate::facet::coordination::{
 };
 use crate::facet::coordination_strategy::CoordinationStrategy;
 use crate::facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig};
+use crate::facet::guide::compute_scale_sharing_for_nested_facet;
 use crate::facet::marks::facet::determine_facet_band_align;
 use crate::facet::nesting::detect_nested_facet_and_compute_coordination;
 use crate::facet::phantom_cells::PhantomPlacement;
@@ -2401,14 +2402,15 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // We compute TWO maps:
     // 1. scale_sharing_for_scales: Includes paired channels (x2/y2) for scale domain building.
     //    This ensures that if y2 has Level(1), the y-scale uses the unified domain.
-    // 2. scale_sharing_for_visibility: Only uses primary channel's sharing for axis visibility.
-    //    This ensures axis labels aren't hidden based on paired channel settings.
+    //    Uses shallow iteration (one level deep) since paired channel handling is local.
+    // 2. scale_sharing_for_visibility: Uses recursive extraction to find sharing in nested facets.
+    //    This ensures that for Col>Col>Col>Col with Level(4) y sharing, all levels see the
+    //    correct sharing mode for global edge computation.
     let mut scale_sharing_for_scales: HashMap<String, ScaleSharing> = HashMap::new();
-    let mut scale_sharing_for_visibility: HashMap<String, ScaleSharing> = HashMap::new();
 
+    // Compute scale_sharing_for_scales with paired channel handling (shallow iteration)
     for &ch in &required_channels {
         let mut max_level_for_scales: u8 = 0; // Includes paired channels
-        let mut max_level_for_visibility: u8 = 0; // Primary channel only
 
         // Determine the paired channel (x2 for x, y2 for y)
         let paired_ch = match ch {
@@ -2418,16 +2420,14 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         };
 
         for m in &compiled_subplot.marks {
-            // Check the primary channel (used for both scales and visibility)
+            // Check the primary channel
             if let Some(cv) = m.data_context().channels().get(ch) {
                 if let Some(share_mode) = cv.get_share_mode() {
                     let level = share_mode.to_level();
                     max_level_for_scales = max_level_for_scales.max(level);
-                    max_level_for_visibility = max_level_for_visibility.max(level);
                 }
             }
-            // Check the paired channel (x2/y2) - ONLY for scale domain building
-            // Visibility should only consider the primary channel's explicit settings
+            // Check the paired channel (x2/y2) - for scale domain building only
             if let Some(paired) = paired_ch {
                 if let Some(cv) = m.data_context().channels().get(paired) {
                     if let Some(share_mode) = cv.get_share_mode() {
@@ -2440,11 +2440,13 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             ch.to_string(),
             ScaleSharing::from_level(max_level_for_scales),
         );
-        scale_sharing_for_visibility.insert(
-            ch.to_string(),
-            ScaleSharing::from_level(max_level_for_visibility),
-        );
     }
+
+    // Compute scale_sharing_for_visibility using recursive extraction through nested facets.
+    // This ensures Level(N) sharing from deeply nested marks is visible at all nesting levels
+    // for correct global edge computation in SubplotIterator.
+    let scale_sharing_for_visibility =
+        compute_scale_sharing_for_nested_facet(&compiled_subplot.marks);
 
     // scale_sharing_by_channel is used for scale building (includes paired channels)
     let mut scale_sharing_by_channel: HashMap<String, ScaleSharing> = scale_sharing_for_scales;
