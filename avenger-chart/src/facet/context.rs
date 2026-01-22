@@ -83,6 +83,20 @@ pub struct FacetContext {
     /// Backward compatible via custom deserializer that accepts bool (true=Shared, false=Free)
     #[serde(deserialize_with = "deserialize_scale_sharing")]
     pub scale_sharing: HashMap<String, ScaleSharing>,
+
+    /// Channels that are at the GLOBAL edge for their relevant axis position.
+    ///
+    /// For unified channels (like x in Row>Row>Row nesting), tick labels should only
+    /// appear at the absolute edge of the entire grid, not at intermediate edges.
+    /// This field tracks which channels are at their global edge position.
+    ///
+    /// When creating child contexts, a channel stays in this set only if:
+    /// 1. It was in the parent's global_edge_channels (or unified_channels if no parent)
+    /// 2. The current position is at the local edge for that channel
+    ///
+    /// If a channel is unified but NOT in global_edge_channels, its labels are hidden.
+    #[serde(default)]
+    pub global_edge_channels: HashSet<String>,
 }
 
 impl FacetContext {
@@ -199,6 +213,7 @@ impl FacetContext {
     /// Determine if axis labels should be shown
     ///
     /// Label visibility rules:
+    /// - If channel is unified AND has shared scale (same-type nesting): only show at GLOBAL edge
     /// - Free: always show (values differ per subplot)
     /// - Shared: only show on relevant edge (values are the same)
     /// - SharedInRow: for y-axis, show on left/right edges; for x-axis, use edge logic
@@ -212,11 +227,32 @@ impl FacetContext {
         let (row, col) = self.position;
         let (num_rows, num_cols) = self.grid_dimensions;
 
+        // Check if channel is unified (e.g., x-axis in Row>Row nesting)
+        let is_unified = self.is_channel_unified(channel);
+        let at_global_edge = self.global_edge_channels.contains(channel);
+
+        // Scale is considered shared if it's Shared or Level > 0
+        let scale_is_shared = match sharing_mode {
+            ScaleSharing::Free => false,
+            ScaleSharing::Shared => true,
+            ScaleSharing::Level(n) => n > 0,
+        };
+
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "should_show_labels: channel={} position={:?} sharing_mode={:?} grid_pos=({},{}) grid_dims=({},{})",
-                channel, position, sharing_mode, row, col, num_rows, num_cols
+                "should_show_labels: channel={} position={:?} sharing_mode={:?} is_unified={} scale_is_shared={} at_global_edge={} grid_pos=({},{}) grid_dims=({},{})",
+                channel, position, sharing_mode, is_unified, scale_is_shared, at_global_edge, row, col, num_rows, num_cols
             );
+        }
+
+        // If channel is unified AND scale is shared AND global edge tracking is active,
+        // only show labels at GLOBAL edge.
+        // This ensures tick labels appear only next to the unified axis title in same-type nesting.
+        // But if scale is Free, show labels on all subplots since they have independent scales.
+        // Note: Only apply global edge logic if global_edge_channels is non-empty (tracking is active).
+        // An empty global_edge_channels means we're in a context that doesn't track global edges.
+        if is_unified && scale_is_shared && !self.global_edge_channels.is_empty() {
+            return at_global_edge && self.is_on_relevant_edge(channel, position);
         }
 
         match sharing_mode {
@@ -268,6 +304,7 @@ impl FacetContext {
             grid_dimensions: D::build_grid_dimensions(num_cells, parent_other_dim),
             unified_channels,
             scale_sharing,
+            global_edge_channels: HashSet::new(),
         }
     }
 }
@@ -290,6 +327,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: unified_channels.clone(),
             scale_sharing,
+            global_edge_channels: HashSet::new(),
         };
 
         // Test to_params
@@ -315,6 +353,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels,
             scale_sharing: HashMap::new(),
+            global_edge_channels: HashSet::new(),
         };
 
         assert!(ctx.is_channel_unified("y"));
@@ -330,6 +369,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing: HashMap::new(),
+            global_edge_channels: HashSet::new(),
         };
 
         // X-axis: not on edge for middle row
@@ -346,6 +386,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing: HashMap::new(),
+            global_edge_channels: HashSet::new(),
         };
         assert!(ctx_bottom.is_on_relevant_edge("x", AxisPosition::Bottom));
         assert!(!ctx_bottom.is_on_relevant_edge("x", AxisPosition::Top));
@@ -356,6 +397,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing: HashMap::new(),
+            global_edge_channels: HashSet::new(),
         };
         assert!(!ctx_top.is_on_relevant_edge("x", AxisPosition::Bottom));
         assert!(ctx_top.is_on_relevant_edge("x", AxisPosition::Top));
@@ -371,6 +413,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels,
             scale_sharing: HashMap::new(),
+            global_edge_channels: HashSet::new(),
         };
 
         // Y-axis unified: never show title on subplot
@@ -390,6 +433,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: unified_channels_bottom,
             scale_sharing: HashMap::new(),
+            global_edge_channels: HashSet::new(),
         };
 
         // X-axis on bottom edge: show
@@ -409,6 +453,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing: scale_sharing.clone(),
+            global_edge_channels: HashSet::new(),
         };
 
         // X-axis shared, middle row: don't show labels
@@ -425,6 +470,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: HashSet::new(),
             scale_sharing,
+            global_edge_channels: HashSet::new(),
         };
 
         // X-axis shared, bottom edge: show labels
@@ -445,6 +491,7 @@ mod tests {
             grid_dimensions: (3, 1),
             unified_channels: unified_channels.clone(),
             scale_sharing: HashMap::new(),
+            global_edge_channels: HashSet::new(),
         };
 
         let params = ctx.to_params();

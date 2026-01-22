@@ -304,12 +304,94 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             }
         }
 
+        // Compute global_edge_channels for same-type nesting with unified titles.
+        // This ensures that in Row>Row>Row nesting with unified_x_title, x-axis labels
+        // only appear on the absolute bottom row, not at intermediate boundaries.
+        let global_edge_channels = {
+            // Get the default unified channels for this facet type
+            let default_unified: std::collections::HashSet<&str> =
+                DimConfig::unified_channels().iter().copied().collect();
+
+            // Find additional unified channels (from unified_x_title or unified_y_title)
+            // These are channels in unified_channels that are NOT in the default set
+            let additional_unified: std::collections::HashSet<String> = unified_channels
+                .iter()
+                .filter(|ch| !default_unified.contains(ch.as_str()))
+                .cloned()
+                .collect();
+
+            // Check if parent FacetContext exists and indicates same-type nesting
+            let parent_ctx = FacetContext::from_params(&self.base_params);
+            let is_same_type_nesting = parent_ctx
+                .as_ref()
+                .map(|ctx| {
+                    // Same-type nesting: parent also has the default channel unified
+                    default_unified
+                        .iter()
+                        .any(|ch| ctx.unified_channels.contains(*ch))
+                })
+                .unwrap_or(false);
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "SubplotIterator global_edge: channel={} is_same_type={} additional_unified={:?} default_unified={:?} parent_unified={:?}",
+                    DimConfig::channel_name(),
+                    is_same_type_nesting,
+                    additional_unified,
+                    default_unified,
+                    parent_ctx.as_ref().map(|c| &c.unified_channels)
+                );
+            }
+
+            if is_same_type_nesting && !additional_unified.is_empty() {
+                // Same-type nesting with unified title(s)
+                // Inherit parent's global_edge_channels and filter by local edge
+                let parent_edge = parent_ctx
+                    .as_ref()
+                    .map(|ctx| ctx.global_edge_channels.clone())
+                    .unwrap_or_else(|| additional_unified.clone());
+
+                let (row, col) = position;
+                let (num_rows, _num_cols) = grid_dimensions;
+
+                // Only track additional unified channels (not default ones)
+                parent_edge
+                    .into_iter()
+                    .filter(|ch| additional_unified.contains(ch))
+                    .filter(|ch| {
+                        // Keep only if at local edge for this channel
+                        match ch.as_str() {
+                            "x" => row == num_rows - 1, // Bottom edge
+                            "y" => col == 0,           // Left edge
+                            _ => true,
+                        }
+                    })
+                    .collect()
+            } else if parent_ctx.is_none() && !additional_unified.is_empty() {
+                // Top-level facet with unified title (no parent facet context)
+                // All additional channels start at global edge
+                additional_unified
+            } else {
+                // No unified title, not same-type nesting, or mixed nesting (e.g., Col>Row)
+                // Don't apply global edge logic
+                std::collections::HashSet::new()
+            }
+        };
+
         let facet_ctx = FacetContext {
             position,
             grid_dimensions,
             unified_channels,
             scale_sharing,
+            global_edge_channels,
         };
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && !facet_ctx.global_edge_channels.is_empty() {
+            eprintln!(
+                "SubplotIterator: created FacetContext with global_edge_channels={:?} position={:?}",
+                facet_ctx.global_edge_channels, facet_ctx.position
+            );
+        }
 
         // Merge FacetContext into params
         let mut params = self.base_params.clone();

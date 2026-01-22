@@ -264,6 +264,35 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                 let mut updated_params = params.clone();
                 let position = D::index_to_position(cell_idx);
                 let grid_dimensions = D::count_to_grid_dimensions(num_cells);
+
+                // Compute global_edge_channels: inherit from parent ONLY if same-type nesting
+                // For Row (default="y"), additional unified channel is "x" - inherit if parent has "x"
+                // For Col (default="x"), additional unified channel is "y" - inherit if parent has "y"
+                let default_unified: std::collections::HashSet<&str> =
+                    D::unified_channels().iter().copied().collect();
+                let additional_channel = if default_unified.contains(&"y") { "x" } else { "y" };
+                let global_edge_channels = if let Some(parent_ctx) = FacetContext::from_params(params) {
+                    // Only inherit if parent's global_edge_channels contains our additional channel
+                    let is_same_type = parent_ctx.global_edge_channels.contains(additional_channel);
+                    if is_same_type {
+                        // Filter parent's global_edge_channels to only channels where we're at edge
+                        let (row, col) = position;
+                        let (num_rows, _num_cols) = grid_dimensions;
+                        parent_ctx.global_edge_channels
+                            .into_iter()
+                            .filter(|ch| match ch.as_str() {
+                                "x" => row == num_rows - 1, // Bottom edge
+                                "y" => col == 0,           // Left edge
+                                _ => true,
+                            })
+                            .collect()
+                    } else {
+                        std::collections::HashSet::new()
+                    }
+                } else {
+                    std::collections::HashSet::new()
+                };
+
                 let facet_ctx = FacetContext {
                     position,
                     grid_dimensions,
@@ -272,6 +301,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                         .map(|s| s.to_string())
                         .collect(),
                     scale_sharing: scale_sharing.clone(),
+                    global_edge_channels,
                 };
                 for (k, v) in facet_ctx.to_params() {
                     updated_params.insert(k, v);
@@ -444,14 +474,44 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                 let mut updated_params = pass2_params.clone();
                 let position = D::index_to_position(cell_idx);
                 let grid_dimensions = D::count_to_grid_dimensions(num_cells);
+                let unified_channels: std::collections::HashSet<String> = D::unified_channels()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+
+                // Compute global_edge_channels: inherit from parent ONLY if same-type nesting
+                // For Row (default="y"), additional unified channel is "x" - inherit if parent has "x"
+                // For Col (default="x"), additional unified channel is "y" - inherit if parent has "y"
+                let default_unified: std::collections::HashSet<&str> =
+                    D::unified_channels().iter().copied().collect();
+                let additional_channel = if default_unified.contains(&"y") { "x" } else { "y" };
+                let global_edge_channels = if let Some(parent_ctx) = FacetContext::from_params(&pass2_params) {
+                    // Only inherit if parent's global_edge_channels contains our additional channel
+                    let is_same_type = parent_ctx.global_edge_channels.contains(additional_channel);
+                    if is_same_type {
+                        let (row, col) = position;
+                        let (num_rows, _num_cols) = grid_dimensions;
+                        parent_ctx.global_edge_channels
+                            .into_iter()
+                            .filter(|ch| match ch.as_str() {
+                                "x" => row == num_rows - 1,
+                                "y" => col == 0,
+                                _ => true,
+                            })
+                            .collect()
+                    } else {
+                        std::collections::HashSet::new()
+                    }
+                } else {
+                    std::collections::HashSet::new()
+                };
+
                 let facet_ctx = FacetContext {
                     position,
                     grid_dimensions,
-                    unified_channels: D::unified_channels()
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect(),
+                    unified_channels,
                     scale_sharing: scale_sharing.clone(),
+                    global_edge_channels,
                 };
                 for (k, v) in facet_ctx.to_params() {
                     updated_params.insert(k, v);

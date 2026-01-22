@@ -359,11 +359,36 @@ impl FacetRowGuide {
                             // When phantoms are prepended, actual data starts at position phantom_prepend
                             let adjusted_row_idx = row_idx + phantom_prepend;
 
+                            // Compute global_edge_channels: inherit from parent ONLY if same-type nesting
+                            // Row's additional unified channel is "x" (when unified_x_title is set).
+                            // Only inherit if parent's global_edge_channels contains "x" (same-type: Row>Row).
+                            let global_edge_channels = if let Some(parent_ctx) = FacetContext::from_params(params) {
+                                // Check if parent's global_edge_channels has "x" (Row>Row same-type nesting)
+                                let is_same_type = parent_ctx.global_edge_channels.contains("x");
+                                if is_same_type {
+                                    let (row, col) = (adjusted_row_idx, parent_col);
+                                    let (num_rows, _num_cols) = (grid_num_rows, parent_num_cols);
+                                    parent_ctx.global_edge_channels
+                                        .into_iter()
+                                        .filter(|ch| match ch.as_str() {
+                                            "x" => row == num_rows - 1, // Bottom edge
+                                            "y" => col == 0,           // Left edge
+                                            _ => true,
+                                        })
+                                        .collect()
+                                } else {
+                                    std::collections::HashSet::new()
+                                }
+                            } else {
+                                std::collections::HashSet::new()
+                            };
+
                             let facet_ctx = FacetContext {
                                 position: (adjusted_row_idx, parent_col),
                                 grid_dimensions: (grid_num_rows, parent_num_cols),
                                 unified_channels,
                                 scale_sharing: merged_scale_sharing,
+                                global_edge_channels,
                             };
                             let ctx_params = facet_ctx.to_params();
                             for (k, v) in ctx_params {
@@ -502,11 +527,35 @@ impl FacetRowGuide {
                                     unified_channels.insert(ch.clone());
                                 }
                             }
+                            // Compute global_edge_channels: inherit from parent ONLY if same-type nesting
+                            // Row's additional unified channel is "x" (when unified_x_title is set).
+                            // Only inherit if parent's global_edge_channels contains "x" (same-type: Row>Row).
+                            let global_edge_channels = if let Some(parent_ctx) = FacetContext::from_params(params) {
+                                // Check if parent's global_edge_channels has "x" (Row>Row same-type nesting)
+                                let is_same_type = parent_ctx.global_edge_channels.contains("x");
+                                if is_same_type {
+                                    let (row, col) = (row_idx, 0);
+                                    parent_ctx.global_edge_channels
+                                        .into_iter()
+                                        .filter(|ch| match ch.as_str() {
+                                            "x" => row == num_rows - 1, // Bottom edge
+                                            "y" => col == 0,           // Left edge
+                                            _ => true,
+                                        })
+                                        .collect()
+                                } else {
+                                    std::collections::HashSet::new()
+                                }
+                            } else {
+                                std::collections::HashSet::new()
+                            };
+
                             let facet_ctx = FacetContext {
                                 position: (row_idx, 0), // Correct row position
                                 grid_dimensions: (num_rows, 1),
                                 unified_channels,
                                 scale_sharing: scale_sharing.clone(),
+                                global_edge_channels,
                             };
                             let ctx_params = facet_ctx.to_params();
                             for (k, v) in ctx_params {
