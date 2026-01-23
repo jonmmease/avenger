@@ -9,7 +9,8 @@ use crate::facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig};
 use crate::facet::guide::measurement::{AsyncMeasureOverflowFn, measure_with_coordination_impl};
 use crate::facet::guide::shared::{
     FacetSource, aggregate_cached_overflow, apply_shared_overflow_coordination,
-    compute_scale_sharing_for_nested_facet, default_overflow_fallback,
+    build_partition_for_facet, compute_scale_sharing_for_nested_facet, default_overflow_fallback,
+    extend_partition_list,
 };
 use crate::facet::phantom_cells::PhantomPlacement;
 use crate::facet::scalar_cmp::scalar_total_cmp;
@@ -60,6 +61,48 @@ impl FacetRowGuide {
         };
         // Sort to ensure deterministic facet ordering
         domain_vals.sort_by(scalar_total_cmp);
+
+        // Build partition list for grammar-based visibility during measurement
+        // This ensures measurement uses the same visibility logic as rendering
+        use crate::facet::coordination::FacetCoordinationContext;
+        use crate::facet::partition::{
+            build_subplot_index_from_params, compute_subplot_visibility, PartitionValue,
+        };
+        use crate::guide::FacetDirection;
+
+        let incoming_coord_ctx = FacetCoordinationContext::from_params(params);
+        let incoming_partition_list = incoming_coord_ctx
+            .as_ref()
+            .and_then(|ctx| ctx.partition_list.as_ref());
+
+        // Get facet_scale_sharing from first source (they should be consistent)
+        let facet_scale_sharing = self
+            .facet_sources
+            .first()
+            .and_then(|s| s.facet_scale_sharing);
+
+        // Build partition for this row facet
+        let this_partition = build_partition_for_facet(
+            RowDimensionConfig::channel_name(),
+            FacetDirection::Row,
+            &domain_vals,
+            facet_scale_sharing,
+        );
+
+        // Extend the partition list with this facet's partition
+        let partition_list = extend_partition_list(incoming_partition_list, this_partition);
+
+        // Create a coord_ctx with the partition list for passing to inner facets
+        let mut coord_ctx_with_partition = incoming_coord_ctx.clone().unwrap_or_default();
+        coord_ctx_with_partition.partition_list = Some(partition_list.clone());
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "FacetRowGuide: Built partition list with depth={}, domain_vals={:?}",
+                partition_list.depth(),
+                domain_vals.iter().take(3).collect::<Vec<_>>()
+            );
+        }
 
         let mut max_left: f32 = 0.0;
         let mut max_right: f32 = 0.0;
@@ -271,6 +314,10 @@ impl FacetRowGuide {
                         // Create FacetContext with correct position for THIS row
                         let measure_params = {
                             let mut updated_params = params.clone();
+                            // Add partition_list to params for inner facets
+                            for (k, v) in coord_ctx_with_partition.to_params() {
+                                updated_params.insert(k, v);
+                            }
                             // Convert static slice to HashSet<String>
                             let mut unified_channels: std::collections::HashSet<String> =
                                 RowDimensionConfig::unified_channels()
@@ -419,6 +466,47 @@ impl FacetRowGuide {
                                 (std::collections::HashSet::new(), std::collections::HashSet::new())
                             };
 
+                            // Compute grammar-based visibility using the partition list
+                            let grammar_visibility = {
+                                // Build SubplotIndex for this cell
+                                let mut subplot_index =
+                                    build_subplot_index_from_params(&partition_list, &updated_params);
+                                // Add the current row facet value
+                                subplot_index.bindings.insert(
+                                    RowDimensionConfig::channel_name().to_string(),
+                                    PartitionValue::from_scalar(domain_val),
+                                );
+
+                                // Get sharing levels from merged_scale_sharing
+                                let x_sharing = merged_scale_sharing
+                                    .get("x")
+                                    .map(|s| s.to_level())
+                                    .unwrap_or(0);
+                                let y_sharing = merged_scale_sharing
+                                    .get("y")
+                                    .map(|s| s.to_level())
+                                    .unwrap_or(0);
+
+                                use crate::facet::context::AxisPosition;
+                                let vis = compute_subplot_visibility(
+                                    &partition_list,
+                                    &subplot_index,
+                                    x_sharing,
+                                    y_sharing,
+                                    AxisPosition::Bottom,
+                                    AxisPosition::Left,
+                                );
+
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                    eprintln!(
+                                        "FacetRowGuide (data_override): row_idx={} domain_val={:?} show_x_ticks={} show_y_ticks={}",
+                                        row_idx, domain_val, vis.show_x_ticks, vis.show_y_ticks
+                                    );
+                                }
+
+                                Some(vis)
+                            };
+
                             let facet_ctx = FacetContext {
                                 position: (adjusted_row_idx, parent_col),
                                 grid_dimensions: (grid_num_rows, parent_num_cols),
@@ -426,7 +514,7 @@ impl FacetRowGuide {
                                 scale_sharing: merged_scale_sharing,
                                 global_edge_tracked_channels,
                                 global_edge_channels,
-                                grammar_visibility: None,
+                                grammar_visibility,
                             };
                             let ctx_params = facet_ctx.to_params();
                             for (k, v) in ctx_params {
@@ -550,6 +638,10 @@ impl FacetRowGuide {
                         let subplot_measure_params = {
                             use crate::facet::context::FacetContext;
                             let mut updated_params = params.clone();
+                            // Add partition_list to params for inner facets
+                            for (k, v) in coord_ctx_with_partition.to_params() {
+                                updated_params.insert(k, v);
+                            }
                             let mut unified_channels: std::collections::HashSet<String> =
                                 RowDimensionConfig::unified_channels()
                                     .iter()
@@ -623,6 +715,47 @@ impl FacetRowGuide {
                                 (std::collections::HashSet::new(), std::collections::HashSet::new())
                             };
 
+                            // Compute grammar-based visibility using the partition list
+                            let grammar_visibility = {
+                                // Build SubplotIndex for this cell
+                                let mut subplot_index =
+                                    build_subplot_index_from_params(&partition_list, &updated_params);
+                                // Add the current row facet value
+                                subplot_index.bindings.insert(
+                                    RowDimensionConfig::channel_name().to_string(),
+                                    PartitionValue::from_scalar(domain_val),
+                                );
+
+                                // Get sharing levels from scale_sharing
+                                let x_sharing = scale_sharing
+                                    .get("x")
+                                    .map(|s| s.to_level())
+                                    .unwrap_or(0);
+                                let y_sharing = scale_sharing
+                                    .get("y")
+                                    .map(|s| s.to_level())
+                                    .unwrap_or(0);
+
+                                use crate::facet::context::AxisPosition;
+                                let vis = compute_subplot_visibility(
+                                    &partition_list,
+                                    &subplot_index,
+                                    x_sharing,
+                                    y_sharing,
+                                    AxisPosition::Bottom,
+                                    AxisPosition::Left,
+                                );
+
+                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                                    eprintln!(
+                                        "FacetRowGuide (source data): row_idx={} domain_val={:?} show_x_ticks={} show_y_ticks={}",
+                                        row_idx, domain_val, vis.show_x_ticks, vis.show_y_ticks
+                                    );
+                                }
+
+                                Some(vis)
+                            };
+
                             let facet_ctx = FacetContext {
                                 position: (row_idx, 0), // Correct row position
                                 grid_dimensions: (num_rows, 1),
@@ -630,7 +763,7 @@ impl FacetRowGuide {
                                 scale_sharing: scale_sharing.clone(),
                                 global_edge_tracked_channels,
                                 global_edge_channels,
-                                grammar_visibility: None,
+                                grammar_visibility,
                             };
                             let ctx_params = facet_ctx.to_params();
                             for (k, v) in ctx_params {

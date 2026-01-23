@@ -162,6 +162,35 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
     };
     domain_vals.sort_by(scalar_total_cmp);
 
+    // Build partition list for grammar-based visibility during measurement
+    // This ensures measurement uses the same visibility logic as rendering
+    use crate::facet::guide::shared::{build_partition_for_facet, extend_partition_list};
+    use crate::facet::partition::{
+        build_subplot_index_from_params, compute_subplot_visibility, PartitionValue,
+    };
+
+    let incoming_partition_list = coord_ctx.partition_list.as_ref();
+
+    // Get facet_scale_sharing from first source
+    let facet_scale_sharing = facet_sources
+        .first()
+        .and_then(|s| s.facet_scale_sharing);
+
+    // Build partition for this facet
+    let this_partition = build_partition_for_facet(
+        channel_name,
+        D::facet_direction(),
+        &domain_vals,
+        facet_scale_sharing,
+    );
+
+    // Extend the partition list with this facet's partition
+    let partition_list = extend_partition_list(incoming_partition_list, this_partition);
+
+    // Create a coord_ctx with the partition list for passing to inner facets
+    let mut coord_ctx_with_partition = coord_ctx.clone();
+    coord_ctx_with_partition.partition_list = Some(partition_list.clone());
+
     // For uniform Free scaling, use max cell count instead of actual domain length
     let num_cells = coord_ctx
         .get_uniform_cell_count()
@@ -265,72 +294,32 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                 let position = D::index_to_position(cell_idx);
                 let grid_dimensions = D::count_to_grid_dimensions(num_cells);
 
-                // Compute global_edge_tracked_channels and global_edge_channels
-                // For Row (default="y"), orthogonal channel is "x" - track if parent tracks or Level(2+)
-                // For Col (default="x"), orthogonal channel is "y" - track if parent tracks or Level(2+)
-                let default_unified: std::collections::HashSet<&str> =
-                    D::unified_channels().iter().copied().collect();
-                let orthogonal_channel = if default_unified.contains(&"y") { "x" } else { "y" };
-                let orthogonal_has_multilevel_sharing = scale_sharing
-                    .get(orthogonal_channel)
-                    .map(|s| matches!(s, ScaleSharing::Level(n) if *n >= 2))
-                    .unwrap_or(false);
+                // Compute grammar-based visibility using the partition list
+                let grammar_visibility = {
+                    // Build SubplotIndex for this cell
+                    let mut subplot_index =
+                        build_subplot_index_from_params(&partition_list, &updated_params);
+                    // Add the current facet value
+                    subplot_index.bindings.insert(
+                        channel_name.to_string(),
+                        PartitionValue::from_scalar(domain_val),
+                    );
 
-                let (global_edge_tracked_channels, global_edge_channels) = if let Some(parent_ctx) = FacetContext::from_params(params) {
-                    // Check if parent is tracking orthogonal channel OR if it has Level(2+) sharing
-                    let parent_tracking = parent_ctx.global_edge_tracked_channels.contains(orthogonal_channel);
-                    let should_track = parent_tracking || orthogonal_has_multilevel_sharing;
+                    // Get sharing levels from scale_sharing
+                    let x_sharing = scale_sharing.get("x").map(|s| s.to_level()).unwrap_or(0);
+                    let y_sharing = scale_sharing.get("y").map(|s| s.to_level()).unwrap_or(0);
 
-                    if should_track {
-                        let (row, col) = position;
-                        let (num_rows, _num_cols) = grid_dimensions;
+                    use crate::facet::context::AxisPosition;
+                    let vis = compute_subplot_visibility(
+                        &partition_list,
+                        &subplot_index,
+                        x_sharing,
+                        y_sharing,
+                        AxisPosition::Bottom,
+                        AxisPosition::Left,
+                    );
 
-                        // Start with parent's tracked channels
-                        let mut tracked = parent_ctx.global_edge_tracked_channels.clone();
-                        if orthogonal_has_multilevel_sharing {
-                            tracked.insert(orthogonal_channel.to_string());
-                        }
-
-                        // Inherit parent's global_edge_channels, or start fresh if parent wasn't tracking
-                        let parent_edge = if parent_tracking {
-                            parent_ctx.global_edge_channels.clone()
-                        } else {
-                            tracked.clone()
-                        };
-
-                        let at_edge = parent_edge
-                            .into_iter()
-                            .filter(|ch| tracked.contains(ch))
-                            .filter(|ch| match ch.as_str() {
-                                "x" => row == num_rows - 1, // Bottom edge
-                                "y" => col == 0,           // Left edge
-                                _ => true,
-                            })
-                            .collect();
-                        (tracked, at_edge)
-                    } else {
-                        (std::collections::HashSet::new(), std::collections::HashSet::new())
-                    }
-                } else if orthogonal_has_multilevel_sharing {
-                    // No parent but orthogonal has Level(2+) - start tracking at top level
-                    let mut tracked = std::collections::HashSet::new();
-                    tracked.insert(orthogonal_channel.to_string());
-                    // Only mark as at-edge if at appropriate edge for the channel
-                    let (row, col) = position;
-                    let (num_rows, _num_cols) = grid_dimensions;
-                    let is_at_edge = match orthogonal_channel {
-                        "x" => row == num_rows - 1, // Bottom edge
-                        "y" => col == 0,            // Left edge
-                        _ => true,
-                    };
-                    let at_edge: std::collections::HashSet<String> = if is_at_edge {
-                        tracked.clone()
-                    } else {
-                        std::collections::HashSet::new()
-                    };
-                    (tracked, at_edge)
-                } else {
-                    (std::collections::HashSet::new(), std::collections::HashSet::new())
+                    Some(vis)
                 };
 
                 let facet_ctx = FacetContext {
@@ -341,15 +330,15 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                         .map(|s| s.to_string())
                         .collect(),
                     scale_sharing: scale_sharing.clone(),
-                    global_edge_tracked_channels,
-                    global_edge_channels,
-                    grammar_visibility: None,
+                    global_edge_tracked_channels: std::collections::HashSet::new(),
+                    global_edge_channels: std::collections::HashSet::new(),
+                    grammar_visibility,
                 };
                 for (k, v) in facet_ctx.to_params() {
                     updated_params.insert(k, v);
                 }
-                // Add NESTED_MEASUREMENT marker to coordination context
-                let mut nested_ctx = coord_ctx.clone();
+                // Add NESTED_MEASUREMENT marker and partition list to coordination context
+                let mut nested_ctx = coord_ctx_with_partition.clone();
                 nested_ctx
                     .coordinated_spacing
                     .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
@@ -516,87 +505,46 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                 let mut updated_params = pass2_params.clone();
                 let position = D::index_to_position(cell_idx);
                 let grid_dimensions = D::count_to_grid_dimensions(num_cells);
-                let unified_channels: std::collections::HashSet<String> = D::unified_channels()
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect();
 
-                // Compute global_edge_tracked_channels and global_edge_channels
-                // For Row (default="y"), orthogonal channel is "x" - track if parent tracks or Level(2+)
-                // For Col (default="x"), orthogonal channel is "y" - track if parent tracks or Level(2+)
-                let default_unified: std::collections::HashSet<&str> =
-                    D::unified_channels().iter().copied().collect();
-                let orthogonal_channel = if default_unified.contains(&"y") { "x" } else { "y" };
-                let orthogonal_has_multilevel_sharing = scale_sharing
-                    .get(orthogonal_channel)
-                    .map(|s| matches!(s, ScaleSharing::Level(n) if *n >= 2))
-                    .unwrap_or(false);
+                // Compute grammar-based visibility using the partition list
+                let grammar_visibility = {
+                    // Build SubplotIndex for this cell
+                    let mut subplot_index =
+                        build_subplot_index_from_params(&partition_list, &updated_params);
+                    // Add the current facet value
+                    subplot_index.bindings.insert(
+                        channel_name.to_string(),
+                        PartitionValue::from_scalar(domain_val),
+                    );
 
-                let (global_edge_tracked_channels, global_edge_channels) = if let Some(parent_ctx) = FacetContext::from_params(&pass2_params) {
-                    // Check if parent is tracking orthogonal channel OR if it has Level(2+) sharing
-                    let parent_tracking = parent_ctx.global_edge_tracked_channels.contains(orthogonal_channel);
-                    let should_track = parent_tracking || orthogonal_has_multilevel_sharing;
+                    // Get sharing levels from scale_sharing
+                    let x_sharing = scale_sharing.get("x").map(|s| s.to_level()).unwrap_or(0);
+                    let y_sharing = scale_sharing.get("y").map(|s| s.to_level()).unwrap_or(0);
 
-                    if should_track {
-                        let (row, col) = position;
-                        let (num_rows, _num_cols) = grid_dimensions;
+                    use crate::facet::context::AxisPosition;
+                    let vis = compute_subplot_visibility(
+                        &partition_list,
+                        &subplot_index,
+                        x_sharing,
+                        y_sharing,
+                        AxisPosition::Bottom,
+                        AxisPosition::Left,
+                    );
 
-                        // Start with parent's tracked channels
-                        let mut tracked = parent_ctx.global_edge_tracked_channels.clone();
-                        if orthogonal_has_multilevel_sharing {
-                            tracked.insert(orthogonal_channel.to_string());
-                        }
-
-                        // Inherit parent's global_edge_channels, or start fresh if parent wasn't tracking
-                        let parent_edge = if parent_tracking {
-                            parent_ctx.global_edge_channels.clone()
-                        } else {
-                            tracked.clone()
-                        };
-
-                        let at_edge = parent_edge
-                            .into_iter()
-                            .filter(|ch| tracked.contains(ch))
-                            .filter(|ch| match ch.as_str() {
-                                "x" => row == num_rows - 1, // Bottom edge
-                                "y" => col == 0,           // Left edge
-                                _ => true,
-                            })
-                            .collect();
-                        (tracked, at_edge)
-                    } else {
-                        (std::collections::HashSet::new(), std::collections::HashSet::new())
-                    }
-                } else if orthogonal_has_multilevel_sharing {
-                    // No parent but orthogonal has Level(2+) - start tracking at top level
-                    let mut tracked = std::collections::HashSet::new();
-                    tracked.insert(orthogonal_channel.to_string());
-                    // Only mark as at-edge if at appropriate edge for the channel
-                    let (row, col) = position;
-                    let (num_rows, _num_cols) = grid_dimensions;
-                    let is_at_edge = match orthogonal_channel {
-                        "x" => row == num_rows - 1, // Bottom edge
-                        "y" => col == 0,            // Left edge
-                        _ => true,
-                    };
-                    let at_edge: std::collections::HashSet<String> = if is_at_edge {
-                        tracked.clone()
-                    } else {
-                        std::collections::HashSet::new()
-                    };
-                    (tracked, at_edge)
-                } else {
-                    (std::collections::HashSet::new(), std::collections::HashSet::new())
+                    Some(vis)
                 };
 
                 let facet_ctx = FacetContext {
                     position,
                     grid_dimensions,
-                    unified_channels,
+                    unified_channels: D::unified_channels()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
                     scale_sharing: scale_sharing.clone(),
-                    global_edge_tracked_channels,
-                    global_edge_channels,
-                    grammar_visibility: None,
+                    global_edge_tracked_channels: std::collections::HashSet::new(),
+                    global_edge_channels: std::collections::HashSet::new(),
+                    grammar_visibility,
                 };
                 for (k, v) in facet_ctx.to_params() {
                     updated_params.insert(k, v);
