@@ -10,6 +10,7 @@ pub mod guide_utils;
 pub mod keys;
 pub mod marks;
 pub mod nesting;
+pub mod partition;
 pub mod phantom_cells;
 pub mod scalar_cmp;
 pub mod scale_helpers;

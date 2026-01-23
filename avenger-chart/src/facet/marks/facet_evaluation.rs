@@ -33,7 +33,9 @@ use crate::facet::coordination::{
 };
 use crate::facet::coordination_strategy::CoordinationStrategy;
 use crate::facet::dimension_config::{FacetDimensionConfig, RowDimensionConfig};
-use crate::facet::guide::compute_scale_sharing_for_nested_facet;
+use crate::facet::guide::{
+    build_partition_for_facet, compute_scale_sharing_for_nested_facet, extend_partition_list,
+};
 use crate::facet::marks::facet::determine_facet_band_align;
 use crate::facet::nesting::detect_nested_facet_and_compute_coordination;
 use crate::facet::phantom_cells::PhantomPlacement;
@@ -45,6 +47,7 @@ use crate::plot::CompiledPlot;
 use crate::render::RenderContext;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::scales::builder::ScaleBuilder;
+use crate::scales::extensions::ConfiguredScaleLegendExt;
 use avenger_scales::scalar::Scalar;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -2476,11 +2479,112 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         }
     }
 
+    // ========== BUILD OUTER FACET'S PARTITION ==========
+    // Before detecting nested facets, add the current (outer) facet's partition to the
+    // coordination context. This enables the grammar-based visibility model to track
+    // the complete partition hierarchy from outermost to innermost facet.
+    //
+    // The partition list flows:
+    // 1. Incoming partition list (from grandparent facets, if any)
+    // 2. Add this facet's partition
+    // 3. Pass to detect_nested_facet which adds the inner facet's partition
+    // 4. Complete list flows to deeply nested facets
+
+    // Extract domain values from the dimension scale
+    let outer_domain_vals: Vec<ScalarValue> = dimension_scale
+        .domain_values()
+        .ok()
+        .map(|dv| match dv {
+            crate::scales::extensions::DomainValues::Discrete(vals) => vals,
+            _ => vec![],
+        })
+        .unwrap_or_default();
+
+    // Determine the outer facet's direction
+    let outer_direction = if DimConfig::is_row_facet() {
+        crate::guide::FacetDirection::Row
+    } else {
+        crate::guide::FacetDirection::Column
+    };
+
+    // Try to extract facet scale sharing from the channel definition
+    // Default to Free if not found (conservative - each cell computes own domain)
+    let outer_facet_scale_sharing = state
+        .data
+        .channels()
+        .get(DimConfig::channel_name())
+        .and_then(|cv| cv.get_share_mode());
+
+    // Build the outer facet's partition
+    let outer_partition = build_partition_for_facet(
+        DimConfig::channel_name(),
+        outer_direction,
+        &outer_domain_vals,
+        outer_facet_scale_sharing,
+    );
+
+    // Extend the incoming partition list with the outer facet's partition,
+    // but ONLY if this facet wasn't already added by a parent's detect_nested_facet_and_compute_coordination().
+    // When a parent facet detects this facet as its inner facet, it adds the partition to the list.
+    // We detect this by checking if the last partition in the incoming list matches our channel.
+    let incoming_partition_list = incoming_coord_ctx
+        .as_ref()
+        .and_then(|ctx| ctx.partition_list.as_ref());
+
+    let should_add_partition = match incoming_partition_list {
+        Some(list) => {
+            // Check if the last partition already matches this facet's channel
+            // If so, the parent already added us - don't double-add
+            let last_partition = list.partitions.last();
+            !matches!(last_partition, Some(p) if p.field == DimConfig::channel_name())
+        }
+        None => true, // No incoming list, definitely add
+    };
+
+    let updated_partition_list = if should_add_partition {
+        extend_partition_list(incoming_partition_list, outer_partition)
+    } else {
+        // Use the incoming list as-is (our partition was already added)
+        incoming_partition_list.cloned().unwrap_or_default()
+    };
+
+    // Create an updated coordination context with the partition list
+    // If there's no incoming context, create a minimal one just for the partition list
+    let updated_coord_ctx = if let Some(ref ctx) = incoming_coord_ctx {
+        let mut updated = ctx.clone();
+        updated.partition_list = Some(updated_partition_list);
+        Some(updated)
+    } else {
+        Some(FacetCoordinationContext::default().with_partition_list(updated_partition_list))
+    };
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if let Some(ref ctx) = updated_coord_ctx {
+            if let Some(ref pl) = ctx.partition_list {
+                if should_add_partition {
+                    eprintln!(
+                        "  Added outer facet partition: channel={} direction={:?} domain_len={} partition_list_depth={}",
+                        DimConfig::channel_name(),
+                        outer_direction,
+                        outer_domain_vals.len(),
+                        pl.depth()
+                    );
+                } else {
+                    eprintln!(
+                        "  Skipped adding partition (already present): channel={} partition_list_depth={}",
+                        DimConfig::channel_name(),
+                        pl.depth()
+                    );
+                }
+            }
+        }
+    }
+
     // Detect nested facets and compute coordination context
     // This enables guide ownership coordination (axis label visibility) for nested facets.
     // Note: We do NOT propagate domain by default - let each inner facet use its own filtered domain.
     // Domain propagation (for grid-like behavior) can be enabled via explicit configuration.
-    // Pass incoming_coord_ctx to enable Level(N>1) domain propagation for deep nesting.
+    // Pass updated_coord_ctx (with outer partition) to enable complete partition list building.
     let coordination_context = detect_nested_facet_and_compute_coordination(
         compiled_subplot,
         &df,
@@ -2488,7 +2592,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         DimConfig::is_row_facet(), // Whether this (outer) facet is a row facet
         &facet_expr,               // Outer facet's expression for inner cell counting
         &context.params,           // Parameters for evaluating explicit domains
-        incoming_coord_ctx.as_ref(), // Incoming context for Level(N>1) support
+        updated_coord_ctx.as_ref(), // Updated context with outer facet's partition
     )
     .await?;
 

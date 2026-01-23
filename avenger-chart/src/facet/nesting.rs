@@ -9,12 +9,14 @@
 use crate::channel::config_traits::ScaleSharing;
 use crate::error::AvengerChartError;
 use crate::facet::coordination::FacetCoordinationContext;
+use crate::facet::guide::{build_partition_for_facet, extend_partition_list};
 use crate::facet::marks::facet::determine_facet_band_align;
 use crate::facet::marks::facet_extents::{
     ChannelDataKind, DomainSort, classify_channel, compute_extents, normalize_domain_scalar,
     scalar_to_timestamp_ms,
 };
 use crate::facet::scalar_cmp::scalar_total_cmp;
+use crate::guide::FacetDirection;
 use crate::marks::CompiledMark;
 use crate::plot::CompiledPlot;
 use avenger_scales::scales::DomainKind;
@@ -629,8 +631,66 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
         }
     }
 
+    // ========== BUILD PARTITION LIST (Grammar-based visibility) ==========
+    // Build explicit partition list to enable structure-derived visibility decisions.
+    // The partition list captures the grammar's ordered [Partition] model.
+    //
+    // Each partition has:
+    // - field: The channel name ("row" or "column") for this facet dimension
+    // - direction: Row or Column
+    // - domain_sharing: 0=nest (Free), 255=cross (Shared), 1-254=intermediate
+    // - domain_values: The ordered domain values
+    //
+    // This function adds the detected INNER facet's partition to the list.
+    // The outer facet's partition should already be in incoming_coord_ctx.partition_list
+    // (added by the facet guide before calling this function).
+    //
+    // Data flow:
+    // 1. Outer facet guide adds its partition to the coordination context
+    // 2. This function (detect_nested_facet_and_compute_coordination) is called
+    // 3. We receive the outer partition via incoming_coord_ctx.partition_list
+    // 4. We add the inner facet's partition here
+    // 5. The complete list flows to deeply nested facets
+
+    // Get the incoming partition list from parent coordination context
+    let incoming_partition_list = incoming_coord_ctx.and_then(|ctx| ctx.partition_list.as_ref());
+
+    // Determine the inner facet's direction
+    let inner_direction = if inner_is_row_facet {
+        FacetDirection::Row
+    } else {
+        FacetDirection::Column
+    };
+
+    // Build partition for the detected inner facet
+    let inner_partition = build_partition_for_facet(
+        inner_channel,              // "row" or "column"
+        inner_direction,
+        &domain_vals,
+        Some(configured_scale_sharing),
+    );
+
+    // Extend the partition list with the inner facet's partition
+    let partition_list = extend_partition_list(incoming_partition_list, inner_partition);
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "  Built partition list: depth={}, partitions={:?}",
+            partition_list.depth(),
+            partition_list
+                .partitions
+                .iter()
+                .map(|p| (&p.field, &p.direction))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    // Set the partition list on the coordination context
+    coord_ctx = coord_ctx.with_partition_list(partition_list);
+
     if !level_domains.is_empty() {
-        // Set nesting depth to current level
+        // Set nesting depth to current level (legacy behavior for compatibility)
+        // The grammar_depth() method will use partition_list.depth() when available
         coord_ctx = coord_ctx
             .with_nesting_depth(current_depth)
             .with_level_domains(level_domains);

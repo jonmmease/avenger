@@ -6,6 +6,7 @@
 //! intelligent decisions about what to show/hide.
 
 use crate::channel::config_traits::ScaleSharing;
+use crate::facet::partition::SubplotVisibility;
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -108,6 +109,14 @@ pub struct FacetContext {
     /// If a channel is unified but NOT in global_edge_channels, its labels are hidden.
     #[serde(default)]
     pub global_edge_channels: HashSet<String>,
+
+    /// Pre-computed visibility from grammar-based partition model.
+    ///
+    /// When set, this takes precedence over the incremental edge-tracking logic
+    /// in `should_show_labels`. The visibility is computed from the materialized
+    /// subplot structure using the grammar's rules.
+    #[serde(skip)]
+    pub grammar_visibility: Option<SubplotVisibility>,
 }
 
 impl FacetContext {
@@ -209,9 +218,26 @@ impl FacetContext {
     /// Determine if axis title should be shown
     ///
     /// Title visibility rules:
-    /// 1. If channel is unified by facet guide, don't show (facet guide shows it)
-    /// 2. Otherwise, only show on relevant edge (e.g., bottom x-axis only on bottom row)
+    /// 1. If grammar_visibility is set, use it directly (grammar-based model)
+    /// 2. If channel is unified by facet guide, don't show (facet guide shows it)
+    /// 3. Otherwise, only show on relevant edge (e.g., bottom x-axis only on bottom row)
     pub fn should_show_title(&self, channel: &str, position: AxisPosition) -> bool {
+        // Grammar-based visibility takes precedence when available
+        if let Some(ref vis) = self.grammar_visibility {
+            let result = match channel {
+                "x" => vis.show_x_title,
+                "y" => vis.show_y_title,
+                _ => true, // Unknown channels always show
+            };
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "should_show_title (grammar): channel={} position={:?} result={}",
+                    channel, position, result
+                );
+            }
+            return result;
+        }
+
         // If unified by facet guide, don't show on subplot (shown by facet guide instead)
         if self.is_channel_unified(channel) {
             return false;
@@ -224,12 +250,29 @@ impl FacetContext {
     /// Determine if axis labels should be shown
     ///
     /// Label visibility rules:
+    /// - If grammar_visibility is set, use it directly (grammar-based model)
     /// - If channel is unified AND has shared scale (same-type nesting): only show at GLOBAL edge
     /// - Free: always show (values differ per subplot)
     /// - Shared: only show on relevant edge (values are the same)
     /// - SharedInRow: for y-axis, show on left/right edges; for x-axis, use edge logic
     /// - SharedInColumn: for x-axis, show on top/bottom edges; for y-axis, use edge logic
     pub fn should_show_labels(&self, channel: &str, position: AxisPosition) -> bool {
+        // Grammar-based visibility takes precedence when available
+        if let Some(ref vis) = self.grammar_visibility {
+            let result = match channel {
+                "x" => vis.show_x_ticks,
+                "y" => vis.show_y_ticks,
+                _ => true, // Unknown channels always show
+            };
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "should_show_labels (grammar): channel={} position={:?} result={}",
+                    channel, position, result
+                );
+            }
+            return result;
+        }
+
         let sharing_mode = self
             .scale_sharing
             .get(channel)
@@ -318,6 +361,7 @@ impl FacetContext {
             scale_sharing,
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         }
     }
 }
@@ -342,6 +386,7 @@ mod tests {
             scale_sharing,
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
 
         // Test to_params
@@ -369,6 +414,7 @@ mod tests {
             scale_sharing: HashMap::new(),
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
 
         assert!(ctx.is_channel_unified("y"));
@@ -386,6 +432,7 @@ mod tests {
             scale_sharing: HashMap::new(),
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
 
         // X-axis: not on edge for middle row
@@ -404,6 +451,7 @@ mod tests {
             scale_sharing: HashMap::new(),
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
         assert!(ctx_bottom.is_on_relevant_edge("x", AxisPosition::Bottom));
         assert!(!ctx_bottom.is_on_relevant_edge("x", AxisPosition::Top));
@@ -416,6 +464,7 @@ mod tests {
             scale_sharing: HashMap::new(),
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
         assert!(!ctx_top.is_on_relevant_edge("x", AxisPosition::Bottom));
         assert!(ctx_top.is_on_relevant_edge("x", AxisPosition::Top));
@@ -433,6 +482,7 @@ mod tests {
             scale_sharing: HashMap::new(),
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
 
         // Y-axis unified: never show title on subplot
@@ -454,6 +504,7 @@ mod tests {
             scale_sharing: HashMap::new(),
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
 
         // X-axis on bottom edge: show
@@ -475,6 +526,7 @@ mod tests {
             scale_sharing: scale_sharing.clone(),
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
 
         // X-axis shared, middle row: don't show labels
@@ -493,6 +545,7 @@ mod tests {
             scale_sharing,
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
 
         // X-axis shared, bottom edge: show labels
@@ -515,6 +568,7 @@ mod tests {
             scale_sharing: HashMap::new(),
             global_edge_tracked_channels: HashSet::new(),
             global_edge_channels: HashSet::new(),
+            grammar_visibility: None,
         };
 
         let params = ctx.to_params();

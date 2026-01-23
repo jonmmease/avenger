@@ -343,6 +343,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                     scale_sharing: scale_sharing.clone(),
                     global_edge_tracked_channels,
                     global_edge_channels,
+                    grammar_visibility: None,
                 };
                 for (k, v) in facet_ctx.to_params() {
                     updated_params.insert(k, v);
@@ -595,6 +596,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                     scale_sharing: scale_sharing.clone(),
                     global_edge_tracked_channels,
                     global_edge_channels,
+                    grammar_visibility: None,
                 };
                 for (k, v) in facet_ctx.to_params() {
                     updated_params.insert(k, v);

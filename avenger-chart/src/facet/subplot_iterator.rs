@@ -11,8 +11,10 @@
 //! - This enables correct edge detection for axis label visibility
 
 use crate::channel::config_traits::ScaleSharing;
+use crate::facet::context::AxisPosition;
 use crate::facet::coordination::FacetCoordinationContext;
 use crate::facet::dimension_config::FacetDimensionConfig;
+use crate::facet::partition::{build_subplot_index_from_params, compute_subplot_visibility};
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 
@@ -469,6 +471,39 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             }
         }
 
+        // Compute grammar-based visibility if partition_list is available
+        let grammar_visibility = coordination_ctx
+            .as_ref()
+            .and_then(|ctx| ctx.partition_list.as_ref())
+            .map(|partition_list| {
+                // Build params with the current facet value added
+                let mut params_with_facet = self.base_params.clone();
+                params_with_facet.insert(DimConfig::channel_name().to_string(), facet_value.clone());
+
+                // Build SubplotIndex from params
+                let subplot_index = build_subplot_index_from_params(partition_list, &params_with_facet);
+
+                // Get sharing levels from scale_sharing
+                let x_sharing = scale_sharing
+                    .get("x")
+                    .map(|s| s.to_level())
+                    .unwrap_or(0);
+                let y_sharing = scale_sharing
+                    .get("y")
+                    .map(|s| s.to_level())
+                    .unwrap_or(0);
+
+                // Compute visibility (use Bottom for x, Left for y as defaults)
+                compute_subplot_visibility(
+                    partition_list,
+                    &subplot_index,
+                    x_sharing,
+                    y_sharing,
+                    AxisPosition::Bottom,
+                    AxisPosition::Left,
+                )
+            });
+
         let facet_ctx = FacetContext {
             position,
             grid_dimensions,
@@ -476,6 +511,7 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             scale_sharing,
             global_edge_tracked_channels,
             global_edge_channels,
+            grammar_visibility,
         };
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && !facet_ctx.global_edge_channels.is_empty() {

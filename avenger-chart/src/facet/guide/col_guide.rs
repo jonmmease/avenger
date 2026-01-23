@@ -438,6 +438,7 @@ impl FacetColGuide {
                                 scale_sharing: merged_scale_sharing,
                                 global_edge_tracked_channels,
                                 global_edge_channels,
+                                grammar_visibility: None,
                             };
                             let ctx_params = facet_ctx.to_params();
                             for (k, v) in ctx_params {
@@ -752,6 +753,7 @@ impl FacetColGuide {
                                 scale_sharing: merged_scale_sharing,
                                 global_edge_tracked_channels,
                                 global_edge_channels,
+                                grammar_visibility: None,
                             };
                             let ctx_params = facet_ctx.to_params();
                             for (k, v) in ctx_params {

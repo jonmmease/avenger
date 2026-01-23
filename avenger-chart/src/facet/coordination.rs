@@ -690,6 +690,31 @@ pub struct FacetCoordinationContext {
     /// - 1.0: Data aligns to end (bottom for rows, right for columns), phantoms prepended
     #[serde(default = "default_band_align")]
     pub inner_band_align: f32,
+
+    // ========================================================================
+    // Grammar-based partition model (Phase 1)
+    // ========================================================================
+    /// Explicit partition list for grammar-based visibility derivation.
+    ///
+    /// This field captures the grammar's `partitions: [Partition]` model, where
+    /// each partition represents a facet variable with:
+    /// - field: The data field being partitioned on
+    /// - direction: Row or Column
+    /// - domain_sharing: How domain values are shared (0=nest, 255=cross)
+    /// - domain_values: The ordered domain values
+    ///
+    /// When present, this enables structure-derived visibility decisions rather
+    /// than incremental edge tracking. See the partition module for details.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partition_list: Option<crate::facet::partition::FacetPartitionList>,
+
+    /// Pre-computed visibility decisions for all subplots (Phase 3 grammar model)
+    ///
+    /// This cache computes visibility once for all subplots based on the grammar's
+    /// rules, rather than computing incrementally during iteration.
+    /// Skipped during serialization as it's computed from partition_list.
+    #[serde(skip)]
+    pub visibility_cache: Option<crate::facet::partition::VisibilityCache>,
 }
 
 fn default_band_align() -> f32 {
@@ -729,6 +754,9 @@ impl Default for FacetCoordinationContext {
             enable_uniform_free_scaling: false,
             phantom_prepend_count: 0,
             inner_band_align: 0.5, // Default to centered
+            // Grammar-based partition model
+            partition_list: None,
+            visibility_cache: None,
         }
     }
 }
@@ -781,6 +809,9 @@ impl FacetCoordinationContext {
             enable_uniform_free_scaling: false,
             phantom_prepend_count: 0,
             inner_band_align: 0.5, // Default to centered
+            // Grammar-based partition model
+            partition_list: None,
+            visibility_cache: None,
         }
     }
 
@@ -1144,6 +1175,39 @@ impl FacetCoordinationContext {
         self.get_channel_level(channel) > 0
     }
 
+    /// Get the grammar-based depth (number of partitions in the hierarchy).
+    ///
+    /// When a partition_list is available, returns its depth directly.
+    /// Otherwise, returns nesting_depth + 1 (converting from 0-based to 1-based).
+    ///
+    /// Grammar semantics: depth = len(partitions)
+    /// - Single facet: depth = 1
+    /// - Two-level (Row > Col): depth = 2
+    /// - Three-level (Row > Col > Row): depth = 3
+    pub fn grammar_depth(&self) -> usize {
+        if let Some(ref partition_list) = self.partition_list {
+            partition_list.depth()
+        } else {
+            // Fall back to legacy: nesting_depth is 0-based, so add 1
+            // nesting_depth=0 means outermost (1 partition), nesting_depth=1 means 2 partitions, etc.
+            self.nesting_depth + 1
+        }
+    }
+
+    /// Compute partition prefix depth for a sharing level using the grammar formula.
+    ///
+    /// Grammar formula: partition_depth(k) = max(0, depth - k)
+    ///
+    /// This determines how many leading partitions define a sharing group:
+    /// - k=0 (Free): all partitions (depth) - fully nested
+    /// - k=1: depth-1 partitions - share with immediate parent
+    /// - k=depth (global): 0 partitions - everyone shares
+    pub fn partition_depth(&self, sharing_level: u8) -> usize {
+        let depth = self.grammar_depth();
+        let k = sharing_level as usize;
+        depth.saturating_sub(k)
+    }
+
     /// Get the domain for a channel based on its sharing level
     ///
     /// Looks up the domain in level_domains using the channel's sharing level.
@@ -1165,7 +1229,12 @@ impl FacetCoordinationContext {
             return None;
         }
 
-        // Level(N) means "share across N levels of facet hierarchy from innermost"
+        // Use grammar-based lookup when partition list is available
+        if self.partition_list.is_some() {
+            return self.get_domain_for_channel_grammar(channel, level);
+        }
+
+        // Legacy path: Level(N) means "share across N levels of facet hierarchy from innermost"
         // Higher Level = more global sharing (Level(1) = local, Level(max) = global)
         //
         // Domain storage:
@@ -1211,6 +1280,38 @@ impl FacetCoordinationContext {
         self.level_domains.get(&key)
     }
 
+    /// Get domain for a channel using the grammar-based formula.
+    ///
+    /// Uses the formula: `storage_depth = partition_depth + 1` where:
+    /// - partition_depth = max(0, grammar_depth - level)
+    /// - grammar_depth = len(partition_list)
+    ///
+    /// Storage convention:
+    /// - depth=1: Global domain (all data)
+    /// - depth=2: Per-parent domain (per outer facet cell)
+    /// - depth=N: Per (N-1) ancestor domain
+    ///
+    /// Level(N) semantics:
+    /// - Level(1): Share with siblings (same parent) → storage_depth = depth
+    /// - Level(2): Share with cousins (same grandparent) → storage_depth = depth - 1
+    /// - Level(∞): Global sharing → storage_depth = 1
+    fn get_domain_for_channel_grammar(
+        &self,
+        channel: &str,
+        level: u8,
+    ) -> Option<&crate::scales::DomainExtent> {
+        // Grammar formula: partition_depth = max(0, depth - level)
+        let partition_depth = self.partition_depth(level);
+
+        // Convert to storage convention: storage uses 1-based depths
+        // - partition_depth=0 (global) → storage_depth=1
+        // - partition_depth=1 (per-parent) → storage_depth=2
+        let storage_depth = partition_depth + 1;
+
+        let key = LevelChannelKey::new(storage_depth, channel);
+        self.level_domains.get(&key)
+    }
+
     /// Get the shared domain for a Level(N) channel with explicitly provided level
     ///
     /// Unlike `get_domain_for_channel`, this method accepts the level as a parameter
@@ -1233,7 +1334,12 @@ impl FacetCoordinationContext {
             return None;
         }
 
-        // For single-level facets (nesting_depth=0), Level(N) shares across all cells.
+        // Use grammar-based lookup when partition list is available
+        if self.partition_list.is_some() {
+            return self.get_domain_for_channel_grammar(channel, level);
+        }
+
+        // Legacy path: For single-level facets (nesting_depth=0), Level(N) shares across all cells.
         // The domain is stored at per_cell_depth = nesting_depth + 1 = 1.
         if self.nesting_depth == 0 {
             let per_cell_depth = 1;
@@ -1343,6 +1449,73 @@ impl FacetCoordinationContext {
     pub fn with_level_counts(mut self, counts: Vec<usize>) -> Self {
         self.level_counts = counts;
         self
+    }
+
+    /// Builder: Set explicit partition list for grammar-based visibility.
+    ///
+    /// When set, this enables structure-derived visibility decisions rather than
+    /// incremental edge tracking. The partition list captures the complete facet
+    /// hierarchy with domain values computed upfront.
+    pub fn with_partition_list(
+        mut self,
+        partition_list: crate::facet::partition::FacetPartitionList,
+    ) -> Self {
+        self.partition_list = Some(partition_list);
+        self
+    }
+
+    /// Builder: Set visibility cache
+    ///
+    /// The visibility cache pre-computes visibility decisions for all subplots
+    /// based on the grammar's rules, rather than computing incrementally.
+    pub fn with_visibility_cache(
+        mut self,
+        cache: crate::facet::partition::VisibilityCache,
+    ) -> Self {
+        self.visibility_cache = Some(cache);
+        self
+    }
+
+    /// Compute and set visibility cache from partition_list
+    ///
+    /// This method computes visibility decisions for all subplots based on the
+    /// grammar's rules. It requires a partition_list to be set first.
+    ///
+    /// # Arguments
+    /// * `x_sharing` - Scale sharing level for x-axis (0=Free, 255=Shared)
+    /// * `y_sharing` - Scale sharing level for y-axis (0=Free, 255=Shared)
+    /// * `x_position` - X-axis position (typically Bottom)
+    /// * `y_position` - Y-axis position (typically Left)
+    pub fn compute_visibility_cache(
+        mut self,
+        x_sharing: u8,
+        y_sharing: u8,
+        x_position: crate::facet::context::AxisPosition,
+        y_position: crate::facet::context::AxisPosition,
+    ) -> Self {
+        if let Some(ref partition_list) = self.partition_list {
+            let cache = crate::facet::partition::VisibilityCache::compute(
+                partition_list,
+                x_sharing,
+                y_sharing,
+                x_position,
+                y_position,
+            );
+            self.visibility_cache = Some(cache);
+        }
+        self
+    }
+
+    /// Get visibility for a subplot index
+    ///
+    /// Returns the pre-computed visibility decisions if available.
+    pub fn get_visibility(
+        &self,
+        subplot: &crate::facet::partition::SubplotIndex,
+    ) -> Option<&crate::facet::partition::SubplotVisibility> {
+        self.visibility_cache
+            .as_ref()
+            .and_then(|cache| cache.get(subplot))
     }
 
     /// Upgrade from legacy coordination context

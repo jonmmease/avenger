@@ -8,9 +8,11 @@
 
 use crate::channel::config_traits::ScaleSharing;
 use crate::facet::marks::facet::{CompiledFacetCol, CompiledFacetRow};
-use crate::guide::OverflowSpaceRequirement;
+use crate::facet::partition::{CompiledPartition, FacetPartitionList, PartitionValue};
+use crate::guide::{FacetDirection, OverflowSpaceRequirement};
 use crate::marks::CompiledMark;
 use crate::plot::CompiledPlot;
+use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -276,4 +278,59 @@ pub fn marks_contain_nested_facet_type(marks: &[Arc<dyn CompiledMark>], facet_ty
         }
     }
     false
+}
+
+/// Build a CompiledPartition for a facet from available information.
+///
+/// This helper creates a partition entry for the grammar-based partition list,
+/// enabling structure-derived visibility decisions for nested facets.
+///
+/// # Arguments
+/// * `channel_name` - The channel name (e.g., "row" or "column")
+/// * `direction` - The facet direction (Row or Column)
+/// * `domain_values` - The ordered domain values for this partition
+/// * `facet_scale_sharing` - The scale sharing mode for this facet dimension
+///
+/// # Returns
+/// A CompiledPartition representing this facet's partition in the hierarchy
+pub fn build_partition_for_facet(
+    channel_name: &str,
+    direction: FacetDirection,
+    domain_values: &[ScalarValue],
+    facet_scale_sharing: Option<ScaleSharing>,
+) -> CompiledPartition {
+    let partition_values: Vec<PartitionValue> = domain_values
+        .iter()
+        .map(PartitionValue::from_scalar)
+        .collect();
+
+    CompiledPartition {
+        field: channel_name.to_string(),
+        direction,
+        domain_sharing: facet_scale_sharing
+            .map(|s| s.to_level())
+            .unwrap_or(0),
+        domain_values: partition_values,
+    }
+}
+
+/// Build or extend a partition list with a new partition.
+///
+/// This helper takes an optional incoming partition list (from parent facets),
+/// and adds a new partition for the current facet level. If no incoming list
+/// exists, creates a new one.
+///
+/// # Arguments
+/// * `incoming_list` - Optional partition list from parent coordination context
+/// * `new_partition` - The partition to add for the current facet level
+///
+/// # Returns
+/// A FacetPartitionList containing all partitions from outermost to current level
+pub fn extend_partition_list(
+    incoming_list: Option<&FacetPartitionList>,
+    new_partition: CompiledPartition,
+) -> FacetPartitionList {
+    let mut list = incoming_list.cloned().unwrap_or_default();
+    list.push(new_partition);
+    list
 }

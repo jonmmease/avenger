@@ -15,6 +15,6 @@ pub use measurement::AsyncMeasureOverflowFn;
 pub use row_guide::FacetRowGuide;
 pub use shared::{
     DEFAULT_OVERFLOW_FALLBACK, FacetSource, FacetTitles, aggregate_cached_overflow,
-    apply_shared_overflow_coordination, compute_scale_sharing_for_nested_facet,
-    compute_scale_sharing_from_marks, default_overflow_fallback,
+    apply_shared_overflow_coordination, build_partition_for_facet, compute_scale_sharing_for_nested_facet,
+    compute_scale_sharing_from_marks, default_overflow_fallback, extend_partition_list,
 };
