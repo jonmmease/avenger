@@ -20,7 +20,13 @@ use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Cache for shared domain values to avoid redundant queries.
+/// Key is the field name; value is the ordered list of distinct values.
+/// Only used for shared domains (sharing >= current_depth) where we query unfiltered data.
+type SharedDomainCache = HashMap<String, Vec<ScalarValue>>;
 
 // Re-export AxisPosition for use in visibility queries
 pub use crate::facet::context::AxisPosition;
@@ -115,6 +121,7 @@ impl EvaluatedFacetSpec {
     ///
     /// This performs the pre-pass: walks the mark tree to find facet marks,
     /// queries distinct values for each partition, and builds the tree structure.
+    /// Uses a cache to avoid redundant queries for shared domains.
     pub async fn from_compiled_plot(
         plot: &CompiledPlot,
         ctx: &SessionContext,
@@ -131,9 +138,12 @@ impl EvaluatedFacetSpec {
             }
         };
 
+        // Cache for shared domain values to avoid redundant queries
+        let mut domain_cache = SharedDomainCache::new();
+
         // Build partition tree by walking marks
         // Start at depth 1 (outermost facet level)
-        let root = build_partition_tree(&plot.marks, &df, ctx, None, 1).await?;
+        let root = build_partition_tree(&plot.marks, &df, ctx, None, 1, &mut domain_cache).await?;
 
         Ok(Self { root })
     }
@@ -349,12 +359,14 @@ fn extract_field_name(expr: &Expr) -> String {
 /// * `ctx` - Session context for expression evaluation
 /// * `parent_filter` - Optional filter predicate from parent partitions (for non-shared domains)
 /// * `current_depth` - Current depth in the facet hierarchy (1 = outermost)
+/// * `domain_cache` - Cache for shared domain values to avoid redundant queries
 async fn build_partition_tree(
     marks: &[Arc<dyn CompiledMark>],
     df: &DataFrame,
     ctx: &SessionContext,
     parent_filter: Option<Expr>,
     current_depth: u8,
+    domain_cache: &mut SharedDomainCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     for mark in marks {
         let mark_type = mark.mark_type();
@@ -371,6 +383,7 @@ async fn build_partition_tree(
                     ctx,
                     parent_filter,
                     current_depth,
+                    domain_cache,
                 ))
                 .await;
             }
@@ -386,6 +399,7 @@ async fn build_partition_tree(
                     ctx,
                     parent_filter,
                     current_depth,
+                    domain_cache,
                 ))
                 .await;
             }
@@ -408,6 +422,7 @@ async fn build_partition_node(
     ctx: &SessionContext,
     parent_filter: Option<Expr>,
     current_depth: u8,
+    domain_cache: &mut SharedDomainCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     // Get channel value
     let channel_value = match channels.get(channel_name) {
@@ -435,22 +450,39 @@ async fn build_partition_node(
     // If sharing level < current depth (including Free/0), domain varies per parent (use filtered)
     let use_shared_domain = sharing >= current_depth;
 
-    let df_for_domain = if use_shared_domain || parent_filter.is_none() {
-        df.clone()
+    // Get distinct values, using cache for shared domains
+    let values = if use_shared_domain {
+        // For shared domains, check cache first (keyed by field name since we use unfiltered data)
+        if let Some(cached) = domain_cache.get(&field) {
+            cached.clone()
+        } else {
+            let vals = FacetKeyExtractor::extract_keys(df, &field_expr).await?;
+            domain_cache.insert(field.clone(), vals.clone());
+            vals
+        }
+    } else if parent_filter.is_some() {
+        // For non-shared domains with a parent filter, query filtered data (no caching)
+        let df_filtered = df.clone().filter(parent_filter.clone().unwrap())?;
+        FacetKeyExtractor::extract_keys(&df_filtered, &field_expr).await?
     } else {
-        df.clone().filter(parent_filter.clone().unwrap())?
+        // No parent filter - query unfiltered data
+        FacetKeyExtractor::extract_keys(df, &field_expr).await?
     };
-
-    // Get distinct values
-    let values = FacetKeyExtractor::extract_keys(&df_for_domain, &field_expr).await?;
 
     if values.is_empty() {
         return Ok(None); // No values
     }
 
     // Check for nested facets in subplot
-    let nested_facet =
-        Box::pin(build_partition_tree(&subplot.marks, df, ctx, None, current_depth + 1)).await?;
+    let nested_facet = Box::pin(build_partition_tree(
+        &subplot.marks,
+        df,
+        ctx,
+        None,
+        current_depth + 1,
+        domain_cache,
+    ))
+    .await?;
 
     if nested_facet.is_some() {
         // Build branch node with children for each value
@@ -472,6 +504,7 @@ async fn build_partition_node(
                 ctx,
                 Some(combined_filter),
                 current_depth + 1,
+                domain_cache,
             ))
             .await?
             {
