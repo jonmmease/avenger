@@ -1,7 +1,7 @@
 //! Integration tests for EvaluatedFacetSpec::from_compiled_plot
 
 use avenger_chart::channel::config_traits::ScaleSharing;
-use avenger_chart::facet::computed_facet_spec::EvaluatedFacetSpec;
+use avenger_chart::facet::computed_facet_spec::EvaluatedFacetTree;
 use avenger_chart::guide::FacetDirection;
 use avenger_chart::prelude::*;
 use datafusion::common::ScalarValue;
@@ -14,7 +14,12 @@ async fn create_test_data(ctx: &SessionContext) -> datafusion::dataframe::DataFr
             (
                 "species",
                 std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
-                    "setosa", "setosa", "versicolor", "versicolor", "virginica", "virginica",
+                    "setosa",
+                    "setosa",
+                    "versicolor",
+                    "versicolor",
+                    "virginica",
+                    "virginica",
                 ])) as datafusion::arrow::array::ArrayRef,
             ),
             (
@@ -46,7 +51,7 @@ async fn test_from_compiled_plot_no_facets() {
         .mark(Symbol::new().x(col("value")).y(col("value")));
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
@@ -61,13 +66,13 @@ async fn test_from_compiled_plot_single_row_facet() {
 
     // Single-level FacetRow by species
     let plot = Plot::<FacetRow>::new().data(df).mark(
-        Facet::new().row(col("species")).subplot(
-            Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
-        ),
+        Facet::new()
+            .row(col("species"))
+            .subplot(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value")))),
     );
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
@@ -93,13 +98,13 @@ async fn test_from_compiled_plot_single_col_facet() {
 
     // Single-level FacetColumn by region
     let plot = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new().column(col("region")).subplot(
-            Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
-        ),
+        Facet::new()
+            .column(col("region"))
+            .subplot(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value")))),
     );
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
@@ -121,19 +126,22 @@ async fn test_from_compiled_plot_nested_col_row() {
     let df = create_test_data(&ctx).await;
 
     // Nested: FacetColumn (region) > FacetRow (species)
-    let plot = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new().column(col("region")).subplot(
-            Plot::<FacetRow>::new().mark(
-                Facet::new().row(col("species")).subplot(
-                    Plot::<Cartesian>::new()
-                        .mark(Symbol::new().x(col("value")).y(col("value"))),
+    let plot =
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .mark(
+                Facet::new().column(col("region")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new()
+                                .mark(Symbol::new().x(col("value")).y(col("value"))),
+                        ),
+                    ),
                 ),
-            ),
-        ),
-    );
+            );
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
@@ -169,19 +177,22 @@ async fn test_from_compiled_plot_nested_row_row() {
     let df = create_test_data(&ctx).await;
 
     // Nested: FacetRow (region) > FacetRow (species)
-    let plot = Plot::<FacetRow>::new().data(df).mark(
-        Facet::new().row(col("region")).subplot(
-            Plot::<FacetRow>::new().mark(
-                Facet::new().row(col("species")).subplot(
-                    Plot::<Cartesian>::new()
-                        .mark(Symbol::new().x(col("value")).y(col("value"))),
+    let plot =
+        Plot::<FacetRow>::new()
+            .data(df)
+            .mark(
+                Facet::new().row(col("region")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new()
+                                .mark(Symbol::new().x(col("value")).y(col("value"))),
+                        ),
+                    ),
                 ),
-            ),
-        ),
-    );
+            );
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
@@ -217,7 +228,10 @@ async fn create_varying_domain_data(ctx: &SessionContext) -> datafusion::datafra
             (
                 "species",
                 std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
-                    "setosa", "versicolor", "versicolor", "virginica",
+                    "setosa",
+                    "versicolor",
+                    "versicolor",
+                    "virginica",
                 ])) as datafusion::arrow::array::ArrayRef,
             ),
             (
@@ -243,19 +257,22 @@ async fn test_free_sharing_nested_row_row() {
     let df = create_varying_domain_data(&ctx).await;
 
     // Nested Row > Row with Free sharing (default)
-    let plot = Plot::<FacetRow>::new().data(df).mark(
-        Facet::new().row(col("region")).subplot(
-            Plot::<FacetRow>::new().mark(
-                Facet::new().row(col("species")).subplot(
-                    Plot::<Cartesian>::new()
-                        .mark(Symbol::new().x(col("value")).y(col("value"))),
+    let plot =
+        Plot::<FacetRow>::new()
+            .data(df)
+            .mark(
+                Facet::new().row(col("region")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new()
+                                .mark(Symbol::new().x(col("value")).y(col("value"))),
+                        ),
+                    ),
                 ),
-            ),
-        ),
-    );
+            );
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
@@ -305,7 +322,7 @@ async fn test_shared_sharing_nested_row_row() {
     );
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
@@ -354,7 +371,7 @@ async fn test_sharing_level_stored_in_node() {
     );
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
@@ -378,24 +395,29 @@ async fn test_inner_domain_union() {
     // east has: setosa, versicolor
     // west has: versicolor, virginica
     // Union should be: setosa, versicolor, virginica
-    let plot = Plot::<FacetRow>::new().data(df).mark(
-        Facet::new().row(col("region")).subplot(
-            Plot::<FacetRow>::new().mark(
-                Facet::new().row(col("species")).subplot(
-                    Plot::<Cartesian>::new()
-                        .mark(Symbol::new().x(col("value")).y(col("value"))),
+    let plot =
+        Plot::<FacetRow>::new()
+            .data(df)
+            .mark(
+                Facet::new().row(col("region")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new()
+                                .mark(Symbol::new().x(col("value")).y(col("value"))),
+                        ),
+                    ),
                 ),
-            ),
-        ),
-    );
+            );
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
     // Get the union of all inner domain values
-    let union = spec.inner_domain_union(&[]).expect("should have inner domain union");
+    let union = spec
+        .inner_domain_union(&[])
+        .expect("should have inner domain union");
 
     // Should contain all three species
     assert_eq!(union.len(), 3);
@@ -411,18 +433,20 @@ async fn test_domain_values_at() {
     let df = create_test_data(&ctx).await;
 
     let plot = Plot::<FacetRow>::new().data(df).mark(
-        Facet::new().row(col("species")).subplot(
-            Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
-        ),
+        Facet::new()
+            .row(col("species"))
+            .subplot(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value")))),
     );
 
     let compiled = plot.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
 
     // Get outer domain values (at root level)
-    let domain = spec.domain_values_at(&[]).expect("should have domain values");
+    let domain = spec
+        .domain_values_at(&[])
+        .expect("should have domain values");
     assert_eq!(domain.len(), 3);
     assert!(domain.contains(&scalar("setosa")));
     assert!(domain.contains(&scalar("versicolor")));
@@ -440,7 +464,7 @@ async fn test_has_facets_and_has_nested_facets() {
         .mark(Symbol::new().x(col("value")).y(col("value")));
 
     let compiled = plot_no_facets.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
     assert!(!spec.has_facets());
@@ -448,32 +472,35 @@ async fn test_has_facets_and_has_nested_facets() {
 
     // Single facet
     let plot_single = Plot::<FacetRow>::new().data(df.clone()).mark(
-        Facet::new().row(col("species")).subplot(
-            Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
-        ),
+        Facet::new()
+            .row(col("species"))
+            .subplot(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value")))),
     );
 
     let compiled = plot_single.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
     assert!(spec.has_facets());
     assert!(!spec.has_nested_facets());
 
     // Nested facets
-    let plot_nested = Plot::<FacetRow>::new().data(df).mark(
-        Facet::new().row(col("region")).subplot(
-            Plot::<FacetRow>::new().mark(
-                Facet::new().row(col("species")).subplot(
-                    Plot::<Cartesian>::new()
-                        .mark(Symbol::new().x(col("value")).y(col("value"))),
+    let plot_nested =
+        Plot::<FacetRow>::new()
+            .data(df)
+            .mark(
+                Facet::new().row(col("region")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new().row(col("species")).subplot(
+                            Plot::<Cartesian>::new()
+                                .mark(Symbol::new().x(col("value")).y(col("value"))),
+                        ),
+                    ),
                 ),
-            ),
-        ),
-    );
+            );
 
     let compiled = plot_nested.compile(&ctx).await.expect("compile");
-    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+    let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
     assert!(spec.has_facets());

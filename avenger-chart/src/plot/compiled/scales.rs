@@ -566,7 +566,9 @@ fn get_radius_expression(
                             Arc::new(ctx.clone()),
                             indexmap::IndexMap::new(),
                             HashMap::new(),
-                            Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetSpec::empty()),
+                            Arc::new(
+                                crate::facet::computed_facet_spec::EvaluatedFacetTree::empty(),
+                            ),
                         );
 
                         if let Some(default_scalar) = mark.default_channel_value(ch_name, &temp_ctx)
@@ -746,7 +748,7 @@ async fn cache_domain_data(
                                                 Arc::new(ctx.clone()),
                                                 indexmap::IndexMap::new(),
                                                 HashMap::new(),
-                                                Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetSpec::empty()),
+                                                Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetTree::empty()),
                                             );
                                             if let Some(default_scalar) =
                                                 mark.default_channel_value(ch_name, &temp_ctx)
@@ -1568,7 +1570,7 @@ mod tests {
             Arc::new(ctx.clone()),
             IndexMap::new(),
             std::collections::HashMap::new(),
-            Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetSpec::empty()),
+            Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetTree::empty()),
         );
         let first_mark = compiled.marks().first().expect("compiled mark");
         let stroke_width = first_mark

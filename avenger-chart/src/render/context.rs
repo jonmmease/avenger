@@ -1,6 +1,6 @@
 //! Rendering context that carries theme and dimensions through the rendering pipeline
 
-use crate::facet::computed_facet_spec::EvaluatedFacetSpec;
+use crate::facet::computed_facet_spec::EvaluatedFacetTree;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::theme::Theme;
 use datafusion::common::ScalarValue;
@@ -26,7 +26,7 @@ pub struct RenderContext {
     pub scales: HashMap<String, ConfiguredScaleWithSpec>,
     /// Pre-computed facet structure for efficient domain lookups and visibility decisions.
     /// Built once at the start of evaluate() and shared throughout rendering.
-    pub facet_spec: Arc<EvaluatedFacetSpec>,
+    pub facet_spec: Arc<EvaluatedFacetTree>,
 }
 
 impl RenderContext {
@@ -37,7 +37,7 @@ impl RenderContext {
         session_context: Arc<SessionContext>,
         params: IndexMap<String, ScalarValue>,
         scales: HashMap<String, ConfiguredScaleWithSpec>,
-        facet_spec: Arc<EvaluatedFacetSpec>,
+        facet_spec: Arc<EvaluatedFacetTree>,
     ) -> Self {
         Self {
             theme,
@@ -51,13 +51,13 @@ impl RenderContext {
     }
 
     /// Set the pre-computed facet spec for efficient domain lookups.
-    pub fn with_facet_spec(mut self, spec: Arc<EvaluatedFacetSpec>) -> Self {
+    pub fn with_facet_spec(mut self, spec: Arc<EvaluatedFacetTree>) -> Self {
         self.facet_spec = spec;
         self
     }
 
     /// Get a reference to the facet spec.
-    pub fn facet_spec(&self) -> &EvaluatedFacetSpec {
+    pub fn facet_spec(&self) -> &EvaluatedFacetTree {
         &self.facet_spec
     }
 

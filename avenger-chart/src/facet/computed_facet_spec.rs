@@ -41,7 +41,7 @@ pub use crate::facet::context::AxisPosition;
 /// (scale sharing levels, axis positions) is passed as parameters to query methods.
 /// This allows the same facet spec to be used with different configurations.
 #[derive(Debug, Clone)]
-pub struct EvaluatedFacetSpec {
+pub struct EvaluatedFacetTree {
     /// Tree of partition values (handles non-shared domains)
     root: Option<PartitionNode>,
 }
@@ -76,7 +76,7 @@ pub enum PartitionContent {
     },
 }
 
-impl EvaluatedFacetSpec {
+impl EvaluatedFacetTree {
     /// Create a new EvaluatedFacetSpec with the given partition tree.
     ///
     /// Note: All configuration (scale sharing levels, axis positions) is passed
@@ -272,9 +272,10 @@ impl EvaluatedFacetSpec {
             PartitionContent::Branch { children } => {
                 // The inner domain values are the values of the first child node
                 // (for shared domains, all children have the same domain)
-                children.values().next().map(|child| {
-                    child.values().cloned().collect()
-                })
+                children
+                    .values()
+                    .next()
+                    .map(|child| child.values().cloned().collect())
             }
         }
     }
@@ -823,7 +824,7 @@ mod tests {
 
     #[test]
     fn test_empty_spec() {
-        let spec = EvaluatedFacetSpec::empty();
+        let spec = EvaluatedFacetTree::empty();
         assert_eq!(spec.depth(), 0);
     }
 
@@ -837,7 +838,7 @@ mod tests {
             vec![scalar("Eng"), scalar("Ops")],
         );
 
-        let spec = EvaluatedFacetSpec::new(Some(root));
+        let spec = EvaluatedFacetTree::new(Some(root));
 
         assert_eq!(spec.depth(), 1);
     }
@@ -865,7 +866,7 @@ mod tests {
             children,
         );
 
-        let spec = EvaluatedFacetSpec::new(Some(col_node));
+        let spec = EvaluatedFacetTree::new(Some(col_node));
 
         assert_eq!(spec.depth(), 2);
     }
@@ -901,7 +902,7 @@ mod tests {
 
         let root = build_level(1, vec!["X", "Y"]);
 
-        let spec = EvaluatedFacetSpec::new(Some(root));
+        let spec = EvaluatedFacetTree::new(Some(root));
 
         assert_eq!(spec.depth(), 4);
     }
@@ -990,7 +991,7 @@ mod tests {
             region_children,
         );
 
-        let spec = EvaluatedFacetSpec::new(Some(region_node));
+        let spec = EvaluatedFacetTree::new(Some(region_node));
         assert_eq!(spec.depth(), 3);
 
         // Test path: ["East", "Eng", "A"]
@@ -1034,7 +1035,7 @@ mod tests {
         assert!(pred.is_none());
 
         // Empty spec should return None
-        let empty_spec = EvaluatedFacetSpec::empty();
+        let empty_spec = EvaluatedFacetTree::empty();
         let pred = empty_spec.cell_predicate(&path, 0);
         assert!(pred.is_none());
     }

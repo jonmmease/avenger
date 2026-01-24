@@ -127,7 +127,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     outer_facet_expr: &datafusion::logical_expr::Expr,
     params: &indexmap::IndexMap<String, ScalarValue>,
     incoming_coord_ctx: Option<&FacetCoordinationContext>,
-    facet_spec: &crate::facet::computed_facet_spec::EvaluatedFacetSpec,
+    facet_spec: &crate::facet::computed_facet_spec::EvaluatedFacetTree,
 ) -> Result<Option<FacetCoordinationContext>, AvengerChartError> {
     use crate::facet::coordination::{GuideOwnership, LevelChannelKey};
     use crate::facet::keys::FacetKeyExtractor;
@@ -586,9 +586,10 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
         .unwrap_or(1);
 
     // Start with level_domains from incoming context (preserves ancestor domains)
-    let mut level_domains: IndexMap<LevelChannelKey, crate::scales::DomainExtent> = incoming_coord_ctx
-        .map(|ctx| ctx.level_domains.clone())
-        .unwrap_or_default();
+    let mut level_domains: IndexMap<LevelChannelKey, crate::scales::DomainExtent> =
+        incoming_coord_ctx
+            .map(|ctx| ctx.level_domains.clone())
+            .unwrap_or_default();
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
@@ -675,7 +676,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
 
     // Build partition for the detected inner facet
     let inner_partition = build_partition_for_facet(
-        inner_channel,              // "row" or "column"
+        inner_channel, // "row" or "column"
         inner_direction,
         &domain_vals,
         Some(configured_scale_sharing),

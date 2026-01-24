@@ -12,7 +12,7 @@ use avenger_scales::scales::ConfiguredScale;
 
 use crate::channel::value::{ChannelValue, ConditionalValue};
 use crate::error::AvengerChartError;
-use crate::facet::computed_facet_spec::EvaluatedFacetSpec;
+use crate::facet::computed_facet_spec::EvaluatedFacetTree;
 use crate::marks::CompiledMark;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
@@ -302,7 +302,7 @@ impl CompiledPlot {
         plot_height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
-        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetSpec>,
+        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
     ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
@@ -524,7 +524,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetSpec>,
+        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
     ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
@@ -1139,8 +1139,10 @@ impl CompiledPlot {
         let plot_area_height = plot_bounds.height;
 
         // Build the facet spec (dead code but kept for consistency)
-        let facet_spec =
-            Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetSpec::from_compiled_plot(self, ctx).await?);
+        let facet_spec = Arc::new(
+            crate::facet::computed_facet_spec::EvaluatedFacetTree::from_compiled_plot(self, ctx)
+                .await?,
+        );
 
         // Render marks
         let mut mark_groups = Vec::new();
@@ -1255,8 +1257,10 @@ impl CompiledPlot {
         dimensions_are_plot_area: bool,
     ) -> Result<super::PlotMeasurementResult, AvengerChartError> {
         // Build the facet spec upfront for efficient domain lookups during facet evaluation
-        let facet_spec =
-            Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetSpec::from_compiled_plot(self, ctx).await?);
+        let facet_spec = Arc::new(
+            crate::facet::computed_facet_spec::EvaluatedFacetTree::from_compiled_plot(self, ctx)
+                .await?,
+        );
 
         // 1. Merge default params with provided
         let mut merged_params = self.default_params.clone();
@@ -1531,8 +1535,10 @@ impl CompiledPlot {
         dimensions_are_plot_area: bool,
     ) -> Result<super::PlotComponents, AvengerChartError> {
         // Build the facet spec upfront for efficient domain lookups during facet evaluation
-        let facet_spec =
-            Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetSpec::from_compiled_plot(self, ctx).await?);
+        let facet_spec = Arc::new(
+            crate::facet::computed_facet_spec::EvaluatedFacetTree::from_compiled_plot(self, ctx)
+                .await?,
+        );
 
         // 1. Merge default params with provided
         let mut merged_params = self.default_params.clone();
@@ -1698,7 +1704,7 @@ impl CompiledPlot {
         mode: crate::plot::compiled::EvaluationMode,
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
-        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetSpec>,
+        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
     ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
         use crate::plot::compiled::EvaluationMode;
         use avenger_scales::scales::ConfiguredScale;
@@ -2346,7 +2352,7 @@ impl CompiledPlot {
         // 1.5. Build evaluated facet spec (pre-pass to discover partition structure)
         // This queries distinct values for each facet level, respecting scale sharing settings.
         // Used for efficient domain lookups in nested facet coordination.
-        let facet_spec = Arc::new(EvaluatedFacetSpec::from_compiled_plot(self, ctx).await?);
+        let facet_spec = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
 
         // 2. Evaluate canvas dimensions from layout spec
         let (estimated_width, estimated_height) = match &self.layout_spec.canvas {
@@ -2405,8 +2411,8 @@ impl CompiledPlot {
                 &merged_params,
                 &provider,
                 crate::plot::compiled::EvaluationMode::Render,
-                None,  // No data override for top-level plots
-                false, // Canvas mode: dimensions are canvas size
+                None,       // No data override for top-level plots
+                false,      // Canvas mode: dimensions are canvas size
                 facet_spec, // Pre-computed facet spec
             )
             .await?;

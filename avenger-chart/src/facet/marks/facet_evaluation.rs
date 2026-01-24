@@ -219,7 +219,9 @@ where
         eprintln!(
             "evaluate_facet: shared_data_extents present={}, channels={:?}",
             shared_data_extents.is_some(),
-            shared_data_extents.as_ref().map(|e| e.keys().collect::<Vec<_>>())
+            shared_data_extents
+                .as_ref()
+                .map(|e| e.keys().collect::<Vec<_>>())
         );
     }
 
@@ -508,9 +510,9 @@ where
     };
 
     use crate::facet::phantom_cells::PhantomCellLayout;
+    use crate::facet::subplot_iterator::ADDITIONAL_UNIFIED_CHANNELS_KEY;
     use crate::facet::subplot_iterator::SubplotIteration;
     use crate::facet::subplot_iterator::SubplotIterator;
-    use crate::facet::subplot_iterator::ADDITIONAL_UNIFIED_CHANNELS_KEY;
 
     // Compute phantom cell layout for uniform free scaling
     // This centralizes phantom positioning logic for use in both measurement and rendering
@@ -1739,7 +1741,7 @@ where
         params: &IndexMap<String, ScalarValue>,
         scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
         filter_df: &DataFrame,
-        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetSpec>,
+        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
     ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
         // For faceted subplots, use build_plot_components directly.
         // The dimensions are already final from facet layout, and scales are pre-coordinated.
@@ -2597,7 +2599,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         &facet_expr,               // Outer facet's expression for inner cell counting
         &context.params,           // Parameters for evaluating explicit domains
         updated_coord_ctx.as_ref(), // Updated context with outer facet's partition
-        context.facet_spec(),       // Pre-computed facet spec for efficient domain lookups
+        context.facet_spec(),      // Pre-computed facet spec for efficient domain lookups
     )
     .await?;
 

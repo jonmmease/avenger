@@ -523,7 +523,7 @@ impl CompiledPlot {
             Arc::new(ctx.clone()),
             params.clone(),
             std::collections::HashMap::new(),
-            Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetSpec::empty()),
+            Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetTree::empty()),
         );
 
         // Iterate through all supported channels of this mark
