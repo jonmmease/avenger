@@ -115,6 +115,7 @@ pub fn find_channel_in_marks(
 /// * `outer_facet_expr` - Expression for the outer facet's grouping channel
 /// * `params` - Parameter map for expression evaluation
 /// * `incoming_coord_ctx` - Coordination context from parent facet (for deep nesting)
+/// * `facet_spec` - Pre-computed facet spec for efficient domain lookups
 ///
 /// # Returns
 /// Some(FacetCoordinationContext) if a nested facet is found, None otherwise
@@ -126,6 +127,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     outer_facet_expr: &datafusion::logical_expr::Expr,
     params: &indexmap::IndexMap<String, ScalarValue>,
     incoming_coord_ctx: Option<&FacetCoordinationContext>,
+    facet_spec: &crate::facet::computed_facet_spec::EvaluatedFacetSpec,
 ) -> Result<Option<FacetCoordinationContext>, AvengerChartError> {
     use crate::facet::coordination::{GuideOwnership, LevelChannelKey};
     use crate::facet::keys::FacetKeyExtractor;
@@ -194,9 +196,38 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     // only appear on edges, regardless of domain sharing configuration
     let inner_scale_sharing = ScaleSharing::Shared;
 
-    // Compute domain from full dataset
-    let mut domain_vals = FacetKeyExtractor::extract_keys(df, &expr).await?;
-    domain_vals.sort_by(scalar_total_cmp);
+    // Determine if we're at the outermost level (can use spec directly)
+    // At nested levels, the df is already filtered by parent values, so spec lookups
+    // won't match (spec was built from full data).
+    let at_outermost_level = incoming_coord_ctx
+        .and_then(|ctx| ctx.partition_list.as_ref())
+        .map(|pl| pl.depth() == 0)
+        .unwrap_or(true);
+
+    // Compute domain from pre-computed spec (avoids database query at outermost level)
+    let domain_vals = if at_outermost_level {
+        // Use pre-computed domain from spec
+        if let Some(domain) = facet_spec.inner_domain_union(&[]) {
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "  Using pre-computed inner domain from spec: {} values",
+                    domain.len()
+                );
+            }
+            domain
+        } else {
+            // Spec doesn't have nested facet info (single-level facet)
+            // Fall back to query for this edge case
+            let mut vals = FacetKeyExtractor::extract_keys(df, &expr).await?;
+            vals.sort_by(scalar_total_cmp);
+            vals
+        }
+    } else {
+        // At nested level with filtered df, must query
+        let mut vals = FacetKeyExtractor::extract_keys(df, &expr).await?;
+        vals.sort_by(scalar_total_cmp);
+        vals
+    };
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
@@ -211,44 +242,24 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     // When inner facet uses Free scaling, compute max inner cell count across all outer cells
     // This enables uniform subplot sizing with empty space where data is missing.
     let (max_inner_cell_count, enable_uniform_free_scaling) = if !should_share_domain {
-        // Extract outer domain values to iterate over parent cells
-        let outer_domain_vals = FacetKeyExtractor::extract_keys(df, outer_facet_expr).await?;
-
-        let mut max_count: usize = 1; // Floor at 1 to prevent divide-by-zero
-
-        for outer_val in &outer_domain_vals {
-            // Filter dataset by outer facet value
-            let filter_df = df.clone().filter(
-                outer_facet_expr
-                    .clone()
-                    .eq(datafusion::logical_expr::lit(outer_val.clone())),
-            );
-
-            let inner_count = if let Ok(filter_df) = filter_df {
-                // Extract inner domain from filtered data
-                if let Ok(inner_domain_for_cell) =
-                    FacetKeyExtractor::extract_keys(&filter_df, &expr).await
-                {
-                    inner_domain_for_cell.len().max(1)
-                } else {
-                    1
+        // Use pre-computed values from spec when at outermost level
+        if at_outermost_level {
+            if let Some(max_count) = facet_spec.max_inner_cell_count(&[]) {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "  Using pre-computed max_inner_cell_count from spec: {}",
+                        max_count
+                    );
                 }
+                (Some(max_count), true)
             } else {
-                1
-            };
-
-            max_count = max_count.max(inner_count);
+                // Spec doesn't have the info (single-level facet), fall back to queries
+                compute_max_inner_cell_count_from_queries(df, outer_facet_expr, &expr).await?
+            }
+        } else {
+            // At nested level, must use queries with filtered df
+            compute_max_inner_cell_count_from_queries(df, outer_facet_expr, &expr).await?
         }
-
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "  Computed max_inner_cell_count for uniform Free scaling: {} (across {} outer cells)",
-                max_count,
-                outer_domain_vals.len()
-            );
-        }
-
-        (Some(max_count), true)
     } else {
         // Domain is shared, don't need uniform Free scaling
         (None, false)
@@ -847,4 +858,55 @@ fn parse_sort_string(value: &str) -> Option<DomainSort> {
         "true" => Some(DomainSort::Ascending),
         _ => None,
     }
+}
+
+/// Compute max inner cell count by querying the database.
+///
+/// This is the fallback path when the pre-computed facet spec is not available
+/// or when we're at a nested level with filtered data.
+async fn compute_max_inner_cell_count_from_queries(
+    df: &DataFrame,
+    outer_facet_expr: &datafusion::logical_expr::Expr,
+    inner_facet_expr: &datafusion::logical_expr::Expr,
+) -> Result<(Option<usize>, bool), AvengerChartError> {
+    use crate::facet::keys::FacetKeyExtractor;
+
+    // Extract outer domain values to iterate over parent cells
+    let outer_domain_vals = FacetKeyExtractor::extract_keys(df, outer_facet_expr).await?;
+
+    let mut max_count: usize = 1; // Floor at 1 to prevent divide-by-zero
+
+    for outer_val in &outer_domain_vals {
+        // Filter dataset by outer facet value
+        let filter_df = df.clone().filter(
+            outer_facet_expr
+                .clone()
+                .eq(datafusion::logical_expr::lit(outer_val.clone())),
+        );
+
+        let inner_count = if let Ok(filter_df) = filter_df {
+            // Extract inner domain from filtered data
+            if let Ok(inner_domain_for_cell) =
+                FacetKeyExtractor::extract_keys(&filter_df, inner_facet_expr).await
+            {
+                inner_domain_for_cell.len().max(1)
+            } else {
+                1
+            }
+        } else {
+            1
+        };
+
+        max_count = max_count.max(inner_count);
+    }
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "  Computed max_inner_cell_count for uniform Free scaling: {} (across {} outer cells)",
+            max_count,
+            outer_domain_vals.len()
+        );
+    }
+
+    Ok((Some(max_count), true))
 }

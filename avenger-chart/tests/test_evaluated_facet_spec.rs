@@ -367,3 +367,115 @@ async fn test_sharing_level_stored_in_node() {
     let child = root.child(&scalar("east")).expect("child");
     assert_eq!(child.sharing, 2);
 }
+
+#[tokio::test]
+async fn test_inner_domain_union() {
+    // Test that inner_domain_union returns the union of all inner domains
+    let ctx = SessionContext::new();
+    let df = create_varying_domain_data(&ctx).await;
+
+    // Nested: FacetRow (region) > FacetRow (species)
+    // east has: setosa, versicolor
+    // west has: versicolor, virginica
+    // Union should be: setosa, versicolor, virginica
+    let plot = Plot::<FacetRow>::new().data(df).mark(
+        Facet::new().row(col("region")).subplot(
+            Plot::<FacetRow>::new().mark(
+                Facet::new().row(col("species")).subplot(
+                    Plot::<Cartesian>::new()
+                        .mark(Symbol::new().x(col("value")).y(col("value"))),
+                ),
+            ),
+        ),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+
+    // Get the union of all inner domain values
+    let union = spec.inner_domain_union(&[]).expect("should have inner domain union");
+
+    // Should contain all three species
+    assert_eq!(union.len(), 3);
+    assert!(union.contains(&scalar("setosa")));
+    assert!(union.contains(&scalar("versicolor")));
+    assert!(union.contains(&scalar("virginica")));
+}
+
+#[tokio::test]
+async fn test_domain_values_at() {
+    // Test domain_values_at method
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx).await;
+
+    let plot = Plot::<FacetRow>::new().data(df).mark(
+        Facet::new().row(col("species")).subplot(
+            Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
+        ),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+
+    // Get outer domain values (at root level)
+    let domain = spec.domain_values_at(&[]).expect("should have domain values");
+    assert_eq!(domain.len(), 3);
+    assert!(domain.contains(&scalar("setosa")));
+    assert!(domain.contains(&scalar("versicolor")));
+    assert!(domain.contains(&scalar("virginica")));
+}
+
+#[tokio::test]
+async fn test_has_facets_and_has_nested_facets() {
+    let ctx = SessionContext::new();
+    let df = create_test_data(&ctx).await;
+
+    // No facets
+    let plot_no_facets = Plot::<Cartesian>::new()
+        .data(df.clone())
+        .mark(Symbol::new().x(col("value")).y(col("value")));
+
+    let compiled = plot_no_facets.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+    assert!(!spec.has_facets());
+    assert!(!spec.has_nested_facets());
+
+    // Single facet
+    let plot_single = Plot::<FacetRow>::new().data(df.clone()).mark(
+        Facet::new().row(col("species")).subplot(
+            Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
+        ),
+    );
+
+    let compiled = plot_single.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+    assert!(spec.has_facets());
+    assert!(!spec.has_nested_facets());
+
+    // Nested facets
+    let plot_nested = Plot::<FacetRow>::new().data(df).mark(
+        Facet::new().row(col("region")).subplot(
+            Plot::<FacetRow>::new().mark(
+                Facet::new().row(col("species")).subplot(
+                    Plot::<Cartesian>::new()
+                        .mark(Symbol::new().x(col("value")).y(col("value"))),
+                ),
+            ),
+        ),
+    );
+
+    let compiled = plot_nested.compile(&ctx).await.expect("compile");
+    let spec = EvaluatedFacetSpec::from_compiled_plot(&compiled, &ctx)
+        .await
+        .expect("build spec");
+    assert!(spec.has_facets());
+    assert!(spec.has_nested_facets());
+}

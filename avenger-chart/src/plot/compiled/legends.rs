@@ -516,14 +516,15 @@ impl CompiledPlot {
 
         // For channels not explicitly set, check if they have theme defaults
         // This ensures legend symbols match the chart's actual appearance
-        let context = RenderContext {
-            plot_width: 100.0, // Dummy values for getting defaults
-            plot_height: 100.0,
-            theme: self.get_theme(),
-            session_context: Arc::new(ctx.clone()),
-            params: params.clone(),
-            scales: std::collections::HashMap::new(),
-        };
+        let context = RenderContext::new(
+            self.get_theme(),
+            100.0, // Dummy values for getting defaults
+            100.0,
+            Arc::new(ctx.clone()),
+            params.clone(),
+            std::collections::HashMap::new(),
+            Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetSpec::empty()),
+        );
 
         // Iterate through all supported channels of this mark
         for channel_desc in mark.supported_channels() {

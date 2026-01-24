@@ -33,6 +33,7 @@ async fn test_symbol_default_channel_values() {
         Arc::new(ctx.clone()),
         indexmap::IndexMap::new(),
         std::collections::HashMap::new(),
+        Arc::new(avenger_chart::facet::computed_facet_spec::EvaluatedFacetSpec::empty()),
     );
 
     // Build the CompiledMark

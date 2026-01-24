@@ -149,7 +149,270 @@ impl EvaluatedFacetSpec {
     }
 
     // ========================================================================
-    // Query methods - commented out until needed
+    // Query methods
+    // ========================================================================
+
+    /// Get filter predicate for a cell at the given path, respecting sharing level.
+    ///
+    /// # Arguments
+    /// * `path` - Sequence of values identifying the cell, from outermost to innermost level.
+    ///            Each value corresponds to one level of the partition tree.
+    /// * `sharing_level` - Channel's sharing level:
+    ///   - 0 (Free): include all levels in the filter
+    ///   - 1+ (Level(N)): include only levels deeper than (depth - N)
+    ///   - 255 (Shared): return None (use full data)
+    ///
+    /// # Returns
+    /// - `Some(Expr)` with the filter predicate for the specified cell and sharing level
+    /// - `None` if the path is invalid, or if sharing_level is Shared (255)
+    ///
+    /// # Example
+    /// For a 3-level hierarchy (Region > Department > Team) with path ["East", "Eng", "A"]:
+    /// - sharing_level=0 (Free): `region="East" AND dept="Eng" AND team="A"`
+    /// - sharing_level=1 (Level(1)): `region="East" AND dept="Eng"` (skip last 1 level)
+    /// - sharing_level=2 (Level(2)): `region="East"` (skip last 2 levels)
+    /// - sharing_level=3+ (Level(3+) or Shared): `None` (use full data)
+    pub fn cell_predicate(&self, path: &[ScalarValue], sharing_level: u8) -> Option<Expr> {
+        // Shared (255) means use full data - no filter needed
+        if sharing_level == 255 {
+            return None;
+        }
+
+        let Some(root) = &self.root else {
+            return None;
+        };
+
+        // Collect (field_expr, value) pairs by walking the tree
+        let mut filters: Vec<(Expr, ScalarValue)> = Vec::new();
+        let mut current_node = root;
+
+        for (level_idx, value) in path.iter().enumerate() {
+            // Get the field expression for this level
+            let field_expr = current_node.field_expr.clone()?;
+            filters.push((field_expr, value.clone()));
+
+            // Navigate to next level if not at the end of path
+            if level_idx + 1 < path.len() {
+                current_node = current_node.child(value)?;
+            }
+        }
+
+        if filters.is_empty() {
+            return None;
+        }
+
+        // Determine how many levels to include based on sharing_level
+        // partition_depth = max(0, depth - sharing_level)
+        // We include the first partition_depth levels
+        let total_depth = filters.len();
+        let levels_to_skip = sharing_level as usize;
+        let levels_to_include = total_depth.saturating_sub(levels_to_skip);
+
+        if levels_to_include == 0 {
+            // Sharing level encompasses all levels - use full data
+            return None;
+        }
+
+        // Build AND expression from the first `levels_to_include` filters
+        let mut result: Option<Expr> = None;
+        for (field_expr, value) in filters.into_iter().take(levels_to_include) {
+            let eq_expr = field_expr.eq(lit(value));
+            result = Some(match result {
+                Some(existing) => existing.and(eq_expr),
+                None => eq_expr,
+            });
+        }
+
+        result
+    }
+
+    /// Navigate to a partition node at a given path.
+    ///
+    /// # Arguments
+    /// * `path` - Sequence of values identifying the position, from outermost to target level.
+    ///
+    /// # Returns
+    /// The partition node at the specified path, or None if the path is invalid.
+    pub fn node_at_path(&self, path: &[ScalarValue]) -> Option<&PartitionNode> {
+        let root = self.root.as_ref()?;
+
+        if path.is_empty() {
+            return Some(root);
+        }
+
+        let mut current = root;
+        for value in path {
+            current = current.child(value)?;
+        }
+        Some(current)
+    }
+
+    /// Get the domain values of a nested (inner) facet given the outer path.
+    ///
+    /// This navigates to the node at `outer_path`, then returns the domain values
+    /// of its child partition (the inner facet). Useful for getting the inner
+    /// facet's domain without re-querying.
+    ///
+    /// # Arguments
+    /// * `outer_path` - Path to the outer facet node (empty for root level)
+    ///
+    /// # Returns
+    /// The domain values of the inner facet, or None if there's no inner facet.
+    pub fn inner_domain_at_path(&self, outer_path: &[ScalarValue]) -> Option<Vec<ScalarValue>> {
+        let outer_node = if outer_path.is_empty() {
+            self.root.as_ref()?
+        } else {
+            self.node_at_path(outer_path)?
+        };
+
+        // For a branch node, all children should have the same structure
+        // Get the first child to access the inner domain
+        match &outer_node.content {
+            PartitionContent::Leaf { .. } => None, // No inner facet
+            PartitionContent::Branch { children } => {
+                // The inner domain values are the values of the first child node
+                // (for shared domains, all children have the same domain)
+                children.values().next().map(|child| {
+                    child.values().cloned().collect()
+                })
+            }
+        }
+    }
+
+    /// Compute the maximum inner cell count across all outer values.
+    ///
+    /// This is used for uniform Free scaling - when the inner facet uses Free
+    /// scaling mode, we need to know the maximum number of inner cells across
+    /// all outer cells to ensure uniform sizing.
+    ///
+    /// # Arguments
+    /// * `outer_path` - Path to the outer facet node (empty for root level)
+    ///
+    /// # Returns
+    /// The maximum number of inner cells across all outer values, or None if
+    /// there's no inner facet or the path is invalid.
+    pub fn max_inner_cell_count(&self, outer_path: &[ScalarValue]) -> Option<usize> {
+        let outer_node = if outer_path.is_empty() {
+            self.root.as_ref()?
+        } else {
+            self.node_at_path(outer_path)?
+        };
+
+        match &outer_node.content {
+            PartitionContent::Leaf { .. } => None,
+            PartitionContent::Branch { children } => {
+                let max_count = children
+                    .values()
+                    .map(|child| child.domain_count())
+                    .max()
+                    .unwrap_or(1);
+                Some(max_count.max(1)) // Floor at 1 to prevent divide-by-zero
+            }
+        }
+    }
+
+    /// Get all inner domain values for each outer cell (for Free scaling).
+    ///
+    /// Returns a map from outer value to the inner domain for that cell.
+    /// Useful when inner domains vary per outer cell (Free scaling).
+    ///
+    /// # Arguments
+    /// * `outer_path` - Path to the outer facet node (empty for root level)
+    ///
+    /// # Returns
+    /// Map of outer value -> inner domain values, or None if invalid.
+    pub fn inner_domains_per_cell(
+        &self,
+        outer_path: &[ScalarValue],
+    ) -> Option<IndexMap<ScalarValue, Vec<ScalarValue>>> {
+        let outer_node = if outer_path.is_empty() {
+            self.root.as_ref()?
+        } else {
+            self.node_at_path(outer_path)?
+        };
+
+        match &outer_node.content {
+            PartitionContent::Leaf { .. } => None,
+            PartitionContent::Branch { children } => {
+                let result: IndexMap<ScalarValue, Vec<ScalarValue>> = children
+                    .iter()
+                    .map(|(outer_val, child)| {
+                        let inner_vals: Vec<ScalarValue> = child.values().cloned().collect();
+                        (outer_val.clone(), inner_vals)
+                    })
+                    .collect();
+                Some(result)
+            }
+        }
+    }
+
+    /// Get the union of all inner domain values across all outer cells.
+    ///
+    /// This returns the sorted set of all distinct inner domain values, which is
+    /// equivalent to querying `DISTINCT inner_field` from the full dataset.
+    /// Used for inner facet domain computation in `detect_nested_facet_and_compute_coordination`.
+    ///
+    /// # Arguments
+    /// * `outer_path` - Path to the outer facet node (empty for root level)
+    ///
+    /// # Returns
+    /// Sorted vector of all distinct inner domain values, or None if invalid.
+    pub fn inner_domain_union(&self, outer_path: &[ScalarValue]) -> Option<Vec<ScalarValue>> {
+        use crate::facet::scalar_cmp::scalar_total_cmp;
+
+        let outer_node = if outer_path.is_empty() {
+            self.root.as_ref()?
+        } else {
+            self.node_at_path(outer_path)?
+        };
+
+        match &outer_node.content {
+            PartitionContent::Leaf { .. } => None,
+            PartitionContent::Branch { children } => {
+                // Collect all unique values across all children
+                let mut all_values: Vec<ScalarValue> = children
+                    .values()
+                    .flat_map(|child| child.values().cloned())
+                    .collect();
+
+                // Sort and deduplicate
+                all_values.sort_by(scalar_total_cmp);
+                all_values.dedup();
+
+                Some(all_values)
+            }
+        }
+    }
+
+    /// Get the outer domain values (values at the current node level).
+    ///
+    /// # Arguments
+    /// * `path` - Path to the node (empty for root level)
+    ///
+    /// # Returns
+    /// Vector of domain values at this level, or None if path is invalid.
+    pub fn domain_values_at(&self, path: &[ScalarValue]) -> Option<Vec<ScalarValue>> {
+        let node = if path.is_empty() {
+            self.root.as_ref()?
+        } else {
+            self.node_at_path(path)?
+        };
+
+        Some(node.values().cloned().collect())
+    }
+
+    /// Check if this spec has any facet structure (non-empty).
+    pub fn has_facets(&self) -> bool {
+        self.root.is_some()
+    }
+
+    /// Check if the spec has a nested facet (depth >= 2).
+    pub fn has_nested_facets(&self) -> bool {
+        self.depth() >= 2
+    }
+
+    // ========================================================================
+    // Additional query methods - commented out until needed
     // ========================================================================
 
     /*
@@ -298,6 +561,14 @@ impl PartitionNode {
         match &self.content {
             PartitionContent::Leaf { values } => Box::new(values.iter()),
             PartitionContent::Branch { children } => Box::new(children.keys()),
+        }
+    }
+
+    /// Get the number of domain values at this level.
+    pub fn domain_count(&self) -> usize {
+        match &self.content {
+            PartitionContent::Leaf { values } => values.len(),
+            PartitionContent::Branch { children } => children.len(),
         }
     }
 
@@ -489,7 +760,7 @@ async fn build_partition_node(
         let mut children = IndexMap::new();
 
         for value in &values {
-            // Build filter for this value
+            // Build filter for this value to pass to child
             let value_filter = field_expr.clone().eq(lit(value.clone()));
             let combined_filter = if let Some(pf) = &parent_filter {
                 pf.clone().and(value_filter)
@@ -497,7 +768,7 @@ async fn build_partition_node(
                 value_filter
             };
 
-            // Recursively build child partition
+            // Recursively build child partition using the combined filter
             if let Some(child) = Box::pin(build_partition_tree(
                 &subplot.marks,
                 df,
@@ -660,6 +931,112 @@ mod tests {
         );
         let branch_values: Vec<_> = branch.values().collect();
         assert_eq!(branch_values, vec![&scalar("X"), &scalar("Y")]);
+
+        // Test domain_count
+        assert_eq!(branch.domain_count(), 2);
+    }
+
+    #[test]
+    fn test_cell_predicate() {
+        use datafusion::logical_expr::col;
+
+        // Build a 3-level hierarchy: Region (Col) > Department (Row) > Team (Row)
+        // With field expressions so we can test predicate generation
+        let team_leaf_eng = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "team".to_string(),
+            Some(col("team")),
+            vec![scalar("A"), scalar("B")],
+        );
+        let team_leaf_ops = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "team".to_string(),
+            Some(col("team")),
+            vec![scalar("X"), scalar("Y")],
+        );
+
+        let mut dept_children_east = IndexMap::new();
+        dept_children_east.insert(scalar("Eng"), Box::new(team_leaf_eng.clone()));
+        dept_children_east.insert(scalar("Ops"), Box::new(team_leaf_ops.clone()));
+        let dept_node_east = PartitionNode::branch(
+            FacetDirection::Row,
+            0,
+            "dept".to_string(),
+            Some(col("dept")),
+            dept_children_east,
+        );
+
+        let mut dept_children_west = IndexMap::new();
+        dept_children_west.insert(scalar("Eng"), Box::new(team_leaf_eng));
+        dept_children_west.insert(scalar("Ops"), Box::new(team_leaf_ops));
+        let dept_node_west = PartitionNode::branch(
+            FacetDirection::Row,
+            0,
+            "dept".to_string(),
+            Some(col("dept")),
+            dept_children_west,
+        );
+
+        let mut region_children = IndexMap::new();
+        region_children.insert(scalar("East"), Box::new(dept_node_east));
+        region_children.insert(scalar("West"), Box::new(dept_node_west));
+        let region_node = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "region".to_string(),
+            Some(col("region")),
+            region_children,
+        );
+
+        let spec = EvaluatedFacetSpec::new(Some(region_node));
+        assert_eq!(spec.depth(), 3);
+
+        // Test path: ["East", "Eng", "A"]
+        let path = vec![scalar("East"), scalar("Eng"), scalar("A")];
+
+        // sharing_level=0 (Free): include all 3 levels
+        let pred = spec.cell_predicate(&path, 0);
+        assert!(pred.is_some());
+        let pred_str = format!("{}", pred.unwrap());
+        assert!(pred_str.contains("region"));
+        assert!(pred_str.contains("dept"));
+        assert!(pred_str.contains("team"));
+
+        // sharing_level=1 (Level(1)): skip last 1 level, include 2
+        let pred = spec.cell_predicate(&path, 1);
+        assert!(pred.is_some());
+        let pred_str = format!("{}", pred.unwrap());
+        assert!(pred_str.contains("region"));
+        assert!(pred_str.contains("dept"));
+        assert!(!pred_str.contains("team"));
+
+        // sharing_level=2 (Level(2)): skip last 2 levels, include 1
+        let pred = spec.cell_predicate(&path, 2);
+        assert!(pred.is_some());
+        let pred_str = format!("{}", pred.unwrap());
+        assert!(pred_str.contains("region"));
+        assert!(!pred_str.contains("dept"));
+        assert!(!pred_str.contains("team"));
+
+        // sharing_level=3 (Level(3)): skip all 3 levels, return None
+        let pred = spec.cell_predicate(&path, 3);
+        assert!(pred.is_none());
+
+        // sharing_level=255 (Shared): always return None
+        let pred = spec.cell_predicate(&path, 255);
+        assert!(pred.is_none());
+
+        // Empty path should return None
+        let empty_path: Vec<ScalarValue> = vec![];
+        let pred = spec.cell_predicate(&empty_path, 0);
+        assert!(pred.is_none());
+
+        // Empty spec should return None
+        let empty_spec = EvaluatedFacetSpec::empty();
+        let pred = empty_spec.cell_predicate(&path, 0);
+        assert!(pred.is_none());
     }
 
     /*

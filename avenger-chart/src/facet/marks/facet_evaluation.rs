@@ -1739,6 +1739,7 @@ where
         params: &IndexMap<String, ScalarValue>,
         scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
         filter_df: &DataFrame,
+        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetSpec>,
     ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
         // For faceted subplots, use build_plot_components directly.
         // The dimensions are already final from facet layout, and scales are pre-coordinated.
@@ -1753,6 +1754,7 @@ where
                 crate::plot::compiled::EvaluationMode::Render,
                 Some(filter_df),
                 true,
+                facet_spec,
             )
             .await
     }
@@ -2113,6 +2115,7 @@ where
                     &merged_params,
                     &scale_provider,
                     &filter_df,
+                    context.facet_spec.clone(),
                 )
                 .await?;
 
@@ -2585,6 +2588,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // Note: We do NOT propagate domain by default - let each inner facet use its own filtered domain.
     // Domain propagation (for grid-like behavior) can be enabled via explicit configuration.
     // Pass updated_coord_ctx (with outer partition) to enable complete partition list building.
+    // Use pre-computed facet spec from context for query optimization
     let coordination_context = detect_nested_facet_and_compute_coordination(
         compiled_subplot,
         &df,
@@ -2593,6 +2597,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         &facet_expr,               // Outer facet's expression for inner cell counting
         &context.params,           // Parameters for evaluating explicit domains
         updated_coord_ctx.as_ref(), // Updated context with outer facet's partition
+        context.facet_spec(),       // Pre-computed facet spec for efficient domain lookups
     )
     .await?;
 
@@ -2608,14 +2613,16 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         }
         let mut new_params = context.params.clone();
         new_params.extend(coord_ctx.to_params());
-        modified_context = Some(RenderContext::new(
+        let new_ctx = RenderContext::new(
             context.theme.clone(),
             context.plot_width,
             context.plot_height,
             context.session_context.clone(),
             new_params,
             context.scales.clone(),
-        ));
+            context.facet_spec.clone(),
+        );
+        modified_context = Some(new_ctx);
         modified_context.as_ref().unwrap()
     } else {
         // No nested facet detected, use original context directly
@@ -2669,6 +2676,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 context.session_context.clone(),
                 new_params,
                 context.scales.clone(),
+                context.facet_spec.clone(),
             );
 
             // Re-run measure_pass with updated context so inner facets use correct gap
@@ -2731,6 +2739,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 context.session_context.clone(),
                 new_params,
                 context.scales.clone(),
+                context.facet_spec.clone(),
             );
 
             (pass1, updated_ctx)
