@@ -1,6 +1,7 @@
 //! Rendering context that carries theme and dimensions through the rendering pipeline
 
 use crate::facet::computed_facet_spec::EvaluatedFacetTree;
+use crate::facet::coordination::FacetCoordinationContext;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::theme::Theme;
 use datafusion::common::ScalarValue;
@@ -27,6 +28,9 @@ pub struct RenderContext {
     /// Pre-computed facet structure for efficient domain lookups and visibility decisions.
     /// Built once at the start of evaluate() and shared throughout rendering.
     pub facet_spec: Arc<EvaluatedFacetTree>,
+    /// Coordination context for nested facets.
+    /// Carries domain information, guide ownership, and overflow coordination between facet levels.
+    pub coordination_context: Option<FacetCoordinationContext>,
 }
 
 impl RenderContext {
@@ -39,6 +43,11 @@ impl RenderContext {
         scales: HashMap<String, ConfiguredScaleWithSpec>,
         facet_spec: Arc<EvaluatedFacetTree>,
     ) -> Self {
+        // Automatically deserialize coordination context from params if present.
+        // This ensures backward compatibility when RenderContext is created from
+        // params that contain a serialized coordination context from outer facets.
+        let coordination_context = FacetCoordinationContext::from_params(&params);
+
         Self {
             theme,
             plot_width,
@@ -47,6 +56,7 @@ impl RenderContext {
             params,
             scales,
             facet_spec,
+            coordination_context,
         }
     }
 
@@ -59,6 +69,34 @@ impl RenderContext {
     /// Get a reference to the facet spec.
     pub fn facet_spec(&self) -> &EvaluatedFacetTree {
         &self.facet_spec
+    }
+
+    /// Set the coordination context for nested facets.
+    ///
+    /// This also serializes the coordination context to params for backward compatibility
+    /// with code that reads from params directly (e.g., `FacetCoordinationContext::from_params`).
+    pub fn with_coordination_context(mut self, ctx: Option<FacetCoordinationContext>) -> Self {
+        if let Some(ref coord_ctx) = ctx {
+            // Also serialize to params for backward compatibility
+            self.params.extend(coord_ctx.to_params());
+        }
+        self.coordination_context = ctx;
+        self
+    }
+
+    /// Get a reference to the coordination context.
+    pub fn coordination_context(&self) -> Option<&FacetCoordinationContext> {
+        self.coordination_context.as_ref()
+    }
+
+    /// Get a mutable reference to the coordination context.
+    pub fn coordination_context_mut(&mut self) -> Option<&mut FacetCoordinationContext> {
+        self.coordination_context.as_mut()
+    }
+
+    /// Take the coordination context, leaving None in its place.
+    pub fn take_coordination_context(&mut self) -> Option<FacetCoordinationContext> {
+        self.coordination_context.take()
     }
 
     /// Query theme property with automatic parameter resolution

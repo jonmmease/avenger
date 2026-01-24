@@ -152,7 +152,7 @@ where
 
     // ========== COORDINATION CONTEXT EXTRACTION ==========
     // Extract coordination context early since we need shared_data_extents for scale building
-    let coordination_context = FacetCoordinationContext::from_params(&context.params);
+    let coordination_context = context.coordination_context();
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && coordination_context.is_some() {
         let ctx = coordination_context.as_ref().unwrap();
         eprintln!(
@@ -169,7 +169,7 @@ where
         }
     }
     let current_channel = DimConfig::channel_name();
-    let domain_from_coordination = coordination_context.as_ref().and_then(|ctx| {
+    let domain_from_coordination = coordination_context.and_then(|ctx| {
         // Only use coordination domain if the channel matches
         // The channel check prevents outer facet from consuming inner facet's domain
         ctx.get_inner_domain_for_channel(current_channel)
@@ -178,9 +178,7 @@ where
     // Extract uniform_cell_count early for adjusted bandwidth computation
     // When uniform Free scaling is enabled, shared scales need to use adjusted bandwidth
     // so the axis extent matches the actual subplot extent, not full column height
-    let early_uniform_cell_count = coordination_context
-        .as_ref()
-        .and_then(|ctx| ctx.get_uniform_cell_count());
+    let early_uniform_cell_count = coordination_context.and_then(|ctx| ctx.get_uniform_cell_count());
 
     // Compute band alignment early - needed for phantom cell placement in uniform free scaling
     // When align=1.0, phantoms should be prepended (at start) so actual data is at the end (bottom)
@@ -441,7 +439,8 @@ where
 
     // Check if uniform free scaling is enabled via coordination context
     // If so, we need to use a virtual domain size for band sizing
-    let uniform_cell_count = FacetCoordinationContext::from_params(&context.params)
+    let uniform_cell_count = context
+        .coordination_context()
         .and_then(|ctx| ctx.get_uniform_cell_count());
 
     // If we're using a coordination domain, rebuild the dimension scale with that domain.
@@ -681,16 +680,15 @@ where
     // so that guide ownership (axis label visibility) is computed correctly.
     // IMPORTANT: Only use uniform_cell_count if it's for THIS facet's dimension.
     // If inner_channel doesn't match our channel, the uniform sizing is for a nested facet.
-    let outer_uniform_cell_count =
-        FacetCoordinationContext::from_params(&context.params).and_then(|ctx| {
-            // Check if uniform sizing is for this facet's dimension
-            if ctx.inner_channel.as_deref() == Some(DimConfig::channel_name()) {
-                ctx.get_uniform_cell_count()
-            } else {
-                // Uniform sizing is for a different dimension (nested facet), not us
-                None
-            }
-        });
+    let outer_uniform_cell_count = context.coordination_context().and_then(|ctx| {
+        // Check if uniform sizing is for this facet's dimension
+        if ctx.inner_channel.as_deref() == Some(DimConfig::channel_name()) {
+            ctx.get_uniform_cell_count()
+        } else {
+            // Uniform sizing is for a different dimension (nested facet), not us
+            None
+        }
+    });
     let outer_count = outer_uniform_cell_count.unwrap_or(work_items.len());
     // Use phantom layout's prepend count for position adjustment
     let phantom_offset = phantom_layout.prepend_count();
@@ -1436,11 +1434,10 @@ where
     // Skip if inter_row_gap is already in coordinated_spacing (to prevent infinite recursion in two-phase measurement)
     let measured_row_gap = if DimConfig::is_col_facet() {
         // Check if coordination context indicates a nested FacetRow
-        let coord_ctx = FacetCoordinationContext::from_params(&context.params);
+        let coord_ctx = context.coordination_context();
 
         // If inter_row_gap is already in coordinated_spacing, we're in the second pass - don't recompute
         let already_computed = coord_ctx
-            .as_ref()
             .map(|ctx| ctx.get_coordinated_spacing("inter_row_gap").is_some())
             .unwrap_or(false);
 
@@ -1453,7 +1450,6 @@ where
             None
         } else {
             let has_nested_row_facet = coord_ctx
-                .as_ref()
                 .map(|ctx| ctx.inner_channel.as_deref() == Some("row"))
                 .unwrap_or(false);
 
@@ -1462,23 +1458,18 @@ where
                     "  measure_pass for FacetColumn: has_nested_row_facet={} overflow_measurements.len()={} coord_ctx={:?}",
                     has_nested_row_facet,
                     overflow_measurements.len(),
-                    coord_ctx.as_ref().map(|c| c.inner_channel.as_deref())
+                    coord_ctx.map(|c| c.inner_channel.as_deref())
                 );
             }
 
             if has_nested_row_facet && !overflow_measurements.is_empty() {
                 // Get inner domain count (number of rows) from coordination context
-                let inner_domain_count = coord_ctx
-                    .as_ref()
-                    .map(|ctx| ctx.inner_domain_count)
-                    .unwrap_or(0);
+                let inner_domain_count = coord_ctx.map(|ctx| ctx.inner_domain_count).unwrap_or(0);
 
                 // Check if uniform Free scaling is enabled
                 // When uniform Free scaling is active, we need to coordinate inter_row_gap
                 // even for columns with only 1 row, so they use the same gap as other columns
-                let uniform_cell_count = coord_ctx
-                    .as_ref()
-                    .and_then(|ctx| ctx.get_uniform_cell_count());
+                let uniform_cell_count = coord_ctx.and_then(|ctx| ctx.get_uniform_cell_count());
 
                 if inner_domain_count > 1 || uniform_cell_count.is_some() {
                     // Extract inter_row_gap from aggregated spacing_needs (computed by inner FacetRowGuide)
@@ -1514,11 +1505,10 @@ where
 
     // Compute inter_col_gap for FacetRow with nested FacetColumn (symmetric with inter_row_gap)
     let measured_col_gap = if DimConfig::is_row_facet() {
-        let coord_ctx = FacetCoordinationContext::from_params(&context.params);
+        let coord_ctx = context.coordination_context();
 
         // If inter_col_gap is already in coordinated_spacing, we're in the second pass - don't recompute
         let already_computed = coord_ctx
-            .as_ref()
             .map(|ctx| ctx.get_coordinated_spacing("inter_col_gap").is_some())
             .unwrap_or(false);
 
@@ -1531,22 +1521,16 @@ where
             None
         } else {
             let has_nested_col_facet = coord_ctx
-                .as_ref()
                 .map(|ctx| ctx.inner_channel.as_deref() == Some("column"))
                 .unwrap_or(false);
 
             if has_nested_col_facet && !overflow_measurements.is_empty() {
-                let inner_domain_count = coord_ctx
-                    .as_ref()
-                    .map(|ctx| ctx.inner_domain_count)
-                    .unwrap_or(0);
+                let inner_domain_count = coord_ctx.map(|ctx| ctx.inner_domain_count).unwrap_or(0);
 
                 // Check if uniform Free scaling is enabled
                 // When uniform Free scaling is active, we need to coordinate inter_col_gap
                 // even for rows with only 1 column, so they use the same gap as other rows
-                let uniform_cell_count = coord_ctx
-                    .as_ref()
-                    .and_then(|ctx| ctx.get_uniform_cell_count());
+                let uniform_cell_count = coord_ctx.and_then(|ctx| ctx.get_uniform_cell_count());
 
                 if inner_domain_count > 1 || uniform_cell_count.is_some() {
                     // Extract inter_col_gap from aggregated spacing_needs (computed by inner FacetColGuide)
@@ -2463,11 +2447,11 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // This is used for:
     // 1. Merging channel sharing levels for Cartesian subplot measurement
     // 2. Passing to nested facet detection for Level(N>1) domain propagation
-    let incoming_coord_ctx = FacetCoordinationContext::from_params(&context.params);
+    let incoming_coord_ctx = context.coordination_context();
 
     // Merge channel_sharing_levels from incoming coordination context (from outer facet)
     // This enables inner facets to know the x/y scale sharing for Cartesian subplot measurement
-    if let Some(ref coord_ctx) = incoming_coord_ctx {
+    if let Some(coord_ctx) = incoming_coord_ctx {
         for (channel, level) in &coord_ctx.channel_sharing_levels {
             // Only add if not already present (don't override explicit channel settings)
             scale_sharing_by_channel
@@ -2532,9 +2516,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     // but ONLY if this facet wasn't already added by a parent's detect_nested_facet_and_compute_coordination().
     // When a parent facet detects this facet as its inner facet, it adds the partition to the list.
     // We detect this by checking if the last partition in the incoming list matches our channel.
-    let incoming_partition_list = incoming_coord_ctx
-        .as_ref()
-        .and_then(|ctx| ctx.partition_list.as_ref());
+    let incoming_partition_list = incoming_coord_ctx.and_then(|ctx| ctx.partition_list.as_ref());
 
     let should_add_partition = match incoming_partition_list {
         Some(list) => {
@@ -2555,7 +2537,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
     // Create an updated coordination context with the partition list
     // If there's no incoming context, create a minimal one just for the partition list
-    let updated_coord_ctx = if let Some(ref ctx) = incoming_coord_ctx {
+    let updated_coord_ctx: Option<FacetCoordinationContext> = if let Some(ctx) = incoming_coord_ctx
+    {
         let mut updated = ctx.clone();
         updated.partition_list = Some(updated_partition_list);
         Some(updated)
@@ -2603,7 +2586,7 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     )
     .await?;
 
-    // Create modified context with coordination params if a nested facet was detected
+    // Create modified context with coordination context if a nested facet was detected
     let modified_context: Option<RenderContext>;
     let effective_context: &RenderContext = if let Some(coord_ctx) = coordination_context {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -2613,17 +2596,16 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 coord_ctx.inner_scale_sharing
             );
         }
-        let mut new_params = context.params.clone();
-        new_params.extend(coord_ctx.to_params());
         let new_ctx = RenderContext::new(
             context.theme.clone(),
             context.plot_width,
             context.plot_height,
             context.session_context.clone(),
-            new_params,
+            context.params.clone(),
             context.scales.clone(),
             context.facet_spec.clone(),
-        );
+        )
+        .with_coordination_context(Some(coord_ctx));
         modified_context = Some(new_ctx);
         modified_context.as_ref().unwrap()
     } else {
@@ -2657,7 +2639,9 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     let (final_pass, final_context) = match strategy {
         CoordinationStrategy::Rerun => {
             // Nested facets: re-run measure_pass with coordinated spacing
-            let mut coord_ctx = FacetCoordinationContext::from_params(&effective_context.params)
+            let mut coord_ctx = effective_context
+                .coordination_context()
+                .cloned()
                 .unwrap_or_default();
             coord_ctx = coord_ctx.with_coordinated_spacing(pass1.spacing_needs.clone());
 
@@ -2668,18 +2652,16 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 );
             }
 
-            let mut new_params = context.params.clone();
-            new_params.extend(coord_ctx.to_params());
-
             let updated_ctx = RenderContext::new(
-                context.theme.clone(),
-                context.plot_width,
-                context.plot_height,
-                context.session_context.clone(),
-                new_params,
-                context.scales.clone(),
-                context.facet_spec.clone(),
-            );
+                effective_context.theme.clone(),
+                effective_context.plot_width,
+                effective_context.plot_height,
+                effective_context.session_context.clone(),
+                effective_context.params.clone(),
+                effective_context.scales.clone(),
+                effective_context.facet_spec.clone(),
+            )
+            .with_coordination_context(Some(coord_ctx));
 
             // Re-run measure_pass with updated context so inner facets use correct gap
             // IMPORTANT: Use pass1.final_dimension_scale which has padding_inner_px applied,
@@ -2720,7 +2702,9 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
 
         CoordinationStrategy::UpdateContextOnly => {
             // Standalone facets: update coordination context for legend alignment
-            let mut coord_ctx = FacetCoordinationContext::from_params(&effective_context.params)
+            let mut coord_ctx = effective_context
+                .coordination_context()
+                .cloned()
                 .unwrap_or_default();
             coord_ctx = coord_ctx.with_coordinated_spacing(pass1.spacing_needs.clone());
 
@@ -2731,18 +2715,16 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 );
             }
 
-            let mut new_params = context.params.clone();
-            new_params.extend(coord_ctx.to_params());
-
             let updated_ctx = RenderContext::new(
-                context.theme.clone(),
-                context.plot_width,
-                context.plot_height,
-                context.session_context.clone(),
-                new_params,
-                context.scales.clone(),
-                context.facet_spec.clone(),
-            );
+                effective_context.theme.clone(),
+                effective_context.plot_width,
+                effective_context.plot_height,
+                effective_context.session_context.clone(),
+                effective_context.params.clone(),
+                effective_context.scales.clone(),
+                effective_context.facet_spec.clone(),
+            )
+            .with_coordination_context(Some(coord_ctx));
 
             (pass1, updated_ctx)
         }
