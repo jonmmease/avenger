@@ -12,6 +12,7 @@ use avenger_scales::scales::ConfiguredScale;
 
 use crate::channel::value::{ChannelValue, ConditionalValue};
 use crate::error::AvengerChartError;
+use crate::facet::computed_facet_spec::EvaluatedFacetSpec;
 use crate::marks::CompiledMark;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
@@ -2319,6 +2320,11 @@ impl CompiledPlot {
         } else {
             self.default_params.clone()
         };
+
+        // 1.5. Build evaluated facet spec (pre-pass to discover partition structure)
+        // This queries distinct values for each facet level, respecting scale sharing settings.
+        // Currently unused, but will be used for visibility decisions and domain inference.
+        let _facet_spec = EvaluatedFacetSpec::from_compiled_plot(self, ctx).await?;
 
         // 2. Evaluate canvas dimensions from layout spec
         let (estimated_width, estimated_height) = match &self.layout_spec.canvas {

@@ -16,3 +16,4 @@ pub mod scalar_cmp;
 pub mod scale_helpers;
 pub mod subplot_iterator;
 pub mod visibility;
+pub mod computed_facet_spec;
