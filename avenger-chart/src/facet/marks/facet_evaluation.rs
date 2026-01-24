@@ -643,6 +643,7 @@ where
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         filter_df: &DataFrame,
     ) -> Result<
         (
@@ -654,7 +655,7 @@ where
         AvengerChartError,
     > {
         let (guide_only, total_overflow, _legend_info, legend_positions) = compiled_subplot
-            .measure_with_scales(width, height, ctx, params, scales, Some(filter_df))
+            .measure_with_scales(width, height, ctx, params, scales, coordination_context, Some(filter_df))
             .await?;
         // Also get spacing_needs from inner guide's measure_with_coordination
         let spacing_needs = compiled_subplot
@@ -1072,6 +1073,7 @@ where
                         &ctx,
                         &params_base,
                         &scales,
+                        FacetCoordinationContext::from_params(&params_base).as_ref(),
                         &filter_df,
                     )
                     .await?;

@@ -28,6 +28,7 @@ pub trait AsyncMeasureOverflowFn {
         plot_height: f32,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError>;
@@ -53,7 +54,8 @@ pub trait AsyncMeasureOverflowFn {
 /// - `other_overflow`: Overflow for the other dimension (passed to child measure_with_coordination)
 /// - `plot_width`, `plot_height`: Plot dimensions
 /// - `theme`: The theme for styling
-/// - `params`: Parameters including FacetCoordinationContext
+/// - `params`: Parameters (no longer contains FacetCoordinationContext)
+/// - `coordination_context`: Optional coordination context for nested facets
 /// - `data_override`: Optional data override for nested scenarios
 /// - `ctx`: DataFusion session context
 #[allow(clippy::too_many_arguments)]
@@ -67,6 +69,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
     plot_height: f32,
     theme: &crate::theme::Theme,
     params: &IndexMap<String, datafusion::common::ScalarValue>,
+    coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
     data_override: Option<&datafusion::dataframe::DataFrame>,
     ctx: &SessionContext,
     measure_overflow_fn: impl AsyncMeasureOverflowFn,
@@ -91,8 +94,10 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
         return Ok(MeasurementResult::default());
     }
 
-    // Parse coordination context ONCE
-    let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
+    // Use coordination context from parameter, or default
+    let coord_ctx = coordination_context
+        .cloned()
+        .unwrap_or_else(FacetCoordinationContext::default);
 
     // RECURSION GUARD: If already coordinated, use single pass (measure_overflow)
     if coord_ctx.get_coordinated_spacing(inter_gap_key).is_some() {
@@ -110,6 +115,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                 plot_height,
                 theme,
                 params,
+                None, // No coordination_context in recursion guard path
                 data_override,
                 ctx,
             )
@@ -136,6 +142,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                 plot_height,
                 theme,
                 params,
+                None, // No coordination_context in nesting guard path
                 data_override,
                 ctx,
             )
@@ -337,16 +344,14 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                 for (k, v) in facet_ctx.to_params() {
                     updated_params.insert(k, v);
                 }
-                // Add NESTED_MEASUREMENT marker and partition list to coordination context
-                let mut nested_ctx = coord_ctx_with_partition.clone();
-                nested_ctx
-                    .coordinated_spacing
-                    .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
-                for (k, v) in nested_ctx.to_params() {
-                    updated_params.insert(k, v);
-                }
                 updated_params
             };
+
+            // Create nested coordination context with NESTED_MEASUREMENT marker
+            let mut nested_coord_ctx = coord_ctx_with_partition.clone();
+            nested_coord_ctx
+                .coordinated_spacing
+                .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
 
             // Call measure_with_coordination on child guide to get MeasurementResult
             // Pass other_overflow to child based on dimension
@@ -366,6 +371,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                         pass1_height,
                         theme,
                         &measure_params,
+                        Some(&nested_coord_ctx),
                         Some(&filter_df),
                         ctx,
                     )
@@ -380,6 +386,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                         ctx,
                         &measure_params,
                         &subplot_scales,
+                        Some(&nested_coord_ctx),
                         Some(&filter_df),
                     )
                     .await?;
@@ -407,6 +414,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                 plot_height,
                 theme,
                 params,
+                None, // No coordination_context in fallback path
                 data_override,
                 ctx,
             )
@@ -438,8 +446,8 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
         pass2_band_size
     );
 
-    // Create params with computed gap for nested guides
-    let pass2_params = {
+    // Create coordination context with computed gap for nested guides
+    let pass2_coord_ctx = {
         let mut new_ctx = coord_ctx.clone();
         // Add our own computed gap
         new_ctx
@@ -453,12 +461,9 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
         new_ctx
             .coordinated_spacing
             .insert(spacing_keys::NESTED_MEASUREMENT.to_string(), 1.0);
-        let mut new_params = params.clone();
-        for (k, v) in new_ctx.to_params() {
-            new_params.insert(k, v);
-        }
-        new_params
+        new_ctx
     };
+    let pass2_params = params.clone();
 
     let source = &facet_sources[0];
     let facet_expr = source
@@ -568,6 +573,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                         pass2_height,
                         theme,
                         &measure_params,
+                        Some(&pass2_coord_ctx),
                         Some(&filter_df),
                         ctx,
                     )
@@ -581,6 +587,7 @@ pub async fn measure_with_coordination_impl<D: FacetDimensionConfig>(
                         ctx,
                         &measure_params,
                         &subplot_scales,
+                        Some(&pass2_coord_ctx),
                         Some(&filter_df),
                     )
                     .await?;

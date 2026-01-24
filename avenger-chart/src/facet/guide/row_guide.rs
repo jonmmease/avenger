@@ -50,6 +50,7 @@ impl FacetRowGuide {
         plot_height: f32,
         _theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         ctx: &SessionContext,
         overflow: Option<&Vec<OverflowSpaceRequirement>>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
@@ -64,16 +65,13 @@ impl FacetRowGuide {
 
         // Build partition list for grammar-based visibility during measurement
         // This ensures measurement uses the same visibility logic as rendering
-        use crate::facet::coordination::FacetCoordinationContext;
         use crate::facet::partition::{
             build_subplot_index_from_params, compute_subplot_visibility, PartitionValue,
         };
         use crate::guide::FacetDirection;
 
-        let incoming_coord_ctx = FacetCoordinationContext::from_params(params);
-        let incoming_partition_list = incoming_coord_ctx
-            .as_ref()
-            .and_then(|ctx| ctx.partition_list.as_ref());
+        let incoming_coord_ctx = coordination_context;
+        let incoming_partition_list = incoming_coord_ctx.and_then(|ctx| ctx.partition_list.as_ref());
 
         // Get facet_scale_sharing from first source (they should be consistent)
         let facet_scale_sharing = self
@@ -93,7 +91,9 @@ impl FacetRowGuide {
         let partition_list = extend_partition_list(incoming_partition_list, this_partition);
 
         // Create a coord_ctx with the partition list for passing to inner facets
-        let mut coord_ctx_with_partition = incoming_coord_ctx.clone().unwrap_or_default();
+        let mut coord_ctx_with_partition = incoming_coord_ctx
+            .cloned()
+            .unwrap_or_default();
         coord_ctx_with_partition.partition_list = Some(partition_list.clone());
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -152,12 +152,10 @@ impl FacetRowGuide {
                 };
 
                 if let Some(expr) = facet_expr {
-                    use crate::facet::coordination::FacetCoordinationContext;
                     use datafusion::logical_expr::lit;
 
                     // Check if scales are shared via coordination context or facet config
-                    let coord_ctx = FacetCoordinationContext::from_params(params);
-                    let use_full_domain = if let Some(ctx) = coord_ctx.as_ref() {
+                    let use_full_domain = if let Some(ctx) = coordination_context {
                         // Use coordination context's inner_scale_sharing
                         !ctx.inner_scale_sharing.is_free()
                     } else {
@@ -201,7 +199,7 @@ impl FacetRowGuide {
                     // from column-filtered data, causing domain_vals to have fewer values than the
                     // actual shared domain. Use inner_domain_count to ensure we iterate over all
                     // positions for correct edge detection (bottom subplot shows x-axis labels).
-                    if let Some(ctx) = coord_ctx.as_ref() {
+                    if let Some(ctx) = coordination_context {
                         if ctx.inner_domain_count > 0
                             && iteration_domain.len() < ctx.inner_domain_count
                             && use_full_domain
@@ -235,13 +233,11 @@ impl FacetRowGuide {
                     // Compute band height for subplots based on iteration domain size
                     // Account for inter-row gaps when computing band height
                     // For uniform Free scaling, use max cell count instead of actual domain length
-                    let num_rows = coord_ctx
-                        .as_ref()
+                    let num_rows = coordination_context
                         .and_then(|ctx| ctx.get_uniform_cell_count())
                         .unwrap_or(iteration_domain.len())
                         .max(1);
-                    let inter_gap = coord_ctx
-                        .as_ref()
+                    let inter_gap = coordination_context
                         .and_then(|ctx| {
                             ctx.get_coordinated_spacing(RowDimensionConfig::inter_gap_key())
                         })
@@ -273,7 +269,7 @@ impl FacetRowGuide {
                                 .filter_map(|(channel, mode)| {
                                     if let ScaleSharing::Level(n) = mode {
                                         if *n >= 1 {
-                                            coord_ctx.as_ref().and_then(|ctx| {
+                                            coordination_context.and_then(|ctx| {
                                                 ctx.get_domain_for_channel_with_level(channel, *n)
                                                     .map(|extents| (channel.clone(), extents.clone()))
                                             })
@@ -314,10 +310,6 @@ impl FacetRowGuide {
                         // Create FacetContext with correct position for THIS row
                         let measure_params = {
                             let mut updated_params = params.clone();
-                            // Add partition_list to params for inner facets
-                            for (k, v) in coord_ctx_with_partition.to_params() {
-                                updated_params.insert(k, v);
-                            }
                             // Convert static slice to HashSet<String>
                             let mut unified_channels: std::collections::HashSet<String> =
                                 RowDimensionConfig::unified_channels()
@@ -352,7 +344,7 @@ impl FacetRowGuide {
                             // Also extract inner_domain_count or uniform_cell_count for proper grid dimensions.
                             // Also extract phantom_prepend_count for correct row position adjustment.
                             let (grid_num_rows, phantom_prepend) = if let Some(coord_ctx) =
-                                FacetCoordinationContext::from_params(params)
+                                coordination_context
                             {
                                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                                     eprintln!(
@@ -531,6 +523,7 @@ impl FacetRowGuide {
                                 ctx,
                                 &measure_params,
                                 &subplot_scales,
+                                Some(&coord_ctx_with_partition),
                                 Some(&cell_df),
                             )
                             .await?;
@@ -578,14 +571,10 @@ impl FacetRowGuide {
                 };
 
                 if let Some(expr) = facet_expr {
-                    use crate::facet::coordination::FacetCoordinationContext;
-
                     // Compute band height for subplots
                     // Account for inter-row gaps when computing band height
-                    let coord_ctx = FacetCoordinationContext::from_params(params);
                     let num_rows = domain_vals.len().max(1);
-                    let inter_gap = coord_ctx
-                        .as_ref()
+                    let inter_gap = coordination_context
                         .and_then(|ctx| {
                             ctx.get_coordinated_spacing(RowDimensionConfig::inter_gap_key())
                         })
@@ -621,7 +610,7 @@ impl FacetRowGuide {
                     // This contains the per-channel scale sharing modes (x, y) computed
                     // from channel configs, ensuring measurement uses same visibility
                     // decisions as rendering.
-                    if let Some(coord_ctx) = FacetCoordinationContext::from_params(params) {
+                    if let Some(coord_ctx) = coordination_context {
                         for (channel, level) in &coord_ctx.channel_sharing_levels {
                             scale_sharing.insert(channel.clone(), ScaleSharing::from_level(*level));
                         }
@@ -638,10 +627,6 @@ impl FacetRowGuide {
                         let subplot_measure_params = {
                             use crate::facet::context::FacetContext;
                             let mut updated_params = params.clone();
-                            // Add partition_list to params for inner facets
-                            for (k, v) in coord_ctx_with_partition.to_params() {
-                                updated_params.insert(k, v);
-                            }
                             let mut unified_channels: std::collections::HashSet<String> =
                                 RowDimensionConfig::unified_channels()
                                     .iter()
@@ -780,6 +765,7 @@ impl FacetRowGuide {
                                 ctx,
                                 &subplot_measure_params,
                                 &subplot_scales,
+                                Some(&coord_ctx_with_partition),
                                 Some(&filter_df),
                             )
                             .await?;
@@ -932,6 +918,7 @@ impl AsyncMeasureOverflowFn for RowMeasureOverflowWrapper<'_> {
         plot_height: f32,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
@@ -944,6 +931,7 @@ impl AsyncMeasureOverflowFn for RowMeasureOverflowWrapper<'_> {
                 plot_height,
                 theme,
                 params,
+                coordination_context,
                 data_override,
                 ctx,
             )
@@ -963,6 +951,7 @@ impl CompiledGuide for FacetRowGuide {
         plot_height: f32,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
@@ -987,6 +976,7 @@ impl CompiledGuide for FacetRowGuide {
                 plot_height,
                 theme,
                 params,
+                _coordination_context,
                 ctx,
                 _row_overflow,
                 data_override,
@@ -995,7 +985,7 @@ impl CompiledGuide for FacetRowGuide {
 
         // Apply shared overflow from coordination context for uniform padding across columns
         let mut overflow = (top, bottom, max_left, max_right);
-        apply_shared_overflow_coordination(&mut overflow, params);
+        apply_shared_overflow_coordination(&mut overflow, _coordination_context);
         let (top, bottom, max_left, max_right) = overflow;
 
         // Add space for facet labels by measuring text bounds
@@ -1224,6 +1214,7 @@ impl CompiledGuide for FacetRowGuide {
         plot_height: f32,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
@@ -1248,6 +1239,7 @@ impl CompiledGuide for FacetRowGuide {
                 plot_height,
                 theme,
                 params,
+                _coordination_context,
                 ctx,
                 _row_overflow,
                 data_override,
@@ -1271,6 +1263,7 @@ impl CompiledGuide for FacetRowGuide {
         plot_height: f32,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<MeasurementResult, crate::error::AvengerChartError> {
@@ -1285,6 +1278,7 @@ impl CompiledGuide for FacetRowGuide {
             plot_height,
             theme,
             params,
+            _coordination_context,
             data_override,
             ctx,
             RowMeasureOverflowWrapper { guide: self },
@@ -1302,6 +1296,7 @@ impl CompiledGuide for FacetRowGuide {
         plot_bounds: &LayoutBounds,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         ctx: &SessionContext,
         data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, crate::error::AvengerChartError> {
@@ -1339,12 +1334,11 @@ impl CompiledGuide for FacetRowGuide {
         // band positions as if there were uniform_cell_count values. This ensures labels are
         // positioned at the correct center (e.g., half-height for 2 cells when only 1 exists).
         use crate::facet::band_positions::BandPositionIterator;
-        use crate::facet::coordination::FacetCoordinationContext;
-        let uniform_cell_count = FacetCoordinationContext::from_params(params)
+        let uniform_cell_count = _coordination_context
             .and_then(|ctx| ctx.get_uniform_cell_count());
 
         // Get inner_band_align from coordination context for facet label positioning
-        let inner_band_align = FacetCoordinationContext::from_params(params)
+        let inner_band_align = _coordination_context
             .map(|ctx| ctx.inner_band_align)
             .unwrap_or(0.0);
 
@@ -1443,6 +1437,7 @@ impl CompiledGuide for FacetRowGuide {
                 plot_height,
                 theme,
                 params,
+                _coordination_context,
                 ctx,
                 overflow_for_computation,
                 data_override,

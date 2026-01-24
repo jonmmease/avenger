@@ -13,7 +13,6 @@ use crate::guide::{FacetDirection, OverflowSpaceRequirement};
 use crate::marks::CompiledMark;
 use crate::plot::CompiledPlot;
 use datafusion::common::ScalarValue;
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -78,16 +77,18 @@ pub struct FacetSource {
 ///
 /// # Arguments
 /// * `overflow` - Mutable tuple (top, bottom, left, right) to apply shared values to
-/// * `params` - Parameters containing coordination context
+/// * `coordination_context` - Optional coordination context with shared overflow values
 pub fn apply_shared_overflow_coordination(
     overflow: &mut (f32, f32, f32, f32),
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
+    coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
 ) {
     use crate::facet::coordination::{
-        FacetCoordinationContext, SHARED_OVERFLOW_BOTTOM, SHARED_OVERFLOW_LEFT,
-        SHARED_OVERFLOW_RIGHT, SHARED_OVERFLOW_TOP,
+        SHARED_OVERFLOW_BOTTOM, SHARED_OVERFLOW_LEFT, SHARED_OVERFLOW_RIGHT, SHARED_OVERFLOW_TOP,
     };
-    let coord_ctx = FacetCoordinationContext::from_params(params).unwrap_or_default();
+    let coord_ctx = match coordination_context {
+        Some(ctx) => ctx,
+        None => return, // No coordination context, nothing to apply
+    };
     if let Some(shared_top) = coord_ctx.get_coordinated_spacing(SHARED_OVERFLOW_TOP) {
         overflow.0 = overflow.0.max(shared_top);
     }

@@ -50,6 +50,7 @@ impl FacetColGuide {
         plot_height: f32,
         _theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         ctx: &SessionContext,
         overflow: Option<&Vec<OverflowSpaceRequirement>>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
@@ -64,16 +65,13 @@ impl FacetColGuide {
 
         // Build partition list for grammar-based visibility during measurement
         // This ensures measurement uses the same visibility logic as rendering
-        use crate::facet::coordination::FacetCoordinationContext;
         use crate::facet::partition::{
             build_subplot_index_from_params, compute_subplot_visibility, PartitionValue,
         };
         use crate::guide::FacetDirection;
 
-        let incoming_coord_ctx = FacetCoordinationContext::from_params(params);
-        let incoming_partition_list = incoming_coord_ctx
-            .as_ref()
-            .and_then(|ctx| ctx.partition_list.as_ref());
+        let incoming_coord_ctx = coordination_context;
+        let incoming_partition_list = incoming_coord_ctx.and_then(|ctx| ctx.partition_list.as_ref());
 
         // Get facet_scale_sharing from first source (they should be consistent)
         let facet_scale_sharing = self
@@ -93,7 +91,9 @@ impl FacetColGuide {
         let partition_list = extend_partition_list(incoming_partition_list, this_partition);
 
         // Create a coord_ctx with the partition list for passing to inner facets
-        let mut coord_ctx_with_partition = incoming_coord_ctx.clone().unwrap_or_default();
+        let mut coord_ctx_with_partition = incoming_coord_ctx
+            .cloned()
+            .unwrap_or_default();
         coord_ctx_with_partition.partition_list = Some(partition_list.clone());
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -164,12 +164,10 @@ impl FacetColGuide {
                 };
 
                 if let Some(expr) = facet_expr {
-                    use crate::facet::coordination::FacetCoordinationContext;
                     use datafusion::logical_expr::lit;
 
                     // Check if scales are shared via coordination context or facet config
-                    let coord_ctx = FacetCoordinationContext::from_params(params);
-                    let use_full_domain = if let Some(ctx) = coord_ctx.as_ref() {
+                    let use_full_domain = if let Some(ctx) = coordination_context {
                         // Use coordination context's inner_scale_sharing
                         !ctx.inner_scale_sharing.is_free()
                     } else {
@@ -218,13 +216,11 @@ impl FacetColGuide {
                     // Compute band width for subplots based on iteration domain size
                     // Account for inter-column gaps when computing band width
                     // For uniform Free scaling, use max cell count instead of actual domain length
-                    let num_cols = coord_ctx
-                        .as_ref()
+                    let num_cols = coordination_context
                         .and_then(|ctx| ctx.get_uniform_cell_count())
                         .unwrap_or(iteration_domain.len())
                         .max(1);
-                    let inter_gap = coord_ctx
-                        .as_ref()
+                    let inter_gap = coordination_context
                         .and_then(|ctx| {
                             ctx.get_coordinated_spacing(ColumnDimensionConfig::inter_gap_key())
                         })
@@ -278,8 +274,7 @@ impl FacetColGuide {
                             use crate::facet::nesting::find_channel_in_marks;
 
                             // Child nesting depth: one more than current
-                            let child_nesting_depth = coord_ctx
-                                .as_ref()
+                            let child_nesting_depth = coordination_context
                                 .map(|ctx| ctx.nesting_depth + 1)
                                 .unwrap_or(1);
 
@@ -317,20 +312,20 @@ impl FacetColGuide {
                             }
 
                             if !level_domains.is_empty() {
-                                let base_ctx = coord_ctx.clone().unwrap_or_default();
+                                let base_ctx = coordination_context.cloned().unwrap_or_default();
                                 Some(
                                     base_ctx
                                         .with_nesting_depth(child_nesting_depth)
                                         .with_level_domains(level_domains),
                                 )
                             } else {
-                                coord_ctx.clone()
+                                coordination_context.cloned()
                             }
                         } else {
-                            coord_ctx.clone()
+                            coordination_context.cloned()
                         }
                     } else {
-                        coord_ctx.clone()
+                        coordination_context.cloned()
                     };
 
                     // Extend with level-based extents from coordination context for Level(N>=1) channels
@@ -343,7 +338,7 @@ impl FacetColGuide {
                                 .filter_map(|(channel, mode)| {
                                     if let ScaleSharing::Level(n) = mode {
                                         if *n >= 1 {
-                                            coord_ctx.as_ref().and_then(|ctx| {
+                                            coordination_context.and_then(|ctx| {
                                                 ctx.get_domain_for_channel_with_level(channel, *n)
                                                     .map(|extents| (channel.clone(), extents.clone()))
                                             })
@@ -549,6 +544,7 @@ impl FacetColGuide {
                                 ctx,
                                 &subplot_measure_params,
                                 &subplot_scales,
+                                measurement_coord_ctx.as_ref(),
                                 Some(&cell_df),
                             )
                             .await?;
@@ -657,8 +653,7 @@ impl FacetColGuide {
                             use crate::facet::nesting::find_channel_in_marks;
 
                             // Child nesting depth: one more than current
-                            let child_nesting_depth = coord_ctx
-                                .as_ref()
+                            let child_nesting_depth = coordination_context
                                 .map(|ctx| ctx.nesting_depth + 1)
                                 .unwrap_or(1);
 
@@ -696,20 +691,20 @@ impl FacetColGuide {
                             }
 
                             if !level_domains.is_empty() {
-                                let base_ctx = coord_ctx.clone().unwrap_or_default();
+                                let base_ctx = coordination_context.cloned().unwrap_or_default();
                                 Some(
                                     base_ctx
                                         .with_nesting_depth(child_nesting_depth)
                                         .with_level_domains(level_domains),
                                 )
                             } else {
-                                coord_ctx.clone()
+                                coordination_context.cloned()
                             }
                         } else {
-                            coord_ctx.clone()
+                            coordination_context.cloned()
                         }
                     } else {
-                        coord_ctx.clone()
+                        coordination_context.cloned()
                     };
 
                     let subplot_scales = source
@@ -909,6 +904,7 @@ impl FacetColGuide {
                                 ctx,
                                 &subplot_measure_params,
                                 &subplot_scales,
+                                measurement_coord_ctx.as_ref(),
                                 Some(&filter_df),
                             )
                             .await?;
@@ -1050,6 +1046,7 @@ impl AsyncMeasureOverflowFn for ColMeasureOverflowWrapper<'_> {
         plot_height: f32,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
@@ -1062,6 +1059,7 @@ impl AsyncMeasureOverflowFn for ColMeasureOverflowWrapper<'_> {
                 plot_height,
                 theme,
                 params,
+                coordination_context,
                 data_override,
                 ctx,
             )
@@ -1081,6 +1079,7 @@ impl CompiledGuide for FacetColGuide {
         plot_height: f32,
         _theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::scalar::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
@@ -1107,6 +1106,7 @@ impl CompiledGuide for FacetColGuide {
                 plot_height,
                 _theme,
                 params,
+                _coordination_context,
                 ctx,
                 _col_overflow,
                 data_override,
@@ -1115,7 +1115,7 @@ impl CompiledGuide for FacetColGuide {
 
         // Apply shared overflow from coordination context for uniform padding across rows
         let mut overflow = (top_max, bottom_max, left_max, right_max);
-        apply_shared_overflow_coordination(&mut overflow, params);
+        apply_shared_overflow_coordination(&mut overflow, _coordination_context);
         let (top_max, bottom_max, left_max, right_max) = overflow;
 
         // Add facet guide space (labels/titles) on top of child overflows
@@ -1379,6 +1379,7 @@ impl CompiledGuide for FacetColGuide {
         plot_height: f32,
         _theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::scalar::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<OverflowSpaceRequirement, crate::error::AvengerChartError> {
@@ -1403,6 +1404,7 @@ impl CompiledGuide for FacetColGuide {
                 plot_height,
                 _theme,
                 params,
+                _coordination_context,
                 ctx,
                 _col_overflow,
                 data_override,
@@ -1426,6 +1428,7 @@ impl CompiledGuide for FacetColGuide {
         plot_height: f32,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
     ) -> Result<MeasurementResult, crate::error::AvengerChartError> {
@@ -1440,6 +1443,7 @@ impl CompiledGuide for FacetColGuide {
             plot_height,
             theme,
             params,
+            _coordination_context,
             data_override,
             ctx,
             ColMeasureOverflowWrapper { guide: self },
@@ -1457,6 +1461,7 @@ impl CompiledGuide for FacetColGuide {
         plot_bounds: &LayoutBounds,
         theme: &crate::theme::Theme,
         params: &IndexMap<String, datafusion::scalar::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         ctx: &SessionContext,
         data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, crate::error::AvengerChartError> {
@@ -1503,6 +1508,7 @@ impl CompiledGuide for FacetColGuide {
                 plot_height,
                 theme,
                 params,
+                _coordination_context,
                 ctx,
                 overflow_for_computation,
                 data_override,
@@ -1514,8 +1520,7 @@ impl CompiledGuide for FacetColGuide {
         // band positions as if there were uniform_cell_count values. This ensures labels are
         // positioned at the correct center (e.g., half-width for 2 cells when only 1 exists).
         use crate::facet::band_positions::BandPositionIterator;
-        use crate::facet::coordination::FacetCoordinationContext;
-        let uniform_cell_count = FacetCoordinationContext::from_params(params)
+        let uniform_cell_count = _coordination_context
             .and_then(|ctx| ctx.get_uniform_cell_count());
 
         let band_positions: Vec<_> = if let Some(uniform_count) = uniform_cell_count {
@@ -1753,6 +1758,7 @@ impl CompiledGuide for FacetColGuide {
                     plot_height,
                     theme,
                     params,
+                    _coordination_context,
                     ctx,
                     None,
                     data_override,

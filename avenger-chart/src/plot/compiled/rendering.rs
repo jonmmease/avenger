@@ -789,6 +789,7 @@ impl CompiledPlot {
                     plot_bounds,
                     theme.as_ref(),
                     params,
+                    None, // coordination_context not used at subplot level
                     ctx,
                     data_override,
                 )
@@ -833,6 +834,7 @@ impl CompiledPlot {
                     height_estimate,
                     theme.as_ref(),
                     params,
+                    None, // coordination_context not used at subplot level
                     None, // No data override in top-level estimate
                     ctx,
                 )
@@ -894,6 +896,7 @@ impl CompiledPlot {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&DataFrame>,
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
         use crate::layout::{
@@ -919,6 +922,7 @@ impl CompiledPlot {
                     plot_height,
                     theme.as_ref(),
                     params,
+                    None, // coordination_context not used at subplot level
                     data_override,
                     ctx,
                 )
@@ -933,19 +937,17 @@ impl CompiledPlot {
         //
         // Only override specific sides that have unified values - this ensures legends align
         // while allowing other sides to use their actual measured overflow.
-        let coord_ctx = crate::facet::coordination::FacetCoordinationContext::from_params(params);
-
-        if let Some(ctx) = coord_ctx.as_ref() {
-            if let Some(unified_right) = ctx.get_coordinated_spacing("legend_right") {
+        if let Some(coord_ctx) = coordination_context {
+            if let Some(unified_right) = coord_ctx.get_coordinated_spacing("legend_right") {
                 overflow.right = unified_right;
             }
-            if let Some(unified_left) = ctx.get_coordinated_spacing("legend_left") {
+            if let Some(unified_left) = coord_ctx.get_coordinated_spacing("legend_left") {
                 overflow.left = unified_left;
             }
-            if let Some(unified_top) = ctx.get_coordinated_spacing("legend_top") {
+            if let Some(unified_top) = coord_ctx.get_coordinated_spacing("legend_top") {
                 overflow.top = unified_top;
             }
-            if let Some(unified_bottom) = ctx.get_coordinated_spacing("legend_bottom") {
+            if let Some(unified_bottom) = coord_ctx.get_coordinated_spacing("legend_bottom") {
                 overflow.bottom = unified_bottom;
             }
         }
@@ -1291,6 +1293,7 @@ impl CompiledPlot {
                     &initial_scales,
                     ctx,
                     &merged_params,
+                    None, // coordination_context not used at top level
                     data_override,
                 )
                 .await?;
@@ -1754,6 +1757,7 @@ impl CompiledPlot {
                         &initial_scales,
                         ctx,
                         &merged_params,
+                        None, // coordination_context not used at top level
                         data_override,
                     )
                     .await?;
@@ -2041,6 +2045,7 @@ impl CompiledPlot {
                                 pb.height,
                                 theme.as_ref(),
                                 &merged_params,
+                                None, // coordination_context not used at subplot level
                                 data_override,
                                 ctx,
                             )

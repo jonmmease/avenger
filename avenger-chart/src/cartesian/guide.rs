@@ -194,6 +194,7 @@ impl CompiledGuide for CartesianGuide {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
@@ -218,6 +219,7 @@ impl CompiledGuide for CartesianGuide {
                 &initial_bounds,
                 theme,
                 params,
+                None, // CartesianGuide doesn't use coordination_context
                 ctx,
                 data_override,
             )
@@ -289,6 +291,7 @@ impl CompiledGuide for CartesianGuide {
         plot_bounds: &LayoutBounds,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         ctx: &datafusion::prelude::SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {

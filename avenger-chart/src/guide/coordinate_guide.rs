@@ -1,4 +1,5 @@
 //! Core trait for coordinate system guides
+use crate::facet::coordination::FacetCoordinationContext;
 use crate::theme::Theme;
 
 use crate::axis::Axis;
@@ -74,6 +75,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
@@ -98,6 +100,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
@@ -111,6 +114,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
             plot_height,
             theme,
             params,
+            coordination_context,
             data_override,
             ctx,
         )
@@ -145,6 +149,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<MeasurementResult, AvengerChartError> {
@@ -158,6 +163,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
                 plot_height,
                 theme,
                 params,
+                coordination_context,
                 data_override,
                 ctx,
             )
@@ -181,6 +187,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         plot_bounds: &LayoutBounds,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        coordination_context: Option<&FacetCoordinationContext>,
         ctx: &datafusion::prelude::SessionContext,
         data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;

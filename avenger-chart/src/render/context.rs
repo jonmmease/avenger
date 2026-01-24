@@ -43,11 +43,6 @@ impl RenderContext {
         scales: HashMap<String, ConfiguredScaleWithSpec>,
         facet_spec: Arc<EvaluatedFacetTree>,
     ) -> Self {
-        // Automatically deserialize coordination context from params if present.
-        // This ensures backward compatibility when RenderContext is created from
-        // params that contain a serialized coordination context from outer facets.
-        let coordination_context = FacetCoordinationContext::from_params(&params);
-
         Self {
             theme,
             plot_width,
@@ -56,7 +51,7 @@ impl RenderContext {
             params,
             scales,
             facet_spec,
-            coordination_context,
+            coordination_context: None,
         }
     }
 
@@ -72,14 +67,7 @@ impl RenderContext {
     }
 
     /// Set the coordination context for nested facets.
-    ///
-    /// This also serializes the coordination context to params for backward compatibility
-    /// with code that reads from params directly (e.g., `FacetCoordinationContext::from_params`).
     pub fn with_coordination_context(mut self, ctx: Option<FacetCoordinationContext>) -> Self {
-        if let Some(ref coord_ctx) = ctx {
-            // Also serialize to params for backward compatibility
-            self.params.extend(coord_ctx.to_params());
-        }
         self.coordination_context = ctx;
         self
     }

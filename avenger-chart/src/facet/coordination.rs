@@ -84,40 +84,8 @@ pub const SHARED_OVERFLOW_BOTTOM: &str = "shared_overflow_bottom";
 use crate::guide::OverflowSpaceRequirement;
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// Custom serialization module for IndexMap<LevelChannelKey, DomainExtent>
-/// JSON doesn't support non-string keys in objects, so we serialize as Vec of tuples.
-/// Uses IndexMap instead of HashMap for deterministic iteration order during serialization.
-mod level_domains_serde {
-    use super::*;
-    use crate::scales::DomainExtent;
-
-    pub fn serialize<S>(
-        map: &IndexMap<LevelChannelKey, DomainExtent>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Convert IndexMap to Vec of tuples for JSON-compatible serialization
-        // IndexMap preserves insertion order, ensuring deterministic output
-        let vec: Vec<(&LevelChannelKey, &DomainExtent)> = map.iter().collect();
-        vec.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<IndexMap<LevelChannelKey, DomainExtent>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Deserialize Vec of tuples back to IndexMap
-        let vec: Vec<(LevelChannelKey, DomainExtent)> = Vec::deserialize(deserializer)?;
-        Ok(vec.into_iter().collect())
-    }
-}
 
 /// Key for level-based domain lookups in FacetCoordinationContext
 ///
@@ -455,7 +423,7 @@ impl SerializableDataExtents {
 /// - Shared domain computation (inner facet uses outer's pre-computed domain)
 /// - Guide suppression (only edge subplots render guides)
 /// - Unified overflow (consistent row heights across columns)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct FacetCoordinationContext {
     /// The channel name that should consume this coordination context
     ///
@@ -464,7 +432,6 @@ pub struct FacetCoordinationContext {
     /// only use the domain if its channel name matches this field.
     /// This prevents outer facets from incorrectly consuming domains meant for
     /// inner facets.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner_channel: Option<String>,
 
     /// Pre-computed domain values for the inner facet's dimension
@@ -474,32 +441,27 @@ pub struct FacetCoordinationContext {
     /// The inner facet uses this instead of computing from filtered data,
     /// which ensures all columns have the same row values (with empty cells
     /// for missing combinations).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner_domain: Option<Vec<SerializableDomainValue>>,
 
     /// Scale sharing mode for the inner facet's dimension
     ///
     /// Determines whether inner facet should use passed domain or compute its own.
-    #[serde(default = "default_scale_sharing")]
     pub inner_scale_sharing: ScaleSharing,
 
     /// Guide ownership for the inner facet
     ///
     /// Controls whether this subplot renders its facet guides (labels/title).
     /// Edge subplots render guides; interior subplots suppress them.
-    #[serde(default)]
     pub guide_ownership: GuideOwnership,
 
     /// Position of this subplot within the outer facet's layout (0-indexed)
     ///
     /// Used for guide ownership decisions and overflow coordination.
-    #[serde(default)]
     pub outer_position: usize,
 
     /// Total count of subplots in the outer facet
     ///
     /// Used for guide ownership decisions (e.g., is this the last column?).
-    #[serde(default)]
     pub outer_count: usize,
 
     /// The channel type of the outer facet (e.g., "row" or "column")
@@ -507,7 +469,6 @@ pub struct FacetCoordinationContext {
     /// Used to detect same-type nesting (Row>Row or Col>Col) vs cross-type nesting.
     /// In same-type nesting, the orthogonal dimension is always 1.
     /// In cross-type nesting, outer_position represents the orthogonal dimension.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outer_channel: Option<String>,
 
     /// Per-row overflow measurements across all columns (for nested coordination)
@@ -515,7 +476,6 @@ pub struct FacetCoordinationContext {
     /// When outer facet measures all inner facets, it computes max overflow
     /// per row index across columns. This enables consistent row heights.
     /// The index in this Vec corresponds to the row index within each inner facet.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_overflow_by_index: Option<Vec<OverflowSpaceRequirement>>,
 
     /// Flag indicating this facet should use fallback scales for empty cells
@@ -524,7 +484,6 @@ pub struct FacetCoordinationContext {
     /// those "empty cells" need fallback scales to render axes correctly.
     /// The inner facet should build a fallback ScaleBuilder from the full dataset
     /// and use it when the cell-specific data is empty.
-    #[serde(default)]
     pub enable_empty_cell_fallback: bool,
 
     /// Expected inner domain count from full dataset
@@ -538,7 +497,6 @@ pub struct FacetCoordinationContext {
     /// - The full dataset has 3 species
     /// - Each column may have 1-3 species depending on the data
     /// - This field stores 3, ensuring all columns report grid=(3, num_columns)
-    #[serde(default)]
     pub inner_domain_count: usize,
 
     /// Pre-computed data extents for shared scale channels (e.g., "x", "y")
@@ -549,7 +507,6 @@ pub struct FacetCoordinationContext {
     ///
     /// Key: channel name (e.g., "x", "y")
     /// Value: DomainExtent (numeric/discrete/temporal bounds with optional radius)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_data_extents: Option<HashMap<String, crate::scales::DomainExtent>>,
 
     // ========================================================================
@@ -562,7 +519,6 @@ pub struct FacetCoordinationContext {
     /// N = Nth nested level (inside N parent facets)
     ///
     /// Used to determine which level domains are relevant for scale sharing.
-    #[serde(default)]
     pub nesting_depth: usize,
 
     /// Per-channel scale sharing levels (converted from ScaleSharing)
@@ -574,7 +530,6 @@ pub struct FacetCoordinationContext {
     /// - u8::MAX: Shared (global across all facets)
     ///
     /// This is derived from ScaleSharing via to_level() for efficient lookups.
-    #[serde(default)]
     pub channel_sharing_levels: HashMap<String, u8>,
 
     /// Level-based domain lookups
@@ -585,10 +540,6 @@ pub struct FacetCoordinationContext {
     ///
     /// Key: LevelChannelKey { level, channel }
     /// Value: DomainExtent (numeric/discrete/temporal bounds with optional radius)
-    ///
-    /// Note: Uses custom serialization to handle non-string keys in JSON.
-    /// Uses IndexMap for deterministic iteration order during serialization.
-    #[serde(default, with = "level_domains_serde")]
     pub level_domains: IndexMap<LevelChannelKey, crate::scales::DomainExtent>,
 
     /// Position path through the facet hierarchy
@@ -597,7 +548,6 @@ pub struct FacetCoordinationContext {
     /// [0, 2, 1] meaning: position 0 in outermost, position 2 in middle, position 1 in innermost
     ///
     /// Used for edge detection and guide ownership decisions.
-    #[serde(default)]
     pub position_path: Vec<usize>,
 
     /// Count of subplots at each level in the hierarchy
@@ -606,7 +556,6 @@ pub struct FacetCoordinationContext {
     /// [3, 4, 2] meaning: 3 subplots at outermost, 4 at middle, 2 at innermost
     ///
     /// Used with position_path for edge detection.
-    #[serde(default)]
     pub level_counts: Vec<usize>,
 
     /// Inner facet's explicit spacing between subplots (if configured)
@@ -617,7 +566,6 @@ pub struct FacetCoordinationContext {
     ///
     /// The total inner spacing is: (inner_domain_count - 1) * inner_facet_spacing
     /// This must be accounted for when the outer facet computes band sizes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner_facet_spacing: Option<f32>,
 
     /// Per-column overflow measurements across all rows (for nested coordination)
@@ -625,7 +573,6 @@ pub struct FacetCoordinationContext {
     /// When outer FacetRow measures all inner FacetColumn subplots, it computes max overflow
     /// per column index across rows. This enables consistent column widths.
     /// The index in this Vec corresponds to the column index within each inner facet.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub col_overflow_by_index: Option<Vec<OverflowSpaceRequirement>>,
 
     /// Coordinated spacing values aggregated from child facets
@@ -640,7 +587,6 @@ pub struct FacetCoordinationContext {
     /// - "inter_col_gap": Gap between columns (computed by inner column facet)
     /// - "legend_right": Right margin for legend alignment
     /// - "legend_bottom": Bottom margin for legend alignment
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub coordinated_spacing: HashMap<String, f32>,
 
     // ========================================================================
@@ -655,7 +601,6 @@ pub struct FacetCoordinationContext {
     /// Set during measure_pass when nested facet detection finds Free scaling.
     /// Used by guides to compute band dimensions based on max count rather than
     /// local count.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_inner_cell_count: Option<usize>,
 
     /// Enable uniform cell sizing for Free scaling
@@ -665,7 +610,6 @@ pub struct FacetCoordinationContext {
     /// with empty space where data is missing.
     ///
     /// Only has effect when max_inner_cell_count is Some.
-    #[serde(default)]
     pub enable_uniform_free_scaling: bool,
 
     /// Number of phantom cells prepended for uniform Free scaling
@@ -676,7 +620,6 @@ pub struct FacetCoordinationContext {
     ///
     /// 0 = No phantoms, or phantoms were appended (not prepended)
     /// N = N phantoms were prepended, so actual data starts at rendered position N
-    #[serde(default)]
     pub phantom_prepend_count: usize,
 
     /// Band alignment for the inner facet dimension (0.0 to 1.0)
@@ -688,7 +631,6 @@ pub struct FacetCoordinationContext {
     /// - 0.0: Data aligns to start (top for rows, left for columns), phantoms appended
     /// - 0.5: Data centered, phantoms split evenly
     /// - 1.0: Data aligns to end (bottom for rows, right for columns), phantoms prepended
-    #[serde(default = "default_band_align")]
     pub inner_band_align: f32,
 
     // ========================================================================
@@ -705,24 +647,13 @@ pub struct FacetCoordinationContext {
     ///
     /// When present, this enables structure-derived visibility decisions rather
     /// than incremental edge tracking. See the partition module for details.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partition_list: Option<crate::facet::partition::FacetPartitionList>,
 
     /// Pre-computed visibility decisions for all subplots (Phase 3 grammar model)
     ///
     /// This cache computes visibility once for all subplots based on the grammar's
     /// rules, rather than computing incrementally during iteration.
-    /// Skipped during serialization as it's computed from partition_list.
-    #[serde(skip)]
     pub visibility_cache: Option<crate::facet::partition::VisibilityCache>,
-}
-
-fn default_band_align() -> f32 {
-    0.5 // Default to centered if not specified
-}
-
-fn default_scale_sharing() -> ScaleSharing {
-    ScaleSharing::Free
 }
 
 impl Default for FacetCoordinationContext {
@@ -965,89 +896,47 @@ impl FacetCoordinationContext {
 
     /// Serialize to params map for passing through call stack
     ///
-    /// The context is serialized to JSON and stored under the `__facet_coordination` key.
+    /// DEPRECATED: FacetCoordinationContext is now passed directly through RenderContext.
+    /// This method returns an empty params map for backward compatibility.
+    #[deprecated(note = "Use RenderContext.coordination_context() instead")]
     pub fn to_params(&self) -> IndexMap<String, ScalarValue> {
-        let mut params = IndexMap::new();
-        if let Ok(json) = serde_json::to_string(self) {
-            params.insert(Self::PARAM_KEY.to_string(), ScalarValue::Utf8(Some(json)));
-        }
-        params
+        IndexMap::new()
     }
 
     /// Deserialize from params map
     ///
-    /// Attempts to extract and deserialize the `__facet_coordination` param.
-    /// Returns None if the param doesn't exist or deserialization fails.
-    ///
-    /// Note: For error-aware deserialization, use `try_from_params()` instead.
+    /// DEPRECATED: FacetCoordinationContext is now passed directly through RenderContext.
+    /// This method always returns None for backward compatibility.
+    #[deprecated(note = "Use RenderContext.coordination_context() instead")]
+    #[allow(unused_variables)]
     pub fn from_params(params: &IndexMap<String, ScalarValue>) -> Option<Self> {
-        params.get(Self::PARAM_KEY).and_then(|v| match v {
-            ScalarValue::Utf8(Some(json)) => serde_json::from_str(json).ok(),
-            _ => None,
-        })
+        None
     }
 
     /// Deserialize from params map with explicit error handling
     ///
-    /// Unlike `from_params()`, this method distinguishes between:
-    /// - `Ok(None)`: The param doesn't exist (valid case - no coordination context)
-    /// - `Ok(Some(ctx))`: Successfully deserialized
-    /// - `Err(...)`: The param exists but deserialization failed (indicates data corruption)
-    ///
-    /// Use this in contexts where deserialization errors should be propagated rather
-    /// than silently converted to None.
+    /// DEPRECATED: FacetCoordinationContext is now passed directly through RenderContext.
+    /// This method always returns Ok(None) for backward compatibility.
+    #[deprecated(note = "Use RenderContext.coordination_context() instead")]
+    #[allow(unused_variables)]
     pub fn try_from_params(
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<Option<Self>, crate::error::AvengerChartError> {
-        match params.get(Self::PARAM_KEY) {
-            None => Ok(None),
-            Some(ScalarValue::Utf8(None)) => Ok(None),
-            Some(ScalarValue::Utf8(Some(json))) => {
-                serde_json::from_str(json).map(Some).map_err(|e| {
-                    crate::error::AvengerChartError::DeserializationError(format!(
-                        "Failed to deserialize FacetCoordinationContext: {}",
-                        e
-                    ))
-                })
-            }
-            Some(other) => Err(crate::error::AvengerChartError::DeserializationError(
-                format!(
-                    "Expected Utf8 for FacetCoordinationContext, got {:?}",
-                    other.data_type()
-                ),
-            )),
-        }
+        Ok(None)
     }
 
     /// Update outer position in params and return modified params
     ///
-    /// This is used by the outer facet to update the coordination context per-subplot
-    /// iteration, ensuring inner facets know their position within the overall grid.
-    /// If no coordination context exists in params, they are returned unchanged.
-    ///
-    /// Also updates position_path and level_counts for hierarchical level-based sharing:
-    /// - Appends the current position to position_path
-    /// - Appends the current count to level_counts
+    /// DEPRECATED: FacetCoordinationContext is now passed directly through RenderContext.
+    /// This method returns params unchanged for backward compatibility.
+    #[deprecated(note = "Use RenderContext.coordination_context_mut() instead")]
+    #[allow(unused_variables)]
     pub fn update_outer_position_in_params(
         params: &IndexMap<String, ScalarValue>,
         position: usize,
         count: usize,
     ) -> IndexMap<String, ScalarValue> {
-        if let Some(mut ctx) = Self::from_params(params) {
-            ctx.outer_position = position;
-            ctx.outer_count = count;
-
-            // Update position_path and level_counts for hierarchical tracking
-            // These vectors grow as we descend through nested facet levels
-            ctx.position_path.push(position);
-            ctx.level_counts.push(count);
-
-            let mut new_params = params.clone();
-            new_params.extend(ctx.to_params());
-            new_params
-        } else {
-            params.clone()
-        }
+        params.clone()
     }
 
     /// Get inner domain as ScalarValues
@@ -1653,6 +1542,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_coordination_context_serialization() {
         let ctx = FacetCoordinationContext::new(
             "row",
@@ -2095,6 +1985,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_serialization_round_trip_with_level_fields() {
         // Create context with all level-based fields populated
         // With nesting_depth=2, the formula target_depth = nesting_depth - level + 2:
@@ -2235,6 +2126,7 @@ mod tests {
     // ========================================================================
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_update_outer_position_propagates_path() {
         // Simulate 2-level nesting: FacetColumn(3) > FacetRow(4)
         // Create initial context for nested facet
@@ -2274,6 +2166,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_update_outer_position_accumulates_for_deeper_nesting() {
         // Simulate 3-level nesting: FacetColumn(2) > FacetRow(3) > FacetColumn(4)
         // Start with a context that already has position_path from level 0
@@ -2318,6 +2211,7 @@ mod tests {
     // ========================================================================
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_uniform_cell_count_serialization() {
         // Create context with max_inner_cell_count and enable_uniform_free_scaling
         let ctx = FacetCoordinationContext::default()
@@ -2406,6 +2300,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_uniform_cell_count_serialization_with_disabled() {
         // Verify that enable_uniform_free_scaling=false serializes correctly
         let ctx = FacetCoordinationContext::default()
@@ -2421,6 +2316,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_try_from_params_success() {
         let ctx = FacetCoordinationContext::default().with_outer_position(1, 3);
 
@@ -2441,6 +2337,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_try_from_params_invalid_json() {
         let mut params = IndexMap::new();
         params.insert(
@@ -2457,6 +2354,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_try_from_params_wrong_type() {
         let mut params = IndexMap::new();
         params.insert(
@@ -2467,60 +2365,6 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Expected Utf8"));
-    }
-
-    // ========================================================================
-    // T3: Serialization determinism tests
-    // ========================================================================
-
-    #[test]
-    fn test_indexmap_serialization_determinism() {
-        // Create a FacetCoordinationContext with multiple level_domains entries
-        // IndexMap should produce the same serialization order every time
-        let mut domains = IndexMap::new();
-        domains.insert(
-            LevelChannelKey::new(0, "x"),
-            SerializableDataExtents::interval(0.0, 100.0).into(),
-        );
-        domains.insert(
-            LevelChannelKey::new(1, "y"),
-            SerializableDataExtents::interval(-50.0, 50.0).into(),
-        );
-        domains.insert(
-            LevelChannelKey::new(2, "color"),
-            SerializableDataExtents::discrete(vec![
-                ScalarValue::Utf8(Some("a".to_string())),
-                ScalarValue::Utf8(Some("b".to_string())),
-                ScalarValue::Utf8(Some("c".to_string())),
-            ])
-            .into(),
-        );
-
-        let ctx = FacetCoordinationContext::default()
-            .with_nesting_depth(3)
-            .with_level_domains(domains);
-
-        // Serialize multiple times and verify same output
-        let json1 = serde_json::to_string(&ctx).unwrap();
-        let json2 = serde_json::to_string(&ctx).unwrap();
-        let json3 = serde_json::to_string(&ctx).unwrap();
-
-        assert_eq!(
-            json1, json2,
-            "Serialization should be deterministic (1 vs 2)"
-        );
-        assert_eq!(
-            json2, json3,
-            "Serialization should be deterministic (2 vs 3)"
-        );
-
-        // Verify order is preserved in serialized output
-        // The level_domains should appear in insertion order (0, 1, 2)
-        let x_pos = json1.find("\"level\":0").unwrap();
-        let y_pos = json1.find("\"level\":1").unwrap();
-        let color_pos = json1.find("\"level\":2").unwrap();
-        assert!(x_pos < y_pos, "level 0 should appear before level 1");
-        assert!(y_pos < color_pos, "level 1 should appear before level 2");
     }
 
     #[test]
@@ -2633,6 +2477,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Tests deprecated params-based serialization"]
     fn test_full_context_serialization_determinism_multiple_runs() {
         // Run serialization multiple times with a complex context
         // to verify determinism
@@ -2685,39 +2530,6 @@ mod tests {
                 run
             );
         }
-    }
-
-    #[test]
-    fn test_level_domains_ordering_preserved() {
-        // Verify that level_domains maintains insertion order through serialization
-        let mut domains = IndexMap::new();
-        let keys = vec!["zebra", "apple", "mango", "banana"];
-
-        for (i, key) in keys.iter().enumerate() {
-            domains.insert(
-                LevelChannelKey::new(0, *key),
-                SerializableDataExtents::interval(i as f64, i as f64 + 1.0).into(),
-            );
-        }
-
-        let ctx = FacetCoordinationContext::default().with_level_domains(domains);
-
-        // Serialize and deserialize
-        let json = serde_json::to_string(&ctx).unwrap();
-        let restored: FacetCoordinationContext = serde_json::from_str(&json).unwrap();
-
-        // Verify order is preserved
-        let restored_keys: Vec<String> = restored
-            .level_domains
-            .keys()
-            .map(|k| k.channel.clone())
-            .collect();
-
-        assert_eq!(
-            restored_keys,
-            vec!["zebra", "apple", "mango", "banana"],
-            "IndexMap should preserve insertion order through JSON serialization"
-        );
     }
 
     // ========================================================================
