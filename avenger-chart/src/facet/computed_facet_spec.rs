@@ -412,6 +412,85 @@ impl EvaluatedFacetTree {
         self.depth() >= 2
     }
 
+    /// Get level counts (domain count at each nesting level).
+    ///
+    /// Returns vec where index is nesting level and value is domain count.
+    ///
+    /// INVARIANT: Assumes balanced tree where all children at each branch
+    /// have identical domain counts (true for grid-aligned facets).
+    pub fn level_counts(&self) -> Vec<usize> {
+        let mut counts = Vec::new();
+        if let Some(ref root) = self.root {
+            Self::collect_level_counts(root, &mut counts, 0);
+        }
+        counts
+    }
+
+    fn collect_level_counts(node: &PartitionNode, counts: &mut Vec<usize>, level: usize) {
+        // Ensure vector is large enough
+        if counts.len() <= level {
+            counts.resize(level + 1, 0);
+        }
+        // Record count at this level
+        counts[level] = node.domain_count();
+
+        // Recurse to children (use first child to get next level structure)
+        if let PartitionContent::Branch { ref children } = node.content {
+            if let Some(first_child) = children.values().next() {
+                // Debug assertion: verify tree balance invariant
+                #[cfg(debug_assertions)]
+                {
+                    let expected_count = first_child.domain_count();
+                    for (i, child) in children.values().enumerate().skip(1) {
+                        debug_assert_eq!(
+                            child.domain_count(),
+                            expected_count,
+                            "Tree balance violation: child {} has domain_count {} but expected {} at level {}",
+                            i,
+                            child.domain_count(),
+                            expected_count,
+                            level + 1
+                        );
+                    }
+                }
+                Self::collect_level_counts(first_child.as_ref(), counts, level + 1);
+            }
+        }
+    }
+
+    /// Convert position indices to actual domain values by traversing tree.
+    ///
+    /// Uses IndexMap::get_index() to recover domain values from indices.
+    /// This enables converting position_path (index-based) to actual ScalarValues
+    /// for tree queries like inner_domain_union().
+    pub fn path_values_from_indices(&self, indices: &[usize]) -> Vec<ScalarValue> {
+        let mut values = Vec::with_capacity(indices.len());
+        let mut current_node = self.root.as_ref();
+
+        for &idx in indices {
+            match current_node {
+                Some(node) => match &node.content {
+                    PartitionContent::Leaf { values: domain_values } => {
+                        if let Some(val) = domain_values.get(idx) {
+                            values.push(val.clone());
+                        }
+                        break; // Leaf node, can't go deeper
+                    }
+                    PartitionContent::Branch { children } => {
+                        if let Some((key, child)) = children.get_index(idx) {
+                            values.push(key.clone());
+                            current_node = Some(child.as_ref());
+                        } else {
+                            break; // Index out of bounds
+                        }
+                    }
+                },
+                None => break,
+            }
+        }
+        values
+    }
+
     // ========================================================================
     // Additional query methods - commented out until needed
     // ========================================================================
@@ -1038,6 +1117,129 @@ mod tests {
         let empty_spec = EvaluatedFacetTree::empty();
         let pred = empty_spec.cell_predicate(&path, 0);
         assert!(pred.is_none());
+    }
+
+    #[test]
+    fn test_level_counts_empty() {
+        let spec = EvaluatedFacetTree::empty();
+        assert_eq!(spec.level_counts(), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn test_level_counts_single_level() {
+        let root = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "department".to_string(),
+            None,
+            vec![scalar("Eng"), scalar("Ops"), scalar("Sales")],
+        );
+        let spec = EvaluatedFacetTree::new(Some(root));
+        assert_eq!(spec.level_counts(), vec![3]);
+    }
+
+    #[test]
+    fn test_level_counts_two_levels() {
+        // Col (2 values) > Row (3 values each)
+        let row_node = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "department".to_string(),
+            None,
+            vec![scalar("Eng"), scalar("Ops"), scalar("Sales")],
+        );
+
+        let mut children = IndexMap::new();
+        children.insert(scalar("East"), Box::new(row_node.clone()));
+        children.insert(scalar("West"), Box::new(row_node));
+
+        let col_node = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "region".to_string(),
+            None,
+            children,
+        );
+
+        let spec = EvaluatedFacetTree::new(Some(col_node));
+        assert_eq!(spec.level_counts(), vec![2, 3]);
+    }
+
+    #[test]
+    fn test_path_values_from_indices_empty() {
+        let spec = EvaluatedFacetTree::empty();
+        assert_eq!(spec.path_values_from_indices(&[]), Vec::<ScalarValue>::new());
+        assert_eq!(
+            spec.path_values_from_indices(&[0]),
+            Vec::<ScalarValue>::new()
+        );
+    }
+
+    #[test]
+    fn test_path_values_from_indices_single_level() {
+        let root = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "department".to_string(),
+            None,
+            vec![scalar("Eng"), scalar("Ops"), scalar("Sales")],
+        );
+        let spec = EvaluatedFacetTree::new(Some(root));
+
+        // Index 0 -> "Eng"
+        assert_eq!(spec.path_values_from_indices(&[0]), vec![scalar("Eng")]);
+        // Index 1 -> "Ops"
+        assert_eq!(spec.path_values_from_indices(&[1]), vec![scalar("Ops")]);
+        // Index 2 -> "Sales"
+        assert_eq!(spec.path_values_from_indices(&[2]), vec![scalar("Sales")]);
+        // Index 3 -> out of bounds, empty
+        assert_eq!(
+            spec.path_values_from_indices(&[3]),
+            Vec::<ScalarValue>::new()
+        );
+    }
+
+    #[test]
+    fn test_path_values_from_indices_two_levels() {
+        // Col (East, West) > Row (Eng, Ops)
+        let row_node = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "department".to_string(),
+            None,
+            vec![scalar("Eng"), scalar("Ops")],
+        );
+
+        let mut children = IndexMap::new();
+        children.insert(scalar("East"), Box::new(row_node.clone()));
+        children.insert(scalar("West"), Box::new(row_node));
+
+        let col_node = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "region".to_string(),
+            None,
+            children,
+        );
+
+        let spec = EvaluatedFacetTree::new(Some(col_node));
+
+        // [0] -> ["East"]
+        assert_eq!(spec.path_values_from_indices(&[0]), vec![scalar("East")]);
+        // [1] -> ["West"]
+        assert_eq!(spec.path_values_from_indices(&[1]), vec![scalar("West")]);
+        // [0, 0] -> ["East", "Eng"]
+        assert_eq!(
+            spec.path_values_from_indices(&[0, 0]),
+            vec![scalar("East"), scalar("Eng")]
+        );
+        // [1, 1] -> ["West", "Ops"]
+        assert_eq!(
+            spec.path_values_from_indices(&[1, 1]),
+            vec![scalar("West"), scalar("Ops")]
+        );
+        // [0, 2] -> ["East"] (second index out of bounds)
+        assert_eq!(spec.path_values_from_indices(&[0, 2]), vec![scalar("East")]);
     }
 
     /*

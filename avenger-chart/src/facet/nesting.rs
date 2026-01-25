@@ -478,6 +478,7 @@ pub(crate) async fn detect_nested_facet_and_compute_coordination(
     let outer_channel = if outer_is_row_facet { "row" } else { "column" };
 
     let mut coord_ctx = FacetCoordinationContext::new(
+        std::sync::Arc::new(facet_spec.clone()),
         inner_channel,        // Channel name ("row" or "column") for the inner facet
         inner_scale_sharing,  // Scale sharing mode
         GuideOwnership::Full, // Will be refined per-subplot

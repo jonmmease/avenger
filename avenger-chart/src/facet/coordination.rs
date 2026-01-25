@@ -62,6 +62,8 @@
 //! - `inner_band_align`: Band alignment value (0.0-1.0)
 
 use crate::channel::config_traits::ScaleSharing;
+use crate::facet::computed_facet_spec::EvaluatedFacetTree;
+use std::sync::Arc;
 
 // ============================================================================
 // Spacing Key Constants
@@ -425,6 +427,12 @@ impl SerializableDataExtents {
 /// - Unified overflow (consistent row heights across columns)
 #[derive(Debug, Clone)]
 pub struct FacetCoordinationContext {
+    /// Reference to the evaluated facet tree for efficient domain lookups.
+    ///
+    /// Non-optional for consistency with RenderContext and simpler accessors.
+    /// Use `EvaluatedFacetTree::empty()` for non-faceted cases.
+    pub facet_tree: Arc<EvaluatedFacetTree>,
+
     /// The channel name that should consume this coordination context
     ///
     /// This identifies which facet dimension (e.g., "row" or "column") the domain
@@ -659,6 +667,7 @@ pub struct FacetCoordinationContext {
 impl Default for FacetCoordinationContext {
     fn default() -> Self {
         Self {
+            facet_tree: Arc::new(EvaluatedFacetTree::empty()),
             inner_channel: None,
             inner_domain: None,
             inner_scale_sharing: ScaleSharing::Free,
@@ -696,6 +705,7 @@ impl FacetCoordinationContext {
     /// Create a new coordination context
     ///
     /// # Arguments
+    /// * `facet_tree` - Reference to the evaluated facet tree
     /// * `inner_channel` - The channel name ("row" or "column") that should consume this context
     /// * `inner_scale_sharing` - Scale sharing mode for the inner facet
     /// * `guide_ownership` - Controls guide rendering for this subplot
@@ -703,6 +713,7 @@ impl FacetCoordinationContext {
     /// * `outer_count` - Total count of subplots in outer facet
     /// * `inner_domain_count` - Expected inner domain size from full dataset
     pub fn new(
+        facet_tree: Arc<EvaluatedFacetTree>,
         inner_channel: impl Into<String>,
         inner_scale_sharing: ScaleSharing,
         guide_ownership: GuideOwnership,
@@ -711,6 +722,7 @@ impl FacetCoordinationContext {
         inner_domain_count: usize,
     ) -> Self {
         Self {
+            facet_tree,
             inner_channel: Some(inner_channel.into()),
             inner_domain: None,
             inner_scale_sharing,
@@ -741,6 +753,11 @@ impl FacetCoordinationContext {
             partition_list: None,
             visibility_cache: None,
         }
+    }
+
+    /// Create an empty context for non-faceted cases
+    pub fn empty() -> Self {
+        Self::default()
     }
 
     /// Builder: Set band alignment for inner facet dimension
@@ -934,6 +951,105 @@ impl FacetCoordinationContext {
     /// Check if inner domain was provided by outer facet
     pub fn has_inner_domain(&self) -> bool {
         self.inner_domain.is_some()
+    }
+
+    // ========================================================================
+    // Tree-Derived Accessor Methods
+    // ========================================================================
+    // These methods derive values from the facet_tree, providing a path to
+    // remove redundant fields that duplicate tree-derivable information.
+
+    /// Get the outer path as ScalarValues for tree queries.
+    ///
+    /// Uses tree traversal by index to recover actual domain values from position_path.
+    fn outer_path_values(&self) -> Vec<ScalarValue> {
+        self.facet_tree.path_values_from_indices(&self.position_path)
+    }
+
+    /// Get nesting depth derived from tree.
+    ///
+    /// During migration, this includes a debug assertion to verify it matches the field.
+    pub fn get_nesting_depth(&self) -> usize {
+        let tree_depth = self.facet_tree.depth();
+        #[cfg(debug_assertions)]
+        {
+            // Note: tree depth is 1-based (1 for single facet), nesting_depth is 0-based
+            // After migration, tree_depth will be the source of truth
+            if self.nesting_depth > 0 && tree_depth > 0 {
+                // Only validate when both are set (during migration, field may be set but tree empty)
+                // The tree depth should be nesting_depth + 1 (converting from 0-based to 1-based)
+                let expected_tree_depth = self.nesting_depth + 1;
+                if tree_depth != expected_tree_depth && tree_depth != self.nesting_depth {
+                    // Allow either convention during migration
+                    debug_assert!(
+                        false,
+                        "Tree depth mismatch: tree.depth()={} but nesting_depth={}",
+                        tree_depth, self.nesting_depth
+                    );
+                }
+            }
+        }
+        // Return the field value during migration (will return tree_depth after field removal)
+        self.nesting_depth
+    }
+
+    /// Get level counts derived from tree.
+    ///
+    /// During migration, this includes a debug assertion to verify it matches the field.
+    pub fn get_level_counts(&self) -> Vec<usize> {
+        let tree_counts = self.facet_tree.level_counts();
+        #[cfg(debug_assertions)]
+        {
+            if !self.level_counts.is_empty() && !tree_counts.is_empty() {
+                debug_assert_eq!(
+                    tree_counts, self.level_counts,
+                    "Level counts mismatch: tree={:?} but field={:?}",
+                    tree_counts, self.level_counts
+                );
+            }
+        }
+        // Return the field value during migration
+        self.level_counts.clone()
+    }
+
+    /// Get inner domain count derived from tree.
+    ///
+    /// During migration, this includes a debug assertion to verify it matches the field.
+    pub fn get_inner_domain_count(&self) -> usize {
+        let outer_path = self.outer_path_values();
+        let tree_count = self.facet_tree.max_inner_cell_count(&outer_path).unwrap_or(0);
+        #[cfg(debug_assertions)]
+        {
+            if self.inner_domain_count > 0 && tree_count > 0 {
+                debug_assert_eq!(
+                    tree_count, self.inner_domain_count,
+                    "Inner domain count mismatch: tree={} but field={}",
+                    tree_count, self.inner_domain_count
+                );
+            }
+        }
+        // Return the field value during migration
+        self.inner_domain_count
+    }
+
+    /// Get max inner cell count derived from tree.
+    ///
+    /// During migration, this includes a debug assertion to verify it matches the field.
+    pub fn get_max_inner_cell_count(&self) -> Option<usize> {
+        let outer_path = self.outer_path_values();
+        let tree_count = self.facet_tree.max_inner_cell_count(&outer_path);
+        #[cfg(debug_assertions)]
+        {
+            if let (Some(field_count), Some(tree_count)) = (self.max_inner_cell_count, tree_count) {
+                debug_assert_eq!(
+                    tree_count, field_count,
+                    "Max inner cell count mismatch: tree={} but field={}",
+                    tree_count, field_count
+                );
+            }
+        }
+        // Return the field value during migration
+        self.max_inner_cell_count
     }
 
     // ========================================================================
@@ -1494,9 +1610,14 @@ pub fn log_invariant_check(_name: &str, _passed: bool, _context: &str) {
 mod tests {
     use super::*;
 
+    fn empty_tree() -> Arc<EvaluatedFacetTree> {
+        Arc::new(EvaluatedFacetTree::empty())
+    }
+
     #[test]
     fn test_guide_suppression() {
         let ctx_suppress = FacetCoordinationContext::new(
+            empty_tree(),
             "row",
             ScaleSharing::Shared,
             GuideOwnership::Suppress,
@@ -1508,6 +1629,7 @@ mod tests {
         assert!(!ctx_suppress.should_render_guides());
 
         let ctx_edge = FacetCoordinationContext::new(
+            empty_tree(),
             "row",
             ScaleSharing::Shared,
             GuideOwnership::Edge,
@@ -1518,8 +1640,15 @@ mod tests {
         assert!(!ctx_edge.should_suppress_guides());
         assert!(ctx_edge.should_render_guides());
 
-        let ctx_full =
-            FacetCoordinationContext::new("row", ScaleSharing::Free, GuideOwnership::Full, 0, 3, 3);
+        let ctx_full = FacetCoordinationContext::new(
+            empty_tree(),
+            "row",
+            ScaleSharing::Free,
+            GuideOwnership::Full,
+            0,
+            3,
+            3,
+        );
         assert!(!ctx_full.should_suppress_guides());
         assert!(ctx_full.should_render_guides());
     }
@@ -1903,6 +2032,7 @@ mod tests {
         );
 
         let mut ctx = FacetCoordinationContext::new(
+            empty_tree(),
             "row",
             ScaleSharing::Shared,
             GuideOwnership::Edge,
@@ -2133,6 +2263,7 @@ mod tests {
     #[test]
     fn test_guide_context_view() {
         let ctx = FacetCoordinationContext::new(
+            empty_tree(),
             "row",
             ScaleSharing::Shared,
             GuideOwnership::Edge,
@@ -2151,6 +2282,7 @@ mod tests {
 
         // Test non-edge position
         let ctx_interior = FacetCoordinationContext::new(
+            empty_tree(),
             "row",
             ScaleSharing::Shared,
             GuideOwnership::Suppress,
@@ -2183,6 +2315,7 @@ mod tests {
     fn test_validate_consistency_passes() {
         // Valid context should pass validation
         let ctx = FacetCoordinationContext::new(
+            empty_tree(),
             "row",
             ScaleSharing::Shared,
             GuideOwnership::Edge,
