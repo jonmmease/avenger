@@ -34,7 +34,6 @@ async fn test_symbol_default_channel_values() {
         indexmap::IndexMap::new(),
         std::collections::HashMap::new(),
         Arc::new(avenger_chart::facet::computed_facet_spec::EvaluatedFacetTree::empty()),
-        None, // No coordination context for tests
     );
 
     // Build the CompiledMark

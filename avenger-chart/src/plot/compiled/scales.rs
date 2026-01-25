@@ -569,7 +569,6 @@ fn get_radius_expression(
                             Arc::new(
                                 crate::facet::computed_facet_spec::EvaluatedFacetTree::empty(),
                             ),
-                            None, // No coordination context for default queries
                         );
 
                         if let Some(default_scalar) = mark.default_channel_value(ch_name, &temp_ctx)
@@ -750,7 +749,6 @@ async fn cache_domain_data(
                                                 indexmap::IndexMap::new(),
                                                 HashMap::new(),
                                                 Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetTree::empty()),
-                                                None, // No coordination context for default queries
                                             );
                                             if let Some(default_scalar) =
                                                 mark.default_channel_value(ch_name, &temp_ctx)
@@ -1573,7 +1571,6 @@ mod tests {
             IndexMap::new(),
             std::collections::HashMap::new(),
             Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetTree::empty()),
-            None, // No coordination context for tests
         );
         let first_mark = compiled.marks().first().expect("compiled mark");
         let stroke_width = first_mark

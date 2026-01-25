@@ -55,7 +55,6 @@ impl CompiledGuide for NoGuide {
         _plot_height: f32,
         _theme: &Theme,
         _params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
@@ -72,7 +71,6 @@ impl CompiledGuide for NoGuide {
         _plot_bounds: &LayoutBounds,
         _theme: &Theme,
         _params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         _ctx: &datafusion::prelude::SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {

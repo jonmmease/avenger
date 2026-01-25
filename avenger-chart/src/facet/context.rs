@@ -6,8 +6,24 @@
 //! intelligent decisions about what to show/hide.
 
 use crate::channel::config_traits::ScaleSharing;
-use crate::facet::partition::SubplotVisibility;
 use datafusion::common::ScalarValue;
+
+/// Visibility flags for a subplot within a faceted layout.
+///
+/// This is a minimal struct that captures the visibility decisions for axes
+/// without the full partition model complexity. Used by `FacetContext` to
+/// communicate visibility to subplot guides.
+#[derive(Debug, Clone, Default)]
+pub struct SubplotVisibility {
+    /// Whether to show x-axis tick labels
+    pub show_x_ticks: bool,
+    /// Whether to show y-axis tick labels
+    pub show_y_ticks: bool,
+    /// Whether to show x-axis title
+    pub show_x_title: bool,
+    /// Whether to show y-axis title
+    pub show_y_title: bool,
+}
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};

@@ -197,7 +197,7 @@ impl ScaleBuilder {
     /// HashMap mapping channel names to their DomainExtent values
     pub fn extract_domain_extents(&self, channels: &[&str]) -> HashMap<String, super::DomainExtent> {
         use super::{DomainBounds, DomainExtent, RadiusPadding};
-        use crate::facet::coordination::SerializableDomainValue;
+        use crate::scales::domain_extent::SerializableDomainValue;
 
         let mut result = HashMap::new();
 
@@ -1350,7 +1350,7 @@ mod tests {
 
     #[test]
     fn test_extend_with_domain_extents_discrete() {
-        use crate::facet::coordination::SerializableDomainValue;
+        use crate::scales::domain_extent::SerializableDomainValue;
         use crate::scales::spec::Linear;
         use crate::scales::DomainExtent;
         use datafusion_common::ScalarValue;

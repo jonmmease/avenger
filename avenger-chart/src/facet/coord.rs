@@ -1,6 +1,6 @@
 use crate::coords::{CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRequirement};
 use crate::error::AvengerChartError;
-use crate::facet::guide::{FacetColGuide, FacetRowGuide};
+use crate::facet::guide::{FacetColGuideConfig, FacetRowGuideConfig};
 use avenger_common::value::ScalarOrArray;
 use datafusion::common::ScalarValue;
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ pub struct FacetRow {
 }
 
 impl CoordinateSystem for FacetRow {
-    type Guide = FacetRowGuide;
+    type Guide = FacetRowGuideConfig;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["row"]
@@ -209,7 +209,7 @@ pub struct FacetColumn {
 }
 
 impl CoordinateSystem for FacetColumn {
-    type Guide = FacetColGuide;
+    type Guide = FacetColGuideConfig;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["column"]

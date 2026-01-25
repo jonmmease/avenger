@@ -158,7 +158,6 @@ impl CompiledGuide for PolarGuide {
         plot_height: f32,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
@@ -183,7 +182,6 @@ impl CompiledGuide for PolarGuide {
                 &initial_bounds,
                 theme,
                 params,
-                None, // PolarGuide doesn't use coordination_context
                 ctx,
                 data_override,
             )
@@ -247,7 +245,6 @@ impl CompiledGuide for PolarGuide {
         plot_bounds: &LayoutBounds,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        _coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         _ctx: &datafusion::prelude::SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {

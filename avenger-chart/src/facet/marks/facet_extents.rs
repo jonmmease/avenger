@@ -1,5 +1,5 @@
 use crate::error::AvengerChartError;
-use crate::facet::coordination::SerializableDataExtents;
+use crate::scales::domain_extent::SerializableDataExtents;
 use crate::facet::scalar_cmp::scalar_total_cmp;
 use avenger_scales::scales::DomainKind;
 use datafusion::common::{DFSchema, ScalarValue};

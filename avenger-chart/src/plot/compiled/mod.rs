@@ -458,7 +458,6 @@ impl CompiledPlot {
                     plot_area_height,
                     theme.as_ref(),
                     params,
-                    None, // coordination_context not used at subplot level
                     data_override,
                     ctx,
                 )
@@ -486,7 +485,6 @@ impl CompiledPlot {
         ctx: &datafusion::prelude::SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-        coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
     ) -> Result<
         (
@@ -506,7 +504,6 @@ impl CompiledPlot {
                 scales,
                 ctx,
                 params,
-                coordination_context,
                 data_override,
             )
             .await?;
@@ -592,7 +589,6 @@ impl CompiledPlot {
                     height,
                     &theme,
                     params,
-                    None, // coordination_context not used at subplot level
                     data_override,
                     ctx,
                 )
@@ -645,7 +641,6 @@ impl CompiledPlot {
                     height,
                     &theme,
                     params,
-                    None, // coordination_context not used at subplot level
                     data_override,
                     ctx,
                 )

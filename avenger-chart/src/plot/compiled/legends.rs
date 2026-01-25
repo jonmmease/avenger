@@ -524,7 +524,6 @@ impl CompiledPlot {
             params.clone(),
             std::collections::HashMap::new(),
             Arc::new(crate::facet::computed_facet_spec::EvaluatedFacetTree::empty()),
-            None, // No coordination context for legend defaults
         );
 
         // Iterate through all supported channels of this mark

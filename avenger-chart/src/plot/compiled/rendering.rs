@@ -303,7 +303,6 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
-        coordination_context: Option<crate::facet::coordination::FacetCoordinationContext>,
     ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
@@ -498,7 +497,6 @@ impl CompiledPlot {
             params.clone(),
             scales.clone(),
             facet_spec,
-            coordination_context,
         );
 
         // Clone the coordinate transform
@@ -527,7 +525,6 @@ impl CompiledPlot {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
         facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
-        coordination_context: Option<crate::facet::coordination::FacetCoordinationContext>,
     ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
@@ -727,7 +724,6 @@ impl CompiledPlot {
             params.clone(),
             scales.clone(),
             facet_spec,
-            coordination_context,
         );
         let coord_transform = self.coord_transform.clone_box();
         mark.evaluate_from_data(
@@ -793,7 +789,6 @@ impl CompiledPlot {
                     plot_bounds,
                     theme.as_ref(),
                     params,
-                    None, // coordination_context not used at subplot level
                     ctx,
                     data_override,
                 )
@@ -838,7 +833,6 @@ impl CompiledPlot {
                     height_estimate,
                     theme.as_ref(),
                     params,
-                    None, // coordination_context not used at subplot level
                     None, // No data override in top-level estimate
                     ctx,
                 )
@@ -900,7 +894,6 @@ impl CompiledPlot {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
-        coordination_context: Option<&crate::facet::coordination::FacetCoordinationContext>,
         data_override: Option<&DataFrame>,
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
         use crate::layout::{
@@ -911,7 +904,7 @@ impl CompiledPlot {
         self.validate_positional_scales_exist(scales)?;
 
         // First, measure the guide overflow (axis tick labels, titles, etc.)
-        let mut overflow = if let Some(compiled_guide) = &self.compiled_guide {
+        let overflow = if let Some(compiled_guide) = &self.compiled_guide {
             let theme = self.get_theme();
             let configured_scales: HashMap<String, ConfiguredScale> = scales
                 .iter()
@@ -926,7 +919,6 @@ impl CompiledPlot {
                     plot_height,
                     theme.as_ref(),
                     params,
-                    None, // coordination_context not used at subplot level
                     data_override,
                     ctx,
                 )
@@ -935,26 +927,7 @@ impl CompiledPlot {
             crate::guide::OverflowSpaceRequirement::default()
         };
 
-        // Check for coordinated spacing for cross-subplot legend alignment.
-        // Values are passed via FacetCoordinationContext.coordinated_spacing:
-        // - legend_right, legend_left, legend_top, legend_bottom
-        //
-        // Only override specific sides that have unified values - this ensures legends align
-        // while allowing other sides to use their actual measured overflow.
-        if let Some(coord_ctx) = coordination_context {
-            if let Some(unified_right) = coord_ctx.get_coordinated_spacing("legend_right") {
-                overflow.right = unified_right;
-            }
-            if let Some(unified_left) = coord_ctx.get_coordinated_spacing("legend_left") {
-                overflow.left = unified_left;
-            }
-            if let Some(unified_top) = coord_ctx.get_coordinated_spacing("legend_top") {
-                overflow.top = unified_top;
-            }
-            if let Some(unified_bottom) = coord_ctx.get_coordinated_spacing("legend_bottom") {
-                overflow.bottom = unified_bottom;
-            }
-        }
+        // STUBBED: coordination context-based legend alignment has been removed
 
         // Get legends with theme applied
         let all_legends = self.get_legends_with_theme(scales, ctx, params);
@@ -1163,7 +1136,6 @@ impl CompiledPlot {
                     ctx,
                     params,
                     facet_spec.clone(),
-                    None, // Top-level evaluation has no coordination context
                 )
                 .await?;
             mark_groups.extend(scene_marks);
@@ -1298,7 +1270,6 @@ impl CompiledPlot {
                     &initial_scales,
                     ctx,
                     &merged_params,
-                    None, // coordination_context not used at top level
                     data_override,
                 )
                 .await?;
@@ -1338,7 +1309,6 @@ impl CompiledPlot {
                     &merged_params,
                     data_override,
                     facet_spec.clone(),
-                    None, // Top-level measurement has no coordination context
                 )
                 .await?;
             layout_updates.push(layout_info);
@@ -1588,7 +1558,6 @@ impl CompiledPlot {
                     &merged_params,
                     data_override,
                     facet_spec.clone(),
-                    None, // Top-level rendering has no coordination context
                 )
                 .await?;
             data_marks.extend(marks);
@@ -1715,7 +1684,6 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
         facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
-        coordination_context: Option<crate::facet::coordination::FacetCoordinationContext>,
     ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
         use crate::plot::compiled::EvaluationMode;
         use avenger_scales::scales::ConfiguredScale;
@@ -1765,7 +1733,6 @@ impl CompiledPlot {
                         &initial_scales,
                         ctx,
                         &merged_params,
-                        None, // coordination_context not used at top level
                         data_override,
                     )
                     .await?;
@@ -1833,7 +1800,6 @@ impl CompiledPlot {
                         &merged_params,
                         df_opt,
                         facet_spec.clone(),
-                        coordination_context.clone(),
                     )
                     .await?;
                 layout_updates.push(layout_info);
@@ -1989,7 +1955,6 @@ impl CompiledPlot {
                         &merged_params,
                         df_opt,
                         facet_spec.clone(),
-                        coordination_context.clone(),
                     )
                     .await?;
                 data_marks.extend(marks);
@@ -2055,7 +2020,6 @@ impl CompiledPlot {
                                 pb.height,
                                 theme.as_ref(),
                                 &merged_params,
-                                None, // coordination_context not used at subplot level
                                 data_override,
                                 ctx,
                             )
@@ -2429,7 +2393,6 @@ impl CompiledPlot {
                 None,       // No data override for top-level plots
                 false,      // Canvas mode: dimensions are canvas size
                 facet_spec, // Pre-computed facet spec
-                None,       // No coordination context at top level
             )
             .await?;
 
