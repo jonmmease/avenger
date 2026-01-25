@@ -2049,7 +2049,7 @@ impl CompiledPlot {
         )
         .await?;
 
-        let provider = crate::plot::compiled::scale_provider::DefaultScaleProvider {
+        let provider = crate::plot::compiled::scale_provider::DynamicScaleProvider {
             builder: &scale_builder,
             plot: self,
         };

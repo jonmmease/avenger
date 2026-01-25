@@ -35,13 +35,13 @@ pub trait ScaleProvider: Send + Sync {
 ///
 /// Used for top-level plots and any subplot that builds its own scales
 /// independently (e.g., facets with completely free scales).
-pub struct DefaultScaleProvider<'a> {
+pub struct DynamicScaleProvider<'a> {
     pub builder: &'a crate::scales::ScaleBuilder,
     pub plot: &'a CompiledPlot,
 }
 
 #[async_trait]
-impl<'a> ScaleProvider for DefaultScaleProvider<'a> {
+impl<'a> ScaleProvider for DynamicScaleProvider<'a> {
     async fn build_scales(
         &self,
         plot_area_width: f32,

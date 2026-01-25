@@ -108,7 +108,7 @@ However, individual subplot rendering (which produces the correct colored debug 
 ```rust
 // In avenger-chart/src/plot/compiled/rendering.rs, build_plot_components()
 let scale_builder = build_scale_builder_from_marks(&marks, &scale_specs, &coord_transform, &data, Some(filtered_df), ctx, &facet_params, theme).await?;
-let provider = DefaultScaleProvider { builder: &scale_builder, plot: self };
+let provider = DynamicScaleProvider { builder: &scale_builder, plot: self };
 self.build_plot_components(band_w, plot_height, ctx, &facet_params, &provider, EvaluationMode::Measure, Some(&filtered_df), true).await?;
 ```
 
@@ -144,8 +144,8 @@ Replace the edge measurement in `FacetColGuide::measure_overflow` (lines ~716-94
 
 2. **Create a scale provider**:
    ```rust
-   use crate::plot::compiled::scale_provider::DefaultScaleProvider;
-   let provider = DefaultScaleProvider {
+   use crate::plot::compiled::scale_provider::DynamicScaleProvider;
+   let provider = DynamicScaleProvider {
        builder: &scale_builder,
        plot: &compiled_subplot,
    };
