@@ -773,6 +773,14 @@ impl FacetCoordinationContext {
         self
     }
 
+    /// Builder: Set the facet tree reference
+    ///
+    /// The tree provides efficient domain lookups and structural queries.
+    pub fn with_facet_tree(mut self, tree: Arc<EvaluatedFacetTree>) -> Self {
+        self.facet_tree = tree;
+        self
+    }
+
     /// Builder: Set inner facet's explicit spacing
     ///
     /// When the inner facet has custom spacing configured, this propagates it
@@ -968,88 +976,54 @@ impl FacetCoordinationContext {
 
     /// Get nesting depth derived from tree.
     ///
-    /// During migration, this includes a debug assertion to verify it matches the field.
+    /// Returns the nesting depth (0 = outermost facet).
+    /// Falls back to the field value if tree is empty (for backward compatibility).
     pub fn get_nesting_depth(&self) -> usize {
         let tree_depth = self.facet_tree.depth();
-        #[cfg(debug_assertions)]
-        {
-            // Note: tree depth is 1-based (1 for single facet), nesting_depth is 0-based
-            // After migration, tree_depth will be the source of truth
-            if self.nesting_depth > 0 && tree_depth > 0 {
-                // Only validate when both are set (during migration, field may be set but tree empty)
-                // The tree depth should be nesting_depth + 1 (converting from 0-based to 1-based)
-                let expected_tree_depth = self.nesting_depth + 1;
-                if tree_depth != expected_tree_depth && tree_depth != self.nesting_depth {
-                    // Allow either convention during migration
-                    debug_assert!(
-                        false,
-                        "Tree depth mismatch: tree.depth()={} but nesting_depth={}",
-                        tree_depth, self.nesting_depth
-                    );
-                }
-            }
+        if tree_depth > 0 {
+            // Tree depth is 1-based, nesting_depth is 0-based
+            tree_depth.saturating_sub(1)
+        } else {
+            // Fallback to field when tree is empty
+            self.nesting_depth
         }
-        // Return the field value during migration (will return tree_depth after field removal)
-        self.nesting_depth
     }
 
     /// Get level counts derived from tree.
     ///
-    /// During migration, this includes a debug assertion to verify it matches the field.
+    /// Returns domain counts at each nesting level.
+    /// Falls back to the field value if tree is empty.
     pub fn get_level_counts(&self) -> Vec<usize> {
         let tree_counts = self.facet_tree.level_counts();
-        #[cfg(debug_assertions)]
-        {
-            if !self.level_counts.is_empty() && !tree_counts.is_empty() {
-                debug_assert_eq!(
-                    tree_counts, self.level_counts,
-                    "Level counts mismatch: tree={:?} but field={:?}",
-                    tree_counts, self.level_counts
-                );
-            }
+        if !tree_counts.is_empty() {
+            tree_counts
+        } else {
+            self.level_counts.clone()
         }
-        // Return the field value during migration
-        self.level_counts.clone()
     }
 
     /// Get inner domain count derived from tree.
     ///
-    /// During migration, this includes a debug assertion to verify it matches the field.
+    /// Returns the maximum cell count at the inner level for the current position.
+    /// Falls back to the field value if tree returns 0.
     pub fn get_inner_domain_count(&self) -> usize {
         let outer_path = self.outer_path_values();
         let tree_count = self.facet_tree.max_inner_cell_count(&outer_path).unwrap_or(0);
-        #[cfg(debug_assertions)]
-        {
-            if self.inner_domain_count > 0 && tree_count > 0 {
-                debug_assert_eq!(
-                    tree_count, self.inner_domain_count,
-                    "Inner domain count mismatch: tree={} but field={}",
-                    tree_count, self.inner_domain_count
-                );
-            }
+        if tree_count > 0 {
+            tree_count
+        } else {
+            self.inner_domain_count
         }
-        // Return the field value during migration
-        self.inner_domain_count
     }
 
     /// Get max inner cell count derived from tree.
     ///
-    /// During migration, this includes a debug assertion to verify it matches the field.
+    /// Returns the maximum cell count across all positions at the inner level.
+    /// Falls back to the field value if tree returns None.
     pub fn get_max_inner_cell_count(&self) -> Option<usize> {
         let outer_path = self.outer_path_values();
         let tree_count = self.facet_tree.max_inner_cell_count(&outer_path);
-        #[cfg(debug_assertions)]
-        {
-            if let (Some(field_count), Some(tree_count)) = (self.max_inner_cell_count, tree_count) {
-                debug_assert_eq!(
-                    tree_count, field_count,
-                    "Max inner cell count mismatch: tree={} but field={}",
-                    tree_count, field_count
-                );
-            }
-        }
-        // Return the field value during migration
-        self.max_inner_cell_count
+        tree_count.or(self.max_inner_cell_count)
     }
 
     // ========================================================================

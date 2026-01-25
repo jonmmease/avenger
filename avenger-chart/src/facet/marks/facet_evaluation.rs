@@ -2499,7 +2499,11 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
         updated.partition_list = Some(updated_partition_list);
         Some(updated)
     } else {
-        Some(FacetCoordinationContext::default().with_partition_list(updated_partition_list))
+        Some(
+            FacetCoordinationContext::default()
+                .with_facet_tree(context.facet_spec.clone())
+                .with_partition_list(updated_partition_list),
+        )
     };
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
