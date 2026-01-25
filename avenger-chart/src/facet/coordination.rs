@@ -418,7 +418,7 @@ impl SerializableDataExtents {
 
 /// Coordination context for nested facets
 ///
-/// This context is created by an outer facet and passed to inner facets via params.
+/// This context is created by an outer facet and passed to inner facets directly.
 /// It enables:
 /// - Shared domain computation (inner facet uses outer's pre-computed domain)
 /// - Guide suppression (only edge subplots render guides)
@@ -693,9 +693,6 @@ impl Default for FacetCoordinationContext {
 }
 
 impl FacetCoordinationContext {
-    /// Parameter key used to pass this context through params
-    pub const PARAM_KEY: &'static str = "__facet_coordination";
-
     /// Create a new coordination context
     ///
     /// # Arguments
@@ -894,50 +891,6 @@ impl FacetCoordinationContext {
             .and_then(|extents| extents.get(channel))
     }
 
-    /// Serialize to params map for passing through call stack
-    ///
-    /// DEPRECATED: FacetCoordinationContext is now passed directly through RenderContext.
-    /// This method returns an empty params map for backward compatibility.
-    #[deprecated(note = "Use RenderContext.coordination_context() instead")]
-    pub fn to_params(&self) -> IndexMap<String, ScalarValue> {
-        IndexMap::new()
-    }
-
-    /// Deserialize from params map
-    ///
-    /// DEPRECATED: FacetCoordinationContext is now passed directly through RenderContext.
-    /// This method always returns None for backward compatibility.
-    #[deprecated(note = "Use RenderContext.coordination_context() instead")]
-    #[allow(unused_variables)]
-    pub fn from_params(params: &IndexMap<String, ScalarValue>) -> Option<Self> {
-        None
-    }
-
-    /// Deserialize from params map with explicit error handling
-    ///
-    /// DEPRECATED: FacetCoordinationContext is now passed directly through RenderContext.
-    /// This method always returns Ok(None) for backward compatibility.
-    #[deprecated(note = "Use RenderContext.coordination_context() instead")]
-    #[allow(unused_variables)]
-    pub fn try_from_params(
-        params: &IndexMap<String, ScalarValue>,
-    ) -> Result<Option<Self>, crate::error::AvengerChartError> {
-        Ok(None)
-    }
-
-    /// Update outer position in params and return modified params
-    ///
-    /// DEPRECATED: FacetCoordinationContext is now passed directly through RenderContext.
-    /// This method returns params unchanged for backward compatibility.
-    #[deprecated(note = "Use RenderContext.coordination_context_mut() instead")]
-    #[allow(unused_variables)]
-    pub fn update_outer_position_in_params(
-        params: &IndexMap<String, ScalarValue>,
-        position: usize,
-        count: usize,
-    ) -> IndexMap<String, ScalarValue> {
-        params.clone()
-    }
 
     /// Get inner domain as ScalarValues
     pub fn get_inner_domain(&self) -> Option<Vec<ScalarValue>> {
@@ -1542,50 +1495,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_coordination_context_serialization() {
-        let ctx = FacetCoordinationContext::new(
-            "row",
-            ScaleSharing::Shared,
-            GuideOwnership::Edge,
-            2,
-            3,
-            2,
-        )
-        .with_inner_domain(vec![
-            ScalarValue::Utf8(Some("a".to_string())),
-            ScalarValue::Utf8(Some("b".to_string())),
-        ]);
-
-        // Test to_params
-        let params = ctx.to_params();
-        assert!(params.contains_key(FacetCoordinationContext::PARAM_KEY));
-
-        // Test from_params
-        let restored = FacetCoordinationContext::from_params(&params).unwrap();
-        assert_eq!(restored.inner_channel.as_deref(), Some("row"));
-        assert_eq!(restored.inner_scale_sharing, ScaleSharing::Shared);
-        assert_eq!(restored.guide_ownership, GuideOwnership::Edge);
-        assert_eq!(restored.outer_position, 2);
-        assert_eq!(restored.outer_count, 3);
-        assert!(restored.inner_domain.is_some());
-        assert_eq!(restored.inner_domain.as_ref().unwrap().len(), 2);
-
-        // Test domain round-trip
-        let domain = restored.get_inner_domain().unwrap();
-        assert_eq!(domain.len(), 2);
-
-        // Test channel-aware domain access
-        let domain_for_row = restored.get_inner_domain_for_channel("row");
-        assert!(domain_for_row.is_some());
-        assert_eq!(domain_for_row.unwrap().len(), 2);
-
-        // Wrong channel should return None
-        let domain_for_col = restored.get_inner_domain_for_channel("column");
-        assert!(domain_for_col.is_none());
-    }
-
-    #[test]
     fn test_guide_suppression() {
         let ctx_suppress = FacetCoordinationContext::new(
             "row",
@@ -1985,91 +1894,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_serialization_round_trip_with_level_fields() {
-        // Create context with all level-based fields populated
-        // With nesting_depth=2, the formula target_depth = nesting_depth - level + 2:
-        // - Level(3) for y: target_depth = 2 - 3 + 2 = 1 -> looks up depth 1 (global)
-        // - Level(2) for color: target_depth = 2 - 2 + 2 = 2 -> looks up depth 2 (per-parent)
-        let mut levels = HashMap::new();
-        levels.insert("x".to_string(), 0u8);
-        levels.insert("y".to_string(), 3u8); // Level(3) looks up depth 1 (global)
-        levels.insert("color".to_string(), 2u8); // Level(2) looks up depth 2 (per-parent)
-
-        let mut domains = IndexMap::new();
-        // Store y domain at depth 1 (matches Level(3) lookup)
-        domains.insert(
-            LevelChannelKey::new(1, "y"),
-            SerializableDataExtents::interval(0.0, 100.0).into(),
-        );
-        // Store color domain at depth 2 (matches Level(2) lookup)
-        domains.insert(
-            LevelChannelKey::new(2, "color"),
-            SerializableDataExtents::discrete(vec![ScalarValue::Utf8(Some("red".to_string()))])
-                .into(),
-        );
-
-        let ctx = FacetCoordinationContext::default()
-            .with_nesting_depth(2)
-            .with_channel_sharing_levels(levels)
-            .with_level_domains(domains)
-            .with_position_path(vec![1, 2])
-            .with_level_counts(vec![3, 4]);
-
-        // Serialize to params
-        let params = ctx.to_params();
-
-        // Debug: check params
-        let json_param = params.get(FacetCoordinationContext::PARAM_KEY);
-        assert!(json_param.is_some(), "PARAM_KEY should exist in params");
-
-        // Deserialize
-        let restored_opt = FacetCoordinationContext::from_params(&params);
-        assert!(
-            restored_opt.is_some(),
-            "from_params should succeed, got None"
-        );
-        let restored = restored_opt.unwrap();
-
-        // Verify all level-based fields
-        assert_eq!(restored.nesting_depth, 2);
-        assert_eq!(restored.channel_sharing_levels.len(), 3);
-        assert_eq!(restored.get_channel_level("x"), 0);
-        assert_eq!(restored.get_channel_level("y"), 3); // Level(3)
-        assert_eq!(restored.get_channel_level("color"), 2); // Level(2)
-        // level_domains now round-trips via custom serialization (Vec of tuples)
-        assert_eq!(restored.level_domains.len(), 2);
-        assert_eq!(restored.position_path, vec![1, 2]);
-        assert_eq!(restored.level_counts, vec![3, 4]);
-
-        // Verify domain lookup works after round-trip
-        // y has Level(3), which at nesting_depth=2 looks up depth 1 (global)
-        use crate::scales::DomainBounds;
-        let y_domain = restored.get_domain_for_channel("y");
-        assert!(y_domain.is_some(), "y domain should be found at depth 1");
-        match &y_domain.unwrap().bounds {
-            DomainBounds::Numeric { min, max } => {
-                assert_eq!(*min, 0.0);
-                assert_eq!(*max, 100.0);
-            }
-            _ => panic!("Expected Numeric for y domain"),
-        }
-
-        // color has Level(2), which at nesting_depth=2 looks up depth 2 (per-parent)
-        let color_domain = restored.get_domain_for_channel("color");
-        assert!(
-            color_domain.is_some(),
-            "color domain should be found at depth 2"
-        );
-        match &color_domain.unwrap().bounds {
-            DomainBounds::Discrete(values) => {
-                assert_eq!(values.len(), 1);
-            }
-            _ => panic!("Expected Discrete for color domain"),
-        }
-    }
-
-    #[test]
     fn test_upgrade_from_legacy() {
         // Create a legacy-style context (using old fields)
         let mut shared_extents = HashMap::new();
@@ -2122,114 +1946,8 @@ mod tests {
     }
 
     // ========================================================================
-    // Position path and level counts propagation tests
-    // ========================================================================
-
-    #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_update_outer_position_propagates_path() {
-        // Simulate 2-level nesting: FacetColumn(3) > FacetRow(4)
-        // Create initial context for nested facet
-        let ctx = FacetCoordinationContext::new(
-            "row",
-            ScaleSharing::Shared,
-            GuideOwnership::Full,
-            0,
-            0,
-            4, // inner domain count
-        );
-        let params = ctx.to_params();
-
-        // First iteration: outer position 0 of 3
-        let params_iter0 = FacetCoordinationContext::update_outer_position_in_params(&params, 0, 3);
-        let ctx0 = FacetCoordinationContext::from_params(&params_iter0).unwrap();
-        assert_eq!(ctx0.outer_position, 0);
-        assert_eq!(ctx0.outer_count, 3);
-        assert_eq!(ctx0.position_path, vec![0]);
-        assert_eq!(ctx0.level_counts, vec![3]);
-
-        // Second iteration: outer position 1 of 3
-        let params_iter1 = FacetCoordinationContext::update_outer_position_in_params(&params, 1, 3);
-        let ctx1 = FacetCoordinationContext::from_params(&params_iter1).unwrap();
-        assert_eq!(ctx1.outer_position, 1);
-        assert_eq!(ctx1.outer_count, 3);
-        assert_eq!(ctx1.position_path, vec![1]);
-        assert_eq!(ctx1.level_counts, vec![3]);
-
-        // Third iteration: outer position 2 of 3
-        let params_iter2 = FacetCoordinationContext::update_outer_position_in_params(&params, 2, 3);
-        let ctx2 = FacetCoordinationContext::from_params(&params_iter2).unwrap();
-        assert_eq!(ctx2.outer_position, 2);
-        assert_eq!(ctx2.outer_count, 3);
-        assert_eq!(ctx2.position_path, vec![2]);
-        assert_eq!(ctx2.level_counts, vec![3]);
-    }
-
-    #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_update_outer_position_accumulates_for_deeper_nesting() {
-        // Simulate 3-level nesting: FacetColumn(2) > FacetRow(3) > FacetColumn(4)
-        // Start with a context that already has position_path from level 0
-
-        // First, create context with level 0 position
-        let ctx_level0 = FacetCoordinationContext::new(
-            "row",
-            ScaleSharing::Shared,
-            GuideOwnership::Full,
-            0,
-            0,
-            3,
-        )
-        .with_position_path(vec![1])
-        .with_level_counts(vec![2])
-        .with_nesting_depth(1);
-
-        let params_level0 = ctx_level0.to_params();
-
-        // Now update for level 1 iteration (position 2 of 3)
-        let params_level1 =
-            FacetCoordinationContext::update_outer_position_in_params(&params_level0, 2, 3);
-        let ctx_level1 = FacetCoordinationContext::from_params(&params_level1).unwrap();
-
-        // position_path should accumulate: [1, 2] (level 0 position, level 1 position)
-        assert_eq!(ctx_level1.position_path, vec![1, 2]);
-        assert_eq!(ctx_level1.level_counts, vec![2, 3]);
-        assert_eq!(ctx_level1.outer_position, 2);
-        assert_eq!(ctx_level1.outer_count, 3);
-    }
-
-    #[test]
-    fn test_update_outer_position_no_context_returns_unchanged() {
-        // When no coordination context exists, params should be returned unchanged
-        let params = IndexMap::new();
-        let result = FacetCoordinationContext::update_outer_position_in_params(&params, 5, 10);
-        assert!(result.is_empty());
-    }
-
-    // ========================================================================
     // Uniform Free scaling tests
     // ========================================================================
-
-    #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_uniform_cell_count_serialization() {
-        // Create context with max_inner_cell_count and enable_uniform_free_scaling
-        let ctx = FacetCoordinationContext::default()
-            .with_max_inner_cell_count(5)
-            .with_uniform_free_scaling(true);
-
-        // Serialize to params
-        let params = ctx.to_params();
-        assert!(params.contains_key(FacetCoordinationContext::PARAM_KEY));
-
-        // Deserialize
-        let restored = FacetCoordinationContext::from_params(&params).unwrap();
-        assert_eq!(restored.max_inner_cell_count, Some(5));
-        assert!(restored.enable_uniform_free_scaling);
-
-        // Verify get_uniform_cell_count works after round-trip
-        assert_eq!(restored.get_uniform_cell_count(), Some(5));
-    }
 
     #[test]
     fn test_get_uniform_cell_count_disabled() {
@@ -2297,74 +2015,6 @@ mod tests {
         assert!(ctx.max_inner_cell_count.is_none());
         assert!(!ctx.enable_uniform_free_scaling);
         assert_eq!(ctx.get_uniform_cell_count(), None);
-    }
-
-    #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_uniform_cell_count_serialization_with_disabled() {
-        // Verify that enable_uniform_free_scaling=false serializes correctly
-        let ctx = FacetCoordinationContext::default()
-            .with_max_inner_cell_count(3)
-            .with_uniform_free_scaling(false);
-
-        let params = ctx.to_params();
-        let restored = FacetCoordinationContext::from_params(&params).unwrap();
-
-        assert_eq!(restored.max_inner_cell_count, Some(3));
-        assert!(!restored.enable_uniform_free_scaling);
-        assert_eq!(restored.get_uniform_cell_count(), None);
-    }
-
-    #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_try_from_params_success() {
-        let ctx = FacetCoordinationContext::default().with_outer_position(1, 3);
-
-        let params = ctx.to_params();
-        let result = FacetCoordinationContext::try_from_params(&params);
-        assert!(result.is_ok());
-        let restored = result.unwrap().unwrap();
-        assert_eq!(restored.outer_position, 1);
-        assert_eq!(restored.outer_count, 3);
-    }
-
-    #[test]
-    fn test_try_from_params_missing() {
-        let params = IndexMap::new();
-        let result = FacetCoordinationContext::try_from_params(&params);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
-    }
-
-    #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_try_from_params_invalid_json() {
-        let mut params = IndexMap::new();
-        params.insert(
-            FacetCoordinationContext::PARAM_KEY.to_string(),
-            ScalarValue::Utf8(Some("not valid json".to_string())),
-        );
-        let result = FacetCoordinationContext::try_from_params(&params);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("Failed to deserialize FacetCoordinationContext")
-        );
-    }
-
-    #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_try_from_params_wrong_type() {
-        let mut params = IndexMap::new();
-        params.insert(
-            FacetCoordinationContext::PARAM_KEY.to_string(),
-            ScalarValue::Int32(Some(42)),
-        );
-        let result = FacetCoordinationContext::try_from_params(&params);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("Expected Utf8"));
     }
 
     #[test]
@@ -2473,62 +2123,6 @@ mod tests {
                 }
                 _ => {} // Other types may have intentional type changes
             }
-        }
-    }
-
-    #[test]
-    #[ignore = "Tests deprecated params-based serialization"]
-    fn test_full_context_serialization_determinism_multiple_runs() {
-        // Run serialization multiple times with a complex context
-        // to verify determinism
-        for run in 0..5 {
-            let mut domains = IndexMap::new();
-            // Insert in a specific order
-            for i in 0..10 {
-                let channel = format!("channel_{}", i);
-                domains.insert(
-                    LevelChannelKey::new(i % 3, &channel),
-                    SerializableDataExtents::interval(i as f64 * 10.0, (i + 1) as f64 * 10.0).into(),
-                );
-            }
-
-            let ctx = FacetCoordinationContext::default()
-                .with_nesting_depth(3)
-                .with_level_domains(domains.clone())
-                .with_inner_domain(vec![
-                    ScalarValue::Utf8(Some("cat1".to_string())),
-                    ScalarValue::Utf8(Some("cat2".to_string())),
-                    ScalarValue::Utf8(Some("cat3".to_string())),
-                ]);
-
-            let params = ctx.to_params();
-            let json = params.get(FacetCoordinationContext::PARAM_KEY);
-
-            // Store first run's output
-            if run == 0 {
-                // Just verify it serializes
-                assert!(json.is_some(), "Context should serialize to params");
-            }
-
-            // Round-trip and verify
-            let restored = FacetCoordinationContext::from_params(&params)
-                .expect("Should deserialize from params");
-            assert_eq!(
-                restored.nesting_depth, 3,
-                "Run {}: nesting_depth should be preserved",
-                run
-            );
-            assert_eq!(
-                restored.level_domains.len(),
-                10,
-                "Run {}: all domains should be preserved",
-                run
-            );
-            assert!(
-                restored.inner_domain.is_some(),
-                "Run {}: inner_domain should be preserved",
-                run
-            );
         }
     }
 

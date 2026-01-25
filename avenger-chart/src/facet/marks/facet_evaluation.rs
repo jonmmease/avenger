@@ -518,8 +518,7 @@ where
     let phantom_layout =
         PhantomCellLayout::compute(band_align, domain_vals.len(), uniform_cell_count);
 
-    // Update coordination context params with phantom_prepend_count
-    let mut subplot_params = phantom_layout.update_params_with_phantom_context(&context.params);
+    let mut subplot_params = context.params.clone();
 
     // Check for same-type nesting and inject additional unified channels
     // For Row facets wrapping Row facets, we need to unify "x" (perpendicular axis)
@@ -570,6 +569,7 @@ where
         domain_vals.clone(),
         subplot_params.clone(),
         scale_sharing_for_visibility.clone(),
+        context.coordination_context().cloned(),
     );
 
     let channel_name = DimConfig::channel_name();
@@ -699,83 +699,90 @@ where
     // overwritten by child-cell domains (e.g., per-Department).
     // For Level(1) in 3-level structures, this enables per-row sharing in FacetRow > FacetColumn
     // hierarchies by extracting domains from the filtered per-species data.
-    let subplot_params = if let Some(coord_ctx) =
-        FacetCoordinationContext::from_params(&subplot_params)
-    {
-        // Check if any channels have Level(N >= 1) sharing
-        let has_level_sharing = coord_ctx
-            .channel_sharing_levels
-            .values()
-            .any(|&level| level >= 1);
-
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "PRE-ITER check: has_level_sharing={}, channel_sharing_levels={:?}, nesting_depth={}",
-                has_level_sharing, coord_ctx.channel_sharing_levels, coord_ctx.nesting_depth
-            );
-        }
-
-        if has_level_sharing {
-            // Build scale builder from full df (parent-cell filtered data)
-            let parent_scale_builder = compiled_subplot
-                .build_scale_builder_from_dataframe(&context.session_context, &subplot_params, df)
-                .await?;
-
-            // Collect channels that need per-parent-cell domains
-            let level_channels: Vec<String> = coord_ctx
+    //
+    // Track coordination context as owned value that can be cloned into iterations.
+    // Also includes phantom_prepend_count for uniform free scaling position adjustment.
+    let pre_iteration_coord_ctx: Option<FacetCoordinationContext> =
+        if let Some(coord_ctx) = coordination_context {
+            // Check if any channels have Level(N >= 1) sharing
+            let has_level_sharing = coord_ctx
                 .channel_sharing_levels
-                .iter()
-                .filter(|(_, level)| **level >= 1)
-                .map(|(ch, _)| ch.clone())
-                .collect();
-
-            let channel_refs: Vec<&str> = level_channels.iter().map(|s| s.as_str()).collect();
-            let extents = parent_scale_builder.extract_domain_extents(&channel_refs);
+                .values()
+                .any(|&level| level >= 1);
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
-                    "PRE-ITER extents (measurement): level_channels={:?}, extents.len()={}, extents={:?}",
-                    level_channels,
-                    extents.len(),
-                    extents
+                    "PRE-ITER check: has_level_sharing={}, channel_sharing_levels={:?}, nesting_depth={}",
+                    has_level_sharing, coord_ctx.channel_sharing_levels, coord_ctx.nesting_depth
                 );
             }
 
-            if !extents.is_empty() {
-                let cell_depth = coord_ctx.nesting_depth + 1;
-                let mut new_level_domains = coord_ctx.level_domains.clone();
+            let mut updated_ctx = if has_level_sharing {
+                // Build scale builder from full df (parent-cell filtered data)
+                let parent_scale_builder = compiled_subplot
+                    .build_scale_builder_from_dataframe(&context.session_context, &subplot_params, df)
+                    .await?;
 
-                for (channel, serializable) in extents {
-                    let key = LevelChannelKey::new(cell_depth, &channel);
-                    // Always add parent-level domains - they take precedence
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "PRE-ITER: Adding per-parent domain for {} at depth={}: {:?}",
-                            channel, cell_depth, serializable
-                        );
-                    }
-                    new_level_domains.insert(key, serializable);
+                // Collect channels that need per-parent-cell domains
+                let level_channels: Vec<String> = coord_ctx
+                    .channel_sharing_levels
+                    .iter()
+                    .filter(|(_, level)| **level >= 1)
+                    .map(|(ch, _)| ch.clone())
+                    .collect();
+
+                let channel_refs: Vec<&str> = level_channels.iter().map(|s| s.as_str()).collect();
+                let extents = parent_scale_builder.extract_domain_extents(&channel_refs);
+
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "PRE-ITER extents (measurement): level_channels={:?}, extents.len()={}, extents={:?}",
+                        level_channels,
+                        extents.len(),
+                        extents
+                    );
                 }
 
-                let updated_ctx = coord_ctx.clone().with_level_domains(new_level_domains);
-                let mut new_params = subplot_params.clone();
-                new_params.extend(updated_ctx.to_params());
-                new_params
-            } else {
-                subplot_params
-            }
-        } else {
-            subplot_params
-        }
-    } else {
-        subplot_params
-    };
+                if !extents.is_empty() {
+                    let cell_depth = coord_ctx.nesting_depth + 1;
+                    let mut new_level_domains = coord_ctx.level_domains.clone();
 
-    // Debug: check what's in subplot_params before cell iteration
+                    for (channel, serializable) in extents {
+                        let key = LevelChannelKey::new(cell_depth, &channel);
+                        // Always add parent-level domains - they take precedence
+                        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "PRE-ITER: Adding per-parent domain for {} at depth={}: {:?}",
+                                channel, cell_depth, serializable
+                            );
+                        }
+                        new_level_domains.insert(key, serializable);
+                    }
+
+                    coord_ctx.clone().with_level_domains(new_level_domains)
+                } else {
+                    coord_ctx.clone()
+                }
+            } else {
+                coord_ctx.clone()
+            };
+
+            // Add phantom prepend count for uniform free scaling position adjustment
+            let prepend_count = phantom_layout.prepend_count();
+            if prepend_count > 0 {
+                updated_ctx.phantom_prepend_count = prepend_count;
+            }
+
+            Some(updated_ctx)
+        } else {
+            None
+        };
+
+    // Debug: check coordination context before cell iteration
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        if let Some(ctx) = FacetCoordinationContext::from_params(&subplot_params) {
+        if let Some(ref ctx) = pre_iteration_coord_ctx {
             let keys: Vec<_> = ctx.level_domains.keys().collect();
-            eprintln!("BEFORE-ITER: subplot_params level_domains keys: {:?}", keys);
+            eprintln!("BEFORE-ITER: pre_iteration_coord_ctx level_domains keys: {:?}", keys);
         }
     }
 
@@ -785,47 +792,21 @@ where
             let compiled_subplot = Arc::clone(compiled_subplot);
             let facet_expr = facet_expr.clone();
             let ctx = context.session_context.clone();
-            // Start with subplot_params which has updated phantom_prepend_count and
-            // pre-computed level_domains from the pre-iteration step.
+            // Start with subplot_params and iteration params merged
             let mut params_base = subplot_params.clone();
-            // Save the pre-iteration level_domains before merging iteration.params
-            let pre_iter_level_domains = FacetCoordinationContext::from_params(&params_base)
-                .map(|c| c.level_domains.clone());
-            // Merge iteration params (these have iteration-specific coord_ctx fields)
             params_base.extend(iteration.params.clone());
-            // Merge pre-iteration level_domains into the coord_ctx
-            // For Level(N >= 2) channels, pre-iteration domains MUST override iteration domains
-            // because they represent parent-level sharing (e.g., per-Division) which should
-            // take precedence over per-cell domains that might be computed during iteration.
-            if let Some(level_domains) = pre_iter_level_domains {
-                if let Some(mut ctx) = FacetCoordinationContext::from_params(&params_base) {
-                    for (key, value) in level_domains {
-                        // Check if this channel has Level(N >= 2) sharing
-                        let has_level2_plus = ctx
-                            .channel_sharing_levels
-                            .get(&key.channel)
-                            .map(|&level| level >= 2)
-                            .unwrap_or(false);
 
-                        if has_level2_plus {
-                            // For Level(2+), pre-iteration domains OVERRIDE iteration domains
-                            ctx.level_domains.insert(key, value);
-                        } else {
-                            // For other channels, only insert if not present
-                            ctx.level_domains.entry(key).or_insert(value);
-                        }
-                    }
-                    params_base.extend(ctx.to_params());
-                }
-            }
-            // Update coordination context with outer position for this iteration
-            // When phantoms are prepended, adjust idx to reflect rendered position
+            // Build iteration-specific coordination context from pre_iteration_coord_ctx.
+            // Update outer position for this iteration.
+            // When phantoms are prepended, adjust idx to reflect rendered position.
             let adjusted_idx = idx + phantom_offset;
-            let params_base = FacetCoordinationContext::update_outer_position_in_params(
-                &params_base,
-                adjusted_idx,
-                outer_count,
-            );
+            let iteration_coord_ctx: Option<FacetCoordinationContext> =
+                pre_iteration_coord_ctx
+                    .clone()
+                    .map(|ctx| ctx.with_outer_position(adjusted_idx, outer_count));
+
+            // Coordination context is passed directly to build_plot_components (no params serialization)
+
             let scale_sharing_by_channel = scale_sharing_by_channel.clone();
             let initial_shared_scales = initial_shared_scales.clone();
             let mut fallback_builder = fallback_builder.clone();
@@ -880,7 +861,7 @@ where
                 // We extract domains from free_scale_builder which was built from filtered (per-cell) data.
                 // NOTE: We do NOT increment nesting_depth here - that would throw off Level(N) calculations.
                 // The domains are stored at depth+1 to indicate they're from this cell's filtered data.
-                let params_base = if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
+                let iteration_coord_ctx = if let Some(coord_ctx) = iteration_coord_ctx {
                     // Check if any channels have Level(N >= 2) sharing
                     let has_level_2_plus = coord_ctx
                         .channel_sharing_levels
@@ -939,19 +920,12 @@ where
                         }
 
                         // Create updated coord_ctx with new domains (but keep same nesting_depth)
-                        let updated_ctx = coord_ctx
-                            .clone()
-                            .with_level_domains(new_level_domains);
-
-                        // Merge updated coord_ctx params into existing params
-                        let mut new_params = params_base.clone();
-                        new_params.extend(updated_ctx.to_params());
-                        new_params
+                        Some(coord_ctx.with_level_domains(new_level_domains))
                     } else {
-                        params_base
+                        Some(coord_ctx)
                     }
                 } else {
-                    params_base
+                    None
                 };
 
                 // Extend with level-based extents for channels with Level(N) sharing (N >= 1)
@@ -959,7 +933,7 @@ where
                 // NOTE: We use channel_sharing_levels from coord_ctx, not scale_sharing_by_channel,
                 // because scale_sharing_by_channel only has the current facet level's channels,
                 // while channel_sharing_levels has sharing info from all parent levels.
-                if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
+                if let Some(ref coord_ctx) = iteration_coord_ctx {
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                         eprintln!(
                             "CELL: coord_ctx present, nesting_depth={}, level_domains_count={}, channel_sharing_levels={:?}, scale_sharing={:?}",
@@ -1049,6 +1023,8 @@ where
                     eprintln!("CELL: About to build scales from builder");
                 }
 
+                // Coordination context is passed directly (no params serialization)
+
                 // Build scales directly per-channel based on sharing mode
                 // This eliminates the two-step (initial build + overlay) approach
                 let scales = build_scales_per_channel(
@@ -1056,7 +1032,7 @@ where
                     &scale_sharing_by_channel,
                     &initial_shared_scales,
                     &Some(free_scale_builder.clone()),
-                    FacetCoordinationContext::from_params(&params_base).as_ref(),
+                    iteration_coord_ctx.as_ref(),
                     &fallback_builder,
                     width,
                     height,
@@ -1073,7 +1049,7 @@ where
                         &ctx,
                         &params_base,
                         &scales,
-                        FacetCoordinationContext::from_params(&params_base).as_ref(),
+                        iteration_coord_ctx.as_ref(),
                         &filter_df,
                     )
                     .await?;
@@ -1666,11 +1642,7 @@ where
 
     use crate::facet::subplot_iterator::SubplotIterator;
 
-    // Update coordination context with phantom_prepend_count from pass1 for render pass
-    // Reuse the phantom layout computed in Pass 1 to avoid duplicating logic
-    let mut subplot_params_pass2 = pass1
-        .phantom_layout
-        .update_params_with_phantom_context(&context.params);
+    let mut subplot_params_pass2 = context.params.clone();
 
     // Check for same-type nesting and inject additional unified channels for pass 2 as well
     use crate::facet::subplot_iterator::ADDITIONAL_UNIFIED_CHANNELS_KEY;
@@ -1711,6 +1683,7 @@ where
         domain_vals_final,
         subplot_params_pass2.clone(),
         scale_sharing_for_visibility.clone(),
+        context.coordination_context().cloned(),
     );
 
     assert_eq!(
@@ -1728,6 +1701,7 @@ where
         scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
         filter_df: &DataFrame,
         facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
+        coordination_context: Option<FacetCoordinationContext>,
     ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
         // For faceted subplots, use build_plot_components directly.
         // The dimensions are already final from facet layout, and scales are pre-coordinated.
@@ -1743,6 +1717,7 @@ where
                 Some(filter_df),
                 true,
                 facet_spec,
+                coordination_context,
             )
             .await
     }
@@ -1761,16 +1736,16 @@ where
     // Use uniform_cell_count if available to include phantom cells in guide ownership calculation
     // IMPORTANT: Only use uniform_cell_count if it's for THIS facet's dimension.
     // If inner_channel doesn't match our channel, the uniform sizing is for a nested facet.
-    let outer_uniform_cell_count =
-        FacetCoordinationContext::from_params(&context.params).and_then(|ctx| {
-            // Check if uniform sizing is for this facet's dimension
-            if ctx.inner_channel.as_deref() == Some(DimConfig::channel_name()) {
-                ctx.get_uniform_cell_count()
-            } else {
-                // Uniform sizing is for a different dimension (nested facet), not us
-                None
-            }
-        });
+    let coordination_context = context.coordination_context();
+    let outer_uniform_cell_count = coordination_context.and_then(|ctx| {
+        // Check if uniform sizing is for this facet's dimension
+        if ctx.inner_channel.as_deref() == Some(DimConfig::channel_name()) {
+            ctx.get_uniform_cell_count()
+        } else {
+            // Uniform sizing is for a different dimension (nested facet), not us
+            None
+        }
+    });
     let outer_count = outer_uniform_cell_count.unwrap_or(work_items.len());
     // Phantom offset from pass1 for adjusting subplot positions (reuse layout from Pass 1)
     let phantom_offset = pass1.phantom_layout.prepend_count();
@@ -1783,15 +1758,18 @@ where
     // overwritten by child-cell domains (e.g., per-Department).
     // For Level(1) in 3-level structures, this enables per-row sharing in FacetRow > FacetColumn
     // hierarchies by extracting domains from the filtered per-species data.
-    let subplot_params_pass2 =
-        if let Some(coord_ctx) = FacetCoordinationContext::from_params(&subplot_params_pass2) {
+    //
+    // Track coordination context as owned value that can be cloned into iterations.
+    // Also includes phantom_prepend_count for uniform free scaling position adjustment.
+    let pre_iteration_coord_ctx: Option<FacetCoordinationContext> =
+        if let Some(coord_ctx) = coordination_context {
             // Check if any channels have Level(N >= 1) sharing
             let has_level_sharing = coord_ctx
                 .channel_sharing_levels
                 .values()
                 .any(|&level| level >= 1);
 
-            if has_level_sharing {
+            let mut updated_ctx = if has_level_sharing {
                 // Build scale builder from full df (parent-cell filtered data)
                 let parent_scale_builder = compiled_subplot
                     .build_scale_builder_from_dataframe(
@@ -1828,18 +1806,23 @@ where
                         new_level_domains.insert(key, domain_extent);
                     }
 
-                    let updated_ctx = coord_ctx.clone().with_level_domains(new_level_domains);
-                    let mut new_params = subplot_params_pass2.clone();
-                    new_params.extend(updated_ctx.to_params());
-                    new_params
+                    coord_ctx.clone().with_level_domains(new_level_domains)
                 } else {
-                    subplot_params_pass2
+                    coord_ctx.clone()
                 }
             } else {
-                subplot_params_pass2
+                coord_ctx.clone()
+            };
+
+            // Add phantom prepend count for uniform free scaling position adjustment
+            // (reuse phantom_offset which was computed from pass1.phantom_layout.prepend_count())
+            if phantom_offset > 0 {
+                updated_ctx.phantom_prepend_count = phantom_offset;
             }
+
+            Some(updated_ctx)
         } else {
-            subplot_params_pass2
+            None
         };
 
     let results: Vec<_> = stream::iter(work_items)
@@ -1847,46 +1830,21 @@ where
             let compiled_subplot = Arc::clone(compiled_subplot);
             let facet_expr = facet_expr.clone();
             let ctx = context.session_context.clone();
-            // Start with subplot_params_pass2 which has updated phantom_prepend_count and
-            // pre-computed level_domains from the pre-iteration step.
+            // Start with subplot_params_pass2 and iteration params merged
             let mut params_base = subplot_params_pass2.clone();
-            // Save the pre-iteration level_domains before merging iteration.params.
-            // We need to preserve these because iteration.params has an older coord_ctx
-            // from before the pre-iteration domain computation.
-            let pre_iter_level_domains = FacetCoordinationContext::from_params(&params_base)
-                .map(|c| c.level_domains.clone());
-            // Merge iteration params (these have iteration-specific coord_ctx fields like position)
             params_base.extend(iteration.params.clone());
-            // Merge pre-iteration level_domains into the coord_ctx
-            // For Level(N >= 2) channels, pre-iteration domains MUST override iteration domains
-            // because they represent parent-level sharing (e.g., per-Division) which should
-            // take precedence over per-cell domains that might be computed during iteration.
-            if let Some(level_domains) = pre_iter_level_domains {
-                if let Some(mut ctx) = FacetCoordinationContext::from_params(&params_base) {
-                    for (key, value) in level_domains {
-                        // Check if this channel has Level(N >= 2) sharing
-                        let has_level2_plus = ctx
-                            .channel_sharing_levels
-                            .get(&key.channel)
-                            .map(|&level| level >= 2)
-                            .unwrap_or(false);
 
-                        if has_level2_plus {
-                            // For Level(2+), pre-iteration domains OVERRIDE iteration domains
-                            ctx.level_domains.insert(key, value);
-                        } else {
-                            // For other channels, only insert if not present
-                            ctx.level_domains.entry(key).or_insert(value);
-                        }
-                    }
-                    params_base.extend(ctx.to_params());
-                }
-            }
-            // Update coordination context with outer position for this iteration
-            // When phantoms are prepended, adjust idx to reflect rendered position
+            // Build iteration-specific coordination context from pre_iteration_coord_ctx.
+            // Update outer position for this iteration.
+            // When phantoms are prepended, adjust idx to reflect rendered position.
             let adjusted_idx = idx + phantom_offset;
-            let params_base =
-                FacetCoordinationContext::update_outer_position_in_params(&params_base, adjusted_idx, outer_count);
+            let iteration_coord_ctx: Option<FacetCoordinationContext> =
+                pre_iteration_coord_ctx
+                    .clone()
+                    .map(|ctx| ctx.with_outer_position(adjusted_idx, outer_count));
+
+            // Coordination context is passed directly to build_plot_components (no params serialization)
+
             let scale_sharing_by_channel = scale_sharing_by_channel.clone();
             let final_shared_scales = pass1.final_shared_scales.clone();
             let mut fallback_builder = fallback_builder.clone();
@@ -1950,7 +1908,7 @@ where
                 // For Level(N >= 2) channels, add per-cell domains to level_domains at depth+1.
                 // This enables Level(N) lookups to find domains at different hierarchy levels.
                 // NOTE: We do NOT increment nesting_depth here - that would throw off Level(N) calculations.
-                let params_base = if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
+                let iteration_coord_ctx = if let Some(coord_ctx) = iteration_coord_ctx {
                     // Check if any channels have Level(N >= 2) sharing
                     let has_level_2_plus = coord_ctx
                         .channel_sharing_levels
@@ -2009,19 +1967,12 @@ where
                         }
 
                         // Create updated coord_ctx with new domains (but keep same nesting_depth)
-                        let updated_ctx = coord_ctx
-                            .clone()
-                            .with_level_domains(new_level_domains);
-
-                        // Merge updated coord_ctx params into existing params
-                        let mut new_params = params_base.clone();
-                        new_params.extend(updated_ctx.to_params());
-                        new_params
+                        Some(coord_ctx.with_level_domains(new_level_domains))
                     } else {
-                        params_base
+                        Some(coord_ctx)
                     }
                 } else {
-                    params_base
+                    None
                 };
 
                 // Extend with level-based extents for channels with Level(N) sharing (N >= 1)
@@ -2029,7 +1980,7 @@ where
                 // NOTE: We use channel_sharing_levels from coord_ctx, not scale_sharing_by_channel,
                 // because scale_sharing_by_channel only has the current facet level's channels,
                 // while channel_sharing_levels has sharing info from all parent levels.
-                if let Some(coord_ctx) = FacetCoordinationContext::from_params(&params_base) {
+                if let Some(ref coord_ctx) = iteration_coord_ctx {
                     let level_extents: std::collections::HashMap<String, _> = coord_ctx.channel_sharing_levels
                         .iter()
                         .filter_map(|(channel, &level)| {
@@ -2063,6 +2014,8 @@ where
                     }
                 }
 
+                // Coordination context is passed directly (no params serialization)
+
                 // Build scales directly per-channel based on sharing mode
                 // This eliminates the two-step (initial build + overlay) approach
                 // and ensures Pass 2 uses identical logic to Pass 1
@@ -2071,7 +2024,7 @@ where
                     &scale_sharing_by_channel,
                     &final_shared_scales,
                     &Some(free_scale_builder.clone()),
-                    FacetCoordinationContext::from_params(&params_base).as_ref(),
+                    iteration_coord_ctx.as_ref(),
                     &fallback_builder,
                     width,
                     height,
@@ -2104,6 +2057,7 @@ where
                     &scale_provider,
                     &filter_df,
                     context.facet_spec.clone(),
+                    iteration_coord_ctx.clone(),
                 )
                 .await?;
 
@@ -2606,8 +2560,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
             context.params.clone(),
             context.scales.clone(),
             context.facet_spec.clone(),
-        )
-        .with_coordination_context(Some(coord_ctx));
+            Some(coord_ctx),
+        );
         modified_context = Some(new_ctx);
         modified_context.as_ref().unwrap()
     } else {
@@ -2662,8 +2616,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 effective_context.params.clone(),
                 effective_context.scales.clone(),
                 effective_context.facet_spec.clone(),
-            )
-            .with_coordination_context(Some(coord_ctx));
+                Some(coord_ctx),
+            );
 
             // Re-run measure_pass with updated context so inner facets use correct gap
             // IMPORTANT: Use pass1.final_dimension_scale which has padding_inner_px applied,
@@ -2725,8 +2679,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
                 effective_context.params.clone(),
                 effective_context.scales.clone(),
                 effective_context.facet_spec.clone(),
-            )
-            .with_coordination_context(Some(coord_ctx));
+                Some(coord_ctx),
+            );
 
             (pass1, updated_ctx)
         }

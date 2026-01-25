@@ -380,10 +380,6 @@ impl FacetColGuide {
                         let subplot_measure_params = {
                             use crate::facet::context::FacetContext;
                             let mut updated_params = params.clone();
-                            // Add partition_list to params for inner facets
-                            for (k, v) in coord_ctx_with_partition.to_params() {
-                                updated_params.insert(k, v);
-                            }
                             // Convert static slice to HashSet<String>
                             let mut unified_channels: std::collections::HashSet<String> =
                                 ColumnDimensionConfig::unified_channels()
@@ -527,12 +523,6 @@ impl FacetColGuide {
                             for (k, v) in ctx_params {
                                 updated_params.insert(k, v);
                             }
-                            // Add coordination context with level_domains to params
-                            if let Some(ref mcoord_ctx) = measurement_coord_ctx {
-                                for (k, v) in mcoord_ctx.to_params() {
-                                    updated_params.insert(k, v);
-                                }
-                            }
                             updated_params
                         };
 
@@ -592,14 +582,10 @@ impl FacetColGuide {
                 };
 
                 if let Some(expr) = facet_expr {
-                    use crate::facet::coordination::FacetCoordinationContext;
-
                     // Compute band width for subplots
                     // Account for inter-column gaps when computing band width
-                    let coord_ctx = FacetCoordinationContext::from_params(params);
                     let num_cols = domain_vals.len().max(1);
-                    let inter_gap = coord_ctx
-                        .as_ref()
+                    let inter_gap = coordination_context
                         .and_then(|ctx| {
                             ctx.get_coordinated_spacing(ColumnDimensionConfig::inter_gap_key())
                         })
@@ -728,10 +714,6 @@ impl FacetColGuide {
                         let subplot_measure_params = {
                             use crate::facet::context::FacetContext;
                             let mut updated_params = params.clone();
-                            // Add partition_list to params for inner facets
-                            for (k, v) in coord_ctx_with_partition.to_params() {
-                                updated_params.insert(k, v);
-                            }
                             // Convert static slice to HashSet<String>
                             let mut unified_channels: std::collections::HashSet<String> =
                                 ColumnDimensionConfig::unified_channels()
@@ -759,12 +741,11 @@ impl FacetColGuide {
                                 merged_scale_sharing.insert(k.clone(), *v);
                             }
 
-                            // Merge channel_sharing_levels from FacetCoordinationContext
+                            // Merge channel_sharing_levels from coordination_context
                             // This contains the per-channel scale sharing modes (x, y) computed
                             // from channel configs, ensuring measurement uses same visibility
                             // decisions as rendering.
-                            use crate::facet::coordination::FacetCoordinationContext;
-                            if let Some(coord_ctx) = FacetCoordinationContext::from_params(params) {
+                            if let Some(coord_ctx) = coordination_context {
                                 for (channel, level) in &coord_ctx.channel_sharing_levels {
                                     merged_scale_sharing
                                         .insert(channel.clone(), ScaleSharing::from_level(*level));
@@ -886,12 +867,6 @@ impl FacetColGuide {
                             let ctx_params = facet_ctx.to_params();
                             for (k, v) in ctx_params {
                                 updated_params.insert(k, v);
-                            }
-                            // Add coordination context with level_domains to params
-                            if let Some(ref mcoord_ctx) = measurement_coord_ctx {
-                                for (k, v) in mcoord_ctx.to_params() {
-                                    updated_params.insert(k, v);
-                                }
                             }
                             updated_params
                         };

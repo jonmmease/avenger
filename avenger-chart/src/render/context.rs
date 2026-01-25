@@ -42,6 +42,7 @@ impl RenderContext {
         params: IndexMap<String, ScalarValue>,
         scales: HashMap<String, ConfiguredScaleWithSpec>,
         facet_spec: Arc<EvaluatedFacetTree>,
+        coordination_context: Option<FacetCoordinationContext>,
     ) -> Self {
         Self {
             theme,
@@ -51,7 +52,7 @@ impl RenderContext {
             params,
             scales,
             facet_spec,
-            coordination_context: None,
+            coordination_context,
         }
     }
 

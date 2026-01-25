@@ -174,32 +174,27 @@ impl PhantomCellLayout {
         self.placement.phantom_count
     }
 
-    /// Update params with phantom_prepend_count in coordination context
+    /// Update coordination context with phantom_prepend_count
     ///
     /// This is used to communicate phantom positioning to SubplotIterator,
     /// enabling correct FacetContext.position computation for axis label visibility.
     ///
     /// # Arguments
-    /// * `params` - Base params that may contain a FacetCoordinationContext
+    /// * `coord_ctx` - Optional coordination context to update
     ///
     /// # Returns
-    /// Updated params with phantom_prepend_count set, or original params if no update needed
-    pub fn update_params_with_phantom_context(
+    /// Updated coordination context with phantom_prepend_count set, or None if input was None
+    pub fn update_coordination_context(
         &self,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> indexmap::IndexMap<String, datafusion::common::ScalarValue> {
-        use crate::facet::coordination::FacetCoordinationContext;
-
+        coord_ctx: Option<crate::facet::coordination::FacetCoordinationContext>,
+    ) -> Option<crate::facet::coordination::FacetCoordinationContext> {
         let prepend_count = self.prepend_count();
-        if prepend_count > 0 {
-            if let Some(mut coord_ctx) = FacetCoordinationContext::from_params(params) {
-                coord_ctx.phantom_prepend_count = prepend_count;
-                let mut updated_params = params.clone();
-                updated_params.extend(coord_ctx.to_params());
-                return updated_params;
+        coord_ctx.map(|mut ctx| {
+            if prepend_count > 0 {
+                ctx.phantom_prepend_count = prepend_count;
             }
-        }
-        params.clone()
+            ctx
+        })
     }
 
     /// Filter rects to exclude phantom positions

@@ -68,6 +68,8 @@ pub struct SubplotIterator<DimConfig: FacetDimensionConfig> {
     base_params: IndexMap<String, ScalarValue>,
     scale_sharing: std::collections::HashMap<String, ScaleSharing>,
     current_index: usize,
+    /// Direct coordination context (preferred over extracting from params)
+    coordination_context: Option<FacetCoordinationContext>,
     _phantom: std::marker::PhantomData<DimConfig>,
 }
 
@@ -78,18 +80,21 @@ impl<DimConfig: FacetDimensionConfig> SubplotIterator<DimConfig> {
     /// * `domain_vals` - The domain values to iterate over (one per subplot)
     /// * `base_params` - Base parameters to merge FacetContext into
     /// * `scale_sharing` - Per-channel scale sharing configuration (ScaleSharing enum)
+    /// * `coordination_context` - Optional coordination context for nested facets (passed directly)
     ///
     /// Note: unified_channels are automatically determined from DimConfig::unified_channels()
     pub fn new(
         domain_vals: Vec<ScalarValue>,
         base_params: IndexMap<String, ScalarValue>,
         scale_sharing: std::collections::HashMap<String, ScaleSharing>,
+        coordination_context: Option<FacetCoordinationContext>,
     ) -> Self {
         Self {
             domain_vals,
             base_params,
             scale_sharing,
             current_index: 0,
+            coordination_context,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -149,9 +154,9 @@ impl<DimConfig: FacetDimensionConfig> Iterator for SubplotIterator<DimConfig> {
             }
         }
 
-        // Check for FacetCoordinationContext from outer facet (for nested facets)
-        // This provides outer_position and outer_count for computing proper grid positions
-        let coordination_ctx = FacetCoordinationContext::from_params(&self.base_params);
+        // Use coordination context passed directly (not from params)
+        // This preserves non-serializable fields like partition_list
+        let coordination_ctx = self.coordination_context.as_ref();
 
         // Compute position and grid_dimensions
         // For nested facets, combine inner index with outer position
@@ -559,7 +564,7 @@ mod tests {
         let scale_sharing = std::collections::HashMap::new();
 
         let iter =
-            SubplotIterator::<RowDimensionConfig>::new(domain_vals.clone(), params, scale_sharing);
+            SubplotIterator::<RowDimensionConfig>::new(domain_vals.clone(), params, scale_sharing, None);
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 3);
@@ -603,7 +608,7 @@ mod tests {
         let params = IndexMap::new();
         let scale_sharing = std::collections::HashMap::new();
 
-        let iter = SubplotIterator::<RowDimensionConfig>::new(domain_vals, params, scale_sharing);
+        let iter = SubplotIterator::<RowDimensionConfig>::new(domain_vals, params, scale_sharing, None);
         let items: Vec<_> = iter.collect();
 
         assert_eq!(items.len(), 2);
@@ -626,7 +631,7 @@ mod tests {
         let scale_sharing = std::collections::HashMap::new();
 
         let mut iter =
-            SubplotIterator::<RowDimensionConfig>::new(domain_vals, params, scale_sharing);
+            SubplotIterator::<RowDimensionConfig>::new(domain_vals, params, scale_sharing, None);
         assert_eq!(iter.size_hint(), (3, Some(3)));
 
         iter.next();
@@ -650,6 +655,7 @@ mod tests {
             domain_vals,
             base_params.clone(),
             scale_sharing,
+            None,
         );
         let items: Vec<_> = iter.collect();
 
