@@ -170,6 +170,8 @@ impl CompiledGuide for PolarGuide {
         };
 
         // Evaluate axes to measure their bounding box with actual params
+        // For overflow measurement, we want all labels visible (no facet context)
+        let empty_facet_tree = crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty();
         let axis_marks = self
             .evaluate(
                 scales,
@@ -180,6 +182,8 @@ impl CompiledGuide for PolarGuide {
                 params,
                 ctx,
                 data_override,
+                &empty_facet_tree,
+                None, // No facet position during measurement
             )
             .await?;
 
@@ -241,6 +245,8 @@ impl CompiledGuide for PolarGuide {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         _ctx: &datafusion::prelude::SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
+        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        _facet_position: Option<&[usize]>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

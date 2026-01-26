@@ -8,6 +8,7 @@
 //! - Domain values for iteration
 //! - Position and count information for layout
 
+use crate::cartesian::axis::AxisPosition;
 use crate::error::AvengerChartError;
 use crate::facet::keys::FacetKeyExtractor;
 use crate::facet::marks::facet::{CompiledFacetCol, CompiledFacetRow};
@@ -71,6 +72,36 @@ pub enum PartitionContent {
     Branch {
         children: IndexMap<ScalarValue, Box<PartitionNode>>,
     },
+}
+
+/// Result of axis visibility computation for a facet cell.
+///
+/// Determines whether tick labels and title should be shown for an axis
+/// based on the cell's position in the facet grid.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AxisVisibility {
+    /// Whether to show tick labels on this axis
+    pub show_labels: bool,
+    /// Whether to show the axis title
+    pub show_title: bool,
+}
+
+impl AxisVisibility {
+    /// Create visibility with both labels and title shown.
+    pub fn visible() -> Self {
+        Self {
+            show_labels: true,
+            show_title: true,
+        }
+    }
+
+    /// Create visibility with both labels and title hidden.
+    pub fn hidden() -> Self {
+        Self {
+            show_labels: false,
+            show_title: false,
+        }
+    }
 }
 
 impl EvaluatedFacetTree {
@@ -488,6 +519,85 @@ impl EvaluatedFacetTree {
         values
     }
 
+    /// Determine axis visibility for a cell at given position in the facet grid.
+    ///
+    /// This implements edge-only visibility: axes show labels/titles only on cells
+    /// at the appropriate edge of the grid based on axis position and facet direction.
+    ///
+    /// # Arguments
+    /// * `position_indices` - Cell position indices at each nesting level (e.g., `[2]` for 3rd column,
+    ///   `[1, 0]` for nested facets)
+    /// * `axis_position` - Which edge the axis is on (Top/Bottom/Left/Right)
+    ///
+    /// # Returns
+    /// `AxisVisibility` indicating whether labels and title should be shown.
+    ///
+    /// # Visibility Rules
+    ///
+    /// For **Column facets** (horizontal layout):
+    /// - Y axis (Left): show only on first column (index 0)
+    /// - Y axis (Right): show only on last column
+    /// - X axis: always show (not affected by column layout)
+    ///
+    /// For **Row facets** (vertical layout):
+    /// - X axis (Bottom): show only on last row
+    /// - X axis (Top): show only on first row (index 0)
+    /// - Y axis: always show (not affected by row layout)
+    pub fn axis_visibility(
+        &self,
+        position_indices: &[usize],
+        axis_position: AxisPosition,
+    ) -> AxisVisibility {
+        // If no facets, always show
+        let Some(root) = &self.root else {
+            return AxisVisibility::visible();
+        };
+
+        // Get level counts for bounds checking
+        let counts = self.level_counts();
+        if counts.is_empty() {
+            return AxisVisibility::visible();
+        }
+
+        // Walk through each level checking visibility
+        let mut current_node = Some(root);
+
+        for (level, &pos_idx) in position_indices.iter().enumerate() {
+            let Some(node) = current_node else {
+                break;
+            };
+
+            let count = counts.get(level).copied().unwrap_or(1);
+
+            // Check if this level affects the axis visibility
+            let should_hide = match (node.direction, axis_position) {
+                // Column facet affects Y axes
+                (FacetDirection::Column, AxisPosition::Left) => pos_idx != 0,
+                (FacetDirection::Column, AxisPosition::Right) => pos_idx != count.saturating_sub(1),
+
+                // Row facet affects X axes
+                (FacetDirection::Row, AxisPosition::Bottom) => pos_idx != count.saturating_sub(1),
+                (FacetDirection::Row, AxisPosition::Top) => pos_idx != 0,
+
+                // Other combinations: no effect
+                _ => false,
+            };
+
+            if should_hide {
+                return AxisVisibility::hidden();
+            }
+
+            // Move to next level
+            current_node = match &node.content {
+                PartitionContent::Branch { children } => {
+                    children.get_index(pos_idx).map(|(_, child)| child.as_ref())
+                }
+                PartitionContent::Leaf { .. } => None,
+            };
+        }
+
+        AxisVisibility::visible()
+    }
 }
 
 impl PartitionNode {

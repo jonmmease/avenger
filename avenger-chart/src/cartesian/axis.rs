@@ -183,6 +183,8 @@ impl CartesianAxis {
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &datafusion::prelude::SessionContext,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_position: Option<&[usize]>,
     ) -> Result<SceneMark, AvengerChartError> {
         use crate::plot::compiled::expr_eval::{
             evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
@@ -293,7 +295,7 @@ impl CartesianAxis {
         };
 
         // Evaluate show_title (default true)
-        let show_title =
+        let show_title_expr =
             if let Some(node) = self.show_title.as_option().and_then(|o| o.as_ref()) {
                 let expr = node.to_expr(ctx)?;
                 evaluate_bool_expr(&expr, ctx, params).await.unwrap_or(true)
@@ -301,8 +303,16 @@ impl CartesianAxis {
                 true
             };
 
-        // Always show labels for now - visibility will be redesigned using EvaluatedFacetTree
-        let labels_visible = None; // None = show (default behavior)
+        // Query facet-aware visibility based on cell position and axis position
+        let facet_visibility = if let Some(pos) = facet_position {
+            facet_tree.axis_visibility(pos, position)
+        } else {
+            crate::facet::evaluated_facet_tree::AxisVisibility::visible()
+        };
+
+        // Combine user-specified show_title with facet visibility
+        let show_title = show_title_expr && facet_visibility.show_title;
+        let labels_visible = Some(facet_visibility.show_labels);
 
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {

@@ -316,7 +316,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
+        facet_tree: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
     ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
@@ -516,7 +516,7 @@ impl CompiledPlot {
             Arc::new(ctx.clone()),
             params.clone(),
             scales.clone(),
-            facet_spec,
+            facet_tree,
         );
 
         Ok(Some(PreparedMarkData {
@@ -537,7 +537,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
+        facet_tree: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
     ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
         let prepared = self
             .prepare_mark_data(
@@ -548,7 +548,7 @@ impl CompiledPlot {
                 ctx,
                 params,
                 provided_plot_df,
-                facet_spec,
+                facet_tree,
             )
             .await?;
 
@@ -577,7 +577,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
+        facet_tree: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
         measurement: &dyn crate::marks::MarkMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let prepared = self
@@ -589,7 +589,7 @@ impl CompiledPlot {
                 ctx,
                 params,
                 provided_plot_df,
-                facet_spec,
+                facet_tree,
             )
             .await?;
 
@@ -618,6 +618,8 @@ impl CompiledPlot {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &SessionContext,
         data_override: Option<&DataFrame>,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_position: Option<&[usize]>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use the pre-built guide renderer if available
         if let Some(compiled_guide) = &self.compiled_guide {
@@ -660,6 +662,8 @@ impl CompiledPlot {
                     params,
                     ctx,
                     data_override,
+                    facet_tree,
+                    facet_position,
                 )
                 .await
         } else {
@@ -980,7 +984,7 @@ impl CompiledPlot {
     /// * `scale_provider` - Provider for building scales
     /// * `data_override` - Optional data override for faceted subplots
     /// * `dimensions_are_plot_area` - If true, dimensions are plot area; if false, dimensions are canvas
-    /// * `facet_spec` - Pre-computed facet specification
+    /// * `facet_tree` - Pre-computed facet specification
     pub async fn measure_plot_components(
         &self,
         width: f32,
@@ -990,7 +994,7 @@ impl CompiledPlot {
         scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
-        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
+        facet_tree: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
     ) -> Result<crate::plot::compiled::ComponentsMeasurement, AvengerChartError> {
         use avenger_scales::scales::ConfiguredScale;
         use std::collections::HashMap;
@@ -1097,7 +1101,7 @@ impl CompiledPlot {
                     ctx,
                     &merged_params,
                     df_opt,
-                    facet_spec.clone(),
+                    facet_tree.clone(),
                 )
                 .await?;
             mark_measurements.push(mark_measurement);
@@ -1148,14 +1152,16 @@ impl CompiledPlot {
     /// * `measurement` - Pre-computed measurement from `measure_plot_components()`
     /// * `data_override` - Optional data override for faceted subplots
     /// * `dimensions_are_plot_area` - If true, dimensions are plot area; if false, canvas
-    /// * `facet_spec` - Pre-computed facet specification
+    /// * `facet_tree` - Pre-computed facet specification
+    /// * `facet_position` - Current cell position in facet hierarchy (for axis visibility)
     pub async fn build_plot_components(
         &self,
         ctx: &SessionContext,
         measurement: &crate::plot::compiled::ComponentsMeasurement,
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
-        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
+        facet_tree: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
+        facet_position: Option<&[usize]>,
     ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
@@ -1188,7 +1194,7 @@ impl CompiledPlot {
                     ctx,
                     &merged_params,
                     data_override,
-                    facet_spec.clone(),
+                    facet_tree.clone(),
                     mark_measurement.as_ref(),
                 )
                 .await?;
@@ -1308,6 +1314,8 @@ impl CompiledPlot {
                         &merged_params,
                         ctx,
                         data_override,
+                        facet_tree.as_ref(),
+                        facet_position,
                     )
                     .await?;
 
@@ -1385,6 +1393,8 @@ impl CompiledPlot {
                         &merged_params,
                         ctx,
                         data_override,
+                        facet_tree.as_ref(),
+                        facet_position,
                     )
                     .await?;
 
@@ -1537,7 +1547,7 @@ impl CompiledPlot {
         // 1.5. Build evaluated facet spec (pre-pass to discover partition structure)
         // This queries distinct values for each facet level, respecting scale sharing settings.
         // Used for efficient domain lookups in nested facet coordination.
-        let facet_spec = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
+        let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
 
         // 2. Evaluate canvas dimensions from layout spec
         let (estimated_width, estimated_height) = match &self.layout_spec.canvas {
@@ -1597,7 +1607,7 @@ impl CompiledPlot {
                 &provider,
                 None,  // No data override for top-level plots
                 false, // Canvas mode: dimensions are canvas size
-                facet_spec.clone(),
+                facet_tree.clone(),
             )
             .await?;
 
@@ -1608,7 +1618,8 @@ impl CompiledPlot {
                 &measurement,
                 None,       // No data override for top-level plots
                 false,      // Canvas mode: dimensions are canvas size
-                facet_spec, // Pre-computed facet spec
+                facet_tree, // Pre-computed facet spec
+                None,       // No facet position for top-level plots
             )
             .await?;
 

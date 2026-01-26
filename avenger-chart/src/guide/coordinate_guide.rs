@@ -4,6 +4,7 @@ use crate::theme::Theme;
 
 use crate::axis::Axis;
 use crate::error::AvengerChartError;
+use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use crate::guide::{MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -147,6 +148,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
     /// * `data_override` - Optional DataFrame to use instead of compiled data.
     ///   This enables nested facets to pass filtered data to inner guides at runtime.
     ///   When Some, guides should use this data. When None, use compiled data.
+    /// * `facet_tree` - Pre-computed facet structure for visibility decisions.
+    /// * `facet_position` - Current cell position in facet hierarchy (indices at each level).
     async fn evaluate(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -157,6 +160,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &datafusion::prelude::SessionContext,
         data_override: Option<&datafusion::dataframe::DataFrame>,
+        facet_tree: &EvaluatedFacetTree,
+        facet_position: Option<&[usize]>,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Get the clipping region for the coordinate system

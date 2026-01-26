@@ -26,7 +26,10 @@ pub struct RenderContext {
     pub scales: HashMap<String, ConfiguredScaleWithSpec>,
     /// Pre-computed facet structure for efficient domain lookups and visibility decisions.
     /// Built once at the start of evaluate() and shared throughout rendering.
-    pub facet_spec: Arc<EvaluatedFacetTree>,
+    pub facet_tree: Arc<EvaluatedFacetTree>,
+    /// Current cell position in facet hierarchy (indices at each nesting level).
+    /// None when not inside a facet cell. Set by facet rendering before each subplot.
+    pub facet_position: Option<Vec<usize>>,
 }
 
 impl RenderContext {
@@ -37,7 +40,7 @@ impl RenderContext {
         session_context: Arc<SessionContext>,
         params: IndexMap<String, ScalarValue>,
         scales: HashMap<String, ConfiguredScaleWithSpec>,
-        facet_spec: Arc<EvaluatedFacetTree>,
+        facet_tree: Arc<EvaluatedFacetTree>,
     ) -> Self {
         Self {
             theme,
@@ -46,19 +49,29 @@ impl RenderContext {
             session_context,
             params,
             scales,
-            facet_spec,
+            facet_tree,
+            facet_position: None,
         }
     }
 
     /// Set the pre-computed facet spec for efficient domain lookups.
-    pub fn with_facet_spec(mut self, spec: Arc<EvaluatedFacetTree>) -> Self {
-        self.facet_spec = spec;
+    pub fn with_facet_tree(mut self, spec: Arc<EvaluatedFacetTree>) -> Self {
+        self.facet_tree = spec;
+        self
+    }
+
+    /// Set the current facet cell position for visibility decisions.
+    ///
+    /// This should be called by facet rendering before rendering each subplot,
+    /// passing the cell's position indices at each nesting level.
+    pub fn with_facet_position(mut self, position: Vec<usize>) -> Self {
+        self.facet_position = Some(position);
         self
     }
 
     /// Get a reference to the facet spec.
-    pub fn facet_spec(&self) -> &EvaluatedFacetTree {
-        &self.facet_spec
+    pub fn facet_tree(&self) -> &EvaluatedFacetTree {
+        &self.facet_tree
     }
 
     /// Query theme property with automatic parameter resolution

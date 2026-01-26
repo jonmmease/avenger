@@ -206,6 +206,9 @@ impl CompiledGuide for CartesianGuide {
         };
 
         // Evaluate axes to measure their bounding box with actual params
+        // For overflow measurement, we want all labels visible (no facet context)
+        // to ensure we allocate enough space
+        let empty_facet_tree = crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty();
         let axis_marks = self
             .evaluate(
                 scales,
@@ -216,6 +219,8 @@ impl CompiledGuide for CartesianGuide {
                 params,
                 ctx,
                 data_override,
+                &empty_facet_tree,
+                None, // No facet position during measurement
             )
             .await?;
 
@@ -285,6 +290,8 @@ impl CompiledGuide for CartesianGuide {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &datafusion::prelude::SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_position: Option<&[usize]>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 
@@ -374,6 +381,8 @@ impl CompiledGuide for CartesianGuide {
                         theme,
                         params,
                         ctx,
+                        facet_tree,
+                        facet_position,
                     )
                     .await?;
                 marks.push(axis_mark);

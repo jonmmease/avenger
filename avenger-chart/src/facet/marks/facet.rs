@@ -483,7 +483,7 @@ impl CompiledMark for CompiledFacetCol {
         }
 
         // Get column values from the facet tree
-        let facet_tree = &context.facet_spec;
+        let facet_tree = &context.facet_tree;
         let root = facet_tree.root().ok_or_else(|| {
             AvengerChartError::InternalError("No facet tree root found".into())
         })?;
@@ -569,7 +569,7 @@ impl CompiledMark for CompiledFacetCol {
                     &scale_provider,
                     Some(&filtered_df),
                     true, // dimensions_are_plot_area
-                    context.facet_spec.clone(),
+                    context.facet_tree.clone(),
                 )
                 .await?;
 
@@ -630,6 +630,8 @@ impl CompiledMark for CompiledFacetCol {
             let position = facet_measurement.column_positions[idx];
 
             // Build subplot components using cached measurement
+            // Pass the cell position for axis visibility decisions
+            let facet_position = [idx];
             let components = self
                 .compiled_subplot
                 .build_plot_components(
@@ -637,7 +639,8 @@ impl CompiledMark for CompiledFacetCol {
                     measurement,
                     Some(data_override),
                     true, // dimensions_are_plot_area
-                    context.facet_spec.clone(),
+                    context.facet_tree.clone(),
+                    Some(&facet_position),
                 )
                 .await?;
 

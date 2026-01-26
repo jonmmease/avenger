@@ -191,6 +191,8 @@ impl CompiledGuide for FacetColGuide {
         _params: &IndexMap<String, datafusion::common::ScalarValue>,
         _ctx: &SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
+        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        _facet_position: Option<&[usize]>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Return empty marks - rendering will be rebuilt
         Ok(vec![])
