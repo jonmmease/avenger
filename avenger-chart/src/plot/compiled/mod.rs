@@ -293,11 +293,15 @@ impl CompiledPlot {
             channels_with_scales.insert(ch.clone());
         }
 
+        // Convert to sorted Vec for deterministic iteration order
+        let mut sorted_channels: Vec<String> = channels_with_scales.into_iter().collect();
+        sorted_channels.sort();
+
         let mut configured: std::collections::HashMap<String, ConfiguredScaleWithSpec> =
             std::collections::HashMap::new();
 
         // Build each scale using provided DataFrame for type inference and domain collection
-        for channel in channels_with_scales.iter() {
+        for channel in sorted_channels.iter() {
             // Find first mark that uses this channel and get its expr and preferred scale type
             let mut chosen_spec: Option<Box<dyn crate::scales::ScaleSpec>> = None;
             let mut data_type: Option<datafusion::arrow::datatypes::DataType> = None;
@@ -420,8 +424,12 @@ impl CompiledPlot {
                 .clone()
                 .create_configured_scale(plot_area_width, plot_area_height, ctx, params)
                 .await?;
+            // Use base scale name (strip trailing numbers like y2 -> y) as key
+            // to match lookup semantics during rendering
+            use crate::channel::value::strip_trailing_numbers;
+            let scale_key = strip_trailing_numbers(channel).to_string();
             configured.insert(
-                channel.clone(),
+                scale_key,
                 ConfiguredScaleWithSpec::new(scale, configured_scale),
             );
         }

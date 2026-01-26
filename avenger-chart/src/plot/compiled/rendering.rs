@@ -415,8 +415,9 @@ impl CompiledPlot {
         }
 
         // Build array data batch
-        let data_batch = if mark.wants_full_data_batch() && provided_plot_df.is_some() {
-            // For container marks (facets) with parent data override: preserve ALL columns for nested marks
+        let data_batch = if mark.wants_full_data_batch() {
+            // For container marks (facets): preserve ALL columns for nested marks
+            // This works whether data comes from provided_plot_df (nested) or self.data (top-level)
             let datafusion_params = crate::utils::params_to_datafusion(params);
             let batch = if let Some(param_values) = datafusion_params {
                 (*df)

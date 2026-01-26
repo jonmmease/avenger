@@ -74,6 +74,38 @@ impl MarkMeasurement for EmptyMarkMeasurement {
     }
 }
 
+/// Measurement data cached during measure pass for FacetCol marks
+///
+/// Stores subplot measurements and layout information needed for the render pass.
+/// This enables efficient two-pass rendering where subplot measurements are computed
+/// once and reused during rendering.
+#[derive(Debug)]
+pub struct FacetColMeasurement {
+    /// The facet column values (one per subplot)
+    pub column_values: Vec<ScalarValue>,
+
+    /// X positions for each column (from band scale)
+    pub column_positions: Vec<f32>,
+
+    /// Width of each subplot (bandwidth from band scale)
+    pub subplot_width: f32,
+
+    /// Height of each subplot
+    pub subplot_height: f32,
+
+    /// Cached measurements for each subplot (in order matching column_values)
+    pub subplot_measurements: Vec<crate::plot::compiled::ComponentsMeasurement>,
+
+    /// Filtered DataFrames for each subplot (for render pass)
+    pub data_overrides: Vec<datafusion::dataframe::DataFrame>,
+}
+
+impl MarkMeasurement for FacetColMeasurement {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 /// Expression for computing radius/padding requirements for marks
 ///
 /// Used to determine how much space a mark needs beyond its base position,
