@@ -514,10 +514,10 @@ impl CompiledPlot {
 ///
 /// This captures all the computation needed for layout coordination without
 /// actually rendering any marks. The render pass uses this to avoid re-measuring.
+///
+/// Overflow info is available via `layout.overflow` (guide only) and
+/// `layout.total_overflow` (guide + legends).
 pub struct ComponentsMeasurement {
-    /// Overflow space requirements for layout coordination
-    pub overflow: crate::guide::OverflowSpaceRequirement,
-
     /// Mark measurements for render pass (in order matching the plot's marks vec)
     pub mark_measurements: Vec<Box<dyn crate::marks::MarkMeasurement>>,
 
@@ -534,7 +534,7 @@ pub struct ComponentsMeasurement {
     /// Clip region for data marks
     pub clip: avenger_scenegraph::marks::group::Clip,
 
-    /// Layout solution (for legends/titles positioning)
+    /// Layout solution (contains overflow, total_overflow, legends/titles positioning)
     pub layout: crate::render::LayoutSolution,
 
     /// Merged params (defaults + provided + canvas dimensions)
@@ -544,7 +544,6 @@ pub struct ComponentsMeasurement {
 impl std::fmt::Debug for ComponentsMeasurement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ComponentsMeasurement")
-            .field("overflow", &self.overflow)
             .field(
                 "mark_measurements",
                 &format!("{} measurements", self.mark_measurements.len()),
@@ -589,9 +588,6 @@ pub struct PlotComponents {
 
     /// Whether `size` represents canvas dimensions (true) or plot area dimensions (false)
     pub size_is_canvas: bool,
-
-    /// Guide overflow measurement (populated in Measure mode)
-    pub overflow: Option<crate::guide::OverflowSpaceRequirement>,
 
     /// Debug marks (layout visualization) - these are in absolute canvas coordinates
     pub debug_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,

@@ -840,21 +840,21 @@ impl CompiledPlot {
 
         let mut result = layout.compute(&evaluated_spec)?;
 
-        // Add legend dimensions to overflow so facets can position their labels correctly
-        // (ChartLayout.compute() only includes guide overflow, not legend space)
+        // Add legend dimensions to total_overflow so facets can position their labels correctly
+        // (ChartLayout.compute() sets total_overflow to guide-only; we add legend space here)
         for (channel, measurement) in legend_measurements.iter() {
             match measurement.position {
                 crate::legend::LegendPosition::Left => {
-                    result.overflow.left += measurement.size.width;
+                    result.total_overflow.left += measurement.size.width;
                 }
                 crate::legend::LegendPosition::Right => {
-                    result.overflow.right += measurement.size.width;
+                    result.total_overflow.right += measurement.size.width;
                 }
                 crate::legend::LegendPosition::Top => {
-                    result.overflow.top += measurement.size.height;
+                    result.total_overflow.top += measurement.size.height;
                 }
                 crate::legend::LegendPosition::Bottom => {
-                    result.overflow.bottom += measurement.size.height;
+                    result.total_overflow.bottom += measurement.size.height;
                 }
             }
             let _ = channel; // suppress unused warning
@@ -1109,67 +1109,10 @@ impl CompiledPlot {
             .chain(mark_measurements.iter().flat_map(|m| m.scale_updates()))
             .collect();
 
-        // 6. Measure overflow with merged scales
-        let mut overflow = self
-            .measure_guide_overflow_with_scales(
-                &merged_scales,
-                plot_area_width,
-                plot_area_height,
-                ctx,
-                &merged_params,
-                data_override,
-            )
-            .await?;
-
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "Guide overflow before legend: top={} bottom={} left={} right={} (plot_area: {}x{})",
-                overflow.top,
-                overflow.bottom,
-                overflow.left,
-                overflow.right,
-                plot_area_width,
-                plot_area_height
-            );
-        }
-
-        // When dimensions_are_plot_area=true, add legend space to overflow
-        if dimensions_are_plot_area {
-            let mut max_by_position: HashMap<crate::legend::LegendPosition, f32> = HashMap::new();
-
-            for (position, legend_keys) in &layout.taffy_layout.legends_by_position {
-                let max_dimension = legend_keys
-                    .iter()
-                    .filter_map(|key| layout.taffy_layout.legends.get(key))
-                    .map(|bounds| match position {
-                        crate::legend::LegendPosition::Left
-                        | crate::legend::LegendPosition::Right => bounds.width,
-                        crate::legend::LegendPosition::Top
-                        | crate::legend::LegendPosition::Bottom => bounds.height,
-                    })
-                    .fold(0.0_f32, f32::max);
-
-                if max_dimension > 0.0 {
-                    max_by_position.insert(*position, max_dimension);
-                }
-            }
-
-            if let Some(&max_width) = max_by_position.get(&crate::legend::LegendPosition::Right) {
-                overflow.right += max_width;
-            }
-            if let Some(&max_width) = max_by_position.get(&crate::legend::LegendPosition::Left) {
-                overflow.left += max_width;
-            }
-            if let Some(&max_height) = max_by_position.get(&crate::legend::LegendPosition::Top) {
-                overflow.top += max_height;
-            }
-            if let Some(&max_height) = max_by_position.get(&crate::legend::LegendPosition::Bottom) {
-                overflow.bottom += max_height;
-            }
-        }
+        // Note: Overflow info is available via layout.overflow (guide only) and
+        // layout.total_overflow (guide + legends), computed during layout phase.
 
         Ok(crate::plot::compiled::ComponentsMeasurement {
-            overflow,
             mark_measurements,
             scales: merged_scales,
             plot_area_width,
@@ -1563,8 +1506,7 @@ impl CompiledPlot {
             clip,
             size: canvas_size,
             size_is_canvas: !dimensions_are_plot_area,
-            overflow: None,
-            debug_marks, // Separate field for absolute-positioned debug marks
+            debug_marks,
         })
     }
 
