@@ -80,8 +80,6 @@ impl CompiledGuide for FacetRowGuide {
     async fn measure_overflow(
         &self,
         _scales: &HashMap<String, ConfiguredScale>,
-        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
-        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         _plot_width: f32,
         _plot_height: f32,
         _theme: &crate::theme::Theme,
@@ -96,8 +94,6 @@ impl CompiledGuide for FacetRowGuide {
     async fn measure_with_coordination(
         &self,
         _scales: &HashMap<String, ConfiguredScale>,
-        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
-        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         _plot_width: f32,
         _plot_height: f32,
         _theme: &crate::theme::Theme,
@@ -112,8 +108,6 @@ impl CompiledGuide for FacetRowGuide {
     async fn evaluate(
         &self,
         _scales: &HashMap<String, ConfiguredScale>,
-        _row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
-        _col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         _plot_width: f32,
         _plot_height: f32,
         _plot_bounds: &LayoutBounds,

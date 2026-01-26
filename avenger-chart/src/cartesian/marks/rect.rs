@@ -133,13 +133,34 @@ impl CompiledMark for CompiledCartesianRect {
         ]
     }
 
-    async fn evaluate_from_data(
+    async fn measure_from_data(
+        &self,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
+        _context: &RenderContext,
+        _coord: Box<dyn CoordinateSystemTransform>,
+    ) -> Result<
+        (
+            crate::guide::OverflowSpaceRequirement,
+            Box<dyn crate::marks::MarkMeasurement>,
+        ),
+        AvengerChartError,
+    > {
+        // Regular marks don't need overflow space or cached data
+        Ok((
+            crate::guide::OverflowSpaceRequirement::default(),
+            Box::new(crate::marks::EmptyMarkMeasurement),
+        ))
+    }
+
+    async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
+        _measurement: &dyn crate::marks::MarkMeasurement,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use crate::marks::util::{
             coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
         };
@@ -259,10 +280,7 @@ impl CompiledMark for CompiledCartesianRect {
             zindex: self.state.zindex,
         };
 
-        Ok((
-            vec![SceneMark::Rect(rect_mark)],
-            crate::layout::LayoutUpdates::default(),
-        ))
+        Ok(vec![SceneMark::Rect(rect_mark)])
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {

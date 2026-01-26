@@ -20,6 +20,16 @@ use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
 use super::CompiledPlot;
 use super::expr_eval::evaluate_f32_expr;
 
+/// Prepared data for mark evaluation (measure or render pass)
+struct PreparedMarkData {
+    /// Array data batch (multiple rows), or None if all channels are scalar
+    data_batch: Option<datafusion::arrow::record_batch::RecordBatch>,
+    /// Scalar data batch (single row) for channels that don't vary per mark
+    scalar_batch: datafusion::arrow::record_batch::RecordBatch,
+    /// Render context with plot dimensions, theme, scales, etc.
+    context: crate::render::RenderContext,
+}
+
 impl CompiledPlot {
     /// Initial estimate for plot area as ratio of total canvas size
     const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
@@ -295,7 +305,9 @@ impl CompiledPlot {
     /// Evaluate a single mark with an optional provided plot-level DataFrame fallback.
     /// If `provided_plot_df` is Some, it is used when the mark has no explicit data and
     /// the channels reference columns. Otherwise, falls back to this CompiledPlot's plot-level data.
-    pub(super) async fn evaluate_mark_with_plot_df(
+    /// Prepare data batches and context for mark evaluation.
+    /// This is shared between measure and render passes.
+    async fn prepare_mark_data(
         &self,
         mark: &dyn CompiledMark,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -305,7 +317,7 @@ impl CompiledPlot {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
         facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
-    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
+    ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
 
@@ -474,7 +486,7 @@ impl CompiledPlot {
                 (*df).clone().select(scalar_select_exprs)?.collect().await?
             };
             if batch.is_empty() {
-                return Ok((vec![], crate::layout::LayoutUpdates::default()));
+                return Ok(None);
             } else {
                 use datafusion::arrow::compute::concat_batches;
                 let schema = batch[0].schema();
@@ -505,12 +517,101 @@ impl CompiledPlot {
             scales.clone(),
             facet_spec,
         );
+
+        Ok(Some(PreparedMarkData {
+            data_batch,
+            scalar_batch,
+            context,
+        }))
+    }
+
+    /// Measure a single mark to get overflow requirements and a layout mark_measurement.
+    /// This is the first pass of the two-pass measure/render architecture.
+    pub(super) async fn measure_mark_with_plot_df(
+        &self,
+        mark: &dyn CompiledMark,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        plot_width: f32,
+        plot_height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
+        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
+    ) -> Result<
+        (
+            crate::guide::OverflowSpaceRequirement,
+            Box<dyn crate::marks::MarkMeasurement>,
+        ),
+        AvengerChartError,
+    > {
+        let prepared = self
+            .prepare_mark_data(
+                mark,
+                scales,
+                plot_width,
+                plot_height,
+                ctx,
+                params,
+                provided_plot_df,
+                facet_spec,
+            )
+            .await?;
+
+        let Some(prepared) = prepared else {
+            return Ok((
+                crate::guide::OverflowSpaceRequirement::default(),
+                Box::new(crate::marks::EmptyMarkMeasurement),
+            ));
+        };
+
         let coord_transform = self.coord_transform.clone_box();
-        mark.evaluate_from_data(
-            data_batch.as_ref(),
-            &scalar_batch,
-            &context,
+        mark.measure_from_data(
+            prepared.data_batch.as_ref(),
+            &prepared.scalar_batch,
+            &prepared.context,
             coord_transform,
+        )
+        .await
+    }
+
+    /// Render a single mark using a previously computed layout mark_measurement.
+    /// This is the second pass of the two-pass measure/render architecture.
+    pub(super) async fn render_mark_with_plot_df(
+        &self,
+        mark: &dyn CompiledMark,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        plot_width: f32,
+        plot_height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
+        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
+        measurement: &dyn crate::marks::MarkMeasurement,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let prepared = self
+            .prepare_mark_data(
+                mark,
+                scales,
+                plot_width,
+                plot_height,
+                ctx,
+                params,
+                provided_plot_df,
+                facet_spec,
+            )
+            .await?;
+
+        let Some(prepared) = prepared else {
+            return Ok(vec![]);
+        };
+
+        let coord_transform = self.coord_transform.clone_box();
+        mark.render_from_data(
+            prepared.data_batch.as_ref(),
+            &prepared.scalar_batch,
+            &prepared.context,
+            coord_transform,
+            measurement,
         )
         .await
     }
@@ -519,8 +620,6 @@ impl CompiledPlot {
     pub(super) async fn create_guide_marks(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        row_overflow: Option<&Vec<crate::guide::OverflowSpaceRequirement>>,
-        col_overflow: Option<&Vec<crate::guide::OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &crate::layout::LayoutBounds,
@@ -562,8 +661,6 @@ impl CompiledPlot {
             compiled_guide
                 .evaluate(
                     &configured_scales,
-                    row_overflow,
-                    col_overflow,
                     plot_width,
                     plot_height,
                     plot_bounds,
@@ -607,8 +704,6 @@ impl CompiledPlot {
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
-                    None, // No row overflow during initial measurement
-                    None, // No col overflow during initial measurement
                     width_estimate,
                     height_estimate,
                     theme.as_ref(),
@@ -693,8 +788,6 @@ impl CompiledPlot {
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
-                    None, // No row overflow during measurement
-                    None, // No col overflow during measurement
                     plot_width,
                     plot_height,
                     theme.as_ref(),
@@ -969,11 +1062,11 @@ impl CompiledPlot {
             .build_scales(initial_plot_width, initial_plot_height, ctx, &merged_params)
             .await?;
 
-        // 4. Evaluate marks to capture layout updates (scale domain changes, facet overflow)
-        let mut layout_updates = Vec::new();
+        // 4. Measure marks to capture layout updates and measurements
+        let mut mark_measurements: Vec<Box<dyn crate::marks::MarkMeasurement>> = Vec::new();
         for mark in &self.marks {
-            let (_, layout_info) = self
-                .evaluate_mark_with_plot_df(
+            let (_overflow, mark_measurement) = self
+                .measure_mark_with_plot_df(
                     mark.as_ref(),
                     &initial_scales,
                     initial_plot_width,
@@ -984,30 +1077,20 @@ impl CompiledPlot {
                     facet_spec.clone(),
                 )
                 .await?;
-            layout_updates.push(layout_info);
+            mark_measurements.push(mark_measurement);
         }
 
-        // Merge layout updates from marks
-        let merged_layout = crate::layout::merge_layout_updates(&layout_updates);
-
-        // Merge scales with mark-provided scale updates
-        // Clone scales since we need them later for final_merged_scales
-        let mark_scales = merged_layout.scales.clone();
+        // Merge scales with mark-provided scale updates directly from measurements
         let merged_scales: HashMap<String, ConfiguredScaleWithSpec> = initial_scales
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
-            .chain(mark_scales.into_iter())
+            .chain(mark_measurements.iter().flat_map(|m| m.scale_updates()))
             .collect();
-
-        let row_overflow = merged_layout.row_overflow_by_facet.as_ref();
-        let col_overflow = merged_layout.col_overflow_by_facet.as_ref();
 
         // 5. Measure guide overflow with merged scales
         let mut overflow = self
             .measure_guide_overflow_with_scales(
                 &merged_scales,
-                row_overflow,
-                col_overflow,
                 initial_plot_width,
                 initial_plot_height,
                 ctx,
@@ -1121,10 +1204,10 @@ impl CompiledPlot {
             .build_scales(final_plot_width, final_plot_height, ctx, &merged_params)
             .await?;
 
-        // Merge with mark-provided scale updates again (using the cloned scales)
+        // Merge with mark-provided scale updates again
         let final_merged_scales: HashMap<String, ConfiguredScaleWithSpec> = final_scales
             .into_iter()
-            .chain(merged_layout.scales.into_iter())
+            .chain(mark_measurements.iter().flat_map(|m| m.scale_updates()))
             .collect();
 
         // 8. Compute clip region with final dimensions
@@ -1160,8 +1243,7 @@ impl CompiledPlot {
             final_merged_scales,
             overflow,
             final_layout.taffy_layout,
-            merged_layout.row_overflow_by_facet.clone(),
-            merged_layout.col_overflow_by_facet.clone(),
+            mark_measurements,
         ))
     }
 
@@ -1216,13 +1298,13 @@ impl CompiledPlot {
             );
         }
 
-        // 3. Evaluate marks with pre-computed scales
-        // Use scales from MeasurementResult - NO rebuilding!
+        // 3. Render marks using pre-computed measurements
+        // Use scales and measurements from MeasurementResult - NO re-measuring!
         let mut data_marks = Vec::new();
-        let mut layout_updates = Vec::new();
-        for mark in &self.marks {
-            let (marks, layout_info) = self
-                .evaluate_mark_with_plot_df(
+        for (mark, mark_measurement) in self.marks.iter().zip(measurement.mark_measurements.iter())
+        {
+            let marks = self
+                .render_mark_with_plot_df(
                     mark.as_ref(),
                     &measurement.scales,
                     plot_area_width,
@@ -1231,32 +1313,14 @@ impl CompiledPlot {
                     &merged_params,
                     data_override,
                     facet_spec.clone(),
+                    mark_measurement.as_ref(),
                 )
                 .await?;
             data_marks.extend(marks);
-            layout_updates.push(layout_info);
         }
 
-        // Merge layout updates from marks
-        let merged_layout_updates = crate::layout::merge_layout_updates(&layout_updates);
-
-        // Merge with measurement scales (mark updates may add more scales)
-        let merged_scales: HashMap<String, ConfiguredScaleWithSpec> = measurement
-            .scales
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .chain(merged_layout_updates.scales.into_iter())
-            .collect();
-
-        // Use row/col overflow from MeasurementResult (or merged layout updates if nested facets)
-        let row_overflow = measurement
-            .row_overflow_by_facet
-            .as_ref()
-            .or(merged_layout_updates.row_overflow_by_facet.as_ref());
-        let col_overflow = measurement
-            .col_overflow_by_facet
-            .as_ref()
-            .or(merged_layout_updates.col_overflow_by_facet.as_ref());
+        // Use scales directly from measurement (already includes mark-provided updates)
+        let merged_scales = measurement.scales.clone();
 
         // 4. Create guide marks using pre-computed layout
         // Use MeasurementResult.layout_result directly - NO recomputation!
@@ -1265,8 +1329,6 @@ impl CompiledPlot {
         let guide_marks = self
             .create_guide_marks(
                 &merged_scales,
-                row_overflow,
-                col_overflow,
                 plot_area_width,
                 plot_area_height,
                 &plot_bounds_struct,
@@ -1333,38 +1395,44 @@ impl CompiledPlot {
         })
     }
 
-    /// Build plot components with explicit dimensions and scale provider (recursive entry point)
+    /// Measure plot components without rendering (for layout coordination)
     ///
-    /// This method supports both top-level plots and subplots by accepting:
-    /// - Explicit dimensions (canvas size or plot area size, controlled by `dimensions_are_plot_area`)
-    /// - A scale provider (build new scales or use shared scales from parent)
-    /// - Evaluation mode (measure overflow or full render)
-    /// - Optional data override (for faceted subplots)
+    /// This method performs all setup and measurement needed for layout coordination:
+    /// - Merges parameters with defaults
+    /// - Computes layout to determine plot area dimensions
+    /// - Builds scales
+    /// - Measures all marks to get overflow requirements and measurements
     ///
-    /// When `dimensions_are_plot_area` is false (canvas mode), the dimensions represent the full
-    /// canvas and layout is computed to determine the plot area. When true (plot area mode), the
-    /// dimensions represent the already-determined plot area size.
+    /// Returns `ComponentsMeasurement` which can be used to:
+    /// - Get overflow for parent layout coordination (facets)
+    /// - Pass to `build_plot_components_with_measurement` for rendering
     ///
-    /// This enables true recursive rendering where the same logic works at all nesting levels.
-    pub async fn build_plot_components(
+    /// # Arguments
+    /// * `width` - Canvas width (when dimensions_are_plot_area=false) or plot area width (when true)
+    /// * `height` - Canvas height (when dimensions_are_plot_area=false) or plot area height (when true)
+    /// * `ctx` - DataFusion session context
+    /// * `params` - Parameters for evaluation
+    /// * `scale_provider` - Provider for building scales
+    /// * `data_override` - Optional data override for faceted subplots
+    /// * `dimensions_are_plot_area` - If true, dimensions are plot area; if false, dimensions are canvas
+    /// * `facet_spec` - Pre-computed facet specification
+    pub async fn measure_plot_components(
         &self,
         width: f32,
         height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
-        mode: crate::plot::compiled::EvaluationMode,
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
         facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
-    ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
-        use crate::plot::compiled::EvaluationMode;
+    ) -> Result<crate::plot::compiled::ComponentsMeasurement, AvengerChartError> {
         use avenger_scales::scales::ConfiguredScale;
         use std::collections::HashMap;
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "build_plot_components: width={:.3} height={:.3} dimensions_are_plot_area={}",
+                "measure_plot_components: width={:.3} height={:.3} dimensions_are_plot_area={}",
                 width, height, dimensions_are_plot_area
             );
         }
@@ -1387,8 +1455,6 @@ impl CompiledPlot {
         let (plot_area_width, plot_area_height, canvas_size, layout_opt) =
             if dimensions_are_plot_area {
                 // Plot area mode: dimensions specify the plot area size
-                // We still need to compute layout to include legends, but with plot area fixed
-
                 let plot_area_width = width;
                 let plot_area_height = height;
 
@@ -1398,7 +1464,6 @@ impl CompiledPlot {
                     .await?;
 
                 // Compute layout with a temporary spec that has fixed plot area
-                // This will compute the canvas size needed to fit plot area + legends
                 let layout = self
                     .compute_layout_with_fixed_plot_area(
                         plot_area_width,
@@ -1414,7 +1479,6 @@ impl CompiledPlot {
                 (plot_area_width, plot_area_height, canvas_size, Some(layout))
             } else {
                 // Canvas mode: dimensions are canvas size, compute layout to determine plot area
-                // Build initial scales with estimated 80% of canvas for plot area
                 let initial_plot_width = width * Self::INITIAL_PLOT_AREA_RATIO;
                 let initial_plot_height = height * Self::INITIAL_PLOT_AREA_RATIO;
                 let initial_scales = scale_provider
@@ -1456,529 +1520,500 @@ impl CompiledPlot {
             }
         };
 
-        if let EvaluationMode::Measure = mode {
-            // 6a. Measure mode: compute overflow WITH mark-driven scale updates
-            // Must evaluate marks to get layout updates (needed for scale padding updates)
-            // to ensure overflow measurement matches Render mode's debug visualization
-            let df_opt = data_override;
-            let mut layout_updates = Vec::new();
-            for mark in &self.marks {
-                let (_, layout_info) = self
-                    .evaluate_mark_with_plot_df(
-                        mark.as_ref(),
-                        &final_scales,
-                        plot_area_width,
-                        plot_area_height,
-                        ctx,
-                        &merged_params,
-                        df_opt,
-                        facet_spec.clone(),
-                    )
-                    .await?;
-                layout_updates.push(layout_info);
+        // 5. Measure all marks to get measurements and overflow
+        let df_opt = data_override;
+        let mut mark_measurements: Vec<Box<dyn crate::marks::MarkMeasurement>> = Vec::new();
+        for mark in &self.marks {
+            let (_overflow, mark_measurement) = self
+                .measure_mark_with_plot_df(
+                    mark.as_ref(),
+                    &final_scales,
+                    plot_area_width,
+                    plot_area_height,
+                    ctx,
+                    &merged_params,
+                    df_opt,
+                    facet_spec.clone(),
+                )
+                .await?;
+            mark_measurements.push(mark_measurement);
+        }
+
+        // Merge scales with mark-provided scale updates directly from measurements
+        let merged_scales: HashMap<String, crate::scales::ConfiguredScaleWithSpec> = final_scales
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .chain(mark_measurements.iter().flat_map(|m| m.scale_updates()))
+            .collect();
+
+        // 6. Measure overflow with merged scales
+        let mut overflow = self
+            .measure_guide_overflow_with_scales(
+                &merged_scales,
+                plot_area_width,
+                plot_area_height,
+                ctx,
+                &merged_params,
+                data_override,
+            )
+            .await?;
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "Guide overflow before legend: top={} bottom={} left={} right={} (plot_area: {}x{})",
+                overflow.top,
+                overflow.bottom,
+                overflow.left,
+                overflow.right,
+                plot_area_width,
+                plot_area_height
+            );
+        }
+
+        // When dimensions_are_plot_area=true, add legend space to overflow
+        if dimensions_are_plot_area {
+            if let Some(ref layout) = layout_opt {
+                let mut max_by_position: HashMap<crate::legend::LegendPosition, f32> =
+                    HashMap::new();
+
+                for (position, legend_keys) in &layout.taffy_layout.legends_by_position {
+                    let max_dimension = legend_keys
+                        .iter()
+                        .filter_map(|key| layout.taffy_layout.legends.get(key))
+                        .map(|bounds| match position {
+                            crate::legend::LegendPosition::Left
+                            | crate::legend::LegendPosition::Right => bounds.width,
+                            crate::legend::LegendPosition::Top
+                            | crate::legend::LegendPosition::Bottom => bounds.height,
+                        })
+                        .fold(0.0_f32, f32::max);
+
+                    if max_dimension > 0.0 {
+                        max_by_position.insert(*position, max_dimension);
+                    }
+                }
+
+                if let Some(&max_width) = max_by_position.get(&crate::legend::LegendPosition::Right)
+                {
+                    overflow.right += max_width;
+                }
+                if let Some(&max_width) = max_by_position.get(&crate::legend::LegendPosition::Left)
+                {
+                    overflow.left += max_width;
+                }
+                if let Some(&max_height) = max_by_position.get(&crate::legend::LegendPosition::Top)
+                {
+                    overflow.top += max_height;
+                }
+                if let Some(&max_height) =
+                    max_by_position.get(&crate::legend::LegendPosition::Bottom)
+                {
+                    overflow.bottom += max_height;
+                }
             }
+        }
 
-            // Merge layout updates from marks (critical for correct overflow)
-            let merged_layout = crate::layout::merge_layout_updates(&layout_updates);
+        Ok(crate::plot::compiled::ComponentsMeasurement {
+            overflow,
+            mark_measurements,
+            scales: merged_scales,
+            plot_area_width,
+            plot_area_height,
+            canvas_size,
+            clip,
+            layout: layout_opt,
+            params: merged_params,
+        })
+    }
 
-            // Extract scales and overflow data
-            let merged_scales: std::collections::HashMap<
-                String,
-                crate::scales::ConfiguredScaleWithSpec,
-            > = final_scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            let merged_scales: std::collections::HashMap<
-                String,
-                crate::scales::ConfiguredScaleWithSpec,
-            > = merged_scales
-                .into_iter()
-                .chain(merged_layout.scales.into_iter())
-                .collect();
-            let row_overflow = merged_layout.row_overflow_by_facet.as_ref();
-            let col_overflow = merged_layout.col_overflow_by_facet.as_ref();
+    /// Build plot components with explicit dimensions and scale provider (recursive entry point)
+    ///
+    /// This method supports both top-level plots and subplots by accepting:
+    /// - Explicit dimensions (canvas size or plot area size, controlled by `dimensions_are_plot_area`)
+    /// - A scale provider (build new scales or use shared scales from parent)
+    /// - Evaluation mode (measure overflow or full render)
+    /// - Optional data override (for faceted subplots)
+    ///
+    /// When `dimensions_are_plot_area` is false (canvas mode), the dimensions represent the full
+    /// canvas and layout is computed to determine the plot area. When true (plot area mode), the
+    /// dimensions represent the already-determined plot area size.
+    ///
+    /// This enables true recursive rendering where the same logic works at all nesting levels.
+    /// Build plot components using pre-computed measurement
+    ///
+    /// This method renders all marks using the provided measurement results.
+    /// Call `measure_plot_components()` first to get the measurement.
+    ///
+    /// # Arguments
+    /// * `ctx` - DataFusion session context
+    /// * `measurement` - Pre-computed measurement from `measure_plot_components()`
+    /// * `data_override` - Optional data override for faceted subplots
+    /// * `dimensions_are_plot_area` - If true, dimensions are plot area; if false, canvas
+    /// * `facet_spec` - Pre-computed facet specification
+    pub async fn build_plot_components(
+        &self,
+        ctx: &SessionContext,
+        measurement: &crate::plot::compiled::ComponentsMeasurement,
+        data_override: Option<&DataFrame>,
+        dimensions_are_plot_area: bool,
+        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
+    ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "build_plot_components: plot_area={}x{} dimensions_are_plot_area={}",
+                measurement.plot_area_width, measurement.plot_area_height, dimensions_are_plot_area
+            );
+        }
 
-            // Measure overflow with merged scales and overflow data (matching Render mode path)
-            let mut overflow = self
-                .measure_guide_overflow_with_scales(
+        // Render components using measurement
+        let layout_solution = measurement
+            .layout
+            .clone()
+            .expect("layout should always be Some for rendering");
+
+        // Extract values from measurement for convenience
+        let plot_area_width = measurement.plot_area_width;
+        let plot_area_height = measurement.plot_area_height;
+        let canvas_size = measurement.canvas_size;
+        let clip = measurement.clip.clone();
+        let merged_params = measurement.params.clone();
+        let merged_scales = measurement.scales.clone();
+
+        // Render marks using pre-computed measurements from measurement
+        let mut data_marks = Vec::new();
+        for (mark, mark_measurement) in self.marks.iter().zip(measurement.mark_measurements.iter())
+        {
+            let marks = self
+                .render_mark_with_plot_df(
+                    mark.as_ref(),
                     &merged_scales,
-                    row_overflow,
-                    col_overflow,
                     plot_area_width,
                     plot_area_height,
                     ctx,
                     &merged_params,
                     data_override,
+                    facet_spec.clone(),
+                    mark_measurement.as_ref(),
                 )
                 .await?;
+            data_marks.extend(marks);
+        }
 
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "Guide overflow before legend: top={} bottom={} left={} right={} (plot_area: {}x{})",
-                    overflow.top,
-                    overflow.bottom,
-                    overflow.left,
-                    overflow.right,
-                    plot_area_width,
-                    plot_area_height
-                );
-            }
-
-            // When dimensions_are_plot_area=true, canvas may be larger than plot area to fit legends
-            // Add legend space to overflow so facets can account for it in band scale padding
-            // Calculate overflow as guide_overflow + legend_dimension to exclude Taffy layout padding
-            if dimensions_are_plot_area {
-                if let Some(ref layout) = layout_opt {
-                    // Calculate maximum legend dimensions for each position
-                    // Use the pre-computed legends_by_position from the layout result
-                    let mut max_by_position: std::collections::HashMap<
-                        crate::legend::LegendPosition,
-                        f32,
-                    > = std::collections::HashMap::new();
-
-                    for (position, legend_keys) in &layout.taffy_layout.legends_by_position {
-                        // Calculate max dimension for all legends at this position
-                        let max_dimension = legend_keys
-                            .iter()
-                            .filter_map(|key| layout.taffy_layout.legends.get(key))
-                            .map(|bounds| match position {
-                                crate::legend::LegendPosition::Left
-                                | crate::legend::LegendPosition::Right => bounds.width,
-                                crate::legend::LegendPosition::Top
-                                | crate::legend::LegendPosition::Bottom => bounds.height,
-                            })
-                            .fold(0.0_f32, f32::max);
-
-                        if max_dimension > 0.0 {
-                            max_by_position.insert(*position, max_dimension);
-                        }
-                    }
-
-                    // Add legend dimensions to corresponding overflow sides
-                    if let Some(&max_width) =
-                        max_by_position.get(&crate::legend::LegendPosition::Right)
-                    {
-                        overflow.right += max_width;
-                    }
-
-                    if let Some(&max_width) =
-                        max_by_position.get(&crate::legend::LegendPosition::Left)
-                    {
-                        overflow.left += max_width;
-                    }
-
-                    if let Some(&max_height) =
-                        max_by_position.get(&crate::legend::LegendPosition::Top)
-                    {
-                        overflow.top += max_height;
-                    }
-
-                    if let Some(&max_height) =
-                        max_by_position.get(&crate::legend::LegendPosition::Bottom)
-                    {
-                        overflow.bottom += max_height;
-                    }
+        // Create guide marks and other components
+        let (
+            plot_bounds_struct,
+            guide_marks,
+            legend_marks,
+            title_marks,
+            subtitle_marks,
+            debug_marks,
+        ) = {
+            let layout_initial = layout_solution;
+            // Check if this is a top-level plot (canvas mode) or subplot (plot area mode)
+            if !dimensions_are_plot_area {
+                // Canvas mode: Full layout with guides, legends, titles
+                // Always re-measure overflow with the final plot-area size and final scales,
+                // then rebuild the outer layout so it matches subplots.
+                let theme = self.get_theme();
+                // Use merged_scales that include facet-driven padding updates
+                let configured_scales: HashMap<String, ConfiguredScale> = merged_scales
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.configured().clone()))
+                    .collect();
+                let pb = layout_initial.plot_area_bounds();
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "Calling guide measure_overflow with pb.width={} pb.height={}",
+                        pb.width, pb.height
+                    );
                 }
-            }
+                let overflow_final = if let Some(ref compiled_guide) = self.compiled_guide {
+                    compiled_guide
+                        .measure_overflow(
+                            &configured_scales,
+                            pb.width,
+                            pb.height,
+                            theme.as_ref(),
+                            &merged_params,
+                            data_override,
+                            ctx,
+                        )
+                        .await?
+                } else {
+                    crate::guide::OverflowSpaceRequirement::default()
+                };
 
-            Ok(crate::plot::compiled::PlotComponents {
-                data_marks: vec![],
-                guide_marks: vec![],
-                legend_marks: vec![],
-                title_marks: vec![],
-                subtitle_marks: vec![],
-                plot_bounds: crate::layout::LayoutBounds {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "SECOND-PASS overflow (outer): left={:.3} right={:.3} top={:.3} bottom={:.3}",
+                        overflow_final.left,
+                        overflow_final.right,
+                        overflow_final.top,
+                        overflow_final.bottom
+                    );
+                }
+
+                // Rebuild layout unconditionally with the second-pass overflow
+                use crate::layout::ChartLayout;
+                let evaluated_spec2 = evaluate_layout_spec(
+                    self.get_layout_spec(),
+                    ctx,
+                    &merged_params,
+                    theme.as_ref(),
+                )
+                .await?;
+                let all_legends2 = self.get_legends_with_theme(&merged_scales, ctx, &merged_params);
+                let (_channel_groups2, legends_map2) = self
+                    .merge_legend_channels(&all_legends2, &merged_scales, ctx, &merged_params)
+                    .await?;
+                let legend_measurements2 = self
+                    .prepare_legend_measurements(
+                        &legends_map2,
+                        &merged_scales,
+                        taffy::Size {
+                            width: plot_area_width,
+                            height: plot_area_height,
+                        },
+                        ctx,
+                        &merged_params,
+                    )
+                    .await?;
+                let layout = {
+                    let mut l = ChartLayout::new(
+                        &overflow_final,
+                        &evaluated_spec2,
+                        self.get_title(),
+                        self.get_subtitle(),
+                        theme.as_ref(),
+                        &legend_measurements2,
+                        ctx,
+                        &merged_params,
+                    )
+                    .await?;
+                    l.compute(&evaluated_spec2)?
+                };
+
+                let plot_bounds = layout.plot_area_bounds();
+                // Use original plot area dimensions to stay consistent with evaluated marks
+                // Marks were evaluated with plot_area_width/height from first layout
+                let plot_bounds_struct = crate::layout::LayoutBounds {
+                    x: plot_bounds.x,
+                    y: plot_bounds.y,
+                    width: plot_area_width,
+                    height: plot_area_height,
+                };
+
+                let guide_marks = self
+                    .create_guide_marks(
+                        &merged_scales,
+                        plot_area_width,
+                        plot_area_height,
+                        &plot_bounds_struct,
+                        &merged_params,
+                        ctx,
+                        data_override,
+                    )
+                    .await?;
+
+                let legend_marks = self
+                    .create_legends_with_layout(
+                        &merged_scales,
+                        &layout.taffy_layout,
+                        ctx,
+                        &merged_params,
+                    )
+                    .await?;
+
+                let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
+                    self.create_title(Some(*title_bounds), ctx, &merged_params)
+                        .await?
+                } else {
+                    Vec::new()
+                };
+
+                let subtitle_marks = if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
+                    self.create_subtitle(Some(*subtitle_bounds), ctx, &merged_params)
+                        .await?
+                } else {
+                    Vec::new()
+                };
+
+                let mut debug_marks = vec![];
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    // Use INITIAL layout for debug visualization - this matches the dimensions used to position marks
+                    // Marks were evaluated with plot_area_width/height from layout_initial
+                    eprintln!(
+                        "INITIAL layout plot width: {}",
+                        layout_initial.taffy_layout.plot_area.width
+                    );
+                    eprintln!(
+                        "FINAL layout plot width: {}",
+                        layout.taffy_layout.plot_area.width
+                    );
+                    debug_marks.extend(crate::render::debug::create_debug_layout_rects(
+                        &layout_initial.taffy_layout, // Use initial layout that matches mark positioning
+                        None,                         // Use default magenta color
+                        None,                         // Use default stroke width (1.0)
+                        None,                         // Use default z-index (20)
+                        false,                        // Don't flip label alignment
+                    ));
+                }
+
+                (
+                    plot_bounds_struct,
+                    guide_marks,
+                    legend_marks,
+                    title_marks,
+                    subtitle_marks,
+                    debug_marks,
+                )
+            } else {
+                // Plot area mode (subplots): Has layout computed with legends
+                // For subplots, the plot area is always at (0, 0) in subplot coordinates
+                // The facet will translate the entire subplot to the correct position
+                let plot_bounds_struct = crate::layout::LayoutBounds {
                     x: 0.0,
                     y: 0.0,
                     width: plot_area_width,
                     height: plot_area_height,
-                },
-                clip,
-                size: canvas_size,
-                size_is_canvas: !dimensions_are_plot_area,
-                overflow: Some(overflow),
-                debug_marks: Vec::new(), // No debug marks in Measure mode
-            })
-        } else {
-            let layout_solution =
-                layout_opt.expect("layout_opt should always be Some in Render mode");
-            // 6b. Render mode: full component evaluation
-            // If no data_override, marks will use their own internal data
-            // (facets pass filtered data here, top-level plots pass None)
-            let df_opt = data_override;
+                };
 
-            // Evaluate marks (with optional data override for facets)
-            let mut data_marks = Vec::new();
-            let mut layout_updates = Vec::new();
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "Evaluating marks with plot_area_width={} plot_area_height={}",
-                    plot_area_width, plot_area_height
-                );
-            }
-            for mark in &self.marks {
-                let (marks, layout_info) = self
-                    .evaluate_mark_with_plot_df(
-                        mark.as_ref(),
-                        &final_scales,
+                // Create guide marks
+                // Pass data_override so nested facets use filtered data
+                let guide_marks = self
+                    .create_guide_marks(
+                        &merged_scales,
                         plot_area_width,
                         plot_area_height,
-                        ctx,
+                        &plot_bounds_struct,
                         &merged_params,
-                        df_opt,
-                        facet_spec.clone(),
+                        ctx,
+                        data_override,
                     )
                     .await?;
-                data_marks.extend(marks);
-                layout_updates.push(layout_info);
-            }
 
-            // Merge layout updates from marks
-            let merged_layout = crate::layout::merge_layout_updates(&layout_updates);
-
-            // Extract scales and overflow data
-            let merged_scales: std::collections::HashMap<
-                String,
-                crate::scales::ConfiguredScaleWithSpec,
-            > = final_scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            let merged_scales: std::collections::HashMap<
-                String,
-                crate::scales::ConfiguredScaleWithSpec,
-            > = merged_scales
-                .into_iter()
-                .chain(merged_layout.scales.into_iter())
-                .collect();
-            let row_overflow = merged_layout.row_overflow_by_facet.as_ref();
-            let col_overflow = merged_layout.col_overflow_by_facet.as_ref();
-
-            // Create guide marks and other components based on mode
-            let (
-                plot_bounds_struct,
-                guide_marks,
-                legend_marks,
-                title_marks,
-                subtitle_marks,
-                debug_marks,
-            ) = {
-                let layout_initial = layout_solution;
-                // Check if this is a top-level plot (canvas mode) or subplot (plot area mode)
-                if !dimensions_are_plot_area {
-                    // Canvas mode: Full layout with guides, legends, titles
-                    // Always re-measure overflow with the final plot-area size and final scales,
-                    // then rebuild the outer layout so it matches subplots.
-                    let theme = self.get_theme();
-                    // Use merged_scales that include facet-driven padding updates
-                    let configured_scales: HashMap<String, ConfiguredScale> = merged_scales
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.configured().clone()))
-                        .collect();
-                    let pb = layout_initial.plot_area_bounds();
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "Calling guide measure_overflow with pb.width={} pb.height={}",
-                            pb.width, pb.height
-                        );
-                    }
-                    let overflow_final = if let Some(ref compiled_guide) = self.compiled_guide {
-                        compiled_guide
-                            .measure_overflow(
-                                &configured_scales,
-                                None, // No row overflow during remeasurement
-                                None, // No col overflow during remeasurement
-                                pb.width,
-                                pb.height,
-                                theme.as_ref(),
-                                &merged_params,
-                                data_override,
-                                ctx,
-                            )
-                            .await?
-                    } else {
-                        crate::guide::OverflowSpaceRequirement::default()
-                    };
-
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "SECOND-PASS overflow (outer): left={:.3} right={:.3} top={:.3} bottom={:.3}",
-                            overflow_final.left,
-                            overflow_final.right,
-                            overflow_final.top,
-                            overflow_final.bottom
-                        );
-                    }
-
-                    // Rebuild layout unconditionally with the second-pass overflow
-                    use crate::layout::ChartLayout;
-                    let evaluated_spec2 = evaluate_layout_spec(
-                        self.get_layout_spec(),
+                // Create legend marks from the computed layout
+                // Legend positions from layout include the plot area offset, but we need them at (0,0)
+                let plot_bounds = layout_initial.plot_area_bounds();
+                let legend_marks_raw = self
+                    .create_legends_with_layout(
+                        &merged_scales,
+                        &layout_initial.taffy_layout,
                         ctx,
                         &merged_params,
-                        theme.as_ref(),
                     )
                     .await?;
-                    let all_legends2 =
-                        self.get_legends_with_theme(&merged_scales, ctx, &merged_params);
-                    let (_channel_groups2, legends_map2) = self
-                        .merge_legend_channels(&all_legends2, &merged_scales, ctx, &merged_params)
-                        .await?;
-                    let legend_measurements2 = self
-                        .prepare_legend_measurements(
-                            &legends_map2,
-                            &merged_scales,
-                            taffy::Size {
-                                width: plot_area_width,
-                                height: plot_area_height,
-                            },
-                            ctx,
-                            &merged_params,
-                        )
-                        .await?;
-                    let layout = {
-                        let mut l = ChartLayout::new(
-                            &overflow_final,
-                            &evaluated_spec2,
-                            self.get_title(),
-                            self.get_subtitle(),
-                            theme.as_ref(),
-                            &legend_measurements2,
-                            ctx,
-                            &merged_params,
-                        )
-                        .await?;
-                        l.compute(&evaluated_spec2)?
-                    };
 
-                    let plot_bounds = layout.plot_area_bounds();
-                    // Use original plot area dimensions to stay consistent with evaluated marks
-                    // Marks were evaluated with plot_area_width/height from first layout
-                    let plot_bounds_struct = crate::layout::LayoutBounds {
-                        x: plot_bounds.x,
-                        y: plot_bounds.y,
-                        width: plot_area_width,
-                        height: plot_area_height,
-                    };
-
-                    let guide_marks = self
-                        .create_guide_marks(
-                            &merged_scales,
-                            row_overflow,
-                            col_overflow,
-                            plot_area_width,
-                            plot_area_height,
-                            &plot_bounds_struct,
-                            &merged_params,
-                            ctx,
-                            data_override,
-                        )
-                        .await?;
-
-                    let legend_marks = self
-                        .create_legends_with_layout(
-                            &final_scales,
-                            &layout.taffy_layout,
-                            ctx,
-                            &merged_params,
-                        )
-                        .await?;
-
-                    let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
-                        self.create_title(Some(*title_bounds), ctx, &merged_params)
-                            .await?
-                    } else {
-                        Vec::new()
-                    };
-
-                    let subtitle_marks =
-                        if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
-                            self.create_subtitle(Some(*subtitle_bounds), ctx, &merged_params)
-                                .await?
-                        } else {
-                            Vec::new()
-                        };
-
-                    let mut debug_marks = vec![];
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        // Use INITIAL layout for debug visualization - this matches the dimensions used to position marks
-                        // Marks were evaluated with plot_area_width/height from layout_initial
-                        eprintln!(
-                            "INITIAL layout plot width: {}",
-                            layout_initial.taffy_layout.plot_area.width
-                        );
-                        eprintln!(
-                            "FINAL layout plot width: {}",
-                            layout.taffy_layout.plot_area.width
-                        );
-                        debug_marks.extend(crate::render::debug::create_debug_layout_rects(
-                            &layout_initial.taffy_layout, // Use initial layout that matches mark positioning
-                            None,                         // Use default magenta color
-                            None,                         // Use default stroke width (1.0)
-                            None,                         // Use default z-index (20)
-                            false,                        // Don't flip label alignment
-                        ));
-                    }
-
-                    (
-                        plot_bounds_struct,
-                        guide_marks,
-                        legend_marks,
-                        title_marks,
-                        subtitle_marks,
-                        debug_marks,
-                    )
-                } else {
-                    // Plot area mode (subplots): Has layout computed with legends
-                    // For subplots, the plot area is always at (0, 0) in subplot coordinates
-                    // The facet will translate the entire subplot to the correct position
-                    let plot_bounds_struct = crate::layout::LayoutBounds {
-                        x: 0.0,
-                        y: 0.0,
-                        width: plot_area_width,
-                        height: plot_area_height,
-                    };
-
-                    // Create guide marks
-                    // Pass data_override so nested facets use filtered data
-                    let guide_marks = self
-                        .create_guide_marks(
-                            &merged_scales,
-                            row_overflow,
-                            col_overflow,
-                            plot_area_width,
-                            plot_area_height,
-                            &plot_bounds_struct,
-                            &merged_params,
-                            ctx,
-                            data_override,
-                        )
-                        .await?;
-
-                    // Create legend marks from the computed layout
-                    // Legend positions from layout include the plot area offset, but we need them at (0,0)
-                    let plot_bounds = layout_initial.plot_area_bounds();
-                    let legend_marks_raw = self
-                        .create_legends_with_layout(
-                            &merged_scales,
-                            &layout_initial.taffy_layout,
-                            ctx,
-                            &merged_params,
-                        )
-                        .await?;
-
-                    // Translate legend marks to be relative to (0, 0) instead of plot area offset
-                    let legend_marks: Vec<_> = legend_marks_raw
-                        .into_iter()
-                        .map(|mark| {
-                            use avenger_scenegraph::marks::mark::SceneMark;
-                            match mark {
-                                SceneMark::Group(mut group) => {
-                                    // Adjust group origin by subtracting plot area offset
-                                    group.origin = [
-                                        group.origin[0] - plot_bounds.x,
-                                        group.origin[1] - plot_bounds.y,
-                                    ]
-                                    .into();
-                                    SceneMark::Group(group)
-                                }
-                                _ => mark, // Other mark types shouldn't be at this level
+                // Translate legend marks to be relative to (0, 0) instead of plot area offset
+                let legend_marks: Vec<_> = legend_marks_raw
+                    .into_iter()
+                    .map(|mark| {
+                        use avenger_scenegraph::marks::mark::SceneMark;
+                        match mark {
+                            SceneMark::Group(mut group) => {
+                                // Adjust group origin by subtracting plot area offset
+                                group.origin = [
+                                    group.origin[0] - plot_bounds.x,
+                                    group.origin[1] - plot_bounds.y,
+                                ]
+                                .into();
+                                SceneMark::Group(group)
                             }
-                        })
-                        .collect();
-
-                    // Create title/subtitle marks if they exist in layout
-                    let title_marks = vec![];
-                    let subtitle_marks = vec![];
-                    // (Subplots typically don't have titles, but the layout might include them)
-
-                    let mut debug_marks = vec![];
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                        // Use the actual computed layout which includes legends
-                        // The layout has plot area at an offset due to overflow/legends
-                        // We need to translate it to (0,0) for subplot coordinates
-                        let plot_bounds = layout_initial.plot_area_bounds();
-
-                        // Create a translated copy of the layout with plot area at (0,0)
-                        let mut subplot_layout = layout_initial.taffy_layout.clone();
-
-                        // Translate plot_area
-                        subplot_layout.plot_area.x -= plot_bounds.x;
-                        subplot_layout.plot_area.y -= plot_bounds.y;
-
-                        // Translate guide_overflows
-                        for (_, bounds) in subplot_layout.guide_overflows.iter_mut() {
-                            bounds.x -= plot_bounds.x;
-                            bounds.y -= plot_bounds.y;
+                            _ => mark, // Other mark types shouldn't be at this level
                         }
+                    })
+                    .collect();
 
-                        // Translate legends
-                        for (_, bounds) in subplot_layout.legends.iter_mut() {
-                            bounds.x -= plot_bounds.x;
-                            bounds.y -= plot_bounds.y;
-                        }
+                // Create title/subtitle marks if they exist in layout
+                let title_marks = vec![];
+                let subtitle_marks = vec![];
+                // (Subplots typically don't have titles, but the layout might include them)
 
-                        // Compute unique color for each subplot based on position
-                        let subplot_color_string = if let Some(facet_ctx) =
-                            crate::facet::context::FacetContext::from_params(&merged_params)
-                        {
-                            let (row, col) = facet_ctx.position;
-                            let (_num_rows, num_cols) = facet_ctx.grid_dimensions;
-                            let subplot_index = row * num_cols + col;
+                let mut debug_marks = vec![];
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    // Use the actual computed layout which includes legends
+                    // The layout has plot area at an offset due to overflow/legends
+                    // We need to translate it to (0,0) for subplot coordinates
+                    let plot_bounds = layout_initial.plot_area_bounds();
 
-                            // Use discrete color palette with distinct hues
-                            let colors = [
-                                "hsla(15, 65%, 60%, 0.8)",  // Orange-red
-                                "hsla(75, 65%, 60%, 0.8)",  // Yellow-green
-                                "hsla(135, 65%, 60%, 0.8)", // Green
-                                "hsla(195, 65%, 60%, 0.8)", // Cyan
-                                "hsla(255, 65%, 60%, 0.8)", // Blue-purple
-                                "hsla(315, 65%, 60%, 0.8)", // Magenta
-                            ];
+                    // Create a translated copy of the layout with plot area at (0,0)
+                    let mut subplot_layout = layout_initial.taffy_layout.clone();
 
-                            colors[subplot_index % colors.len()].to_string()
-                        } else {
-                            "hsl(195 65% 60%)".to_string() // Fallback to cyan
-                        };
+                    // Translate plot_area
+                    subplot_layout.plot_area.x -= plot_bounds.x;
+                    subplot_layout.plot_area.y -= plot_bounds.y;
 
-                        debug_marks.extend(crate::render::debug::create_debug_layout_rects(
-                            &subplot_layout,
-                            Some(subplot_color_string),
-                            Some(1.0), // Same width as outer lines
-                            Some(100), // Higher z-index to render on top
-                            true, // Flip label alignment to avoid overlap with outer plot labels
-                        ));
+                    // Translate guide_overflows
+                    for (_, bounds) in subplot_layout.guide_overflows.iter_mut() {
+                        bounds.x -= plot_bounds.x;
+                        bounds.y -= plot_bounds.y;
                     }
 
-                    (
-                        plot_bounds_struct,
-                        guide_marks,
-                        legend_marks,
-                        title_marks,
-                        subtitle_marks,
-                        debug_marks,
-                    )
+                    // Translate legends
+                    for (_, bounds) in subplot_layout.legends.iter_mut() {
+                        bounds.x -= plot_bounds.x;
+                        bounds.y -= plot_bounds.y;
+                    }
+
+                    // Compute unique color for each subplot based on position
+                    let subplot_color_string = if let Some(facet_ctx) =
+                        crate::facet::context::FacetContext::from_params(&merged_params)
+                    {
+                        let (row, col) = facet_ctx.position;
+                        let (_num_rows, num_cols) = facet_ctx.grid_dimensions;
+                        let subplot_index = row * num_cols + col;
+
+                        // Use discrete color palette with distinct hues
+                        let colors = [
+                            "hsla(15, 65%, 60%, 0.8)",  // Orange-red
+                            "hsla(75, 65%, 60%, 0.8)",  // Yellow-green
+                            "hsla(135, 65%, 60%, 0.8)", // Green
+                            "hsla(195, 65%, 60%, 0.8)", // Cyan
+                            "hsla(255, 65%, 60%, 0.8)", // Blue-purple
+                            "hsla(315, 65%, 60%, 0.8)", // Magenta
+                        ];
+
+                        colors[subplot_index % colors.len()].to_string()
+                    } else {
+                        "hsl(195 65% 60%)".to_string() // Fallback to cyan
+                    };
+
+                    debug_marks.extend(crate::render::debug::create_debug_layout_rects(
+                        &subplot_layout,
+                        Some(subplot_color_string),
+                        Some(1.0), // Same width as outer lines
+                        Some(100), // Higher z-index to render on top
+                        true,      // Flip label alignment to avoid overlap with outer plot labels
+                    ));
                 }
-            };
 
-            // Debug marks are kept separate - they're in absolute canvas coordinates
-            // and should not be translated with the data marks group
+                (
+                    plot_bounds_struct,
+                    guide_marks,
+                    legend_marks,
+                    title_marks,
+                    subtitle_marks,
+                    debug_marks,
+                )
+            }
+        };
 
-            Ok(crate::plot::compiled::PlotComponents {
-                data_marks,
-                guide_marks,
-                legend_marks,
-                title_marks,
-                subtitle_marks,
-                plot_bounds: plot_bounds_struct,
-                clip,
-                size: canvas_size,
-                size_is_canvas: !dimensions_are_plot_area,
-                overflow: None,
-                debug_marks, // Separate field for absolute-positioned debug marks
-            })
-        }
+        // Debug marks are kept separate - they're in absolute canvas coordinates
+        // and should not be translated with the data marks group
+
+        Ok(crate::plot::compiled::PlotComponents {
+            data_marks,
+            guide_marks,
+            legend_marks,
+            title_marks,
+            subtitle_marks,
+            plot_bounds: plot_bounds_struct,
+            clip,
+            size: canvas_size,
+            size_is_canvas: !dimensions_are_plot_area,
+            overflow: None,
+            debug_marks, // Separate field for absolute-positioned debug marks
+        })
     }
 
     /// Evaluate the plot to a scene graph
@@ -2054,15 +2089,25 @@ impl CompiledPlot {
             plot: self,
         };
 
-        // 4. Call recursive evaluation method
-        let components = self
-            .build_plot_components(
+        // 4. Measure plot components
+        let measurement = self
+            .measure_plot_components(
                 canvas_width,
                 canvas_height,
                 ctx,
                 &merged_params,
                 &provider,
-                crate::plot::compiled::EvaluationMode::Render,
+                None,  // No data override for top-level plots
+                false, // Canvas mode: dimensions are canvas size
+                facet_spec.clone(),
+            )
+            .await?;
+
+        // 5. Build plot components using measurement
+        let components = self
+            .build_plot_components(
+                ctx,
+                &measurement,
                 None,       // No data override for top-level plots
                 false,      // Canvas mode: dimensions are canvas size
                 facet_spec, // Pre-computed facet spec

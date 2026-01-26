@@ -250,61 +250,46 @@ impl CompiledMark for CompiledFacetRow {
         true // Facets need full data for nested filtering
     }
 
-    /// Evaluate faceted row layout using a two-pass rendering algorithm
+    /// Measure faceted row layout - STUBBED
     ///
-    /// Delegates to the generic `evaluate_facet` helper with dimension-specific closures.
-    async fn evaluate_from_data(
+    /// Currently returns empty results. Full facet evaluation will be rebuilt
+    /// on the EvaluatedFacetTree abstraction.
+    async fn measure_from_data(
         &self,
-        data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
-        context: &RenderContext,
-        coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
-        use crate::facet::marks::facet_evaluation::{batch_to_dataframe, evaluate_facet};
+        _context: &RenderContext,
+        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+    ) -> Result<
+        (
+            crate::guide::OverflowSpaceRequirement,
+            Box<dyn crate::marks::MarkMeasurement>,
+        ),
+        AvengerChartError,
+    > {
+        // STUBBED: Return no overflow and empty measurement
+        // TODO: Implement proper facet measurement using FacetRowMeasurement
+        Ok((
+            crate::guide::OverflowSpaceRequirement::default(),
+            Box::new(crate::marks::EmptyMarkMeasurement),
+        ))
+    }
 
-        // Convert RecordBatch to DataFrame if provided (for nested facets)
-        let data_override = if let Some(batch) = data {
-            Some(batch_to_dataframe(batch, &context.session_context)?)
-        } else {
-            None
-        };
-
-        evaluate_facet::<RowDimensionConfig>(
-            coord.as_ref(),
-            &self.compiled_subplot,
-            &self.state,
-            data_override.as_ref(),
-            self.facet_title.clone(),
-            self.facet_spacing,
-            context,
-            // Use dimension config for subplot dimensions
-            |band_size: f32, ctx: &RenderContext| {
-                let dims = RowDimensionConfig::subplot_dimensions(
-                    band_size,
-                    ctx.plot_width,
-                    ctx.plot_height,
-                );
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "FacetRow subplot_dims: band_size={:.3} -> dims=({:.3}, {:.3})",
-                        band_size, dims.0, dims.1
-                    );
-                }
-                dims
-            },
-            // Use dimension config for group origin
-            |position: f32| {
-                let origin = RowDimensionConfig::group_origin(position);
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "FacetRow group_origin: position={:.3} -> origin=[{:.3}, {:.3}]",
-                        position, origin[0], origin[1]
-                    );
-                }
-                origin
-            },
-        )
-        .await
+    /// Render faceted row layout - STUBBED
+    ///
+    /// Currently returns empty results. Full facet evaluation will be rebuilt
+    /// on the EvaluatedFacetTree abstraction.
+    async fn render_from_data(
+        &self,
+        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        _scalars: &datafusion::arrow::record_batch::RecordBatch,
+        _context: &RenderContext,
+        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+        _measurement: &dyn crate::marks::MarkMeasurement,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        // STUBBED: Return empty scene marks
+        // TODO: Implement proper facet rendering using cached measurement data
+        Ok(Vec::new())
     }
 
     fn preferred_scale_type(
@@ -467,61 +452,46 @@ impl CompiledMark for CompiledFacetCol {
         true // Facets need full data for nested filtering
     }
 
-    /// Evaluate faceted column layout using a two-pass rendering algorithm
+    /// Measure faceted column layout - STUBBED
     ///
-    /// Delegates to the generic `evaluate_facet` helper with dimension-specific closures.
-    async fn evaluate_from_data(
+    /// Currently returns empty results. Full facet evaluation will be rebuilt
+    /// on the EvaluatedFacetTree abstraction.
+    async fn measure_from_data(
         &self,
-        data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
-        context: &RenderContext,
-        coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
-        use crate::facet::marks::facet_evaluation::{batch_to_dataframe, evaluate_facet};
+        _context: &RenderContext,
+        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+    ) -> Result<
+        (
+            crate::guide::OverflowSpaceRequirement,
+            Box<dyn crate::marks::MarkMeasurement>,
+        ),
+        AvengerChartError,
+    > {
+        // STUBBED: Return no overflow and empty measurement
+        // TODO: Implement proper facet measurement using FacetColMeasurement
+        Ok((
+            crate::guide::OverflowSpaceRequirement::default(),
+            Box::new(crate::marks::EmptyMarkMeasurement),
+        ))
+    }
 
-        // Convert RecordBatch to DataFrame if provided (for nested facets)
-        let data_override = if let Some(batch) = data {
-            Some(batch_to_dataframe(batch, &context.session_context)?)
-        } else {
-            None
-        };
-
-        evaluate_facet::<ColumnDimensionConfig>(
-            coord.as_ref(),
-            &self.compiled_subplot,
-            &self.state,
-            data_override.as_ref(),
-            self.facet_title.clone(),
-            self.facet_spacing,
-            context,
-            // Use dimension config for subplot dimensions
-            |band_size: f32, ctx: &RenderContext| {
-                let dims = ColumnDimensionConfig::subplot_dimensions(
-                    band_size,
-                    ctx.plot_width,
-                    ctx.plot_height,
-                );
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "FacetCol subplot_dims: band_size={:.3} -> dims=({:.3}, {:.3})",
-                        band_size, dims.0, dims.1
-                    );
-                }
-                dims
-            },
-            // Use dimension config for group origin
-            |position: f32| {
-                let origin = ColumnDimensionConfig::group_origin(position);
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "FacetCol group_origin: position={:.3} -> origin=[{:.3}, {:.3}]",
-                        position, origin[0], origin[1]
-                    );
-                }
-                origin
-            },
-        )
-        .await
+    /// Render faceted column layout - STUBBED
+    ///
+    /// Currently returns empty results. Full facet evaluation will be rebuilt
+    /// on the EvaluatedFacetTree abstraction.
+    async fn render_from_data(
+        &self,
+        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
+        _scalars: &datafusion::arrow::record_batch::RecordBatch,
+        _context: &RenderContext,
+        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
+        _measurement: &dyn crate::marks::MarkMeasurement,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        // STUBBED: Return empty scene marks
+        // TODO: Implement proper facet rendering using cached measurement data
+        Ok(Vec::new())
     }
 
     fn preferred_scale_type(

@@ -434,8 +434,6 @@ impl CompiledPlot {
     pub async fn measure_guide_overflow_with_scales(
         &self,
         scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-        row_overflow: Option<&Vec<crate::guide::OverflowSpaceRequirement>>,
-        col_overflow: Option<&Vec<crate::guide::OverflowSpaceRequirement>>,
         plot_area_width: f32,
         plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
@@ -452,8 +450,6 @@ impl CompiledPlot {
             guide
                 .measure_overflow(
                     &configured,
-                    row_overflow,
-                    col_overflow,
                     plot_area_width,
                     plot_area_height,
                     theme.as_ref(),
@@ -498,14 +494,7 @@ impl CompiledPlot {
         // Measure guide overflow using provided scales and data.
         // Legends and titles also contribute; reuse the layout computation but skip mark rendering.
         let layout = self
-            .compute_layout_with_fixed_plot_area(
-                width,
-                height,
-                scales,
-                ctx,
-                params,
-                data_override,
-            )
+            .compute_layout_with_fixed_plot_area(width, height, scales, ctx, params, data_override)
             .await?;
 
         // Collect legend positions from the layout
@@ -583,8 +572,6 @@ impl CompiledPlot {
             compiled_guide
                 .measure_intrinsic_overflow(
                     &configured_scales,
-                    None,
-                    None,
                     width,
                     height,
                     &theme,
@@ -635,8 +622,6 @@ impl CompiledPlot {
             let result = compiled_guide
                 .measure_with_coordination(
                     &configured_scales,
-                    None, // row_overflow
-                    None, // col_overflow
                     width,
                     height,
                     &theme,
@@ -654,13 +639,52 @@ impl CompiledPlot {
     }
 }
 
-/// Evaluation mode for two-pass rendering
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum EvaluationMode {
-    /// Measure overflow only (Pass 1 of two-pass rendering)
-    Measure,
-    /// Full rendering with all components (Pass 2 of two-pass rendering)
-    Render,
+/// Measurement results from `measure_plot_components`
+///
+/// This captures all the computation needed for layout coordination without
+/// actually rendering any marks. The render pass uses this to avoid re-measuring.
+pub struct ComponentsMeasurement {
+    /// Overflow space requirements for layout coordination
+    pub overflow: crate::guide::OverflowSpaceRequirement,
+
+    /// Mark measurements for render pass (in order matching the plot's marks vec)
+    pub mark_measurements: Vec<Box<dyn crate::marks::MarkMeasurement>>,
+
+    /// Merged scales including mark-provided updates
+    pub scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+
+    /// Plot area dimensions
+    pub plot_area_width: f32,
+    pub plot_area_height: f32,
+
+    /// Canvas size
+    pub canvas_size: (f32, f32),
+
+    /// Clip region for data marks
+    pub clip: avenger_scenegraph::marks::group::Clip,
+
+    /// Layout solution (for legends/titles positioning)
+    pub layout: Option<crate::render::LayoutSolution>,
+
+    /// Merged params (defaults + provided + canvas dimensions)
+    pub params: indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+}
+
+impl std::fmt::Debug for ComponentsMeasurement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ComponentsMeasurement")
+            .field("overflow", &self.overflow)
+            .field(
+                "mark_measurements",
+                &format!("{} measurements", self.mark_measurements.len()),
+            )
+            .field("scales", &format!("{} scales", self.scales.len()))
+            .field("plot_area_width", &self.plot_area_width)
+            .field("plot_area_height", &self.plot_area_height)
+            .field("canvas_size", &self.canvas_size)
+            .field("layout", &self.layout.is_some())
+            .finish()
+    }
 }
 
 /// Extended components returned from plot evaluation
@@ -727,7 +751,6 @@ pub struct PlotComponents {
 /// // Render pass uses it directly - NO recomputation
 /// let components = plot.render_with_measurement(ctx, params, &measurement).await?;
 /// ```
-#[derive(Debug)]
 pub struct PlotMeasurementResult {
     // ═══════════════════════════════════════════════════════════════
     // FINAL DIMENSIONS - render uses directly, never recomputes
@@ -763,11 +786,31 @@ pub struct PlotMeasurementResult {
     /// Complete layout result for legends/titles positioning
     pub layout_result: LayoutResult,
 
-    /// Per-row overflow (for nested facet coordination)
-    pub row_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+    // ═══════════════════════════════════════════════════════════════
+    // MARK MEASUREMENTS - cached data from measurement for render pass
+    // ═══════════════════════════════════════════════════════════════
+    /// Measurements from each mark, in order matching the plot's marks vec.
+    /// Used during render to avoid re-measuring. For facets, measurements contain
+    /// nested child measurements.
+    pub mark_measurements: Vec<Box<dyn crate::marks::MarkMeasurement>>,
+}
 
-    /// Per-column overflow (for nested facet coordination)
-    pub col_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+impl std::fmt::Debug for PlotMeasurementResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PlotMeasurementResult")
+            .field("plot_area_size", &self.plot_area_size)
+            .field("canvas_size", &self.canvas_size)
+            .field("plot_bounds", &self.plot_bounds)
+            .field("clip", &self.clip)
+            .field("scales", &format!("{} scales", self.scales.len()))
+            .field("overflow", &self.overflow)
+            .field("layout_result", &self.layout_result)
+            .field(
+                "mark_measurements",
+                &format!("{} measurements", self.mark_measurements.len()),
+            )
+            .finish()
+    }
 }
 
 impl PlotMeasurementResult {
@@ -815,8 +858,7 @@ impl PlotMeasurementResult {
         scales: HashMap<String, ConfiguredScaleWithSpec>,
         overflow: OverflowSpaceRequirement,
         layout_result: LayoutResult,
-        row_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-        col_overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
+        mark_measurements: Vec<Box<dyn crate::marks::MarkMeasurement>>,
     ) -> Self {
         let result = Self {
             plot_area_size,
@@ -826,8 +868,7 @@ impl PlotMeasurementResult {
             scales,
             overflow,
             layout_result,
-            row_overflow_by_facet,
-            col_overflow_by_facet,
+            mark_measurements,
         };
 
         #[cfg(debug_assertions)]
@@ -881,8 +922,7 @@ mod tests {
             scales,
             overflow,
             layout_result,
-            None,
-            None,
+            vec![], // No mark measurements for this test
         );
 
         // Verify fields were set correctly

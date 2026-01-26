@@ -58,8 +58,8 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     _subplot_dims: impl Fn(f32, &RenderContext) -> (f32, f32) + Clone,
     // Returns [x, y] translation given band position
     _group_origin: impl Fn(f32) -> [f32; 2] + Clone,
-) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
+) -> Result<Vec<SceneMark>, AvengerChartError> {
     // STUBBED: Return empty result
     // TODO: Implement facet evaluation using EvaluatedFacetTree
-    Ok((Vec::new(), crate::layout::LayoutUpdates::default()))
+    Ok(Vec::new())
 }

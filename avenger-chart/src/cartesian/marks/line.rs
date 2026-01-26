@@ -138,13 +138,34 @@ impl CompiledMark for CompiledCartesianLine {
         true
     }
 
-    async fn evaluate_from_data(
+    async fn measure_from_data(
+        &self,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
+        _context: &RenderContext,
+        _coord: Box<dyn CoordinateSystemTransform>,
+    ) -> Result<
+        (
+            crate::guide::OverflowSpaceRequirement,
+            Box<dyn crate::marks::MarkMeasurement>,
+        ),
+        AvengerChartError,
+    > {
+        // Regular marks don't need overflow space or cached data
+        Ok((
+            crate::guide::OverflowSpaceRequirement::default(),
+            Box::new(crate::marks::EmptyMarkMeasurement),
+        ))
+    }
+
+    async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError> {
+        _measurement: &dyn crate::marks::MarkMeasurement,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use crate::marks::util::{
             coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
             coerce_numeric_channel_with_renderer,
@@ -296,10 +317,7 @@ impl CompiledMark for CompiledCartesianLine {
                 zindex: self.state.zindex,
             };
 
-            return Ok((
-                vec![SceneMark::Line(line_mark)],
-                crate::layout::LayoutUpdates::default(),
-            ));
+            return Ok(vec![SceneMark::Line(line_mark)]);
         }
 
         // Complex case: need to partition based on varying style properties
@@ -523,7 +541,7 @@ impl CompiledMark for CompiledCartesianLine {
             scene_marks.push(SceneMark::Line(line_mark));
         }
 
-        Ok((scene_marks, crate::layout::LayoutUpdates::default()))
+        Ok(scene_marks)
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {

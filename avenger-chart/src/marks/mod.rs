@@ -36,6 +36,44 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Trait for mark-specific data cached during the measurement pass
+///
+/// Marks can implement custom measurement types to cache intermediate computation
+/// results between the measure and render passes. This enables efficient
+/// two-pass rendering where expensive computations only happen once.
+///
+/// # Design Notes
+///
+/// The `as_any()` method enables downcasting from `dyn MarkMeasurement` to the
+/// concrete type. This pattern (same as `PlotGeometry`) preserves object safety
+/// while allowing marks to use their specific measurement types.
+pub trait MarkMeasurement: Send + Sync {
+    /// Downcast support for accessing concrete measurement types
+    fn as_any(&self) -> &dyn Any;
+
+    /// Scale updates from this mark (e.g., facet marks may adjust scales)
+    ///
+    /// Returns an empty map by default. Layout marks override this to return
+    /// scales that were modified during measurement.
+    fn scale_updates(&self) -> HashMap<String, crate::scales::ConfiguredScaleWithSpec> {
+        HashMap::new()
+    }
+}
+
+/// Empty measurement for marks that don't cache data between measure/render passes
+///
+/// Most regular marks (Symbol, Line, Rect) use this since they perform
+/// the same computation in both passes. Layout marks like Facet use
+/// custom measurement types to cache subplot measurements.
+#[derive(Default)]
+pub struct EmptyMarkMeasurement;
+
+impl MarkMeasurement for EmptyMarkMeasurement {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 /// Expression for computing radius/padding requirements for marks
 ///
 /// Used to determine how much space a mark needs beyond its base position,
@@ -113,38 +151,64 @@ pub trait CompiledMark: Any + Send + Sync {
     /// Declare channels this mark supports
     fn supported_channels(&self) -> Vec<ChannelDescriptor>;
 
-    /// Build scene marks from processed data
+    /// Measure pass: compute overflow requirements and cache intermediate data
+    ///
+    /// This method is called during the measurement phase to:
+    /// 1. Compute overflow space needed outside the plot area (for axes, labels, etc.)
+    /// 2. Cache intermediate computation results in a MarkMeasurement for the render pass
+    ///
+    /// The plot area dimensions are provided via `context.plot_width` and `context.plot_height`.
+    ///
+    /// # Arguments
+    /// * `data` - RecordBatch with array data (multiple rows), or None if all channels are scalar
+    /// * `scalars` - RecordBatch with scalar data (single row) for channels that don't vary per mark
+    /// * `context` - RenderContext containing theme, plot dimensions, and other rendering state
+    /// * `coord` - Coordinate system for position transformations
+    ///
+    /// # Returns
+    /// A tuple of:
+    /// - `OverflowSpaceRequirement`: Space needed outside the plot area (top/bottom/left/right).
+    ///   Most marks return `OverflowSpaceRequirement::default()` (no overflow).
+    ///   Layout marks like Facet return overflow for axes, labels, titles, etc.
+    /// - `Box<dyn MarkMeasurement>`: Cached data for the render pass.
+    ///   Most marks return `Box::new(EmptyMarkMeasurement)`.
+    ///   Facet marks cache cell positions, per-facet overflow, scale updates, child measurements, etc.
+    async fn measure_from_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &RenderContext,
+        coord: Box<dyn CoordinateSystemTransform>,
+    ) -> Result<
+        (
+            crate::guide::OverflowSpaceRequirement,
+            Box<dyn MarkMeasurement>,
+        ),
+        AvengerChartError,
+    >;
+
+    /// Render pass: create scene marks using cached measurement data
+    ///
+    /// This method is called during the render phase to create the actual scene marks.
+    /// It can use data cached in the measurement from the measure pass to avoid recomputation.
     ///
     /// # Arguments
     /// * `data` - RecordBatch with array data (multiple rows), or None if all channels are scalar
     /// * `scalars` - RecordBatch with scalar data (single row) for channels that don't vary per mark
     /// * `context` - RenderContext containing theme, dimensions, and other rendering state
     /// * `coord` - Coordinate system for position transformations
+    /// * `measurement` - Cached data from the measure pass (from `measure_from_data`)
     ///
     /// # Returns
-    /// A tuple of:
-    /// - A vector of scene marks ready for evaluation
-    /// - Layout information (LayoutUpdates) that marks can use to communicate layout data.
-    ///   Most marks return `LayoutUpdates::default()` (empty). Layout marks like Facet return
-    ///   `LayoutUpdates` with updated scales and overflow measurements.
-    ///
-    /// # Layout Info Guidelines
-    ///
-    /// Layout info should ONLY be used by **layout marks** that:
-    /// - Have a single instance per plot/layer
-    /// - Have global layout responsibility
-    /// - Measure content to determine dimensions
-    ///
-    /// Examples: Facet, Sankey, Treemap, Force-directed graph
-    ///
-    /// **Do NOT use for regular data marks** (Symbol, Line, Rect, etc.)
-    async fn evaluate_from_data(
+    /// A vector of scene marks ready for rendering
+    async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<(Vec<SceneMark>, crate::layout::LayoutUpdates), AvengerChartError>;
+        measurement: &dyn MarkMeasurement,
+    ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Whether this mark type supports the order encoding channel
     fn supports_order(&self) -> bool {
@@ -156,7 +220,7 @@ pub trait CompiledMark: Any + Send + Sync {
     /// Most marks only need columns for their specific channels (default: false).
     /// Container marks like facets need all columns to pass to nested marks (return: true).
     ///
-    /// When true, `evaluate_mark_with_plot_df` will convert the entire DataFrame to
+    /// When true, the rendering system will convert the entire DataFrame to
     /// RecordBatch instead of selecting only the mark's channel columns.
     fn wants_full_data_batch(&self) -> bool {
         false // Default: only select needed channels

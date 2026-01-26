@@ -69,8 +69,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
-        col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
@@ -90,8 +88,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
     async fn measure_intrinsic_overflow(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
-        col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
@@ -102,8 +98,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         // Default implementation: same as measure_overflow()
         self.measure_overflow(
             scales,
-            row_overflow,
-            col_overflow,
             plot_width,
             plot_height,
             theme,
@@ -125,8 +119,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
     async fn measure_with_coordination(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
-        col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
@@ -138,8 +130,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
         let overflow = self
             .measure_overflow(
                 scales,
-                row_overflow,
-                col_overflow,
                 plot_width,
                 plot_height,
                 theme,
@@ -160,8 +150,6 @@ pub trait CompiledGuide: Send + Sync + 'static {
     async fn evaluate(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        row_overflow: Option<&Vec<OverflowSpaceRequirement>>,
-        col_overflow: Option<&Vec<OverflowSpaceRequirement>>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
