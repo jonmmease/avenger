@@ -1049,7 +1049,7 @@ impl CompiledPlot {
                     .await?;
 
                 let canvas_size = layout.canvas_size;
-                (plot_area_width, plot_area_height, canvas_size, Some(layout))
+                (plot_area_width, plot_area_height, canvas_size, layout)
             } else {
                 // Canvas mode: dimensions are canvas size, compute layout to determine plot area
                 let initial_plot_width = width * Self::INITIAL_PLOT_AREA_RATIO;
@@ -1068,7 +1068,7 @@ impl CompiledPlot {
                     plot_bounds.width,
                     plot_bounds.height,
                     layout.canvas_size,
-                    Some(layout),
+                    layout,
                 )
             };
 
@@ -1145,44 +1145,36 @@ impl CompiledPlot {
 
         // When dimensions_are_plot_area=true, add legend space to overflow
         if dimensions_are_plot_area {
-            if let Some(ref layout) = layout_opt {
-                let mut max_by_position: HashMap<crate::legend::LegendPosition, f32> =
-                    HashMap::new();
+            let mut max_by_position: HashMap<crate::legend::LegendPosition, f32> = HashMap::new();
 
-                for (position, legend_keys) in &layout.taffy_layout.legends_by_position {
-                    let max_dimension = legend_keys
-                        .iter()
-                        .filter_map(|key| layout.taffy_layout.legends.get(key))
-                        .map(|bounds| match position {
-                            crate::legend::LegendPosition::Left
-                            | crate::legend::LegendPosition::Right => bounds.width,
-                            crate::legend::LegendPosition::Top
-                            | crate::legend::LegendPosition::Bottom => bounds.height,
-                        })
-                        .fold(0.0_f32, f32::max);
+            for (position, legend_keys) in &layout_opt.taffy_layout.legends_by_position {
+                let max_dimension = legend_keys
+                    .iter()
+                    .filter_map(|key| layout_opt.taffy_layout.legends.get(key))
+                    .map(|bounds| match position {
+                        crate::legend::LegendPosition::Left
+                        | crate::legend::LegendPosition::Right => bounds.width,
+                        crate::legend::LegendPosition::Top
+                        | crate::legend::LegendPosition::Bottom => bounds.height,
+                    })
+                    .fold(0.0_f32, f32::max);
 
-                    if max_dimension > 0.0 {
-                        max_by_position.insert(*position, max_dimension);
-                    }
+                if max_dimension > 0.0 {
+                    max_by_position.insert(*position, max_dimension);
                 }
+            }
 
-                if let Some(&max_width) = max_by_position.get(&crate::legend::LegendPosition::Right)
-                {
-                    overflow.right += max_width;
-                }
-                if let Some(&max_width) = max_by_position.get(&crate::legend::LegendPosition::Left)
-                {
-                    overflow.left += max_width;
-                }
-                if let Some(&max_height) = max_by_position.get(&crate::legend::LegendPosition::Top)
-                {
-                    overflow.top += max_height;
-                }
-                if let Some(&max_height) =
-                    max_by_position.get(&crate::legend::LegendPosition::Bottom)
-                {
-                    overflow.bottom += max_height;
-                }
+            if let Some(&max_width) = max_by_position.get(&crate::legend::LegendPosition::Right) {
+                overflow.right += max_width;
+            }
+            if let Some(&max_width) = max_by_position.get(&crate::legend::LegendPosition::Left) {
+                overflow.left += max_width;
+            }
+            if let Some(&max_height) = max_by_position.get(&crate::legend::LegendPosition::Top) {
+                overflow.top += max_height;
+            }
+            if let Some(&max_height) = max_by_position.get(&crate::legend::LegendPosition::Bottom) {
+                overflow.bottom += max_height;
             }
         }
 
@@ -1239,10 +1231,7 @@ impl CompiledPlot {
         }
 
         // Render components using measurement
-        let layout_solution = measurement
-            .layout
-            .clone()
-            .expect("layout should always be Some for rendering");
+        let layout_solution = measurement.layout.clone();
 
         // Extract values from measurement for convenience
         let plot_area_width = measurement.plot_area_width;

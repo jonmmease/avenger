@@ -663,7 +663,7 @@ pub struct ComponentsMeasurement {
     pub clip: avenger_scenegraph::marks::group::Clip,
 
     /// Layout solution (for legends/titles positioning)
-    pub layout: Option<crate::render::LayoutSolution>,
+    pub layout: crate::render::LayoutSolution,
 
     /// Merged params (defaults + provided + canvas dimensions)
     pub params: indexmap::IndexMap<String, datafusion::common::ScalarValue>,
@@ -681,7 +681,7 @@ impl std::fmt::Debug for ComponentsMeasurement {
             .field("plot_area_width", &self.plot_area_width)
             .field("plot_area_height", &self.plot_area_height)
             .field("canvas_size", &self.canvas_size)
-            .field("layout", &self.layout.is_some())
+            .field("layout", &"LayoutSolution")
             .finish()
     }
 }
