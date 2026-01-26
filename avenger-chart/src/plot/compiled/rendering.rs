@@ -1016,52 +1016,51 @@ impl CompiledPlot {
         );
 
         // 3. Determine plot area dimensions and build scales
-        let (plot_area_width, plot_area_height, canvas_size, layout_opt) =
-            if dimensions_are_plot_area {
-                // Plot area mode: dimensions specify the plot area size
-                let plot_area_width = width;
-                let plot_area_height = height;
+        let (plot_area_width, plot_area_height, canvas_size, layout) = if dimensions_are_plot_area {
+            // Plot area mode: dimensions specify the plot area size
+            let plot_area_width = width;
+            let plot_area_height = height;
 
-                // Build initial scales with plot area dimensions
-                let initial_scales = scale_provider
-                    .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
-                    .await?;
+            // Build initial scales with plot area dimensions
+            let initial_scales = scale_provider
+                .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
+                .await?;
 
-                // Compute layout with a temporary spec that has fixed plot area
-                let layout = self
-                    .compute_layout_with_fixed_plot_area(
-                        plot_area_width,
-                        plot_area_height,
-                        &initial_scales,
-                        ctx,
-                        &merged_params,
-                        data_override,
-                    )
-                    .await?;
-
-                let canvas_size = layout.canvas_size;
-                (plot_area_width, plot_area_height, canvas_size, layout)
-            } else {
-                // Canvas mode: dimensions are canvas size, compute layout to determine plot area
-                let initial_plot_width = width * Self::INITIAL_PLOT_AREA_RATIO;
-                let initial_plot_height = height * Self::INITIAL_PLOT_AREA_RATIO;
-                let initial_scales = scale_provider
-                    .build_scales(initial_plot_width, initial_plot_height, ctx, &merged_params)
-                    .await?;
-
-                // Compute layout with initial scales
-                let layout = self
-                    .compute_layout(width, height, &initial_scales, ctx, &merged_params)
-                    .await?;
-
-                let plot_bounds = layout.plot_area_bounds();
-                (
-                    plot_bounds.width,
-                    plot_bounds.height,
-                    layout.canvas_size,
-                    layout,
+            // Compute layout with a temporary spec that has fixed plot area
+            let layout = self
+                .compute_layout_with_fixed_plot_area(
+                    plot_area_width,
+                    plot_area_height,
+                    &initial_scales,
+                    ctx,
+                    &merged_params,
+                    data_override,
                 )
-            };
+                .await?;
+
+            let canvas_size = layout.canvas_size;
+            (plot_area_width, plot_area_height, canvas_size, layout)
+        } else {
+            // Canvas mode: dimensions are canvas size, compute layout to determine plot area
+            let initial_plot_width = width * Self::INITIAL_PLOT_AREA_RATIO;
+            let initial_plot_height = height * Self::INITIAL_PLOT_AREA_RATIO;
+            let initial_scales = scale_provider
+                .build_scales(initial_plot_width, initial_plot_height, ctx, &merged_params)
+                .await?;
+
+            // Compute layout with initial scales
+            let layout = self
+                .compute_layout(width, height, &initial_scales, ctx, &merged_params)
+                .await?;
+
+            let plot_bounds = layout.plot_area_bounds();
+            (
+                plot_bounds.width,
+                plot_bounds.height,
+                layout.canvas_size,
+                layout,
+            )
+        };
 
         // 4. Build final scales with actual plot area dimensions
         let final_scales = scale_provider
@@ -1138,10 +1137,10 @@ impl CompiledPlot {
         if dimensions_are_plot_area {
             let mut max_by_position: HashMap<crate::legend::LegendPosition, f32> = HashMap::new();
 
-            for (position, legend_keys) in &layout_opt.taffy_layout.legends_by_position {
+            for (position, legend_keys) in &layout.taffy_layout.legends_by_position {
                 let max_dimension = legend_keys
                     .iter()
-                    .filter_map(|key| layout_opt.taffy_layout.legends.get(key))
+                    .filter_map(|key| layout.taffy_layout.legends.get(key))
                     .map(|bounds| match position {
                         crate::legend::LegendPosition::Left
                         | crate::legend::LegendPosition::Right => bounds.width,
@@ -1177,7 +1176,7 @@ impl CompiledPlot {
             plot_area_height,
             canvas_size,
             clip,
-            layout: layout_opt,
+            layout,
             params: merged_params,
         })
     }
