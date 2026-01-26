@@ -11,7 +11,7 @@ mod specs;
 mod title;
 
 // Re-export core plot types
-pub use compiled::{CompiledPlot, PlotMeasurementResult};
+pub use compiled::CompiledPlot;
 pub use plot::{IntoExpr, Plot};
 
 // Re-export title types
