@@ -525,7 +525,7 @@ impl CompiledPlot {
         }))
     }
 
-    /// Measure a single mark to get overflow requirements and a layout mark_measurement.
+    /// Measure a single mark to cache data for the render pass.
     /// This is the first pass of the two-pass measure/render architecture.
     pub(super) async fn measure_mark_with_plot_df(
         &self,
@@ -537,13 +537,7 @@ impl CompiledPlot {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
         facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
-    ) -> Result<
-        (
-            crate::guide::OverflowSpaceRequirement,
-            Box<dyn crate::marks::MarkMeasurement>,
-        ),
-        AvengerChartError,
-    > {
+    ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
         let prepared = self
             .prepare_mark_data(
                 mark,
@@ -558,10 +552,7 @@ impl CompiledPlot {
             .await?;
 
         let Some(prepared) = prepared else {
-            return Ok((
-                crate::guide::OverflowSpaceRequirement::default(),
-                Box::new(crate::marks::EmptyMarkMeasurement),
-            ));
+            return Ok(Box::new(crate::marks::EmptyMarkMeasurement));
         };
 
         let coord_transform = self.coord_transform.clone_box();
@@ -1093,11 +1084,11 @@ impl CompiledPlot {
             }
         };
 
-        // 5. Measure all marks to get measurements and overflow
+        // 5. Measure all marks to cache data for render pass
         let df_opt = data_override;
         let mut mark_measurements: Vec<Box<dyn crate::marks::MarkMeasurement>> = Vec::new();
         for mark in &self.marks {
-            let (_overflow, mark_measurement) = self
+            let mark_measurement = self
                 .measure_mark_with_plot_df(
                     mark.as_ref(),
                     &final_scales,

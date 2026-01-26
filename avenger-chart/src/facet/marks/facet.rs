@@ -260,19 +260,10 @@ impl CompiledMark for CompiledFacetRow {
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         _context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<
-        (
-            crate::guide::OverflowSpaceRequirement,
-            Box<dyn crate::marks::MarkMeasurement>,
-        ),
-        AvengerChartError,
-    > {
-        // STUBBED: Return no overflow and empty measurement
+    ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
+        // STUBBED: Return empty measurement
         // TODO: Implement proper facet measurement using FacetRowMeasurement
-        Ok((
-            crate::guide::OverflowSpaceRequirement::default(),
-            Box::new(crate::marks::EmptyMarkMeasurement),
-        ))
+        Ok(Box::new(crate::marks::EmptyMarkMeasurement))
     }
 
     /// Render faceted row layout - STUBBED
@@ -462,19 +453,10 @@ impl CompiledMark for CompiledFacetCol {
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         _context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<
-        (
-            crate::guide::OverflowSpaceRequirement,
-            Box<dyn crate::marks::MarkMeasurement>,
-        ),
-        AvengerChartError,
-    > {
-        // STUBBED: Return no overflow and empty measurement
+    ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
+        // STUBBED: Return empty measurement
         // TODO: Implement proper facet measurement using FacetColMeasurement
-        Ok((
-            crate::guide::OverflowSpaceRequirement::default(),
-            Box::new(crate::marks::EmptyMarkMeasurement),
-        ))
+        Ok(Box::new(crate::marks::EmptyMarkMeasurement))
     }
 
     /// Render faceted column layout - STUBBED

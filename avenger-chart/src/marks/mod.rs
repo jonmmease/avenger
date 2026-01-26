@@ -151,11 +151,10 @@ pub trait CompiledMark: Any + Send + Sync {
     /// Declare channels this mark supports
     fn supported_channels(&self) -> Vec<ChannelDescriptor>;
 
-    /// Measure pass: compute overflow requirements and cache intermediate data
+    /// Measure pass: cache intermediate data for the render pass
     ///
-    /// This method is called during the measurement phase to:
-    /// 1. Compute overflow space needed outside the plot area (for axes, labels, etc.)
-    /// 2. Cache intermediate computation results in a MarkMeasurement for the render pass
+    /// This method is called during the measurement phase to cache intermediate
+    /// computation results in a MarkMeasurement for the render pass.
     ///
     /// The plot area dimensions are provided via `context.plot_width` and `context.plot_height`.
     ///
@@ -166,26 +165,15 @@ pub trait CompiledMark: Any + Send + Sync {
     /// * `coord` - Coordinate system for position transformations
     ///
     /// # Returns
-    /// A tuple of:
-    /// - `OverflowSpaceRequirement`: Space needed outside the plot area (top/bottom/left/right).
-    ///   Most marks return `OverflowSpaceRequirement::default()` (no overflow).
-    ///   Layout marks like Facet return overflow for axes, labels, titles, etc.
-    /// - `Box<dyn MarkMeasurement>`: Cached data for the render pass.
-    ///   Most marks return `Box::new(EmptyMarkMeasurement)`.
-    ///   Facet marks cache cell positions, per-facet overflow, scale updates, child measurements, etc.
+    /// Cached data for the render pass. Most marks return `Box::new(EmptyMarkMeasurement)`.
+    /// Facet marks cache cell positions, scale updates, child measurements, etc.
     async fn measure_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<
-        (
-            crate::guide::OverflowSpaceRequirement,
-            Box<dyn MarkMeasurement>,
-        ),
-        AvengerChartError,
-    >;
+    ) -> Result<Box<dyn MarkMeasurement>, AvengerChartError>;
 
     /// Render pass: create scene marks using cached measurement data
     ///

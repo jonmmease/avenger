@@ -144,18 +144,9 @@ impl CompiledMark for CompiledCartesianLine {
         _scalars: &RecordBatch,
         _context: &RenderContext,
         _coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<
-        (
-            crate::guide::OverflowSpaceRequirement,
-            Box<dyn crate::marks::MarkMeasurement>,
-        ),
-        AvengerChartError,
-    > {
-        // Regular marks don't need overflow space or cached data
-        Ok((
-            crate::guide::OverflowSpaceRequirement::default(),
-            Box::new(crate::marks::EmptyMarkMeasurement),
-        ))
+    ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
+        // Regular marks don't need cached data between measure/render passes
+        Ok(Box::new(crate::marks::EmptyMarkMeasurement))
     }
 
     async fn render_from_data(
