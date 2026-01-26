@@ -28,9 +28,6 @@ use std::sync::Arc;
 /// Only used for shared domains (sharing >= current_depth) where we query unfiltered data.
 type SharedDomainCache = HashMap<String, Vec<ScalarValue>>;
 
-// Re-export AxisPosition for use in visibility queries
-pub use crate::facet::context::AxisPosition;
-
 /// Evaluated facet structure - built once from data at evaluate() time, queried throughout.
 ///
 /// This is the single source of truth for all facet-related operations.
@@ -491,109 +488,6 @@ impl EvaluatedFacetTree {
         values
     }
 
-    // ========================================================================
-    // Additional query methods - commented out until needed
-    // ========================================================================
-
-    /*
-    // ----- Visibility queries -----
-
-    /// Path to a specific subplot in the facet hierarchy.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct SubplotPath {
-        pub values: Vec<ScalarValue>,
-    }
-
-    /// Visibility decisions for an innermost subplot (Cartesian).
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-    pub struct SubplotVisibility {
-        pub show_x_ticks: bool,
-        pub show_y_ticks: bool,
-        pub show_x_title: bool,
-        pub show_y_title: bool,
-    }
-
-    /// Visibility decisions for an intermediate facet guide level.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct FacetGuideVisibility {
-        pub direction: FacetDirection,
-        pub show_facet_labels: bool,
-    }
-
-    /// Position and count information for layout calculations.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct PositionInfo {
-        pub position_path: Vec<usize>,
-        pub level_counts: Vec<usize>,
-    }
-
-    /// Get visibility decisions for an innermost subplot.
-    pub fn subplot_visibility(
-        &self,
-        facet_values: &[ScalarValue],
-        x_sharing: u8,
-        y_sharing: u8,
-        x_position: AxisPosition,
-        y_position: AxisPosition,
-    ) -> SubplotVisibility {
-        // ... implementation ...
-    }
-
-    /// Get visibility decisions for a facet guide at an intermediate level.
-    pub fn facet_guide_visibility(
-        &self,
-        facet_values: &[ScalarValue],
-    ) -> Option<FacetGuideVisibility> {
-        // ... implementation ...
-    }
-
-    // ----- Filter predicates -----
-
-    /// Get the filter predicate for a subplot.
-    pub fn subplot_predicate(&self, facet_values: &[ScalarValue]) -> Option<Expr> {
-        // ... implementation ...
-    }
-
-    /// Get the filter predicate for domain inference at a specific sharing level.
-    pub fn domain_inference_predicate(
-        &self,
-        facet_values: &[ScalarValue],
-        sharing_level: u8,
-    ) -> Option<Expr> {
-        // ... implementation ...
-    }
-
-    // ----- Domain values -----
-
-    /// Get domain values at a level given the parent path.
-    pub fn domain_values(&self, parent_values: &[ScalarValue]) -> Option<&[ScalarValue]> {
-        // ... implementation ...
-    }
-
-    /// Get the partition node at a given path.
-    pub fn partition_at(&self, parent_values: &[ScalarValue]) -> Option<&PartitionNode> {
-        // ... implementation ...
-    }
-
-    // ----- Position and layout -----
-
-    /// Get position and count information for a subplot.
-    pub fn position_info(&self, facet_values: &[ScalarValue]) -> Option<PositionInfo> {
-        // ... implementation ...
-    }
-
-    // ----- Iteration -----
-
-    /// Iterate over all subplot paths in the facet structure.
-    pub fn iter_subplots(&self) -> SubplotIterator {
-        // ... implementation ...
-    }
-
-    /// Get the total number of subplots.
-    pub fn subplot_count(&self) -> usize {
-        // ... implementation ...
-    }
-    */
 }
 
 impl PartitionNode {

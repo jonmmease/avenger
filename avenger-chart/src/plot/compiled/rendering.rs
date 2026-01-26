@@ -1451,15 +1451,20 @@ impl CompiledPlot {
                         bounds.y -= plot_bounds.y;
                     }
 
-                    // Compute unique color for each subplot based on position
-                    let subplot_color_string = if let Some(facet_ctx) =
-                        crate::facet::context::FacetContext::from_params(&merged_params)
-                    {
-                        let (row, col) = facet_ctx.position;
-                        let (_num_rows, num_cols) = facet_ctx.grid_dimensions;
-                        let subplot_index = row * num_cols + col;
+                    // Compute unique color for each subplot using a simple hash
+                    // of params to differentiate subplots without FacetContext
+                    let subplot_color_string = {
+                        // Use a simple hash based on params count for deterministic coloring
+                        use std::hash::{Hash, Hasher};
+                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        merged_params.len().hash(&mut hasher);
+                        // Include some param values for more variation
+                        for (key, _) in merged_params.iter().take(3) {
+                            key.hash(&mut hasher);
+                        }
+                        let hash = hasher.finish();
+                        let index = (hash % 6) as usize;
 
-                        // Use discrete color palette with distinct hues
                         let colors = [
                             "hsla(15, 65%, 60%, 0.8)",  // Orange-red
                             "hsla(75, 65%, 60%, 0.8)",  // Yellow-green
@@ -1469,9 +1474,7 @@ impl CompiledPlot {
                             "hsla(315, 65%, 60%, 0.8)", // Magenta
                         ];
 
-                        colors[subplot_index % colors.len()].to_string()
-                    } else {
-                        "hsl(195 65% 60%)".to_string() // Fallback to cyan
+                        colors[index].to_string()
                     };
 
                     debug_marks.extend(crate::render::debug::create_debug_layout_rects(

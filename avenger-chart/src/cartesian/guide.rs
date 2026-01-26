@@ -315,10 +315,6 @@ impl CompiledGuide for CartesianGuide {
             marks.push(SceneMark::Rect(bg_rect));
         }
 
-        // Get facet context to check for unified channels
-        use crate::facet::context::FacetContext;
-        let facet_ctx = FacetContext::from_params(params);
-
         // Create default axes for all channels with scales at render time
         let mut default_axes = HashMap::new();
         for channel_name in scales.keys() {
@@ -340,16 +336,10 @@ impl CompiledGuide for CartesianGuide {
                     .visible(true)
                     .grid(grid);
 
-                // Use previously extracted title if available, but NOT if this channel
-                // is unified in a facet (title will be shown by the facet guide instead)
-                let is_unified_channel = facet_ctx
-                    .as_ref()
-                    .is_some_and(|ctx| ctx.is_channel_unified(channel_name));
-
-                if !is_unified_channel {
-                    if let Some(title) = self.channel_titles.get(channel_name) {
-                        axis = axis.title(title.clone());
-                    }
+                // Use previously extracted title if available
+                // Note: unified channel checking removed - visibility will be redesigned
+                if let Some(title) = self.channel_titles.get(channel_name) {
+                    axis = axis.title(title.clone());
                 }
 
                 default_axes.insert(channel_name.clone(), axis);
@@ -360,17 +350,9 @@ impl CompiledGuide for CartesianGuide {
         let mut all_axes = default_axes;
 
         // Apply user configurations on top of defaults
+        // Note: unified channel checking removed - visibility will be redesigned
         for (channel, user_axis) in &self.axes {
-            let mut axis_to_apply = user_axis.clone();
-
-            // Clear title if this is a unified channel in a facet
-            let is_unified_channel = facet_ctx
-                .as_ref()
-                .is_some_and(|ctx| ctx.is_channel_unified(channel));
-
-            if is_unified_channel {
-                axis_to_apply.title = crate::maybe::Maybe::Set(None);
-            }
+            let axis_to_apply = user_axis.clone();
 
             if let Some(default_axis) = all_axes.get_mut(channel) {
                 *default_axis = std::mem::take(default_axis).update(axis_to_apply);

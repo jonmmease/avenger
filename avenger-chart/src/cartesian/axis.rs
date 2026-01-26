@@ -293,7 +293,7 @@ impl CartesianAxis {
         };
 
         // Evaluate show_title (default true)
-        let mut show_title =
+        let show_title =
             if let Some(node) = self.show_title.as_option().and_then(|o| o.as_ref()) {
                 let expr = node.to_expr(ctx)?;
                 evaluate_bool_expr(&expr, ctx, params).await.unwrap_or(true)
@@ -301,39 +301,8 @@ impl CartesianAxis {
                 true
             };
 
-        // Try to get facet context and apply facet-aware title/label visibility
-        use crate::facet::context::FacetContext;
-
-        // Get facet context if present
-        let facet_ctx = FacetContext::from_params(params);
-
-        // Apply facet context rules to title/label visibility
-        if let Some(ref ctx) = facet_ctx {
-            // Convert AxisOrientation to facet::context::AxisPosition
-            use crate::facet::context::AxisPosition as FacetAxisPosition;
-            let facet_axis_position = match orientation {
-                AxisOrientation::Top => FacetAxisPosition::Top,
-                AxisOrientation::Bottom => FacetAxisPosition::Bottom,
-                AxisOrientation::Left => FacetAxisPosition::Left,
-                AxisOrientation::Right => FacetAxisPosition::Right,
-            };
-
-            show_title = show_title && ctx.should_show_title(channel, facet_axis_position);
-        }
-
-        // Apply facet context rules to label visibility
-        let labels_visible = if let Some(ref ctx) = facet_ctx {
-            use crate::facet::context::AxisPosition as FacetAxisPosition;
-            let facet_axis_position = match orientation {
-                AxisOrientation::Top => FacetAxisPosition::Top,
-                AxisOrientation::Bottom => FacetAxisPosition::Bottom,
-                AxisOrientation::Left => FacetAxisPosition::Left,
-                AxisOrientation::Right => FacetAxisPosition::Right,
-            };
-            Some(ctx.should_show_labels(channel, facet_axis_position))
-        } else {
-            None // No facet context = show labels (default)
-        };
+        // Always show labels for now - visibility will be redesigned using EvaluatedFacetTree
+        let labels_visible = None; // None = show (default behavior)
 
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {
