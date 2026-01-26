@@ -1,7 +1,7 @@
 //! Integration tests for EvaluatedFacetSpec::from_compiled_plot
 
 use avenger_chart::channel::config_traits::ScaleSharing;
-use avenger_chart::facet::computed_facet_spec::EvaluatedFacetTree;
+use avenger_chart::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use avenger_chart::guide::FacetDirection;
 use avenger_chart::prelude::*;
 use datafusion::common::ScalarValue;

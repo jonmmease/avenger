@@ -3,11 +3,11 @@
 //! This module provides the infrastructure for faceted visualizations.
 
 pub mod band_positions;
-pub mod computed_facet_spec;
 pub mod context;
 pub mod coord;
 pub mod coordination_strategy;
 pub mod dimension_config;
+pub mod evaluated_facet_tree;
 pub mod guide;
 pub mod guide_measurement;
 pub mod guide_utils;

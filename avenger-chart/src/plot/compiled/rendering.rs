@@ -12,7 +12,7 @@ use avenger_scales::scales::ConfiguredScale;
 
 use crate::channel::value::{ChannelValue, ConditionalValue};
 use crate::error::AvengerChartError;
-use crate::facet::computed_facet_spec::EvaluatedFacetTree;
+use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use crate::marks::CompiledMark;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
@@ -316,7 +316,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
+        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
     ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
@@ -537,7 +537,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
+        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
     ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
         let prepared = self
             .prepare_mark_data(
@@ -577,7 +577,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
+        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
         measurement: &dyn crate::marks::MarkMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let prepared = self
@@ -990,7 +990,7 @@ impl CompiledPlot {
         scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
-        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
+        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
     ) -> Result<crate::plot::compiled::ComponentsMeasurement, AvengerChartError> {
         use avenger_scales::scales::ConfiguredScale;
         use std::collections::HashMap;
@@ -1155,7 +1155,7 @@ impl CompiledPlot {
         measurement: &crate::plot::compiled::ComponentsMeasurement,
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
-        facet_spec: Arc<crate::facet::computed_facet_spec::EvaluatedFacetTree>,
+        facet_spec: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
     ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(

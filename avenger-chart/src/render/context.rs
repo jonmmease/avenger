@@ -1,6 +1,6 @@
 //! Rendering context that carries theme and dimensions through the rendering pipeline
 
-use crate::facet::computed_facet_spec::EvaluatedFacetTree;
+use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::theme::Theme;
 use datafusion::common::ScalarValue;
