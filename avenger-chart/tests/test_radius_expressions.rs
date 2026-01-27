@@ -26,15 +26,18 @@ async fn test_symbol_default_channel_values() {
 
     // Create a RenderContext with default theme
     let theme = Theme::light();
-    let context = RenderContext::new(
+    let eval_ctx = avenger_chart::render::EvaluationContext::new(
         Arc::new(theme),
-        500.0,
-        400.0,
         Arc::new(ctx.clone()),
         indexmap::IndexMap::new(),
-        std::collections::HashMap::new(),
         Arc::new(avenger_chart::facet::evaluated_facet_tree::EvaluatedFacetTree::empty()),
     );
+    let render_state = avenger_chart::render::RenderState::new(
+        500.0,
+        400.0,
+        std::collections::HashMap::new(),
+    );
+    let context = RenderContext::new(&eval_ctx, &render_state, None);
 
     // Build the CompiledMark
     let renderer = symbol.compile_untransformed(&ctx).await.unwrap();

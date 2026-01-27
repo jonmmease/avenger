@@ -183,14 +183,14 @@ impl CompiledMark for CompiledCartesianRect {
         let geometry1 = coord.transform(
             &position_channels_corner1,
             None,
-            context.plot_width,
-            context.plot_height,
+            context.plot_width(),
+            context.plot_height(),
         )?;
         let geometry2 = coord.transform(
             &position_channels_corner2,
             None,
-            context.plot_width,
-            context.plot_height,
+            context.plot_width(),
+            context.plot_height(),
         )?;
 
         // Extract transformed coordinates as PointGeometry

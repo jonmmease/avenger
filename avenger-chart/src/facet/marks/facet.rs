@@ -462,7 +462,7 @@ impl CompiledMark for CompiledFacetCol {
 
         // Get the column scale for layout calculations
         let column_scale = context
-            .scales
+            .scales()
             .get("column")
             .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
 
@@ -483,7 +483,7 @@ impl CompiledMark for CompiledFacetCol {
         }
 
         // Get column values from the facet tree
-        let facet_tree = &context.facet_tree;
+        let facet_tree = context.facet_tree();
         let root = facet_tree.root().ok_or_else(|| {
             AvengerChartError::InternalError("No facet tree root found".into())
         })?;
@@ -496,7 +496,7 @@ impl CompiledMark for CompiledFacetCol {
                 column_values: Vec::new(),
                 column_positions: Vec::new(),
                 subplot_width,
-                subplot_height: context.plot_height,
+                subplot_height: context.plot_height(),
                 subplot_measurements: Vec::new(),
                 data_overrides: Vec::new(),
             }));
@@ -519,7 +519,7 @@ impl CompiledMark for CompiledFacetCol {
         let data_batch = data.ok_or_else(|| {
             AvengerChartError::InternalError("Facet mark requires data".into())
         })?;
-        let base_df = batch_to_dataframe(data_batch, &context.session_context)?;
+        let base_df = batch_to_dataframe(data_batch, context.session_context())?;
 
         // For each column value, filter data and measure subplot
         let mut subplot_measurements = Vec::with_capacity(column_values.len());
@@ -532,14 +532,21 @@ impl CompiledMark for CompiledFacetCol {
             .build_scales_for_dataframe(
                 &base_df,
                 subplot_width,
-                context.plot_height,
-                &context.session_context,
-                &context.params,
+                context.plot_height(),
+                context.session_context(),
+                context.params(),
             )
             .await?;
 
         // Now use PrebuiltScaleProvider with the shared scales for all subplots
         let scale_provider = PrebuiltScaleProvider { scales: shared_scales };
+
+        // Create subplot EvaluationContext with merged params (subplot defaults + parent params)
+        let subplot_eval_ctx = {
+            let mut params = self.compiled_subplot.get_default_params().clone();
+            params.extend(context.eval.params.clone());
+            context.eval.with_params(params)
+        };
 
         for (idx, value) in column_values.iter().enumerate() {
             // Get filter predicate for this column value
@@ -562,14 +569,12 @@ impl CompiledMark for CompiledFacetCol {
             let measurement = self
                 .compiled_subplot
                 .measure_plot_components(
+                    &subplot_eval_ctx,
                     subplot_width,
-                    context.plot_height,
-                    &context.session_context,
-                    &context.params,
+                    context.plot_height(),
                     &scale_provider,
                     Some(&filtered_df),
                     true, // dimensions_are_plot_area
-                    context.facet_tree.clone(),
                 )
                 .await?;
 
@@ -588,7 +593,7 @@ impl CompiledMark for CompiledFacetCol {
             column_values,
             column_positions,
             subplot_width,
-            subplot_height: context.plot_height,
+            subplot_height: context.plot_height(),
             subplot_measurements,
             data_overrides,
         }))
@@ -620,6 +625,13 @@ impl CompiledMark for CompiledFacetCol {
 
         let mut scene_marks = Vec::with_capacity(facet_measurement.column_values.len());
 
+        // Create subplot EvaluationContext with merged params (subplot defaults + parent params)
+        let subplot_eval_ctx = {
+            let mut params = self.compiled_subplot.get_default_params().clone();
+            params.extend(context.eval.params.clone());
+            context.eval.with_params(params)
+        };
+
         // Render each subplot using its cached measurement
         for (idx, (measurement, data_override)) in facet_measurement
             .subplot_measurements
@@ -635,11 +647,10 @@ impl CompiledMark for CompiledFacetCol {
             let components = self
                 .compiled_subplot
                 .build_plot_components(
-                    &context.session_context,
+                    &subplot_eval_ctx,
                     measurement,
                     Some(data_override),
                     true, // dimensions_are_plot_area
-                    context.facet_tree.clone(),
                     Some(&facet_position),
                 )
                 .await?;

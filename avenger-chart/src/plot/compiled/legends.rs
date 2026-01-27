@@ -516,15 +516,18 @@ impl CompiledPlot {
 
         // For channels not explicitly set, check if they have theme defaults
         // This ensures legend symbols match the chart's actual appearance
-        let context = RenderContext::new(
+        let eval_ctx = crate::render::EvaluationContext::new(
             self.get_theme(),
-            100.0, // Dummy values for getting defaults
-            100.0,
             Arc::new(ctx.clone()),
             params.clone(),
-            std::collections::HashMap::new(),
             Arc::new(crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty()),
         );
+        let render_state = crate::render::RenderState::new(
+            100.0, // Dummy values for getting defaults
+            100.0,
+            std::collections::HashMap::new(),
+        );
+        let context = RenderContext::new(&eval_ctx, &render_state, None);
 
         // Iterate through all supported channels of this mark
         for channel_desc in mark.supported_channels() {

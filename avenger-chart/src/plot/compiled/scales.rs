@@ -559,17 +559,21 @@ fn get_radius_expression(
 
                         // Channel not found in mark - use default value from mark
                         // Create a minimal RenderContext for querying defaults
-                        let temp_ctx = crate::render::RenderContext::new(
+                        let temp_eval_ctx = crate::render::EvaluationContext::new(
                             Arc::new(theme.clone()),
-                            400.0, // dummy width
-                            300.0, // dummy height
                             Arc::new(ctx.clone()),
                             indexmap::IndexMap::new(),
-                            HashMap::new(),
                             Arc::new(
                                 crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty(),
                             ),
                         );
+                        let temp_state = crate::render::RenderState::new(
+                            400.0, // dummy width
+                            300.0, // dummy height
+                            HashMap::new(),
+                        );
+                        let temp_ctx =
+                            crate::render::RenderContext::new(&temp_eval_ctx, &temp_state, None);
 
                         if let Some(default_scalar) = mark.default_channel_value(ch_name, &temp_ctx)
                         {
@@ -741,14 +745,17 @@ async fn cache_domain_data(
                                             }
                                         } else {
                                             // Default or zero
-                                            let temp_ctx = crate::render::RenderContext::new(
+                                            let temp_eval_ctx = crate::render::EvaluationContext::new(
                                                 Arc::new(theme.clone()),
-                                                400.0,
-                                                300.0,
                                                 Arc::new(ctx.clone()),
                                                 indexmap::IndexMap::new(),
-                                                HashMap::new(),
                                                 Arc::new(crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty()),
+                                            );
+                                            let temp_state = crate::render::RenderState::new(
+                                                400.0, 300.0, HashMap::new(),
+                                            );
+                                            let temp_ctx = crate::render::RenderContext::new(
+                                                &temp_eval_ctx, &temp_state, None,
                                             );
                                             if let Some(default_scalar) =
                                                 mark.default_channel_value(ch_name, &temp_ctx)
@@ -1563,15 +1570,15 @@ mod tests {
         );
 
         let theme = compiled.get_theme();
-        let final_context = RenderContext::new(
+        let eval_ctx = crate::render::EvaluationContext::new(
             theme.clone(),
-            220.0,
-            300.0,
             Arc::new(ctx.clone()),
             IndexMap::new(),
-            std::collections::HashMap::new(),
             Arc::new(crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty()),
         );
+        let render_state =
+            crate::render::RenderState::new(220.0, 300.0, std::collections::HashMap::new());
+        let final_context = RenderContext::new(&eval_ctx, &render_state, None);
         let first_mark = compiled.marks().first().expect("compiled mark");
         let stroke_width = first_mark
             .default_channel_value("stroke_width", &final_context)
@@ -1581,10 +1588,10 @@ mod tests {
 
         let x_scale_span = x_domain_max - x_domain_min;
         let y_scale_span = y_domain_max - y_domain_min;
-        let padding_left = (min_x - x_domain_min) * final_context.plot_width / x_scale_span;
-        let padding_right = (x_domain_max - max_x) * final_context.plot_width / x_scale_span;
-        let padding_bottom = (min_y - y_domain_min) * final_context.plot_height / y_scale_span;
-        let padding_top = (y_domain_max - max_y) * final_context.plot_height / y_scale_span;
+        let padding_left = (min_x - x_domain_min) * final_context.plot_width() / x_scale_span;
+        let padding_right = (x_domain_max - max_x) * final_context.plot_width() / x_scale_span;
+        let padding_bottom = (min_y - y_domain_min) * final_context.plot_height() / y_scale_span;
+        let padding_top = (y_domain_max - max_y) * final_context.plot_height() / y_scale_span;
 
         let tolerance = 0.5;
 

@@ -10,6 +10,6 @@ pub mod wgpu;
 
 // Re-export commonly used types
 pub use canvas::CanvasExt;
-pub use context::RenderContext;
+pub use context::{EvaluationContext, RenderContext, RenderState};
 pub use types::{EvaluatedPlot, LayoutSolution, LegendMeasurements};
 pub use wgpu::WgpuRenderer;

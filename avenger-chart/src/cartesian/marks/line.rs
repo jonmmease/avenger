@@ -193,8 +193,8 @@ impl CompiledMark for CompiledCartesianLine {
         let geometry = coord.transform(
             &position_channels,
             None,
-            context.plot_width,
-            context.plot_height,
+            context.plot_width(),
+            context.plot_height(),
         )?;
         let geometry = geometry
             .as_any()

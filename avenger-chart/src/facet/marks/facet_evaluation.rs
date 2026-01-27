@@ -52,10 +52,10 @@ pub async fn evaluate_facet<DimConfig: FacetDimensionConfig>(
     _data_override: Option<&datafusion::dataframe::DataFrame>,
     _facet_title: Option<String>,
     _facet_spacing: Option<f32>,
-    _context: &RenderContext,
+    _context: &RenderContext<'_>,
     // Orientation-specific closures:
     // Returns (width, height) given band size and context
-    _subplot_dims: impl Fn(f32, &RenderContext) -> (f32, f32) + Clone,
+    _subplot_dims: impl Fn(f32, &RenderContext<'_>) -> (f32, f32) + Clone,
     // Returns [x, y] translation given band position
     _group_origin: impl Fn(f32) -> [f32; 2] + Clone,
 ) -> Result<Vec<SceneMark>, AvengerChartError> {

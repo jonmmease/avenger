@@ -248,13 +248,13 @@ pub trait CompiledMark: Any + Send + Sync {
 
     /// Returns the default value for a channel if not explicitly mapped
     /// First checks theme defaults, then falls back to mark-specific defaults
-    fn default_channel_value(&self, channel: &str, context: &RenderContext) -> Option<ScalarValue> {
+    fn default_channel_value(&self, channel: &str, context: &RenderContext<'_>) -> Option<ScalarValue> {
         // Check theme defaults first
         let mark_type = self.mark_type();
 
         if let Some(default) = context
-            .theme
-            .mark_default(mark_type, channel, &context.params)
+            .theme()
+            .mark_default(mark_type, channel, context.params())
         {
             return Some(default);
         }

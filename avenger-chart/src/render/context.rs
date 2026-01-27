@@ -1,4 +1,9 @@
 //! Rendering context that carries theme and dimensions through the rendering pipeline
+//!
+//! The context is split into three parts:
+//! - `EvaluationContext` - Constant across entire evaluate() call, built once at top level
+//! - `RenderState` - Changes per subplot, contains computed dimensions and scales
+//! - `RenderContext` - Thin facade combining both for mark rendering API
 
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use crate::scales::ConfiguredScaleWithSpec;
@@ -9,69 +14,153 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Context passed through the rendering pipeline
+/// Immutable context built once at evaluate() entry.
+///
+/// Contains all state that remains constant throughout the entire evaluation:
+/// - Theme for styling
+/// - DataFusion session for data operations
+/// - Runtime parameters
+/// - Pre-computed facet structure
 #[derive(Clone)]
-pub struct RenderContext {
+pub struct EvaluationContext {
     /// The theme to use for rendering
     pub theme: Arc<Theme>,
-    /// Width of the plot area
-    pub plot_width: f32,
-    /// Height of the plot area
-    pub plot_height: f32,
     /// The DataFusion session context for DataFrame operations
     pub session_context: Arc<SessionContext>,
     /// Parameter values for prepared statements
     pub params: IndexMap<String, ScalarValue>,
-    /// Configured scales available during rendering (coordinate + non-positional)
-    pub scales: HashMap<String, ConfiguredScaleWithSpec>,
     /// Pre-computed facet structure for efficient domain lookups and visibility decisions.
-    /// Built once at the start of evaluate() and shared throughout rendering.
     pub facet_tree: Arc<EvaluatedFacetTree>,
-    /// Current cell position in facet hierarchy (indices at each nesting level).
-    /// None when not inside a facet cell. Set by facet rendering before each subplot.
-    pub facet_position: Option<Vec<usize>>,
 }
 
-impl RenderContext {
+impl EvaluationContext {
     pub fn new(
         theme: Arc<Theme>,
-        plot_width: f32,
-        plot_height: f32,
         session_context: Arc<SessionContext>,
         params: IndexMap<String, ScalarValue>,
-        scales: HashMap<String, ConfiguredScaleWithSpec>,
         facet_tree: Arc<EvaluatedFacetTree>,
     ) -> Self {
         Self {
             theme,
-            plot_width,
-            plot_height,
             session_context,
             params,
-            scales,
             facet_tree,
-            facet_position: None,
         }
     }
 
-    /// Set the pre-computed facet spec for efficient domain lookups.
-    pub fn with_facet_tree(mut self, spec: Arc<EvaluatedFacetTree>) -> Self {
-        self.facet_tree = spec;
-        self
+    /// Create a new context with different params, reusing other fields (cheap Arc clones)
+    pub fn with_params(&self, params: IndexMap<String, ScalarValue>) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params,
+            facet_tree: self.facet_tree.clone(),
+        }
     }
 
-    /// Set the current facet cell position for visibility decisions.
-    ///
-    /// This should be called by facet rendering before rendering each subplot,
-    /// passing the cell's position indices at each nesting level.
-    pub fn with_facet_position(mut self, position: Vec<usize>) -> Self {
-        self.facet_position = Some(position);
-        self
+    /// Create a new context with canvas dimensions added to params (for media queries)
+    pub fn with_dimension_params(&self, width: f32, height: f32) -> Self {
+        let mut params = self.params.clone();
+        params.insert("width".to_string(), ScalarValue::Float32(Some(width)));
+        params.insert("height".to_string(), ScalarValue::Float32(Some(height)));
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params,
+            facet_tree: self.facet_tree.clone(),
+        }
+    }
+}
+
+/// State that changes per subplot during rendering traversal.
+///
+/// Created fresh for each subplot with its computed dimensions and scales.
+#[derive(Clone)]
+pub struct RenderState {
+    /// Width of the plot area
+    pub plot_width: f32,
+    /// Height of the plot area
+    pub plot_height: f32,
+    /// Configured scales available during rendering (coordinate + non-positional)
+    pub scales: HashMap<String, ConfiguredScaleWithSpec>,
+}
+
+impl RenderState {
+    pub fn new(
+        plot_width: f32,
+        plot_height: f32,
+        scales: HashMap<String, ConfiguredScaleWithSpec>,
+    ) -> Self {
+        Self {
+            plot_width,
+            plot_height,
+            scales,
+        }
+    }
+}
+
+/// Combined view for mark rendering.
+///
+/// This is a facade that combines references to `EvaluationContext` and `RenderState`,
+/// plus an optional facet position. It provides the full rendering context needed by marks.
+pub struct RenderContext<'a> {
+    /// Reference to the evaluation-level context (constant across evaluate())
+    pub eval: &'a EvaluationContext,
+    /// Reference to the subplot-level state (varies per subplot)
+    pub state: &'a RenderState,
+    /// Current cell position in facet hierarchy (indices at each nesting level).
+    /// None when not inside a facet cell.
+    pub facet_position: Option<&'a [usize]>,
+}
+
+impl<'a> RenderContext<'a> {
+    pub fn new(
+        eval: &'a EvaluationContext,
+        state: &'a RenderState,
+        facet_position: Option<&'a [usize]>,
+    ) -> Self {
+        Self {
+            eval,
+            state,
+            facet_position,
+        }
     }
 
-    /// Get a reference to the facet spec.
+    // Convenience accessors that delegate to inner structs
+
+    /// Get the theme
+    pub fn theme(&self) -> &Arc<Theme> {
+        &self.eval.theme
+    }
+
+    /// Get the session context
+    pub fn session_context(&self) -> &Arc<SessionContext> {
+        &self.eval.session_context
+    }
+
+    /// Get the params
+    pub fn params(&self) -> &IndexMap<String, ScalarValue> {
+        &self.eval.params
+    }
+
+    /// Get the facet tree
     pub fn facet_tree(&self) -> &EvaluatedFacetTree {
-        &self.facet_tree
+        &self.eval.facet_tree
+    }
+
+    /// Get plot width
+    pub fn plot_width(&self) -> f32 {
+        self.state.plot_width
+    }
+
+    /// Get plot height
+    pub fn plot_height(&self) -> f32 {
+        self.state.plot_height
+    }
+
+    /// Get scales
+    pub fn scales(&self) -> &HashMap<String, ConfiguredScaleWithSpec> {
+        &self.state.scales
     }
 
     /// Query theme property with automatic parameter resolution
@@ -80,48 +169,20 @@ impl RenderContext {
     /// It resolves:
     /// - CSS variables (var()) using params or theme defaults
     /// - light-dark() functions using the "color-scheme" param
-    ///
-    /// # Arguments
-    /// * `context` - The element context for CSS selector matching
-    /// * `property` - The CSS property name
-    ///
-    /// # Returns
-    /// Resolved ThemeValue if a matching rule is found, None otherwise
-    ///
-    /// # Example
-    /// ```ignore
-    /// use crate::theme::ThemeContext;
-    ///
-    /// let mark_ctx = ThemeContext::new("mark").with_subtype("rect");
-    /// if let Some(fill) = render_ctx.query_theme(&mark_ctx, "fill") {
-    ///     // Use resolved fill color
-    /// }
-    /// ```
     pub fn query_theme(
         &self,
         context: &crate::theme::ThemeContext,
         property: &str,
     ) -> Option<crate::theme::ThemeValue> {
-        // Add render params to the context
         let mut context_with_params = context.clone();
-        context_with_params.params.extend(self.params.clone());
-        self.theme.query(&context_with_params, property)
+        context_with_params.params.extend(self.eval.params.clone());
+        self.eval.theme.query(&context_with_params, property)
     }
 
     /// Get font size with parameter support
-    ///
-    /// This resolves font sizes using params, including the "base-font-size" parameter
-    /// which allows runtime control of base font size for rem calculations.
-    ///
-    /// # Arguments
-    /// * `context` - The element context for CSS selector matching
-    ///
-    /// # Returns
-    /// Resolved font size in pixels, or None if not found
     pub fn font_size(&self, context: &crate::theme::ThemeContext) -> Option<f32> {
-        // Add render params to the context
         let mut context_with_params = context.clone();
-        context_with_params.params.extend(self.params.clone());
-        self.theme.font_size(&context_with_params)
+        context_with_params.params.extend(self.eval.params.clone());
+        self.eval.theme.font_size(&context_with_params)
     }
 }
