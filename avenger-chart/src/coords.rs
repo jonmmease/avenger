@@ -27,6 +27,18 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     fn as_any(&self) -> &dyn Any;
 }
 
+/// Empty measurement for coordinate systems that don't need measurement data.
+///
+/// Used by Cartesian, Polar, and other non-facet coordinate systems.
+#[derive(Debug, Clone, Default)]
+pub struct EmptyCoordMeasurement;
+
+impl CoordMeasurement for EmptyCoordMeasurement {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 #[typetag::serde(tag = "type")]
 pub trait PlotGeometry: Send + Sync + 'static {
     fn as_any(&self) -> &dyn std::any::Any;
@@ -250,9 +262,9 @@ pub trait CoordinateSystemTransform: Send + Sync {
         _data: Option<&datafusion::dataframe::DataFrame>,
         _compiled_marks: &[Arc<dyn CompiledMark>],
         _facet_path: &[ScalarValue],
-    ) -> Result<Option<Box<dyn CoordMeasurement>>, AvengerChartError> {
-        // Default: no coordinate-level measurement needed
-        Ok(None)
+    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+        // Default: return empty measurement for non-facet coordinate systems
+        Ok(Box::new(EmptyCoordMeasurement))
     }
 
     /// Return a new transform updated with measured padding and overflow data.

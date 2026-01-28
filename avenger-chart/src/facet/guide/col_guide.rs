@@ -5,16 +5,22 @@
 
 use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
+use crate::facet::band_positions::BandPositionIterator;
+use crate::facet::guide_utils::{
+    measure_facet_label_slab, render_facet_label_slab, FacetLabelMeasurementConfig,
+    FacetLabelRenderConfig,
+};
+use crate::facet::coord::FacetColCoordMeasurement;
 use crate::facet::marks::facet::{CompiledFacetCol, CompiledFacetSource};
 use crate::guide::{CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;
 use crate::plot::compiled::CompiledPlot;
-use crate::serialization::{LogicalPlanNodeExt, SerializableDataFrame};
+use crate::serialization::SerializableDataFrame;
+use crate::theme::ThemeContext;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::dataframe::DataFrame;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
@@ -59,12 +65,14 @@ impl CoordinateGuide for FacetColGuideConfig {
         compiled_marks: Vec<Arc<dyn CompiledMark>>,
         _session_context: &SessionContext,
     ) {
-        // Find the CompiledFacetCol mark and extract its subplot and data
+        // Find the CompiledFacetCol mark and extract its subplot, data, and title
         for mark in &compiled_marks {
             if let Some(facet_col) = mark.as_any().downcast_ref::<CompiledFacetCol>() {
                 self.compiled_subplot = Some(facet_col.compiled_subplot().clone());
                 // Extract the logical plan from the mark's data context
                 self.facet_data_plan = mark.data_context().logical_plan_node().cloned();
+                // Extract the facet title from the mark
+                self.facet_title = facet_col.facet_title().map(|s| s.to_string());
                 break;
             }
         }
@@ -113,7 +121,261 @@ impl CompiledGuide for FacetColGuide {
         ctx: &SessionContext,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        // Try to extract pre-computed subplot overflow from coord_measurement.
+        // This optimization avoids expensive re-measurement when coord_measurement
+        // is already populated (second pass).
+        let subplot_overflow = if let Some(fcm) = coord_measurement
+            .and_then(|cm| cm.as_any().downcast_ref::<FacetColCoordMeasurement>())
+        {
+            // Fast path: use pre-computed overflow from coord_measurement
+            fcm.subplot_measurements.iter().fold(
+                OverflowSpaceRequirement::default(),
+                |acc, m| OverflowSpaceRequirement {
+                    top: acc.top.max(m.layout.overflow.top),
+                    bottom: acc.bottom.max(m.layout.overflow.bottom),
+                    left: acc.left.max(m.layout.overflow.left),
+                    right: acc.right.max(m.layout.overflow.right),
+                },
+            )
+        } else {
+            // Slow path: compute subplot overflow (first pass, before coord_measurement exists)
+            self.compute_subplot_overflow(
+                scales,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+            )
+            .await?
+        };
+
+        // Get column scale for labels
+        let column_scale = scales.get("column").ok_or_else(|| {
+            AvengerChartError::InternalError("No column scale found".into())
+        })?;
+
+        // Measure facet label slab space requirement
+        // Get labels from column scale domain
+        let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
+        let labels: Vec<String> = band_iter
+            .map(|bp| format_scalar_value(&bp.value))
+            .collect();
+
+        // Only add facet guide space if we have labels and this is a top-level facet (not nested)
+        // For nested facets, facet_path will be non-empty
+        let facet_guide_height = if !labels.is_empty() && facet_path.is_empty() {
+            // Get font properties from theme for measurement
+            let label_ctx = ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("label");
+            let title_ctx = ThemeContext::new("guide", params.clone())
+                .child("facet")
+                .child("title");
+
+            let label_font_size = theme.font_size(&label_ctx).unwrap_or(10.0);
+            let title_font_size = theme.font_size(&title_ctx).unwrap_or(12.0);
+            let font_family = theme
+                .font_family(&label_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string());
+            let title_font_family = theme
+                .font_family(&title_ctx)
+                .unwrap_or_else(|| "sans-serif".to_string());
+
+            let measurement_config = FacetLabelMeasurementConfig {
+                labels,
+                is_rotated: false, // Column labels are horizontal
+                font_family,
+                font_size_px: label_font_size,
+                title: self.facet_title.clone(),
+                title_font_family,
+                title_font_size_px: title_font_size,
+                render_title: self.facet_title.is_some(),
+            };
+
+            measure_facet_label_slab(&measurement_config)
+        } else {
+            0.0
+        };
+
+        // Add facet guide height to top overflow (position=top is default)
+        let total_top = subplot_overflow.top + facet_guide_height;
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "FacetColGuide measure_overflow: subplot_overflow.top={:.1}, facet_guide_height={:.1}, total_top={:.1}",
+                subplot_overflow.top, facet_guide_height, total_top
+            );
+        }
+        Ok(OverflowSpaceRequirement {
+            top: total_top,
+            bottom: subplot_overflow.bottom,
+            left: subplot_overflow.left,
+            right: subplot_overflow.right,
+        })
+    }
+
+    async fn measure_with_coordination(
+        &self,
+        _scales: &HashMap<String, ConfiguredScale>,
+        _plot_width: f32,
+        _plot_height: f32,
+        _theme: &crate::theme::Theme,
+        _params: &IndexMap<String, datafusion::common::ScalarValue>,
+        _data_override: Option<&datafusion::dataframe::DataFrame>,
+        _ctx: &SessionContext,
+        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        _facet_path: &[datafusion::common::ScalarValue],
+        _coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+    ) -> Result<MeasurementResult, AvengerChartError> {
+        // Return default measurement result
+        Ok(MeasurementResult::default())
+    }
+
+    async fn evaluate(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        _plot_width: f32,
+        _plot_height: f32,
+        plot_bounds: &LayoutBounds,
+        theme: &crate::theme::Theme,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        _ctx: &SessionContext,
+        _data_override: Option<&datafusion::dataframe::DataFrame>,
+        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: &dyn crate::coords::CoordMeasurement,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        // Only render facet labels for top-level facet (not nested)
+        // For nested facets, facet_path will be non-empty
+        if !facet_path.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Get column scale for band positions
+        let column_scale = scales.get("column").ok_or_else(|| {
+            AvengerChartError::InternalError("No column scale found".into())
+        })?;
+
+        // Get band positions and labels from column scale
+        let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
+        let band_positions: Vec<_> = band_iter.collect();
+
+        if band_positions.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let labels: Vec<String> = band_positions
+            .iter()
+            .map(|bp| format_scalar_value(&bp.value))
+            .collect();
+
+        // Compute max subplot top overflow from coord_measurement
+        // This tells us how far below the plot_bounds.y the subplot overflow extends
+        // (e.g., from top axis tick labels)
+        let max_subplot_top_overflow = coord_measurement
+            .as_any()
+            .downcast_ref::<FacetColCoordMeasurement>()
+            .map(|fcm| {
+                fcm.subplot_measurements
+                    .iter()
+                    .map(|m| m.layout.overflow.top)
+                    .fold(0.0f32, f32::max)
+            })
+            .unwrap_or(0.0);
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "FacetColGuide evaluate: max_subplot_top_overflow={:.1}",
+                max_subplot_top_overflow
+            );
+        }
+
+        // Adjust plot_bounds to account for subplot overflow
+        // The facet labels should be positioned above the subplot's overflow region
+        // Since y increases downward, we subtract to move labels UP
+        let adjusted_plot_bounds = LayoutBounds {
+            x: plot_bounds.x,
+            y: plot_bounds.y - max_subplot_top_overflow, // Shift up by subplot overflow
+            width: plot_bounds.width,
+            height: plot_bounds.height,
+        };
+
+        // Get font properties from theme
+        let label_ctx = ThemeContext::new("guide", params.clone())
+            .child("facet")
+            .child("label");
+        let title_ctx = ThemeContext::new("guide", params.clone())
+            .child("facet")
+            .child("title");
+
+        let label_font_size = theme.font_size(&label_ctx).unwrap_or(10.0);
+        let title_font_size = theme.font_size(&title_ctx).unwrap_or(12.0);
+        let font_family = theme
+            .font_family(&label_ctx)
+            .unwrap_or_else(|| "sans-serif".to_string());
+        let title_font_family = theme
+            .font_family(&title_ctx)
+            .unwrap_or_else(|| "sans-serif".to_string());
+
+        // Configure rendering with adjusted bounds
+        let render_config = FacetLabelRenderConfig {
+            labels,
+            band_positions,
+            plot_bounds: adjusted_plot_bounds,
+            is_rotated: false,    // Column labels are horizontal
+            place_at_end: false,  // position=top (above plot area)
+            font_family,
+            font_size_px: label_font_size,
+            title: self.facet_title.clone(),
+            title_font_family,
+            title_font_size_px: title_font_size,
+            render_title: self.facet_title.is_some(),
+        };
+
+        Ok(render_facet_label_slab(&render_config, theme, params))
+    }
+
+    fn get_clip(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        _scales: &HashMap<String, ConfiguredScale>,
+    ) -> Clip {
+        // Return rectangular clip for the plot area
+        Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: plot_width,
+            height: plot_height,
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl FacetColGuide {
+    /// Compute subplot overflow by measuring the subplot's guide.
+    /// This is the slow path used when coord_measurement doesn't have pre-computed data.
+    async fn compute_subplot_overflow(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        plot_height: f32,
+        theme: &crate::theme::Theme,
+        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&datafusion::dataframe::DataFrame>,
+        ctx: &SessionContext,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        use crate::serialization::LogicalPlanNodeExt;
+        use datafusion::dataframe::DataFrame;
+
         let Some(subplot) = &self.compiled_subplot else {
             return Ok(OverflowSpaceRequirement::default());
         };
@@ -141,7 +403,9 @@ impl CompiledGuide for FacetColGuide {
         })?;
 
         let subplot_width = avenger_scales::scales::band::bandwidth(&column_scale.config)
-            .map_err(|e| AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e)))?;
+            .map_err(|e| {
+                AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
+            })?;
 
         // Build subplot scales from full data
         let subplot_scales = subplot
@@ -155,71 +419,43 @@ impl CompiledGuide for FacetColGuide {
             .collect();
 
         if let Some(guide) = &subplot.compiled_guide {
-            guide.measure_overflow(
-                &configured_scales,
-                subplot_width,
-                plot_height,
-                theme,
-                params,
-                Some(data),
-                ctx,
-                facet_tree,
-                facet_path,
-            ).await
+            guide
+                .measure_overflow(
+                    &configured_scales,
+                    subplot_width,
+                    plot_height,
+                    theme,
+                    params,
+                    Some(data),
+                    ctx,
+                    facet_tree,
+                    facet_path,
+                    None, // Subplot doesn't have coord_measurement during fallback
+                )
+                .await
         } else {
             Ok(OverflowSpaceRequirement::default())
         }
     }
+}
 
-    async fn measure_with_coordination(
-        &self,
-        _scales: &HashMap<String, ConfiguredScale>,
-        _plot_width: f32,
-        _plot_height: f32,
-        _theme: &crate::theme::Theme,
-        _params: &IndexMap<String, datafusion::common::ScalarValue>,
-        _data_override: Option<&datafusion::dataframe::DataFrame>,
-        _ctx: &SessionContext,
-        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_path: &[datafusion::common::ScalarValue],
-    ) -> Result<MeasurementResult, AvengerChartError> {
-        // Return default measurement result
-        Ok(MeasurementResult::default())
-    }
+/// Format a ScalarValue for display as a facet label
+fn format_scalar_value(value: &datafusion::common::ScalarValue) -> String {
+    use datafusion::common::ScalarValue;
 
-    async fn evaluate(
-        &self,
-        _scales: &HashMap<String, ConfiguredScale>,
-        _plot_width: f32,
-        _plot_height: f32,
-        _plot_bounds: &LayoutBounds,
-        _theme: &crate::theme::Theme,
-        _params: &IndexMap<String, datafusion::common::ScalarValue>,
-        _ctx: &SessionContext,
-        _data_override: Option<&datafusion::dataframe::DataFrame>,
-        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_path: &[datafusion::common::ScalarValue],
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Return empty marks - rendering will be rebuilt
-        Ok(vec![])
-    }
-
-    fn get_clip(
-        &self,
-        plot_width: f32,
-        plot_height: f32,
-        _scales: &HashMap<String, ConfiguredScale>,
-    ) -> Clip {
-        // Return rectangular clip for the plot area
-        Clip::Rect {
-            x: 0.0,
-            y: 0.0,
-            width: plot_width,
-            height: plot_height,
-        }
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    match value {
+        ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => s.clone(),
+        ScalarValue::Int8(Some(n)) => n.to_string(),
+        ScalarValue::Int16(Some(n)) => n.to_string(),
+        ScalarValue::Int32(Some(n)) => n.to_string(),
+        ScalarValue::Int64(Some(n)) => n.to_string(),
+        ScalarValue::UInt8(Some(n)) => n.to_string(),
+        ScalarValue::UInt16(Some(n)) => n.to_string(),
+        ScalarValue::UInt32(Some(n)) => n.to_string(),
+        ScalarValue::UInt64(Some(n)) => n.to_string(),
+        ScalarValue::Float32(Some(n)) => format!("{:.2}", n),
+        ScalarValue::Float64(Some(n)) => format!("{:.2}", n),
+        ScalarValue::Boolean(Some(b)) => b.to_string(),
+        _ => format!("{:?}", value),
     }
 }

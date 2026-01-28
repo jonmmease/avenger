@@ -88,6 +88,7 @@ impl CompiledGuide for FacetRowGuide {
         _ctx: &SessionContext,
         _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         _facet_path: &[datafusion::common::ScalarValue],
+        _coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // Return default overflow
         Ok(OverflowSpaceRequirement::default())
@@ -104,6 +105,7 @@ impl CompiledGuide for FacetRowGuide {
         _ctx: &SessionContext,
         _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         _facet_path: &[datafusion::common::ScalarValue],
+        _coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<MeasurementResult, AvengerChartError> {
         // Return default measurement result
         Ok(MeasurementResult::default())
@@ -121,6 +123,7 @@ impl CompiledGuide for FacetRowGuide {
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         _facet_path: &[datafusion::common::ScalarValue],
+        _coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Return empty marks - rendering will be rebuilt
         Ok(vec![])

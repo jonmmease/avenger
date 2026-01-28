@@ -36,6 +36,7 @@ impl CoordinateSystem for ZeroDCoord {
     }
 }
 
+#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for ZeroDCoord {
     fn required_channels(&self) -> &'static [&'static str] {

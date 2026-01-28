@@ -572,8 +572,12 @@ fn get_radius_expression(
                             300.0, // dummy height
                             HashMap::new(),
                         );
-                        let temp_ctx =
-                            crate::render::RenderContext::new(&temp_eval_ctx, &temp_state, &[]);
+                        let temp_ctx = crate::render::RenderContext::new(
+                            &temp_eval_ctx,
+                            &temp_state,
+                            &[],
+                            &crate::coords::EmptyCoordMeasurement,
+                        );
 
                         if let Some(default_scalar) = mark.default_channel_value(ch_name, &temp_ctx)
                         {
@@ -756,6 +760,7 @@ async fn cache_domain_data(
                                             );
                                             let temp_ctx = crate::render::RenderContext::new(
                                                 &temp_eval_ctx, &temp_state, &[],
+                                                &crate::coords::EmptyCoordMeasurement,
                                             );
                                             if let Some(default_scalar) =
                                                 mark.default_channel_value(ch_name, &temp_ctx)
@@ -1579,7 +1584,12 @@ mod tests {
         );
         let render_state =
             crate::render::RenderState::new(220.0, 300.0, std::collections::HashMap::new());
-        let final_context = RenderContext::new(&eval_ctx, &render_state, None);
+        let final_context = RenderContext::new(
+            &eval_ctx,
+            &render_state,
+            &[],
+            &crate::coords::EmptyCoordMeasurement,
+        );
         let first_mark = compiled.marks().first().expect("compiled mark");
         let stroke_width = first_mark
             .default_channel_value("stroke_width", &final_context)

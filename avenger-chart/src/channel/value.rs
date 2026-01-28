@@ -18,7 +18,7 @@ fn format_float(f: f64) -> String {
 }
 
 /// Helper to convert an expression to a string for display
-fn expr_to_string(expr: &Expr) -> String {
+pub fn expr_to_string(expr: &Expr) -> String {
     expr_to_string_impl(expr, false)
 }
 

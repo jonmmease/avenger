@@ -57,6 +57,7 @@ impl CompiledGuide for NoGuide {
         _ctx: &datafusion::prelude::SessionContext,
         _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         _facet_path: &[datafusion::common::ScalarValue],
+        _coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
     }
@@ -73,6 +74,7 @@ impl CompiledGuide for NoGuide {
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         _facet_path: &[datafusion::common::ScalarValue],
+        _coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }

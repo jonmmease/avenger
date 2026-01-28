@@ -527,7 +527,12 @@ impl CompiledPlot {
             100.0,
             std::collections::HashMap::new(),
         );
-        let context = RenderContext::new(&eval_ctx, &render_state, &[]);
+        let context = RenderContext::new(
+            &eval_ctx,
+            &render_state,
+            &[],
+            &crate::coords::EmptyCoordMeasurement,
+        );
 
         // Iterate through all supported channels of this mark
         for channel_desc in mark.supported_channels() {

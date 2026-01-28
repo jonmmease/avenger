@@ -4,6 +4,7 @@
 //! and layout purposes. Different mark types (Symbol, Line, Rect) calculate
 //! radius differently based on their visual properties like size and stroke_width.
 
+use avenger_chart::coords::EmptyCoordMeasurement;
 use avenger_chart::prelude::*;
 use avenger_chart::render::RenderContext;
 use avenger_chart::serialization::LogicalExprNodeExt;
@@ -37,7 +38,7 @@ async fn test_symbol_default_channel_values() {
         400.0,
         std::collections::HashMap::new(),
     );
-    let context = RenderContext::new(&eval_ctx, &render_state, None);
+    let context = RenderContext::new(&eval_ctx, &render_state, &[], &EmptyCoordMeasurement);
 
     // Build the CompiledMark
     let renderer = symbol.compile_untransformed(&ctx).await.unwrap();

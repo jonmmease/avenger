@@ -467,6 +467,7 @@ impl CompiledPlot {
                     ctx,
                     facet_tree,
                     facet_path,
+                    None, // No coord_measurement in this context
                 )
                 .await
         } else {
@@ -515,6 +516,7 @@ impl CompiledPlot {
                     ctx,
                     facet_tree,
                     facet_path,
+                    None, // No coord_measurement in this context
                 )
                 .await?;
 
@@ -539,8 +541,9 @@ pub struct ComponentsMeasurement {
     /// This is computed by `coord_transform.measure()` and contains layout data
     /// that's available to both guides and marks during rendering. For facet
     /// coordinate systems, this includes cell positions, subplot measurements,
-    /// and computed padding.
-    pub coord_measurement: Option<Box<dyn crate::coords::CoordMeasurement>>,
+    /// and computed padding. For non-facet coordinate systems, this is an
+    /// `EmptyCoordMeasurement`.
+    pub coord_measurement: Box<dyn crate::coords::CoordMeasurement>,
 
     /// Scales for rendering
     pub scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
@@ -565,14 +568,7 @@ pub struct ComponentsMeasurement {
 impl std::fmt::Debug for ComponentsMeasurement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ComponentsMeasurement")
-            .field(
-                "coord_measurement",
-                &if self.coord_measurement.is_some() {
-                    "Some(...)"
-                } else {
-                    "None"
-                },
-            )
+            .field("coord_measurement", &"<coord_measurement>")
             .field("scales", &format!("{} scales", self.scales.len()))
             .field("plot_area_width", &self.plot_area_width)
             .field("plot_area_height", &self.plot_area_height)

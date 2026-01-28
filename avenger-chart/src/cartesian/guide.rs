@@ -196,8 +196,13 @@ impl CompiledGuide for CartesianGuide {
         ctx: &datafusion::prelude::SessionContext,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
+
+        // Use provided coord_measurement or default empty one (CartesianGuide doesn't use it)
+        let empty_coord = crate::coords::EmptyCoordMeasurement;
+        let coord_measurement = coord_measurement.unwrap_or(&empty_coord);
 
         // For overflow measurement, we can place the plot at origin
         let initial_bounds = LayoutBounds {
@@ -221,6 +226,7 @@ impl CompiledGuide for CartesianGuide {
                 data_override,
                 facet_tree,
                 facet_path,
+                coord_measurement,
             )
             .await?;
 
@@ -292,6 +298,7 @@ impl CompiledGuide for CartesianGuide {
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
+        _coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

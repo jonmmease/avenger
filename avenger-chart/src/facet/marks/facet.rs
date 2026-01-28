@@ -203,10 +203,26 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             Arc::new(plot_owned.compile(session_context).await?)
         };
 
+        // Derive facet title: explicit title > derived from row name > None (if explicitly disabled)
+        let facet_title = match &self.facet_row_title {
+            Some(title) if title.is_empty() => None, // Explicitly disabled with empty string
+            Some(title) => Some(title.clone()),      // Explicit title
+            None => {
+                // Derive from row expression
+                let channel_name = RowDimensionConfig::channel_name();
+                compiled_state
+                    .data
+                    .channels()
+                    .get(channel_name)
+                    .and_then(|cv| cv.expr(session_context))
+                    .map(|expr| crate::channel::value::expr_to_string(&expr))
+            }
+        };
+
         Ok(Arc::new(CompiledFacetRow {
             state: compiled_state,
             compiled_subplot,
-            facet_title: self.facet_row_title.clone(),
+            facet_title,
             facet_spacing: self.facet_spacing,
             facet_scale_sharing: self.facet_row_scale_sharing,
         }))
@@ -380,10 +396,26 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
             Arc::new(plot_owned.compile(session_context).await?)
         };
 
+        // Derive facet title: explicit title > derived from column name > None (if explicitly disabled)
+        let facet_title = match &self.facet_col_title {
+            Some(title) if title.is_empty() => None, // Explicitly disabled with empty string
+            Some(title) => Some(title.clone()),      // Explicit title
+            None => {
+                // Derive from column expression
+                let channel_name = ColumnDimensionConfig::channel_name();
+                compiled_state
+                    .data
+                    .channels()
+                    .get(channel_name)
+                    .and_then(|cv| cv.expr(session_context))
+                    .map(|expr| crate::channel::value::expr_to_string(&expr))
+            }
+        };
+
         Ok(Arc::new(CompiledFacetCol {
             state: compiled_state,
             compiled_subplot,
-            facet_title: self.facet_col_title.clone(),
+            facet_title,
             facet_spacing: self.facet_spacing,
             facet_scale_sharing: self.facet_col_scale_sharing,
         }))
@@ -445,15 +477,8 @@ impl CompiledMark for CompiledFacetCol {
         use crate::facet::coord::FacetColCoordMeasurement;
 
         // Get coord_measurement from context and downcast to FacetColCoordMeasurement
-        let coord_measurement = context
+        let facet_measurement = context
             .coord_measurement()
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(
-                    "FacetCol render requires coord_measurement in RenderContext".into(),
-                )
-            })?;
-
-        let facet_measurement = coord_measurement
             .as_any()
             .downcast_ref::<FacetColCoordMeasurement>()
             .ok_or_else(|| {

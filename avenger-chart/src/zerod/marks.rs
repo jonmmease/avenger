@@ -121,24 +121,12 @@ impl CompiledMark for CompiledZeroDSymbol {
         ]
     }
 
-    async fn measure_from_data(
-        &self,
-        _data: Option<&RecordBatch>,
-        _scalars: &RecordBatch,
-        _context: &RenderContext,
-        _coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
-        // Regular marks don't need cached data between measure/render passes
-        Ok(Box::new(crate::marks::EmptyMarkMeasurement))
-    }
-
     async fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-        _measurement: &dyn crate::marks::MarkMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use crate::marks::util::{
             coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,

@@ -529,7 +529,7 @@ impl CompiledPlot {
         plot_height: f32,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
         facet_path: &[datafusion::common::ScalarValue],
-        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let prepared = self
             .prepare_mark_data(
@@ -546,7 +546,7 @@ impl CompiledPlot {
             return Ok(vec![]);
         };
 
-        let render_ctx = RenderContext::with_coord_measurement(
+        let render_ctx = RenderContext::new(
             eval_ctx,
             &prepared.render_state,
             facet_path,
@@ -574,6 +574,7 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use the pre-built guide renderer if available
         if let Some(compiled_guide) = &self.compiled_guide {
@@ -618,6 +619,7 @@ impl CompiledPlot {
                     data_override,
                     facet_tree,
                     facet_path,
+                    coord_measurement,
                 )
                 .await
         } else {
@@ -663,6 +665,7 @@ impl CompiledPlot {
                     ctx,
                     &empty_facet_tree,
                     &[], // Empty path for top-level (not in a facet cell)
+                    None, // No coord_measurement yet (first pass)
                 )
                 .await?
         } else {
@@ -751,6 +754,7 @@ impl CompiledPlot {
                     ctx,
                     facet_tree,
                     facet_path,
+                    None, // No coord_measurement yet (first pass)
                 )
                 .await?
         } else {
@@ -1147,10 +1151,8 @@ impl CompiledPlot {
         let mark_eval_ctx = eval_ctx.with_params(merged_params.clone());
 
         // Render marks using pre-computed measurements from measurement
-        let coord_measurement_ref = measurement
-            .coord_measurement
-            .as_ref()
-            .map(|c| c.as_ref() as &dyn crate::coords::CoordMeasurement);
+        let coord_measurement_ref: &dyn crate::coords::CoordMeasurement =
+            measurement.coord_measurement.as_ref();
 
         let mut data_marks = Vec::new();
         for mark in &self.marks {
@@ -1209,6 +1211,7 @@ impl CompiledPlot {
                             ctx,
                             &*eval_ctx.facet_tree,
                             facet_path,
+                            Some(coord_measurement_ref), // Second pass - provide for efficiency
                         )
                         .await?
                 } else {
@@ -1286,6 +1289,7 @@ impl CompiledPlot {
                         data_override,
                         eval_ctx.facet_tree.as_ref(),
                         facet_path,
+                        coord_measurement_ref,
                     )
                     .await?;
 
@@ -1365,6 +1369,7 @@ impl CompiledPlot {
                         data_override,
                         eval_ctx.facet_tree.as_ref(),
                         facet_path,
+                        coord_measurement_ref,
                     )
                     .await?;
 

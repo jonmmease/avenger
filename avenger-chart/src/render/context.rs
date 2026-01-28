@@ -113,30 +113,18 @@ pub struct RenderContext<'a> {
     /// Empty when not inside a facet cell. e.g., `["East", "Eng"]`
     pub facet_path: &'a [datafusion::common::ScalarValue],
     /// Coordinate-system-specific measurement data (e.g., facet cell layout).
-    /// Available for facet coordinate systems that compute layout during measurement.
-    pub coord_measurement: Option<&'a dyn CoordMeasurement>,
+    /// For facet coordinate systems this contains subplot measurements.
+    /// For non-facet coordinate systems this is `EmptyCoordMeasurement`.
+    pub coord_measurement: &'a dyn CoordMeasurement,
 }
 
 impl<'a> RenderContext<'a> {
+    /// Create a RenderContext with coordinate measurement
     pub fn new(
         eval: &'a EvaluationContext,
         state: &'a RenderState,
         facet_path: &'a [datafusion::common::ScalarValue],
-    ) -> Self {
-        Self {
-            eval,
-            state,
-            facet_path,
-            coord_measurement: None,
-        }
-    }
-
-    /// Create a RenderContext with coordinate measurement
-    pub fn with_coord_measurement(
-        eval: &'a EvaluationContext,
-        state: &'a RenderState,
-        facet_path: &'a [datafusion::common::ScalarValue],
-        coord_measurement: Option<&'a dyn CoordMeasurement>,
+        coord_measurement: &'a dyn CoordMeasurement,
     ) -> Self {
         Self {
             eval,
@@ -146,8 +134,8 @@ impl<'a> RenderContext<'a> {
         }
     }
 
-    /// Get coordinate measurement if available
-    pub fn coord_measurement(&self) -> Option<&dyn CoordMeasurement> {
+    /// Get coordinate measurement
+    pub fn coord_measurement(&self) -> &dyn CoordMeasurement {
         self.coord_measurement
     }
 

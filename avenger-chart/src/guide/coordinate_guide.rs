@@ -72,6 +72,10 @@ pub trait CompiledGuide: Send + Sync + 'static {
     ///   Empty slice when not in a facet cell.
     ///   Used for visibility-aware overflow: interior cells may hide axis labels.
     ///   The tree converts this to indices internally for visibility checks.
+    /// * `coord_measurement` - Optional coordinate measurement data from `coord_transform.measure()`.
+    ///   **This is purely for efficiency** - when provided, implementations may use pre-computed
+    ///   data (e.g., subplot measurements for facet guides) to avoid redundant computation.
+    ///   The result must be identical whether or not this is provided.
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -83,6 +87,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         ctx: &datafusion::prelude::SessionContext,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
     /// Measure only the intrinsic subplot overflow, excluding facet-level decorative content
@@ -104,6 +109,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         ctx: &datafusion::prelude::SessionContext,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // Default implementation: same as measure_overflow()
         self.measure_overflow(
@@ -116,6 +122,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
             ctx,
             facet_tree,
             facet_path,
+            coord_measurement,
         )
         .await
     }
@@ -128,6 +135,9 @@ pub trait CompiledGuide: Send + Sync + 'static {
     /// # Default Implementation
     /// Delegates to `measure_overflow()` and wraps the result in a `MeasurementResult`
     /// with empty `spacing_needs`. Non-facet guides (Cartesian, Polar) use this default.
+    ///
+    /// # Arguments
+    /// * `coord_measurement` - Optional, purely for efficiency (see `measure_overflow` docs).
     async fn measure_with_coordination(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -139,6 +149,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         ctx: &datafusion::prelude::SessionContext,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<MeasurementResult, AvengerChartError> {
         // Default: measure once, return with empty spacing_needs
         let overflow = self
@@ -152,6 +163,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
                 ctx,
                 facet_tree,
                 facet_path,
+                coord_measurement,
             )
             .await?;
         Ok(MeasurementResult::new(overflow))
@@ -166,6 +178,9 @@ pub trait CompiledGuide: Send + Sync + 'static {
     /// * `facet_tree` - Pre-computed facet structure for visibility decisions.
     /// * `facet_path` - Path of values identifying the cell in the facet grid (e.g., `["East", "Eng"]`).
     ///   Empty slice when not in a facet cell.
+    /// * `coord_measurement` - Coordinate measurement data from `coord_transform.measure()`.
+    ///   For facet guides, this provides subplot measurements including overflow data
+    ///   needed for proper label positioning. For non-facet guides, this is `EmptyCoordMeasurement`.
     async fn evaluate(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -178,6 +193,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         data_override: Option<&datafusion::dataframe::DataFrame>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Get the clipping region for the coordinate system

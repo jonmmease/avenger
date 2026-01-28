@@ -316,7 +316,7 @@ impl CoordinateSystemTransform for FacetColumn {
         data: Option<&DataFrame>,
         compiled_marks: &[Arc<dyn CompiledMark>],
         facet_path: &[ScalarValue],
-    ) -> Result<Option<Box<dyn CoordMeasurement>>, AvengerChartError> {
+    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
         use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
         use avenger_scales::scales::band::bandwidth;
 
@@ -359,14 +359,14 @@ impl CoordinateSystemTransform for FacetColumn {
         let cell_values: Vec<ScalarValue> = current_node.values().cloned().collect();
 
         if cell_values.is_empty() {
-            return Ok(Some(Box::new(FacetColCoordMeasurement {
+            return Ok(Box::new(FacetColCoordMeasurement {
                 cell_values: Vec::new(),
                 padding_inner_px: 0.0,
                 data_overrides: Vec::new(),
                 shared_scales: HashMap::new(),
                 parent_path: facet_path.to_vec(),
                 subplot_measurements: Vec::new(),
-            })));
+            }));
         }
 
         // Get the data to filter
@@ -511,14 +511,14 @@ impl CoordinateSystemTransform for FacetColumn {
             subplot_measurements.push(measurement);
         }
 
-        Ok(Some(Box::new(FacetColCoordMeasurement {
+        Ok(Box::new(FacetColCoordMeasurement {
             cell_values,
             padding_inner_px,
             data_overrides,
             shared_scales,
             parent_path: facet_path.to_vec(),
             subplot_measurements,
-        })))
+        }))
     }
 
     fn transform(
