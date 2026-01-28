@@ -1,5 +1,6 @@
 use crate::coords::{
-    CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRequirement,
+    CoordMeasurement, CoordinatedOverflow, CoordinateSystem, CoordinateSystemTransform,
+    OverflowSpaceRequirement,
 };
 use crate::error::AvengerChartError;
 use crate::facet::guide::{FacetColGuideConfig, FacetRowGuideConfig};
@@ -36,11 +37,69 @@ pub struct FacetColCoordMeasurement {
     /// Pre-computed subplot measurements (computed with final subplot width after padding_inner_px).
     /// These are used directly by render_from_data to avoid re-measuring.
     pub subplot_measurements: Vec<ComponentsMeasurement>,
+    /// Coordinated overflow values aggregated across ALL facets at this nesting level.
+    /// Populated by `coordinate_nested_overflow()` after measurement.
+    pub coordinated_overflow: CoordinatedOverflow,
 }
 
 impl CoordMeasurement for FacetColCoordMeasurement {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn child_measurements(&self) -> &[ComponentsMeasurement] {
+        &self.subplot_measurements
+    }
+
+    fn child_measurements_mut(&mut self) -> &mut [ComponentsMeasurement] {
+        &mut self.subplot_measurements
+    }
+
+    fn local_overflow(&self) -> Option<CoordinatedOverflow> {
+        // Compute local overflow from children's overflow (guide-only and total)
+        let guide = OverflowSpaceRequirement {
+            top: self
+                .subplot_measurements
+                .iter()
+                .map(|m| m.layout.overflow.top)
+                .fold(0.0f32, f32::max),
+            bottom: self
+                .subplot_measurements
+                .iter()
+                .map(|m| m.layout.overflow.bottom)
+                .fold(0.0f32, f32::max),
+            left: 0.0,
+            right: 0.0,
+        };
+
+        let total = OverflowSpaceRequirement {
+            top: self
+                .subplot_measurements
+                .iter()
+                .map(|m| m.layout.total_overflow.top)
+                .fold(0.0f32, f32::max),
+            bottom: self
+                .subplot_measurements
+                .iter()
+                .map(|m| m.layout.total_overflow.bottom)
+                .fold(0.0f32, f32::max),
+            left: 0.0,
+            right: 0.0,
+        };
+
+        Some(CoordinatedOverflow { guide, total })
+    }
+
+    fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
+        Some(&self.coordinated_overflow)
+    }
+
+    fn set_coordinated_overflow(&mut self, overflow: CoordinatedOverflow) {
+        self.coordinated_overflow = overflow;
     }
 }
 
@@ -366,6 +425,7 @@ impl CoordinateSystemTransform for FacetColumn {
                 shared_scales: HashMap::new(),
                 parent_path: facet_path.to_vec(),
                 subplot_measurements: Vec::new(),
+                coordinated_overflow: CoordinatedOverflow::default(),
             }));
         }
 
@@ -518,6 +578,7 @@ impl CoordinateSystemTransform for FacetColumn {
             shared_scales,
             parent_path: facet_path.to_vec(),
             subplot_measurements,
+            coordinated_overflow: CoordinatedOverflow::default(),
         }))
     }
 

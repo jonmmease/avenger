@@ -11,6 +11,7 @@ use indexmap::IndexMap;
 use avenger_scales::scales::ConfiguredScale;
 
 use crate::channel::value::{ChannelValue, ConditionalValue};
+use crate::coords::coordinate_nested_overflow;
 use crate::error::AvengerChartError;
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use crate::marks::CompiledMark;
@@ -1596,6 +1597,11 @@ impl CompiledPlot {
                 &*facet_tree,
             )
             .await?;
+
+        // 4b. Coordinate nested facet overflow values globally
+        // This ensures all facet labels at the same nesting depth are aligned
+        let mut measurement = measurement;
+        coordinate_nested_overflow(&mut measurement);
 
         // 5. Build plot components using measurement
         let components = self

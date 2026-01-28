@@ -270,18 +270,11 @@ impl CompiledGuide for FacetColGuide {
             .map(|bp| format_scalar_value(&bp.value))
             .collect();
 
-        // Compute max subplot top overflow from coord_measurement
-        // This tells us how far below the plot_bounds.y the subplot overflow extends
-        // (e.g., from top axis tick labels)
+        // Use coordinated overflow value (computed globally across all facets at this nesting level)
+        // This ensures all facet labels at the same depth are horizontally aligned
         let max_subplot_top_overflow = coord_measurement
-            .as_any()
-            .downcast_ref::<FacetColCoordMeasurement>()
-            .map(|fcm| {
-                fcm.subplot_measurements
-                    .iter()
-                    .map(|m| m.layout.overflow.top)
-                    .fold(0.0f32, f32::max)
-            })
+            .coordinated_overflow()
+            .map(|co| co.guide.top)
             .unwrap_or(0.0);
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {

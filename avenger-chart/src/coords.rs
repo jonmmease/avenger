@@ -3,6 +3,7 @@ use crate::facet::band_positions::BandPosition;
 use crate::guide::CoordinateGuide;
 pub use crate::guide::OverflowSpaceRequirement;
 use crate::marks::CompiledMark;
+use crate::plot::compiled::ComponentsMeasurement;
 use crate::serialization::SerializableScalar;
 use avenger_common::value::ScalarOrArray;
 use datafusion::common::ScalarValue;
@@ -11,6 +12,39 @@ use serde_with::{FromInto, serde_as};
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Coordinated overflow values aggregated across ALL facets at the same nesting level.
+///
+/// This enables facet labels at the same nesting depth to be horizontally aligned
+/// regardless of their parent facet's individual overflow requirements.
+///
+/// Contains both guide-only overflow (for label positioning) and total overflow
+/// (including legends, for consistent spacing across facet cells).
+#[derive(Default, Clone, Debug)]
+pub struct CoordinatedOverflow {
+    /// Overflow from guides only (axes, labels, ticks).
+    /// Used for facet label positioning.
+    pub guide: OverflowSpaceRequirement,
+
+    /// Total overflow including legends.
+    /// Used for consistent legend spacing across facet cells.
+    pub total: OverflowSpaceRequirement,
+}
+
+impl CoordinatedOverflow {
+    /// Merge with another overflow context, keeping the maximum of each field.
+    pub fn merge(&mut self, other: &Self) {
+        self.guide.top = self.guide.top.max(other.guide.top);
+        self.guide.bottom = self.guide.bottom.max(other.guide.bottom);
+        self.guide.left = self.guide.left.max(other.guide.left);
+        self.guide.right = self.guide.right.max(other.guide.right);
+
+        self.total.top = self.total.top.max(other.total.top);
+        self.total.bottom = self.total.bottom.max(other.total.bottom);
+        self.total.left = self.total.left.max(other.total.left);
+        self.total.right = self.total.right.max(other.total.right);
+    }
+}
 
 /// Coordinate-system-specific measurement data computed during the measure phase.
 ///
@@ -22,9 +56,53 @@ use std::sync::Arc;
 /// The `as_any()` method enables downcasting from `dyn CoordMeasurement` to the
 /// concrete type. This pattern (same as `PlotGeometry`) preserves object safety
 /// while allowing coordinate systems to use their specific measurement types.
+///
+/// # Coordination Support
+///
+/// The trait also provides methods for cross-facet coordination of overflow values.
+/// This enables facet labels at the same nesting depth to be horizontally aligned
+/// regardless of their individual subplot overflow requirements.
+///
+/// Default implementations return `None` or empty slices, making coordination opt-in
+/// for coordinate systems that support it (facets) while being a no-op for those
+/// that don't (Cartesian, Polar, etc.).
 pub trait CoordMeasurement: Send + Sync + 'static {
     /// Downcast support for accessing concrete measurement types
     fn as_any(&self) -> &dyn Any;
+
+    /// Mutable downcast support for coordination phase
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    /// Get child measurements for traversal.
+    /// Returns empty slice for non-facet coords.
+    fn child_measurements(&self) -> &[ComponentsMeasurement] {
+        &[]
+    }
+
+    /// Get mutable child measurements for coordination.
+    fn child_measurements_mut(&mut self) -> &mut [ComponentsMeasurement] {
+        &mut []
+    }
+
+    /// Get local overflow to contribute to coordination.
+    /// Returns None for non-coordinatable measurements (e.g., EmptyCoordMeasurement).
+    ///
+    /// Implementations should compute this from their children's overflow values.
+    fn local_overflow(&self) -> Option<CoordinatedOverflow> {
+        None
+    }
+
+    /// Get coordinated overflow after coordination phase.
+    /// Returns None for non-coordinatable measurements.
+    fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
+        None
+    }
+
+    /// Set coordinated overflow during distribution pass.
+    /// Default: no-op for non-coordinatable measurements.
+    fn set_coordinated_overflow(&mut self, _overflow: CoordinatedOverflow) {
+        // Default: no-op
+    }
 }
 
 /// Empty measurement for coordinate systems that don't need measurement data.
@@ -36,6 +114,90 @@ pub struct EmptyCoordMeasurement;
 impl CoordMeasurement for EmptyCoordMeasurement {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    // Use default implementations for coordination methods (return None/empty)
+}
+
+// =============================================================================
+// Coordination Functions
+// =============================================================================
+
+/// Coordinate overflow values across ALL facets at each nesting level.
+///
+/// This is the main entry point called after measurement completes.
+/// Uses a two-pass algorithm:
+/// 1. Collect overflow values by depth (via trait method)
+/// 2. Distribute max values back to all facets at each depth (via trait method)
+///
+/// This ensures that facet labels at the same nesting depth are horizontally aligned
+/// regardless of their individual subplot overflow requirements ("cousin" coordination).
+pub fn coordinate_nested_overflow(measurement: &mut ComponentsMeasurement) {
+    // Pass 1: Collect all overflow values by nesting depth
+    let mut overflow_by_level: HashMap<usize, Vec<CoordinatedOverflow>> = HashMap::new();
+    collect_overflow_by_level(measurement, 0, &mut overflow_by_level);
+
+    // Aggregation: Compute global max for each level
+    let max_by_level: HashMap<usize, CoordinatedOverflow> = overflow_by_level
+        .into_iter()
+        .map(|(depth, values)| {
+            let mut merged = CoordinatedOverflow::default();
+            for v in &values {
+                merged.merge(&v);
+            }
+            (depth, merged)
+        })
+        .collect();
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!("coordinate_nested_overflow: max_by_level={:?}", max_by_level);
+    }
+
+    // Pass 2: Distribute max values to all facets at each level
+    distribute_overflow_by_level(measurement, 0, &max_by_level);
+}
+
+/// Pass 1: Collect overflow values from all facets, keyed by nesting depth.
+///
+/// Uses trait methods - works for ANY CoordMeasurement that implements the trait.
+fn collect_overflow_by_level(
+    measurement: &ComponentsMeasurement,
+    depth: usize,
+    registry: &mut HashMap<usize, Vec<CoordinatedOverflow>>,
+) {
+    // Generic: works for any CoordMeasurement
+    if let Some(local) = measurement.coord_measurement.local_overflow() {
+        registry.entry(depth).or_default().push(local);
+    }
+
+    // Recurse into children (also generic via trait)
+    for child in measurement.coord_measurement.child_measurements() {
+        collect_overflow_by_level(child, depth + 1, registry);
+    }
+}
+
+/// Pass 2: Distribute coordinated max values to all facets at each level.
+///
+/// Uses trait methods - works for ANY CoordMeasurement that implements the trait.
+fn distribute_overflow_by_level(
+    measurement: &mut ComponentsMeasurement,
+    depth: usize,
+    max_by_level: &HashMap<usize, CoordinatedOverflow>,
+) {
+    // Generic: set coordinated overflow via trait
+    if let Some(max_overflow) = max_by_level.get(&depth) {
+        measurement
+            .coord_measurement
+            .set_coordinated_overflow(max_overflow.clone());
+    }
+
+    // Recurse into children (generic via trait)
+    for child in measurement.coord_measurement.child_measurements_mut() {
+        distribute_overflow_by_level(child, depth + 1, max_by_level);
     }
 }
 
