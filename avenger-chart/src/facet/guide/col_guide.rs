@@ -166,9 +166,9 @@ impl CompiledGuide for FacetColGuide {
             .map(|bp| format_scalar_value(&bp.value))
             .collect();
 
-        // Only add facet guide space if we have labels and this is a top-level facet (not nested)
-        // For nested facets, facet_path will be non-empty
-        let facet_guide_height = if !labels.is_empty() && facet_path.is_empty() {
+        // Add facet guide space for all nesting levels
+        // Each level measures and renders its own labels
+        let facet_guide_height = if !labels.is_empty() {
             // Get font properties from theme for measurement
             let label_ctx = ThemeContext::new("guide", params.clone())
                 .child("facet")
@@ -246,14 +246,11 @@ impl CompiledGuide for FacetColGuide {
         _ctx: &SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
+        _facet_path: &[datafusion::common::ScalarValue],
         coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Only render facet labels for top-level facet (not nested)
-        // For nested facets, facet_path will be non-empty
-        if !facet_path.is_empty() {
-            return Ok(vec![]);
-        }
+        // Render facet labels for all nesting levels
+        // Each level renders its own labels in its local coordinate system
 
         // Get column scale for band positions
         let column_scale = scales.get("column").ok_or_else(|| {
@@ -289,8 +286,11 @@ impl CompiledGuide for FacetColGuide {
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FacetColGuide evaluate: max_subplot_top_overflow={:.1}",
-                max_subplot_top_overflow
+                "FacetColGuide evaluate: plot_bounds.y={:.1}, max_subplot_top_overflow={:.1}, adjusted_y={:.1}, labels={:?}",
+                plot_bounds.y,
+                max_subplot_top_overflow,
+                plot_bounds.y - max_subplot_top_overflow,
+                labels
             );
         }
 
@@ -341,17 +341,12 @@ impl CompiledGuide for FacetColGuide {
 
     fn get_clip(
         &self,
-        plot_width: f32,
-        plot_height: f32,
+        _plot_width: f32,
+        _plot_height: f32,
         _scales: &HashMap<String, ConfiguredScale>,
     ) -> Clip {
-        // Return rectangular clip for the plot area
-        Clip::Rect {
-            x: 0.0,
-            y: 0.0,
-            width: plot_width,
-            height: plot_height,
-        }
+        // Facet guides don't clip - nested coordinate systems handle their own clipping
+        Clip::None
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

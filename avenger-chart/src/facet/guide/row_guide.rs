@@ -131,17 +131,12 @@ impl CompiledGuide for FacetRowGuide {
 
     fn get_clip(
         &self,
-        plot_width: f32,
-        plot_height: f32,
+        _plot_width: f32,
+        _plot_height: f32,
         _scales: &HashMap<String, ConfiguredScale>,
     ) -> Clip {
-        // Return rectangular clip for the plot area
-        Clip::Rect {
-            x: 0.0,
-            y: 0.0,
-            width: plot_width,
-            height: plot_height,
-        }
+        // Facet guides don't clip - nested coordinate systems handle their own clipping
+        Clip::None
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

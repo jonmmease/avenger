@@ -557,20 +557,20 @@ impl CompiledMark for CompiledFacetCol {
                 )
                 .await?;
 
-            // Collect all marks from the subplot
-            let mut subplot_marks = Vec::new();
-            subplot_marks.extend(components.guide_marks);
-            subplot_marks.extend(components.data_marks);
-            subplot_marks.extend(components.legend_marks);
-            subplot_marks.extend(components.title_marks);
-            subplot_marks.extend(components.subtitle_marks);
+            // Combine all marks into a single group at [position, 0]
+            // Use the subplot's clip (from Cartesian/Polar guide) for proper data clipping
+            let mut all_marks = Vec::new();
+            all_marks.extend(components.guide_marks);
+            all_marks.extend(components.data_marks);
+            all_marks.extend(components.legend_marks);
+            all_marks.extend(components.title_marks);
+            all_marks.extend(components.subtitle_marks);
 
-            // Create SceneGroup with origin for positioning
             let subplot_group = SceneGroup {
                 name: format!("facet_col_{}", idx),
                 origin: [position, 0.0],
-                clip: Clip::None,
-                marks: subplot_marks,
+                clip: components.clip, // Use subplot's clip for proper data clipping
+                marks: all_marks,
                 gradients: Vec::new(),
                 fill: None,
                 stroke: None,
@@ -578,7 +578,6 @@ impl CompiledMark for CompiledFacetCol {
                 stroke_offset: None,
                 zindex: None,
             };
-
             scene_marks.push(SceneMark::Group(subplot_group));
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {

@@ -1063,7 +1063,8 @@ impl CompiledPlot {
             )
             .await?;
 
-        // Get clip region
+        // Get clip region from guide (facet guides return Clip::None,
+        // Cartesian guides return Rect clip for the plot area)
         let clip = if let Some(ref guide) = self.compiled_guide {
             let configured_scales: HashMap<String, ConfiguredScale> = final_scales
                 .iter()
@@ -1346,9 +1347,11 @@ impl CompiledPlot {
                     debug_marks,
                 )
             } else {
-                // Plot area mode (subplots): Has layout computed with legends
-                // For subplots, the plot area is always at (0, 0) in subplot coordinates
-                // The facet will translate the entire subplot to the correct position
+                // Plot area mode (subplots): plot_bounds.y = 0
+                // For nested facets, the FacetColGuide computes adjusted_plot_bounds.y as
+                // a NEGATIVE value, placing labels ABOVE the subplot origin (in the overflow
+                // region). Data marks render at y = 0 to plot_height.
+                // The subplot's overflow region is at negative y, not positive.
                 let plot_bounds_struct = crate::layout::LayoutBounds {
                     x: 0.0,
                     y: 0.0,
