@@ -9,7 +9,7 @@
 | File | Layer | Key Functions |
 |------|-------|----------------|
 | `avenger-chart/src/facet/marks/facet_evaluation.rs` | Facet Evaluation | `measure_pass<DimConfig>()`, `render_pass<DimConfig>()`, `evaluate_facet<DimConfig>()` |
-| `avenger-chart/src/plot/compiled/mod.rs` | Plot Rendering | `measure_with_scales()`, `build_scales_with_dimensions()` |
+| `avenger-chart/src/plot/compiled/mod.rs` | Plot Rendering | `build_scales_from_builder()`, `build_scales_for_dataframe()` |
 | `avenger-chart/src/plot/compiled/rendering.rs` | Plot Rendering | `compute_layout_with_fixed_plot_area()`, `compute_layout()` |
 | `avenger-chart/src/facet/guide.rs` | Facet Guide | `FacetRowGuide.measure_overflow()`, `FacetColGuide.measure_overflow()` |
 | `avenger-chart/src/facet/coordination.rs` | Coordination Context | `FacetCoordinationContext`, serialization/deserialization |

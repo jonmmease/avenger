@@ -23,7 +23,6 @@ use crate::guide::CompiledGuide;
 use crate::layout::LayoutSpec;
 use crate::legend::Legend;
 use crate::marks::CompiledMark;
-use crate::plot::compiled::scales::build_scale_builder_from_marks;
 use crate::serialization::SerializableDataFrame;
 use crate::theme::Theme;
 
@@ -60,13 +59,13 @@ pub struct CompiledPlot {
     /// Mapping from scale names to coordinate channel
     pub(crate) scale_to_coord_channel: HashMap<String, String>,
 
-    /// Scale specifications (temporarily kept for building scales)
+    /// Scale specifications for building scales
     pub(crate) scale_specs: HashMap<String, ScaleSpec>,
 
     // Note: We intentionally do not persist a ScaleBuilder here. Scales are
     // rebuilt per evaluation using current params to ensure correctness for
     // paramized data queries and to keep direct vs serialized paths identical.
-    /// Plot-level data (temporarily kept for mark inheritance)
+    /// Plot-level data for mark data inheritance
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
     pub(crate) data: Option<LogicalPlanNode>,
 
@@ -108,102 +107,11 @@ impl CompiledPlot {
         &self.marks
     }
 
-    /// Build a ScaleBuilder using a provided DataFrame override.
-    ///
-    /// This is primarily used by faceting when building free scales per facet, so that
-    /// domain inference (including radius-aware padding) runs against the facet-filtered data.
-    ///
-    /// If the params contain a FacetCoordinationContext with shared_data_extents,
-    /// the builder will be extended to include those extents. This ensures nested facets
-    /// use the full dataset range for their scales.
-    pub(crate) async fn build_scale_builder_from_dataframe(
-        &self,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-        df: &datafusion::dataframe::DataFrame,
-    ) -> Result<crate::scales::builder::ScaleBuilder, crate::error::AvengerChartError> {
-        let builder = build_scale_builder_from_marks(
-            &self.marks,
-            &self.scale_specs,
-            &self.coord_transform,
-            &self.data,
-            Some(df.clone()),
-            ctx,
-            params,
-            self.get_theme().as_ref(),
-        )
-        .await?;
-
-        Ok(builder)
-    }
-
-    /// Build scales with specific dimensions for the current evaluation.
-    ///
-    /// We rebuild a temporary ScaleBuilder on each call using the current params
-    /// so domain inference reflects paramized data queries. This keeps direct
-    /// and serialized paths identical and avoids stale caches.
-    ///
-    /// If params contain a FacetCoordinationContext with shared_data_extents,
-    /// the builder will be extended to include those extents.
-    pub async fn build_scales_with_dimensions(
-        &self,
-        plot_area_width: f32,
-        plot_area_height: f32,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<
-        std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-        crate::error::AvengerChartError,
-    > {
-        // Always rebuild a temporary ScaleBuilder using current params.
-        let builder = build_scale_builder_from_marks(
-            &self.marks,
-            &self.scale_specs,
-            &self.coord_transform,
-            &self.data,
-            None,
-            ctx,
-            params,
-            self.get_theme().as_ref(),
-        )
-        .await?;
-
-        // Build coordinate system ranges map
-        let mut coord_system_ranges = std::collections::HashMap::new();
-        for channel in builder.channel_builders().keys() {
-            use crate::channel::value::strip_trailing_numbers;
-            let base = strip_trailing_numbers(channel);
-            if let Some((min, max)) = self.coord_transform.default_range(
-                base,
-                plot_area_width as f64,
-                plot_area_height as f64,
-            ) {
-                coord_system_ranges.insert(channel.clone(), (min, max));
-            }
-        }
-
-        let theme = self.get_theme();
-        let built = builder
-            .build_scales(
-                plot_area_width,
-                plot_area_height,
-                &coord_system_ranges,
-                &self.scale_specs,
-                &self.marks,
-                theme.as_ref(),
-                ctx,
-                params,
-            )
-            .await?;
-
-        Ok(built)
-    }
-
     /// Build scales from an existing ScaleBuilder with specific dimensions.
     ///
-    /// This is more efficient than `build_scales_with_dimensions` when you need to
-    /// build scales multiple times (e.g., initial layout pass and final render pass)
-    /// because it reuses the cached data queries from the provided builder.
+    /// Reuses cached data queries from the provided builder, making it efficient
+    /// for building scales multiple times (e.g., initial layout pass and final
+    /// render pass).
     ///
     /// Typical usage:
     /// ```ignore
@@ -211,8 +119,8 @@ impl CompiledPlot {
     /// let builder = build_scale_builder_from_marks(...).await?;
     ///
     /// // Reuse multiple times (no queries)
-    /// let initial_scales = plot.build_scales_from_builder(&builder, 400.0, 300.0, ctx, params).await?;
-    /// let final_scales = plot.build_scales_from_builder(&builder, 800.0, 600.0, ctx, params).await?;
+    /// let scales1 = plot.build_scales_from_builder(&builder, 400.0, 300.0, ctx, params).await?;
+    /// let scales2 = plot.build_scales_from_builder(&builder, 800.0, 600.0, ctx, params).await?;
     /// ```
     pub async fn build_scales_from_builder(
         &self,
@@ -267,8 +175,6 @@ impl CompiledPlot {
     }
 
     /// Build configured scales for a provided DataFrame and plot-area dimensions.
-    /// Note: This initial implementation does not yet override the plot-level data source
-    /// stored in this CompiledPlot; full support will be added in the next phase.
     pub async fn build_scales_for_dataframe(
         &self,
         df: &datafusion::dataframe::DataFrame,
@@ -435,96 +341,6 @@ impl CompiledPlot {
         }
 
         Ok(configured)
-    }
-
-    /// Measure guide overflow for the inner plot using provided scales and dimensions.
-    pub async fn measure_guide_overflow_with_scales(
-        &self,
-        scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-        plot_area_width: f32,
-        plot_area_height: f32,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-        data_override: Option<&datafusion::dataframe::DataFrame>,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-    ) -> Result<crate::guide::OverflowSpaceRequirement, crate::error::AvengerChartError> {
-        if let Some(guide) = &self.compiled_guide {
-            // Downcast to ConfiguredScale for the guide API
-            let configured: HashMap<String, avenger_scales::scales::ConfiguredScale> = scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.configured().clone()))
-                .collect();
-            let theme = self.get_theme();
-            guide
-                .measure_overflow(
-                    &configured,
-                    plot_area_width,
-                    plot_area_height,
-                    theme.as_ref(),
-                    params,
-                    data_override,
-                    ctx,
-                    facet_tree,
-                    facet_path,
-                    None, // No coord_measurement in this context
-                )
-                .await
-        } else {
-            Ok(crate::guide::OverflowSpaceRequirement::default())
-        }
-    }
-
-    /// Get spacing needs from the guide's self-coordinating measurement
-    ///
-    /// This calls the guide's `measure_with_coordination()` method and extracts
-    /// the `spacing_needs` from the `MeasurementResult`. This is used by outer
-    /// facets to extract spacing needs computed by inner guides (e.g., inter_row_gap,
-    /// inter_col_gap) so they can be aggregated and used for layout coordination.
-    ///
-    /// # Returns
-    /// A HashMap of spacing keys to values (e.g., "inter_row_gap" -> 45.0).
-    /// Returns empty HashMap if no guide or no spacing needs.
-    pub async fn get_guide_spacing_needs(
-        &self,
-        width: f32,
-        height: f32,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-        scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-        data_override: Option<&datafusion::dataframe::DataFrame>,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-    ) -> Result<HashMap<String, f32>, crate::error::AvengerChartError> {
-        if let Some(ref compiled_guide) = self.compiled_guide {
-            // Convert ConfiguredScaleWithSpec -> ConfiguredScale for guide API
-            let configured_scales: HashMap<String, avenger_scales::scales::ConfiguredScale> =
-                scales
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.configured().clone()))
-                    .collect();
-
-            let theme = self.get_theme();
-            let result = compiled_guide
-                .measure_with_coordination(
-                    &configured_scales,
-                    width,
-                    height,
-                    &theme,
-                    params,
-                    data_override,
-                    ctx,
-                    facet_tree,
-                    facet_path,
-                    None, // No coord_measurement in this context
-                )
-                .await?;
-
-            Ok(result.spacing_needs)
-        } else {
-            // No guide - return empty spacing needs
-            Ok(HashMap::new())
-        }
     }
 }
 

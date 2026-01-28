@@ -80,7 +80,7 @@ let shared_data_extents = coordination_context
 2. **Extend with shared data extents** - Only for Shared channels:
    ```rust
    if any_shared {
-       let mut builder = build_scale_builder_from_dataframe(...);
+       let mut builder = build_scale_builder_from_marks(...);
        if let Some(ref extents) = shared_data_extents {
            // Only extend Shared channels, not Free channels
            let shared_only = extents.filter(|ch| mode == Shared);
@@ -138,7 +138,7 @@ For each subplot at index `idx`:
        None  // All scales are shared - don't rebuild
    } else {
        Some(compiled_subplot
-           .build_scale_builder_from_dataframe(&ctx, &params_base, &filter_df)
+           .build_scale_builder_from_marks(&ctx, &params_base, &filter_df)
            .await?)
    };
 
