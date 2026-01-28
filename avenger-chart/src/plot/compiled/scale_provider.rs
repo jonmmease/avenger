@@ -55,13 +55,16 @@ impl<'a> ScaleProvider for DynamicScaleProvider<'a> {
     }
 }
 
-/// Prebuilt scale provider that returns already-computed scales.
+/// Prebuilt scale provider that returns already-computed scales with updated ranges.
 ///
 /// This provider is used when scales have been pre-computed externally
-/// (e.g., by row/col facet rendering logic) and just need to be returned
-/// without further computation. The dimensions are ignored since scales
-/// are already built with the correct dimensions.
-#[allow(dead_code)] // Used in Phase 5-6 when migrating facet rendering
+/// (e.g., by row/col facet rendering logic) with fixed domains. The ranges
+/// are updated based on the provided plot area dimensions for position scales.
+///
+/// Unlike `DynamicScaleProvider` which rebuilds scales from scratch, this provider
+/// preserves the exact `ConfiguredScale` (including its `scale_impl`) and only
+/// updates the range. This is important for facet shared scales where the domain
+/// and scale configuration must remain exactly as computed.
 pub struct PrebuiltScaleProvider {
     pub scales: HashMap<String, ConfiguredScaleWithSpec>,
 }
@@ -70,12 +73,40 @@ pub struct PrebuiltScaleProvider {
 impl ScaleProvider for PrebuiltScaleProvider {
     async fn build_scales(
         &self,
-        _plot_area_width: f32,
-        _plot_area_height: f32,
+        plot_area_width: f32,
+        plot_area_height: f32,
         _ctx: &SessionContext,
         _params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
-        // Return pre-computed scales directly
-        Ok(self.scales.clone())
+        // Return scales with updated ranges for position channels
+        let mut result = HashMap::new();
+        for (name, scale_with_spec) in &self.scales {
+            let updated_configured = match name.as_str() {
+                "x" | "x2" | "xOffset" => {
+                    // X position scales: range is [0, plot_area_width]
+                    scale_with_spec
+                        .configured()
+                        .clone()
+                        .with_range_interval((0.0, plot_area_width))
+                }
+                "y" | "y2" | "yOffset" => {
+                    // Y position scales: range is [plot_area_height, 0] (inverted for canvas)
+                    scale_with_spec
+                        .configured()
+                        .clone()
+                        .with_range_interval((plot_area_height, 0.0))
+                }
+                _ => {
+                    // Non-position scales: keep existing range
+                    scale_with_spec.configured().clone()
+                }
+            };
+            result.insert(
+                name.clone(),
+                ConfiguredScaleWithSpec::new(scale_with_spec.spec().clone(), updated_configured),
+            );
+        }
+        Ok(result)
     }
 }
+

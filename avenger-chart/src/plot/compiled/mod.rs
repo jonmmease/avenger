@@ -446,6 +446,8 @@ impl CompiledPlot {
         ctx: &datafusion::prelude::SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<crate::guide::OverflowSpaceRequirement, crate::error::AvengerChartError> {
         if let Some(guide) = &self.compiled_guide {
             // Downcast to ConfiguredScale for the guide API
@@ -463,6 +465,8 @@ impl CompiledPlot {
                     params,
                     data_override,
                     ctx,
+                    facet_tree,
+                    facet_path,
                 )
                 .await
         } else {
@@ -488,6 +492,8 @@ impl CompiledPlot {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<HashMap<String, f32>, crate::error::AvengerChartError> {
         if let Some(ref compiled_guide) = self.compiled_guide {
             // Convert ConfiguredScaleWithSpec -> ConfiguredScale for guide API
@@ -507,6 +513,8 @@ impl CompiledPlot {
                     params,
                     data_override,
                     ctx,
+                    facet_tree,
+                    facet_path,
                 )
                 .await?;
 
@@ -526,10 +534,15 @@ impl CompiledPlot {
 /// Overflow info is available via `layout.overflow` (guide only) and
 /// `layout.total_overflow` (guide + legends).
 pub struct ComponentsMeasurement {
-    /// Mark measurements for render pass (in order matching the plot's marks vec)
-    pub mark_measurements: Vec<Box<dyn crate::marks::MarkMeasurement>>,
+    /// Coordinate-system-specific measurement data (e.g., facet cell layout)
+    ///
+    /// This is computed by `coord_transform.measure()` and contains layout data
+    /// that's available to both guides and marks during rendering. For facet
+    /// coordinate systems, this includes cell positions, subplot measurements,
+    /// and computed padding.
+    pub coord_measurement: Option<Box<dyn crate::coords::CoordMeasurement>>,
 
-    /// Merged scales including mark-provided updates
+    /// Scales for rendering
     pub scales: std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
 
     /// Plot area dimensions
@@ -553,8 +566,12 @@ impl std::fmt::Debug for ComponentsMeasurement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ComponentsMeasurement")
             .field(
-                "mark_measurements",
-                &format!("{} measurements", self.mark_measurements.len()),
+                "coord_measurement",
+                &if self.coord_measurement.is_some() {
+                    "Some(...)"
+                } else {
+                    "None"
+                },
             )
             .field("scales", &format!("{} scales", self.scales.len()))
             .field("plot_area_width", &self.plot_area_width)

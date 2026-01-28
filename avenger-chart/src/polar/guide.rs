@@ -158,6 +158,8 @@ impl CompiledGuide for PolarGuide {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
+        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
 
@@ -170,7 +172,7 @@ impl CompiledGuide for PolarGuide {
         };
 
         // Evaluate axes to measure their bounding box with actual params
-        // For overflow measurement, we want all labels visible (no facet context)
+        // Use facet_path for visibility-aware overflow measurement
         let empty_facet_tree = crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty();
         let axis_marks = self
             .evaluate(
@@ -183,7 +185,7 @@ impl CompiledGuide for PolarGuide {
                 ctx,
                 data_override,
                 &empty_facet_tree,
-                None, // No facet position during measurement
+                facet_path,
             )
             .await?;
 
@@ -246,7 +248,7 @@ impl CompiledGuide for PolarGuide {
         _ctx: &datafusion::prelude::SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_position: Option<&[usize]>,
+        _facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

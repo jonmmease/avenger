@@ -111,6 +111,8 @@ impl CompiledGuide for FacetColGuide {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &SessionContext,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         let Some(subplot) = &self.compiled_subplot else {
             return Ok(OverflowSpaceRequirement::default());
@@ -161,6 +163,8 @@ impl CompiledGuide for FacetColGuide {
                 params,
                 Some(data),
                 ctx,
+                facet_tree,
+                facet_path,
             ).await
         } else {
             Ok(OverflowSpaceRequirement::default())
@@ -176,6 +180,8 @@ impl CompiledGuide for FacetColGuide {
         _params: &IndexMap<String, datafusion::common::ScalarValue>,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _ctx: &SessionContext,
+        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        _facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<MeasurementResult, AvengerChartError> {
         // Return default measurement result
         Ok(MeasurementResult::default())
@@ -192,7 +198,7 @@ impl CompiledGuide for FacetColGuide {
         _ctx: &SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_position: Option<&[usize]>,
+        _facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Return empty marks - rendering will be rebuilt
         Ok(vec![])

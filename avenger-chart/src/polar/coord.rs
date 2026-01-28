@@ -26,6 +26,7 @@ impl CoordinateSystem for Polar {
     }
 }
 
+#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for Polar {
     fn required_channels(&self) -> &'static [&'static str] {

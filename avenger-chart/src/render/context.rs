@@ -5,6 +5,7 @@
 //! - `RenderState` - Changes per subplot, contains computed dimensions and scales
 //! - `RenderContext` - Thin facade combining both for mark rendering API
 
+use crate::coords::CoordMeasurement;
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use crate::scales::ConfiguredScaleWithSpec;
 use crate::theme::Theme;
@@ -102,28 +103,52 @@ impl RenderState {
 /// Combined view for mark rendering.
 ///
 /// This is a facade that combines references to `EvaluationContext` and `RenderState`,
-/// plus an optional facet position. It provides the full rendering context needed by marks.
+/// plus the current facet path. It provides the full rendering context needed by marks.
 pub struct RenderContext<'a> {
     /// Reference to the evaluation-level context (constant across evaluate())
     pub eval: &'a EvaluationContext,
     /// Reference to the subplot-level state (varies per subplot)
     pub state: &'a RenderState,
-    /// Current cell position in facet hierarchy (indices at each nesting level).
-    /// None when not inside a facet cell.
-    pub facet_position: Option<&'a [usize]>,
+    /// Current cell path in facet hierarchy (values at each nesting level).
+    /// Empty when not inside a facet cell. e.g., `["East", "Eng"]`
+    pub facet_path: &'a [datafusion::common::ScalarValue],
+    /// Coordinate-system-specific measurement data (e.g., facet cell layout).
+    /// Available for facet coordinate systems that compute layout during measurement.
+    pub coord_measurement: Option<&'a dyn CoordMeasurement>,
 }
 
 impl<'a> RenderContext<'a> {
     pub fn new(
         eval: &'a EvaluationContext,
         state: &'a RenderState,
-        facet_position: Option<&'a [usize]>,
+        facet_path: &'a [datafusion::common::ScalarValue],
     ) -> Self {
         Self {
             eval,
             state,
-            facet_position,
+            facet_path,
+            coord_measurement: None,
         }
+    }
+
+    /// Create a RenderContext with coordinate measurement
+    pub fn with_coord_measurement(
+        eval: &'a EvaluationContext,
+        state: &'a RenderState,
+        facet_path: &'a [datafusion::common::ScalarValue],
+        coord_measurement: Option<&'a dyn CoordMeasurement>,
+    ) -> Self {
+        Self {
+            eval,
+            state,
+            facet_path,
+            coord_measurement,
+        }
+    }
+
+    /// Get coordinate measurement if available
+    pub fn coord_measurement(&self) -> Option<&dyn CoordMeasurement> {
+        self.coord_measurement
     }
 
     // Convenience accessors that delegate to inner structs

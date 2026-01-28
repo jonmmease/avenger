@@ -573,7 +573,7 @@ fn get_radius_expression(
                             HashMap::new(),
                         );
                         let temp_ctx =
-                            crate::render::RenderContext::new(&temp_eval_ctx, &temp_state, None);
+                            crate::render::RenderContext::new(&temp_eval_ctx, &temp_state, &[]);
 
                         if let Some(default_scalar) = mark.default_channel_value(ch_name, &temp_ctx)
                         {
@@ -755,7 +755,7 @@ async fn cache_domain_data(
                                                 400.0, 300.0, HashMap::new(),
                                             );
                                             let temp_ctx = crate::render::RenderContext::new(
-                                                &temp_eval_ctx, &temp_state, None,
+                                                &temp_eval_ctx, &temp_state, &[],
                                             );
                                             if let Some(default_scalar) =
                                                 mark.default_channel_value(ch_name, &temp_ctx)
@@ -910,6 +910,7 @@ async fn build_temp_configured_scale(
             scale_spec,
             options,
             domain,
+            ..
         } => {
             // Build a temporary configured scale using the explicit domain and options
             let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());

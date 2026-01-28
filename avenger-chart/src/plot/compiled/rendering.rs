@@ -519,45 +519,7 @@ impl CompiledPlot {
         }))
     }
 
-    /// Measure a single mark to cache data for the render pass.
-    /// This is the first pass of the two-pass measure/render architecture.
-    pub(super) async fn measure_mark_with_plot_df(
-        &self,
-        mark: &dyn CompiledMark,
-        eval_ctx: &EvaluationContext,
-        scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        plot_width: f32,
-        plot_height: f32,
-        provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-    ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
-        let prepared = self
-            .prepare_mark_data(
-                mark,
-                eval_ctx,
-                scales,
-                plot_width,
-                plot_height,
-                provided_plot_df,
-            )
-            .await?;
-
-        let Some(prepared) = prepared else {
-            return Ok(Box::new(crate::marks::EmptyMarkMeasurement));
-        };
-
-        let render_ctx = RenderContext::new(eval_ctx, &prepared.render_state, None);
-        let coord_transform = self.coord_transform.clone_box();
-        mark.measure_from_data(
-            prepared.data_batch.as_ref(),
-            &prepared.scalar_batch,
-            &render_ctx,
-            coord_transform,
-        )
-        .await
-    }
-
-    /// Render a single mark using a previously computed layout mark_measurement.
-    /// This is the second pass of the two-pass measure/render architecture.
+    /// Render a single mark to scene marks.
     pub(super) async fn render_mark_with_plot_df(
         &self,
         mark: &dyn CompiledMark,
@@ -566,8 +528,8 @@ impl CompiledPlot {
         plot_width: f32,
         plot_height: f32,
         provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-        facet_position: Option<&[usize]>,
-        measurement: &dyn crate::marks::MarkMeasurement,
+        facet_path: &[datafusion::common::ScalarValue],
+        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let prepared = self
             .prepare_mark_data(
@@ -584,14 +546,18 @@ impl CompiledPlot {
             return Ok(vec![]);
         };
 
-        let render_ctx = RenderContext::new(eval_ctx, &prepared.render_state, facet_position);
+        let render_ctx = RenderContext::with_coord_measurement(
+            eval_ctx,
+            &prepared.render_state,
+            facet_path,
+            coord_measurement,
+        );
         let coord_transform = self.coord_transform.clone_box();
         mark.render_from_data(
             prepared.data_batch.as_ref(),
             &prepared.scalar_batch,
             &render_ctx,
             coord_transform,
-            measurement,
         )
         .await
     }
@@ -607,7 +573,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         data_override: Option<&DataFrame>,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_position: Option<&[usize]>,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use the pre-built guide renderer if available
         if let Some(compiled_guide) = &self.compiled_guide {
@@ -651,7 +617,7 @@ impl CompiledPlot {
                     ctx,
                     data_override,
                     facet_tree,
-                    facet_position,
+                    facet_path,
                 )
                 .await
         } else {
@@ -685,6 +651,7 @@ impl CompiledPlot {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
+            let empty_facet_tree = crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty();
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
@@ -694,6 +661,8 @@ impl CompiledPlot {
                     params,
                     None, // No data override in top-level estimate
                     ctx,
+                    &empty_facet_tree,
+                    &[], // Empty path for top-level (not in a facet cell)
                 )
                 .await?
         } else {
@@ -754,6 +723,8 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&DataFrame>,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
         use crate::layout::{
             ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
@@ -778,6 +749,8 @@ impl CompiledPlot {
                     params,
                     data_override,
                     ctx,
+                    facet_tree,
+                    facet_path,
                 )
                 .await?
         } else {
@@ -952,26 +925,28 @@ impl CompiledPlot {
         Ok(legend_marks)
     }
 
-    /// Measure plot components without rendering (for layout coordination)
+    /// Measure plot components without rendering (for layout coordination).
     ///
     /// This method performs all setup and measurement needed for layout coordination:
-    /// - Merges parameters with defaults
     /// - Computes layout to determine plot area dimensions
-    /// - Builds scales
-    /// - Measures all marks to get overflow requirements and measurements
+    /// - Builds scales with the provided scale_provider
+    /// - Calls coordinate system measure (for facet cell layout)
+    /// - Computes overflow requirements for guide elements
     ///
     /// Returns `ComponentsMeasurement` which can be used to:
     /// - Get overflow for parent layout coordination (facets)
-    /// - Pass to `build_plot_components_with_measurement` for rendering
+    /// - Pass to `build_plot_components` for rendering
     ///
     /// # Arguments
+    /// * `eval_ctx` - Evaluation context with theme, session, params, and facet tree
     /// * `width` - Canvas width (when dimensions_are_plot_area=false) or plot area width (when true)
     /// * `height` - Canvas height (when dimensions_are_plot_area=false) or plot area height (when true)
-    /// * `ctx` - DataFusion session context
-    /// * `params` - Parameters for evaluation
-    /// * `scale_provider` - Provider for building scales
-    /// * `data_override` - Optional data override for faceted subplots
-    /// * `dimensions_are_plot_area` - If true, dimensions are plot area; if false, dimensions are canvas
+    /// * `scale_provider` - Provider for building scales (prebuilt for shared scales, or from-data)
+    /// * `data_override` - Optional data override for faceted subplots (filtered data)
+    /// * `dimensions_are_plot_area` - If true, width/height are plot area; if false, they are canvas size
+    /// * `facet_path` - Path of values identifying current cell in facet hierarchy (e.g., `["East", "Eng"]`).
+    ///   Used for tree navigation, data filtering, and axis visibility checks.
+    /// * `facet_tree` - The evaluated facet tree for visibility and domain queries
     pub async fn measure_plot_components(
         &self,
         eval_ctx: &EvaluationContext,
@@ -980,6 +955,8 @@ impl CompiledPlot {
         scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
+        facet_path: &[datafusion::common::ScalarValue],
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     ) -> Result<crate::plot::compiled::ComponentsMeasurement, AvengerChartError> {
         use avenger_scales::scales::ConfiguredScale;
         use std::collections::HashMap;
@@ -1018,6 +995,8 @@ impl CompiledPlot {
                     ctx,
                     &merged_params,
                     data_override,
+                    facet_tree,
+                    facet_path,
                 )
                 .await?;
 
@@ -1050,6 +1029,36 @@ impl CompiledPlot {
             .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
             .await?;
 
+        // 5. Coordinate system measurement (e.g., facet cell layout)
+        // This allows coordinate systems to compute layout data that's available
+        // to both guides and marks during rendering.
+        //
+        // Get data for coord measurement: use data_override if provided (nested facets),
+        // otherwise use the plot's own data (top-level).
+        let plot_data = if data_override.is_some() {
+            None
+        } else {
+            self.data.as_ref().and_then(|node| {
+                node.to_logical_plan(ctx)
+                    .ok()
+                    .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+            })
+        };
+        let coord_data = data_override.or(plot_data.as_ref());
+
+        let coord_measurement = self
+            .coord_transform
+            .measure(
+                &final_scales,
+                plot_area_width,
+                plot_area_height,
+                &params_with_dims,
+                coord_data,
+                &self.marks,
+                facet_path,
+            )
+            .await?;
+
         // Get clip region
         let clip = if let Some(ref guide) = self.compiled_guide {
             let configured_scales: HashMap<String, ConfiguredScale> = final_scales
@@ -1066,37 +1075,12 @@ impl CompiledPlot {
             }
         };
 
-        // 5. Measure all marks to cache data for render pass
-        let df_opt = data_override;
-
-        let mut mark_measurements: Vec<Box<dyn crate::marks::MarkMeasurement>> = Vec::new();
-        for mark in &self.marks {
-            let mark_measurement = self
-                .measure_mark_with_plot_df(
-                    mark.as_ref(),
-                    &params_with_dims,
-                    &final_scales,
-                    plot_area_width,
-                    plot_area_height,
-                    df_opt,
-                )
-                .await?;
-            mark_measurements.push(mark_measurement);
-        }
-
-        // Merge scales with mark-provided scale updates directly from measurements
-        let merged_scales: HashMap<String, crate::scales::ConfiguredScaleWithSpec> = final_scales
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .chain(mark_measurements.iter().flat_map(|m| m.scale_updates()))
-            .collect();
-
         // Note: Overflow info is available via layout.overflow (guide only) and
         // layout.total_overflow (guide + legends), computed during layout phase.
 
         Ok(crate::plot::compiled::ComponentsMeasurement {
-            mark_measurements,
-            scales: merged_scales,
+            coord_measurement,
+            scales: final_scales,
             plot_area_width,
             plot_area_height,
             canvas_size,
@@ -1125,18 +1109,19 @@ impl CompiledPlot {
     /// Call `measure_plot_components()` first to get the measurement.
     ///
     /// # Arguments
-    /// * `ctx` - DataFusion session context
+    /// * `eval_ctx` - Evaluation context
     /// * `measurement` - Pre-computed measurement from `measure_plot_components()`
     /// * `data_override` - Optional data override for faceted subplots
     /// * `dimensions_are_plot_area` - If true, dimensions are plot area; if false, canvas
-    /// * `facet_position` - Current cell position in facet hierarchy (for axis visibility)
+    /// * `facet_path` - Current cell path in facet hierarchy as values (for axis visibility).
+    ///   Empty slice when not in a facet cell.
     pub async fn build_plot_components(
         &self,
         eval_ctx: &EvaluationContext,
         measurement: &crate::plot::compiled::ComponentsMeasurement,
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
-        facet_position: Option<&[usize]>,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
         let ctx = &*eval_ctx.session_context;
 
@@ -1162,9 +1147,13 @@ impl CompiledPlot {
         let mark_eval_ctx = eval_ctx.with_params(merged_params.clone());
 
         // Render marks using pre-computed measurements from measurement
+        let coord_measurement_ref = measurement
+            .coord_measurement
+            .as_ref()
+            .map(|c| c.as_ref() as &dyn crate::coords::CoordMeasurement);
+
         let mut data_marks = Vec::new();
-        for (mark, mark_measurement) in self.marks.iter().zip(measurement.mark_measurements.iter())
-        {
+        for mark in &self.marks {
             let marks = self
                 .render_mark_with_plot_df(
                     mark.as_ref(),
@@ -1173,8 +1162,8 @@ impl CompiledPlot {
                     plot_area_width,
                     plot_area_height,
                     data_override,
-                    facet_position,
-                    mark_measurement.as_ref(),
+                    facet_path,
+                    coord_measurement_ref,
                 )
                 .await?;
             data_marks.extend(marks);
@@ -1218,6 +1207,8 @@ impl CompiledPlot {
                             &merged_params,
                             data_override,
                             ctx,
+                            &*eval_ctx.facet_tree,
+                            facet_path,
                         )
                         .await?
                 } else {
@@ -1294,7 +1285,7 @@ impl CompiledPlot {
                         ctx,
                         data_override,
                         eval_ctx.facet_tree.as_ref(),
-                        facet_position,
+                        facet_path,
                     )
                     .await?;
 
@@ -1373,7 +1364,7 @@ impl CompiledPlot {
                         ctx,
                         data_override,
                         eval_ctx.facet_tree.as_ref(),
-                        facet_position,
+                        facet_path,
                     )
                     .await?;
 
@@ -1593,6 +1584,8 @@ impl CompiledPlot {
                 &provider,
                 None,  // No data override for top-level plots
                 false, // Canvas mode: dimensions are canvas size
+                &[],   // Empty facet path for top-level plots
+                &*facet_tree,
             )
             .await?;
 
@@ -1603,7 +1596,7 @@ impl CompiledPlot {
                 &measurement,
                 None,  // No data override for top-level plots
                 false, // Canvas mode: dimensions are canvas size
-                None,  // No facet position for top-level plots
+                &[],   // Empty path for top-level plots (not in a facet cell)
             )
             .await?;
 

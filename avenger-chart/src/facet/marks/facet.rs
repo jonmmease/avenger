@@ -13,6 +13,7 @@ use crate::plot::{CompiledPlot, Plot};
 use crate::render::RenderContext;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::prelude::SessionContext;
+use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::collections::HashMap;
@@ -250,22 +251,6 @@ impl CompiledMark for CompiledFacetRow {
         true // Facets need full data for nested filtering
     }
 
-    /// Measure faceted row layout - STUBBED
-    ///
-    /// Currently returns empty results. Full facet evaluation will be rebuilt
-    /// on the EvaluatedFacetTree abstraction.
-    async fn measure_from_data(
-        &self,
-        _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
-        _scalars: &datafusion::arrow::record_batch::RecordBatch,
-        _context: &RenderContext,
-        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
-        // STUBBED: Return empty measurement
-        // TODO: Implement proper facet measurement using FacetRowMeasurement
-        Ok(Box::new(crate::marks::EmptyMarkMeasurement))
-    }
-
     /// Render faceted row layout - STUBBED
     ///
     /// Currently returns empty results. Full facet evaluation will be rebuilt
@@ -276,7 +261,6 @@ impl CompiledMark for CompiledFacetRow {
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         _context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-        _measurement: &dyn crate::marks::MarkMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // STUBBED: Return empty scene marks
         // TODO: Implement proper facet rendering using cached measurement data
@@ -444,206 +428,99 @@ impl CompiledMark for CompiledFacetCol {
 
     /// Measure faceted column layout
     ///
-    /// For each column value:
-    /// 1. Filter the data to that column's subset
-    /// 2. Measure the subplot with filtered data
-    /// 3. Cache the measurement for the render pass
-    async fn measure_from_data(
-        &self,
-        data: Option<&datafusion::arrow::record_batch::RecordBatch>,
-        _scalars: &datafusion::arrow::record_batch::RecordBatch,
-        context: &RenderContext,
-        _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-    ) -> Result<Box<dyn crate::marks::MarkMeasurement>, AvengerChartError> {
-        use avenger_scales::scales::band::bandwidth;
-        use crate::facet::marks::facet_evaluation::batch_to_dataframe;
-        use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
-        use datafusion::common::ScalarValue;
-
-        // Get the column scale for layout calculations
-        let column_scale = context
-            .scales()
-            .get("column")
-            .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
-
-        // Get bandwidth (subplot width) from the band scale
-        let subplot_width = bandwidth(&column_scale.configured().config).map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
-        })?;
-
-        // DEBUG: Print scale config info
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            use avenger_scales::scales::band::step;
-            let step_val = step(&column_scale.configured().config).unwrap_or(-1.0);
-            let (range_min, range_max) = column_scale.configured().config.numeric_interval_range().unwrap_or((0.0, 0.0));
-            eprintln!(
-                "FacetCol measure: range=[{:.1}, {:.1}] bandwidth={:.1} step={:.1}",
-                range_min, range_max, subplot_width, step_val
-            );
-        }
-
-        // Get column values from the facet tree
-        let facet_tree = context.facet_tree();
-        let root = facet_tree.root().ok_or_else(|| {
-            AvengerChartError::InternalError("No facet tree root found".into())
-        })?;
-
-        // Collect column values
-        let column_values: Vec<ScalarValue> = root.values().cloned().collect();
-
-        if column_values.is_empty() {
-            return Ok(Box::new(crate::marks::FacetColMeasurement {
-                column_values: Vec::new(),
-                column_positions: Vec::new(),
-                subplot_width,
-                subplot_height: context.plot_height(),
-                subplot_measurements: Vec::new(),
-                data_overrides: Vec::new(),
-            }));
-        }
-
-        // Get positions from the band scale
-        let domain_array = ScalarValue::iter_to_array(column_values.iter().cloned()).map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to create domain array: {}", e))
-        })?;
-        let positions = column_scale
-            .configured()
-            .scale_impl
-            .scale_to_numeric(&column_scale.configured().config, &domain_array)
-            .map_err(|e| {
-                AvengerChartError::InternalError(format!("Failed to scale positions: {}", e))
-            })?;
-        let column_positions: Vec<f32> = positions.as_vec(column_values.len(), None);
-
-        // Convert RecordBatch to DataFrame for filtering
-        let data_batch = data.ok_or_else(|| {
-            AvengerChartError::InternalError("Facet mark requires data".into())
-        })?;
-        let base_df = batch_to_dataframe(data_batch, context.session_context())?;
-
-        // For each column value, filter data and measure subplot
-        let mut subplot_measurements = Vec::with_capacity(column_values.len());
-        let mut data_overrides = Vec::with_capacity(column_values.len());
-
-        // For shared scales: build scales once from the FULL data, then reuse for all subplots
-        // Use the facet's full (unfiltered) data to derive scale domains
-        let shared_scales = self
-            .compiled_subplot
-            .build_scales_for_dataframe(
-                &base_df,
-                subplot_width,
-                context.plot_height(),
-                context.session_context(),
-                context.params(),
-            )
-            .await?;
-
-        // Now use PrebuiltScaleProvider with the shared scales for all subplots
-        let scale_provider = PrebuiltScaleProvider { scales: shared_scales };
-
-        // Create subplot EvaluationContext with merged params (subplot defaults + parent params)
-        let subplot_eval_ctx = {
-            let mut params = self.compiled_subplot.get_default_params().clone();
-            params.extend(context.eval.params.clone());
-            context.eval.with_params(params)
-        };
-
-        for (idx, value) in column_values.iter().enumerate() {
-            // Get filter predicate for this column value
-            // sharing_level=0 means use Free (full filter)
-            let predicate = facet_tree.cell_predicate(&[value.clone()], 0);
-
-            // Filter the data
-            let filtered_df = if let Some(pred) = predicate {
-                base_df.clone().filter(pred).map_err(|e| {
-                    AvengerChartError::InternalError(format!(
-                        "Failed to filter data for column {:?}: {}",
-                        value, e
-                    ))
-                })?
-            } else {
-                base_df.clone()
-            };
-
-            // Measure the subplot with filtered data
-            let measurement = self
-                .compiled_subplot
-                .measure_plot_components(
-                    &subplot_eval_ctx,
-                    subplot_width,
-                    context.plot_height(),
-                    &scale_provider,
-                    Some(&filtered_df),
-                    true, // dimensions_are_plot_area
-                )
-                .await?;
-
-            subplot_measurements.push(measurement);
-            data_overrides.push(filtered_df);
-
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "FacetCol: column[{}]={:?} position={:.1} width={:.1}",
-                    idx, value, column_positions[idx], subplot_width
-                );
-            }
-        }
-
-        Ok(Box::new(crate::marks::FacetColMeasurement {
-            column_values,
-            column_positions,
-            subplot_width,
-            subplot_height: context.plot_height(),
-            subplot_measurements,
-            data_overrides,
-        }))
-    }
-
     /// Render faceted column layout
     ///
-    /// Uses cached measurements from measure_from_data to render each subplot
-    /// and position them using SceneGroups.
+    /// Uses coord_measurement from RenderContext (computed by FacetColumn coord system)
+    /// to get padding_inner_px. Rebuilds the band scale with this padding to compute
+    /// correct positions and widths, then measures and renders each subplot.
     async fn render_from_data(
         &self,
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
         _scalars: &datafusion::arrow::record_batch::RecordBatch,
         context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
-        measurement: &dyn crate::marks::MarkMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_scenegraph::marks::group::{Clip, SceneGroup};
+        use avenger_scales::scales::band::bandwidth;
+        use crate::facet::coord::FacetColCoordMeasurement;
 
-        // Downcast measurement to FacetColMeasurement
-        let facet_measurement = measurement
-            .as_any()
-            .downcast_ref::<crate::marks::FacetColMeasurement>()
+        // Get coord_measurement from context and downcast to FacetColCoordMeasurement
+        let coord_measurement = context
+            .coord_measurement()
             .ok_or_else(|| {
                 AvengerChartError::InternalError(
-                    "Expected FacetColMeasurement in render_from_data".into(),
+                    "FacetCol render requires coord_measurement in RenderContext".into(),
                 )
             })?;
 
-        let mut scene_marks = Vec::with_capacity(facet_measurement.column_values.len());
+        let facet_measurement = coord_measurement
+            .as_any()
+            .downcast_ref::<FacetColCoordMeasurement>()
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "Expected FacetColCoordMeasurement in coord_measurement".into(),
+                )
+            })?;
 
-        // Create subplot EvaluationContext with merged params (subplot defaults + parent params)
+        if facet_measurement.cell_values.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Get the column scale and rebuild it with padding_inner_px
+        let column_scale = context
+            .scales()
+            .get("column")
+            .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
+
+        let updated_scale = column_scale
+            .configured()
+            .clone()
+            .with_option("padding_inner_px", facet_measurement.padding_inner_px);
+
+        // Compute positions from the updated scale
+        let domain_array = ScalarValue::iter_to_array(
+            facet_measurement.cell_values.iter().cloned(),
+        )
+        .map_err(|e| {
+            AvengerChartError::InternalError(format!("Failed to create domain array: {}", e))
+        })?;
+
+        let positions = updated_scale
+            .scale_impl
+            .scale_to_numeric(&updated_scale.config, &domain_array)
+            .map_err(|e| {
+                AvengerChartError::InternalError(format!("Failed to scale positions: {}", e))
+            })?;
+        let cell_positions: Vec<f32> = positions.as_vec(facet_measurement.cell_values.len(), None);
+
+        // Get subplot width from updated scale (used for debug logging)
+        let subplot_width = bandwidth(&updated_scale.config).map_err(|e| {
+            AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
+        })?;
+
+        // Create subplot EvaluationContext with merged params
         let subplot_eval_ctx = {
             let mut params = self.compiled_subplot.get_default_params().clone();
             params.extend(context.eval.params.clone());
             context.eval.with_params(params)
         };
 
-        // Render each subplot using its cached measurement
-        for (idx, (measurement, data_override)) in facet_measurement
-            .subplot_measurements
+        let mut scene_marks = Vec::with_capacity(facet_measurement.cell_values.len());
+
+        // Render each subplot using pre-computed measurements from coord.measure()
+        for (idx, (data_override, measurement)) in facet_measurement
+            .data_overrides
             .iter()
-            .zip(facet_measurement.data_overrides.iter())
+            .zip(facet_measurement.subplot_measurements.iter())
             .enumerate()
         {
-            let position = facet_measurement.column_positions[idx];
+            let position = cell_positions[idx];
 
-            // Build subplot components using cached measurement
-            // Pass the cell position for axis visibility decisions
-            let facet_position = [idx];
+            // Build full cell path from parent_path + current cell value
+            let mut cell_path: Vec<ScalarValue> = facet_measurement.parent_path.clone();
+            cell_path.push(facet_measurement.cell_values[idx].clone());
+
+            // Build subplot components using the pre-computed measurement
             let components = self
                 .compiled_subplot
                 .build_plot_components(
@@ -651,7 +528,7 @@ impl CompiledMark for CompiledFacetCol {
                     measurement,
                     Some(data_override),
                     true, // dimensions_are_plot_area
-                    Some(&facet_position),
+                    &cell_path,  // Value-based path for visibility
                 )
                 .await?;
 
@@ -667,7 +544,7 @@ impl CompiledMark for CompiledFacetCol {
             let subplot_group = SceneGroup {
                 name: format!("facet_col_{}", idx),
                 origin: [position, 0.0],
-                clip: Clip::None, // Let subplot handle its own clipping
+                clip: Clip::None,
                 marks: subplot_marks,
                 gradients: Vec::new(),
                 fill: None,
@@ -681,8 +558,8 @@ impl CompiledMark for CompiledFacetCol {
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
-                    "FacetCol render: column[{}] at x={:.1}",
-                    idx, position
+                    "FacetCol render: column[{}] at x={:.1} width={:.1}",
+                    idx, position, subplot_width
                 );
             }
         }

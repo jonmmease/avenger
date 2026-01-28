@@ -67,6 +67,11 @@ pub trait CompiledGuide: Send + Sync + 'static {
     /// * `data_override` - Optional DataFrame to use instead of compiled data.
     ///   This enables nested facets to pass filtered data to inner guides at runtime.
     ///   When Some, guides should use this data. When None, use compiled data.
+    /// * `facet_tree` - The evaluated facet tree for visibility decisions.
+    /// * `facet_path` - Path of values identifying the cell in the facet grid (e.g., `["East", "Eng"]`).
+    ///   Empty slice when not in a facet cell.
+    ///   Used for visibility-aware overflow: interior cells may hide axis labels.
+    ///   The tree converts this to indices internally for visibility checks.
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -76,6 +81,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
     /// Measure only the intrinsic subplot overflow, excluding facet-level decorative content
@@ -95,6 +102,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // Default implementation: same as measure_overflow()
         self.measure_overflow(
@@ -105,6 +114,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
             params,
             data_override,
             ctx,
+            facet_tree,
+            facet_path,
         )
         .await
     }
@@ -126,6 +137,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<MeasurementResult, AvengerChartError> {
         // Default: measure once, return with empty spacing_needs
         let overflow = self
@@ -137,6 +150,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
                 params,
                 data_override,
                 ctx,
+                facet_tree,
+                facet_path,
             )
             .await?;
         Ok(MeasurementResult::new(overflow))
@@ -149,7 +164,8 @@ pub trait CompiledGuide: Send + Sync + 'static {
     ///   This enables nested facets to pass filtered data to inner guides at runtime.
     ///   When Some, guides should use this data. When None, use compiled data.
     /// * `facet_tree` - Pre-computed facet structure for visibility decisions.
-    /// * `facet_position` - Current cell position in facet hierarchy (indices at each level).
+    /// * `facet_path` - Path of values identifying the cell in the facet grid (e.g., `["East", "Eng"]`).
+    ///   Empty slice when not in a facet cell.
     async fn evaluate(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -161,7 +177,7 @@ pub trait CompiledGuide: Send + Sync + 'static {
         ctx: &datafusion::prelude::SessionContext,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         facet_tree: &EvaluatedFacetTree,
-        facet_position: Option<&[usize]>,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Get the clipping region for the coordinate system

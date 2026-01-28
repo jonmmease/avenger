@@ -184,7 +184,7 @@ impl CartesianAxis {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &datafusion::prelude::SessionContext,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_position: Option<&[usize]>,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<SceneMark, AvengerChartError> {
         use crate::plot::compiled::expr_eval::{
             evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
@@ -303,11 +303,11 @@ impl CartesianAxis {
                 true
             };
 
-        // Query facet-aware visibility based on cell position and axis position
-        let facet_visibility = if let Some(pos) = facet_position {
-            facet_tree.axis_visibility(pos, position)
-        } else {
+        // Query facet-aware visibility based on cell path and axis position
+        let facet_visibility = if facet_path.is_empty() {
             crate::facet::evaluated_facet_tree::AxisVisibility::visible()
+        } else {
+            facet_tree.axis_visibility_for_path(facet_path, position)
         };
 
         // Combine user-specified show_title with facet visibility

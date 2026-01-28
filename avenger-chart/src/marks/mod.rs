@@ -36,75 +36,6 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Trait for mark-specific data cached during the measurement pass
-///
-/// Marks can implement custom measurement types to cache intermediate computation
-/// results between the measure and render passes. This enables efficient
-/// two-pass rendering where expensive computations only happen once.
-///
-/// # Design Notes
-///
-/// The `as_any()` method enables downcasting from `dyn MarkMeasurement` to the
-/// concrete type. This pattern (same as `PlotGeometry`) preserves object safety
-/// while allowing marks to use their specific measurement types.
-pub trait MarkMeasurement: Send + Sync {
-    /// Downcast support for accessing concrete measurement types
-    fn as_any(&self) -> &dyn Any;
-
-    /// Scale updates from this mark (e.g., facet marks may adjust scales)
-    ///
-    /// Returns an empty map by default. Layout marks override this to return
-    /// scales that were modified during measurement.
-    fn scale_updates(&self) -> HashMap<String, crate::scales::ConfiguredScaleWithSpec> {
-        HashMap::new()
-    }
-}
-
-/// Empty measurement for marks that don't cache data between measure/render passes
-///
-/// Most regular marks (Symbol, Line, Rect) use this since they perform
-/// the same computation in both passes. Layout marks like Facet use
-/// custom measurement types to cache subplot measurements.
-#[derive(Default)]
-pub struct EmptyMarkMeasurement;
-
-impl MarkMeasurement for EmptyMarkMeasurement {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-/// Measurement data cached during measure pass for FacetCol marks
-///
-/// Stores subplot measurements and layout information needed for the render pass.
-/// This enables efficient two-pass rendering where subplot measurements are computed
-/// once and reused during rendering.
-#[derive(Debug)]
-pub struct FacetColMeasurement {
-    /// The facet column values (one per subplot)
-    pub column_values: Vec<ScalarValue>,
-
-    /// X positions for each column (from band scale)
-    pub column_positions: Vec<f32>,
-
-    /// Width of each subplot (bandwidth from band scale)
-    pub subplot_width: f32,
-
-    /// Height of each subplot
-    pub subplot_height: f32,
-
-    /// Cached measurements for each subplot (in order matching column_values)
-    pub subplot_measurements: Vec<crate::plot::compiled::ComponentsMeasurement>,
-
-    /// Filtered DataFrames for each subplot (for render pass)
-    pub data_overrides: Vec<datafusion::dataframe::DataFrame>,
-}
-
-impl MarkMeasurement for FacetColMeasurement {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
 
 /// Expression for computing radius/padding requirements for marks
 ///
@@ -191,33 +122,13 @@ pub trait CompiledMark: Any + Send + Sync {
     /// The plot area dimensions are provided via `context.plot_width` and `context.plot_height`.
     ///
     /// # Arguments
-    /// * `data` - RecordBatch with array data (multiple rows), or None if all channels are scalar
-    /// * `scalars` - RecordBatch with scalar data (single row) for channels that don't vary per mark
-    /// * `context` - RenderContext containing theme, plot dimensions, and other rendering state
-    /// * `coord` - Coordinate system for position transformations
-    ///
-    /// # Returns
-    /// Cached data for the render pass. Most marks return `Box::new(EmptyMarkMeasurement)`.
-    /// Facet marks cache cell positions, scale updates, child measurements, etc.
-    async fn measure_from_data(
-        &self,
-        data: Option<&RecordBatch>,
-        scalars: &RecordBatch,
-        context: &RenderContext,
-        coord: Box<dyn CoordinateSystemTransform>,
-    ) -> Result<Box<dyn MarkMeasurement>, AvengerChartError>;
-
-    /// Render pass: create scene marks using cached measurement data
-    ///
-    /// This method is called during the render phase to create the actual scene marks.
-    /// It can use data cached in the measurement from the measure pass to avoid recomputation.
+    /// Render the mark from prepared data batches
     ///
     /// # Arguments
     /// * `data` - RecordBatch with array data (multiple rows), or None if all channels are scalar
     /// * `scalars` - RecordBatch with scalar data (single row) for channels that don't vary per mark
     /// * `context` - RenderContext containing theme, dimensions, and other rendering state
     /// * `coord` - Coordinate system for position transformations
-    /// * `measurement` - Cached data from the measure pass (from `measure_from_data`)
     ///
     /// # Returns
     /// A vector of scene marks ready for rendering
@@ -227,7 +138,6 @@ pub trait CompiledMark: Any + Send + Sync {
         scalars: &RecordBatch,
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
-        measurement: &dyn MarkMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Whether this mark type supports the order encoding channel

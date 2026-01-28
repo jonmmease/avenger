@@ -486,6 +486,64 @@ impl EvaluatedFacetTree {
         }
     }
 
+    /// Convert a path of domain values to position indices.
+    ///
+    /// This is the inverse of `path_values_from_indices`. Given a path like
+    /// `["East", "Eng"]`, returns the indices `[0, 1]` if "East" is at index 0
+    /// and "Eng" is at index 1 in their respective levels.
+    ///
+    /// Returns `None` if any value in the path is not found at its level.
+    pub fn indices_from_path(&self, path: &[ScalarValue]) -> Option<Vec<usize>> {
+        if path.is_empty() {
+            return Some(Vec::new());
+        }
+
+        let mut indices = Vec::with_capacity(path.len());
+        let mut current_node = self.root.as_ref()?;
+
+        for (level, value) in path.iter().enumerate() {
+            // Find the index of this value at the current level
+            let index = match &current_node.content {
+                PartitionContent::Leaf { values } => {
+                    values.iter().position(|v| v == value)?
+                }
+                PartitionContent::Branch { children } => {
+                    children.get_index_of(value)?
+                }
+            };
+            indices.push(index);
+
+            // Navigate to next level if not at end of path
+            if level + 1 < path.len() {
+                current_node = current_node.child(value)?;
+            }
+        }
+
+        Some(indices)
+    }
+
+    /// Determine axis visibility for a cell at given path in the facet grid.
+    ///
+    /// This is a convenience wrapper around `axis_visibility` that converts
+    /// a value path to indices first. Use this when you have the cell's value
+    /// path (e.g., `["East", "Eng"]`) rather than indices.
+    ///
+    /// Returns `AxisVisibility::visible()` if the path is invalid or empty.
+    pub fn axis_visibility_for_path(
+        &self,
+        path: &[ScalarValue],
+        axis_position: AxisPosition,
+    ) -> AxisVisibility {
+        if path.is_empty() {
+            return AxisVisibility::visible();
+        }
+
+        match self.indices_from_path(path) {
+            Some(indices) => self.axis_visibility(&indices, axis_position),
+            None => AxisVisibility::visible(), // Invalid path, default to visible
+        }
+    }
+
     /// Convert position indices to actual domain values by traversing tree.
     ///
     /// Uses IndexMap::get_index() to recover domain values from indices.

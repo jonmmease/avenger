@@ -20,6 +20,7 @@ impl CoordinateSystem for Cartesian {
     }
 }
 
+#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for Cartesian {
     fn required_channels(&self) -> &'static [&'static str] {

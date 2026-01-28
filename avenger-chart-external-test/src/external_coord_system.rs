@@ -298,6 +298,7 @@ struct IsometricTransform {
     angle: f64,
 }
 
+#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for IsometricTransform {
     fn required_channels(&self) -> &'static [&'static str] {

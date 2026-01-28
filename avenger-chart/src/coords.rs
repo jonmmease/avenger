@@ -8,8 +8,24 @@ use avenger_common::value::ScalarOrArray;
 use datafusion::common::ScalarValue;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Coordinate-system-specific measurement data computed during the measure phase.
+///
+/// This trait allows coordinate systems (especially facets) to compute layout data
+/// once during measurement and make it available to both guides and marks during rendering.
+///
+/// # Design
+///
+/// The `as_any()` method enables downcasting from `dyn CoordMeasurement` to the
+/// concrete type. This pattern (same as `PlotGeometry`) preserves object safety
+/// while allowing coordinate systems to use their specific measurement types.
+pub trait CoordMeasurement: Send + Sync + 'static {
+    /// Downcast support for accessing concrete measurement types
+    fn as_any(&self) -> &dyn Any;
+}
 
 #[typetag::serde(tag = "type")]
 pub trait PlotGeometry: Send + Sync + 'static {
@@ -217,12 +233,27 @@ pub fn extract_channel_title_from_marks(
     None
 }
 
+#[async_trait::async_trait]
 #[typetag::serde(tag = "type")]
 pub trait CoordinateSystemTransform: Send + Sync {
     fn required_channels(&self) -> &'static [&'static str];
 
     /// Clone this transform into a new boxed instance
     fn clone_box(&self) -> Box<dyn CoordinateSystemTransform>;
+
+    async fn measure(
+        &self,
+        _scales: &std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        _plot_width: f32,
+        _plot_height: f32,
+        _eval_ctx: &crate::render::EvaluationContext,
+        _data: Option<&datafusion::dataframe::DataFrame>,
+        _compiled_marks: &[Arc<dyn CompiledMark>],
+        _facet_path: &[ScalarValue],
+    ) -> Result<Option<Box<dyn CoordMeasurement>>, AvengerChartError> {
+        // Default: no coordinate-level measurement needed
+        Ok(None)
+    }
 
     /// Return a new transform updated with measured padding and overflow data.
     ///

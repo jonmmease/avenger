@@ -1,10 +1,68 @@
-use crate::coords::{CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRequirement};
+use crate::coords::{
+    CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRequirement,
+};
 use crate::error::AvengerChartError;
 use crate::facet::guide::{FacetColGuideConfig, FacetRowGuideConfig};
+use crate::facet::marks::facet::CompiledFacetCol;
+use crate::marks::CompiledMark;
+use crate::plot::compiled::ComponentsMeasurement;
+use crate::render::EvaluationContext;
+use crate::scales::ConfiguredScaleWithSpec;
 use avenger_common::value::ScalarOrArray;
 use datafusion::common::ScalarValue;
+use datafusion::dataframe::DataFrame;
 use serde::{Deserialize, Serialize};
+use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Measurement data for FacetColumn coordinate system.
+///
+/// This captures the computed padding from overflow measurement and pre-computed
+/// subplot measurements. Marks use the stored measurements directly without re-measuring.
+pub struct FacetColCoordMeasurement {
+    /// Facet column values (one per cell)
+    pub cell_values: Vec<ScalarValue>,
+    /// Computed padding between cells in pixels (MAX of adjacent overflow combinations)
+    pub padding_inner_px: f32,
+    /// Filtered DataFrames for each cell
+    pub data_overrides: Vec<DataFrame>,
+    /// Pre-built shared scales for subplots (domains from full data).
+    /// Ranges may need updating for final subplot dimensions.
+    pub shared_scales: HashMap<String, ConfiguredScaleWithSpec>,
+    /// Parent facet path (for nested facets). This is the path to reach this facet level.
+    /// When constructing cell paths for nested subplots, prepend this to the cell value.
+    pub parent_path: Vec<ScalarValue>,
+    /// Pre-computed subplot measurements (computed with final subplot width after padding_inner_px).
+    /// These are used directly by render_from_data to avoid re-measuring.
+    pub subplot_measurements: Vec<ComponentsMeasurement>,
+}
+
+impl CoordMeasurement for FacetColCoordMeasurement {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+/// Compute padding_inner_px from the MAX of all adjacent overflow combinations.
+///
+/// For a FacetCol layout, the gap between cell[i] and cell[i+1] must accommodate:
+/// - cell[i].right overflow (typically tick-only for interior, full for last)
+/// - cell[i+1].left overflow (typically full for first, tick-only for interior)
+///
+/// We compute the MAX across all pairs to ensure uniform spacing.
+fn compute_padding_from_overflows(overflows: &[OverflowSpaceRequirement]) -> f32 {
+    if overflows.len() < 2 {
+        return 0.0;
+    }
+
+    let mut max_padding = 0.0f32;
+    for i in 0..overflows.len() - 1 {
+        let combined = overflows[i].right + overflows[i + 1].left;
+        max_padding = max_padding.max(combined);
+    }
+    max_padding
+}
 
 /// Row faceting coordinate system
 ///
@@ -85,6 +143,7 @@ fn compute_band_layout(positions: &[f32], extent: f32, padding_px: Option<f32>) 
     (starts, effective_bandwidth)
 }
 
+#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for FacetRow {
     fn required_channels(&self) -> &'static [&'static str] {
@@ -220,6 +279,7 @@ impl CoordinateSystem for FacetColumn {
     }
 }
 
+#[async_trait::async_trait]
 #[typetag::serde]
 impl CoordinateSystemTransform for FacetColumn {
     fn required_channels(&self) -> &'static [&'static str] {
@@ -245,6 +305,220 @@ impl CoordinateSystemTransform for FacetColumn {
                 Box::new(updated)
             }
         }
+    }
+
+    async fn measure(
+        &self,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        _plot_width: f32,
+        plot_height: f32,
+        eval_ctx: &EvaluationContext,
+        data: Option<&DataFrame>,
+        compiled_marks: &[Arc<dyn CompiledMark>],
+        facet_path: &[ScalarValue],
+    ) -> Result<Option<Box<dyn CoordMeasurement>>, AvengerChartError> {
+        use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
+        use avenger_scales::scales::band::bandwidth;
+
+        // Find the CompiledFacetCol mark to access its subplot
+        let facet_mark = compiled_marks
+            .iter()
+            .find_map(|m| m.as_any().downcast_ref::<CompiledFacetCol>())
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "FacetColumn coord requires a CompiledFacetCol mark".into(),
+                )
+            })?;
+
+        let compiled_subplot = &facet_mark.compiled_subplot;
+
+        // Get the column scale for layout calculations
+        let column_scale = scales.get("column").ok_or_else(|| {
+            AvengerChartError::InternalError("No column scale found".into())
+        })?;
+
+        // Get bandwidth (subplot width) from the band scale
+        let subplot_width = bandwidth(&column_scale.configured().config).map_err(|e| {
+            AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
+        })?;
+
+        // Get cell values from the facet tree, navigating to the correct node for nested facets
+        let facet_tree = &eval_ctx.facet_tree;
+        let current_node = if facet_path.is_empty() {
+            facet_tree.root()
+        } else {
+            facet_tree.node_at_path(facet_path)
+        };
+        let current_node = current_node.ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "No facet tree node found at path {:?}",
+                facet_path
+            ))
+        })?;
+
+        let cell_values: Vec<ScalarValue> = current_node.values().cloned().collect();
+
+        if cell_values.is_empty() {
+            return Ok(Some(Box::new(FacetColCoordMeasurement {
+                cell_values: Vec::new(),
+                padding_inner_px: 0.0,
+                data_overrides: Vec::new(),
+                shared_scales: HashMap::new(),
+                parent_path: facet_path.to_vec(),
+                subplot_measurements: Vec::new(),
+            })));
+        }
+
+        // Get the data to filter
+        let data_df = data.ok_or_else(|| {
+            AvengerChartError::InternalError("FacetColumn measure requires data".into())
+        })?;
+
+        // Build shared scales from the FULL data (for shared domain computation)
+        let shared_scales = compiled_subplot
+            .build_scales_for_dataframe(
+                data_df,
+                subplot_width,
+                plot_height,
+                &eval_ctx.session_context,
+                &eval_ctx.params,
+            )
+            .await?;
+
+        // Use PrebuiltScaleProvider to pass shared scales (with pre-computed domains)
+        // to subplots. This preserves the exact ConfiguredScale and only updates ranges.
+        let scale_provider = PrebuiltScaleProvider {
+            scales: shared_scales.clone(),
+        };
+
+        // Create subplot EvaluationContext with merged params
+        let subplot_eval_ctx = {
+            let mut params = compiled_subplot.get_default_params().clone();
+            params.extend(eval_ctx.params.clone());
+            eval_ctx.with_params(params)
+        };
+
+        // === PASS 1: Measure each cell to compute overflow (for padding calculation) ===
+        let mut data_overrides = Vec::with_capacity(cell_values.len());
+        let mut cell_overflows = Vec::with_capacity(cell_values.len());
+
+        for (idx, value) in cell_values.iter().enumerate() {
+            // Build the full path for this cell (parent path + current value)
+            let mut cell_path: Vec<ScalarValue> = facet_path.to_vec();
+            cell_path.push(value.clone());
+
+            // Get filter predicate for this cell using the full path
+            let predicate = facet_tree.cell_predicate(&cell_path, 0);
+
+            // Filter the data
+            let filtered_df = if let Some(pred) = predicate {
+                data_df.clone().filter(pred).map_err(|e| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to filter data for column {:?}: {}",
+                        value, e
+                    ))
+                })?
+            } else {
+                data_df.clone()
+            };
+
+            // Measure the subplot with filtered data to get overflow
+            // Pass cell_path for visibility-aware overflow measurement (value-based path, not indices)
+            let measurement = compiled_subplot
+                .measure_plot_components(
+                    &subplot_eval_ctx,
+                    subplot_width,
+                    plot_height,
+                    &scale_provider,
+                    Some(&filtered_df),
+                    true,        // dimensions_are_plot_area
+                    &cell_path,  // Pass extended path for nested facets AND visibility
+                    &*eval_ctx.facet_tree,
+                )
+                .await?;
+
+            // Get the overflow from the layout (now visibility-aware)
+            let overflow = measurement.layout.overflow.clone();
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "FacetCol coord measure pass 1: cell[{}]={:?} overflow={{left={:.1}, right={:.1}}}",
+                    idx, value, overflow.left, overflow.right
+                );
+            }
+
+            data_overrides.push(filtered_df);
+            cell_overflows.push(overflow);
+        }
+
+        // Compute padding_inner_px from adjacent overflow combinations
+        let padding_inner_px = compute_padding_from_overflows(&cell_overflows);
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "FacetCol coord measure: computed padding_inner_px={:.1} from {} cells",
+                padding_inner_px,
+                cell_values.len()
+            );
+        }
+
+        // === PASS 2: Rebuild column scale with padding_inner_px and re-measure ===
+        // This ensures measurements are computed with the final subplot width
+        let updated_column_scale = column_scale
+            .configured()
+            .clone()
+            .with_option("padding_inner_px", padding_inner_px);
+
+        let final_subplot_width = bandwidth(&updated_column_scale.config).map_err(|e| {
+            AvengerChartError::InternalError(format!("Failed to get final bandwidth: {}", e))
+        })?;
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "FacetCol coord measure pass 2: initial_width={:.1} -> final_width={:.1}",
+                subplot_width, final_subplot_width
+            );
+        }
+
+        let mut subplot_measurements = Vec::with_capacity(cell_values.len());
+
+        for (idx, (value, filtered_df)) in
+            cell_values.iter().zip(data_overrides.iter()).enumerate()
+        {
+            let mut cell_path: Vec<ScalarValue> = facet_path.to_vec();
+            cell_path.push(value.clone());
+
+            let measurement = compiled_subplot
+                .measure_plot_components(
+                    &subplot_eval_ctx,
+                    final_subplot_width,
+                    plot_height,
+                    &scale_provider,
+                    Some(filtered_df),
+                    true,
+                    &cell_path,
+                    &*eval_ctx.facet_tree,
+                )
+                .await?;
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "FacetCol coord measure pass 2: cell[{}]={:?} measured at width={:.1}",
+                    idx, value, final_subplot_width
+                );
+            }
+
+            subplot_measurements.push(measurement);
+        }
+
+        Ok(Some(Box::new(FacetColCoordMeasurement {
+            cell_values,
+            padding_inner_px,
+            data_overrides,
+            shared_scales,
+            parent_path: facet_path.to_vec(),
+            subplot_measurements,
+        })))
     }
 
     fn transform(

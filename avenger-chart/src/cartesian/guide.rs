@@ -194,6 +194,8 @@ impl CompiledGuide for CartesianGuide {
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         data_override: Option<&datafusion::dataframe::DataFrame>,
         ctx: &datafusion::prelude::SessionContext,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use avenger_geometry::marks::MarkGeometryUtils;
 
@@ -206,9 +208,7 @@ impl CompiledGuide for CartesianGuide {
         };
 
         // Evaluate axes to measure their bounding box with actual params
-        // For overflow measurement, we want all labels visible (no facet context)
-        // to ensure we allocate enough space
-        let empty_facet_tree = crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty();
+        // Use facet_tree and facet_path for visibility-aware overflow measurement
         let axis_marks = self
             .evaluate(
                 scales,
@@ -219,8 +219,8 @@ impl CompiledGuide for CartesianGuide {
                 params,
                 ctx,
                 data_override,
-                &empty_facet_tree,
-                None, // No facet position during measurement
+                facet_tree,
+                facet_path,
             )
             .await?;
 
@@ -291,7 +291,7 @@ impl CompiledGuide for CartesianGuide {
         ctx: &datafusion::prelude::SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_position: Option<&[usize]>,
+        facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 
@@ -382,7 +382,7 @@ impl CompiledGuide for CartesianGuide {
                         params,
                         ctx,
                         facet_tree,
-                        facet_position,
+                        facet_path,
                     )
                     .await?;
                 marks.push(axis_mark);
