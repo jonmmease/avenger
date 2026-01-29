@@ -291,6 +291,214 @@ async fn test_facet_col_shared_color_legend() {
     .await;
 }
 
+/// Test: Column facet with legend on LEFT
+/// Verifies spacing between facet cells accounts for left-positioned legend
+#[tokio::test]
+async fn test_facet_col_legend_left() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<FacetColumn>::new()
+        .data(df)
+        .mark(
+            Facet::new().column(col("species")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .fill_with(col("petal_length"), |c| {
+                            c.scale_with::<Linear>(|s| {
+                                s.range(ScaleRange::new_color(vec![
+                                    Srgba::new(0.267, 0.004, 0.329, 1.0),
+                                    Srgba::new(0.127, 0.566, 0.550, 1.0),
+                                    Srgba::new(0.993, 0.906, 0.144, 1.0),
+                                ]))
+                            })
+                            .legend(|l| l.title("Petal Length").position(LegendPosition::Left))
+                        })
+                        .size(48.0),
+                ),
+            ),
+        )
+        .canvas_size(800.0, 400.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_col_legend_left",
+    )
+    .await;
+}
+
+/// Test: Column facet with legend on RIGHT
+/// Verifies spacing between facet cells accounts for right-positioned legend
+#[tokio::test]
+async fn test_facet_col_legend_right() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<FacetColumn>::new()
+        .data(df)
+        .mark(
+            Facet::new().column(col("species")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .fill_with(col("petal_length"), |c| {
+                            c.scale_with::<Linear>(|s| {
+                                s.range(ScaleRange::new_color(vec![
+                                    Srgba::new(0.267, 0.004, 0.329, 1.0),
+                                    Srgba::new(0.127, 0.566, 0.550, 1.0),
+                                    Srgba::new(0.993, 0.906, 0.144, 1.0),
+                                ]))
+                            })
+                            .legend(|l| l.title("Petal Length").position(LegendPosition::Right))
+                        })
+                        .size(48.0),
+                ),
+            ),
+        )
+        .canvas_size(800.0, 400.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_col_legend_right",
+    )
+    .await;
+}
+
+/// Test: Column facet with legend on TOP
+/// Verifies spacing between facet cells accounts for top-positioned legend
+#[tokio::test]
+async fn test_facet_col_legend_top() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<FacetColumn>::new()
+        .data(df)
+        .mark(
+            Facet::new().column(col("species")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .fill_with(col("petal_length"), |c| {
+                            c.scale_with::<Linear>(|s| {
+                                s.range(ScaleRange::new_color(vec![
+                                    Srgba::new(0.267, 0.004, 0.329, 1.0),
+                                    Srgba::new(0.127, 0.566, 0.550, 1.0),
+                                    Srgba::new(0.993, 0.906, 0.144, 1.0),
+                                ]))
+                            })
+                            .legend(|l| l.title("Petal Length").position(LegendPosition::Top))
+                        })
+                        .size(48.0),
+                ),
+            ),
+        )
+        .canvas_size(800.0, 450.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_col_legend_top",
+    )
+    .await;
+}
+
+/// Test: Column facet with legend on BOTTOM
+/// Verifies spacing between facet cells accounts for bottom-positioned legend
+#[tokio::test]
+async fn test_facet_col_legend_bottom() {
+    let ctx = SessionContext::new();
+    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
+    let df = ctx
+        .read_parquet(iris_path, ParquetReadOptions::default())
+        .await
+        .expect("load iris dataset");
+
+    let plot = Plot::<FacetColumn>::new()
+        .data(df)
+        .mark(
+            Facet::new().column(col("species")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x_with(col("sepal_length"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Length"))
+                        })
+                        .y_with(col("sepal_width"), |c| {
+                            c.scale_with::<Linear>(|s| s)
+                                .axis(|a| a.title("Sepal Width"))
+                        })
+                        .fill_with(col("petal_length"), |c| {
+                            c.scale_with::<Linear>(|s| {
+                                s.range(ScaleRange::new_color(vec![
+                                    Srgba::new(0.267, 0.004, 0.329, 1.0),
+                                    Srgba::new(0.127, 0.566, 0.550, 1.0),
+                                    Srgba::new(0.993, 0.906, 0.144, 1.0),
+                                ]))
+                            })
+                            .legend(|l| l.title("Petal Length").position(LegendPosition::Bottom))
+                        })
+                        .size(48.0),
+                ),
+            ),
+        )
+        .canvas_size(800.0, 550.0);
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "facet_legends",
+        "facet_col_legend_bottom",
+    )
+    .await;
+}
+
 /// Test 5: Small 2-row facet with Free legends
 /// Tests with fewer facets
 #[tokio::test]
