@@ -12,6 +12,7 @@ pub struct FacetOptions {
     pub(crate) title: Option<String>,
     pub(crate) spacing: Option<f32>,
     pub(crate) scale_sharing: Option<ScaleSharing>,
+    pub(crate) position: Option<String>,
 }
 
 impl FacetOptions {
@@ -48,6 +49,15 @@ impl FacetOptions {
     pub fn free_scale(self) -> Self {
         self.with_scale_sharing(ScaleSharing::Free)
     }
+
+    /// Set the position of the facet labels.
+    ///
+    /// - `"top"` (default): Labels appear above the plot area
+    /// - `"bottom"`: Labels appear below the plot area
+    pub fn position(mut self, position: impl Into<String>) -> Self {
+        self.position = Some(position.into());
+        self
+    }
 }
 
 impl FacetRowChannelConfig {
@@ -68,6 +78,7 @@ pub struct FacetColChannelConfig {
     pub(crate) title: Option<String>,
     pub(crate) spacing: Option<f32>,
     pub(crate) scale_sharing: Option<ScaleSharing>,
+    pub(crate) position: Option<String>,
 }
 
 impl FacetColChannelConfig {
@@ -79,6 +90,7 @@ impl FacetColChannelConfig {
         self.title = opts.title;
         self.spacing = opts.spacing;
         self.scale_sharing = opts.scale_sharing;
+        self.position = opts.position;
         self
     }
 }

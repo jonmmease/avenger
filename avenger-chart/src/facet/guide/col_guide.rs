@@ -38,6 +38,8 @@ pub struct FacetColGuideConfig {
     compiled_subplot: Option<Arc<CompiledPlot>>,
     /// Logical plan for the facet mark's data (used when data_override is None)
     facet_data_plan: Option<LogicalPlanNode>,
+    /// Position of facet labels ("top" or "bottom")
+    position: Option<String>,
 }
 
 impl FacetColGuideConfig {
@@ -65,7 +67,7 @@ impl CoordinateGuide for FacetColGuideConfig {
         compiled_marks: Vec<Arc<dyn CompiledMark>>,
         _session_context: &SessionContext,
     ) {
-        // Find the CompiledFacetCol mark and extract its subplot, data, and title
+        // Find the CompiledFacetCol mark and extract its subplot, data, title, and position
         for mark in &compiled_marks {
             if let Some(facet_col) = mark.as_any().downcast_ref::<CompiledFacetCol>() {
                 self.compiled_subplot = Some(facet_col.compiled_subplot().clone());
@@ -73,6 +75,8 @@ impl CoordinateGuide for FacetColGuideConfig {
                 self.facet_data_plan = mark.data_context().logical_plan_node().cloned();
                 // Extract the facet title from the mark
                 self.facet_title = facet_col.facet_title().map(|s| s.to_string());
+                // Extract the facet position from the mark
+                self.position = facet_col.facet_position().map(|s| s.to_string());
                 break;
             }
         }
@@ -87,6 +91,7 @@ impl CoordinateGuide for FacetColGuideConfig {
             facet_title: self.facet_title,
             compiled_subplot: self.compiled_subplot,
             facet_data_plan: self.facet_data_plan,
+            position: self.position,
         })
     }
 }
@@ -105,6 +110,8 @@ pub struct FacetColGuide {
     /// Logical plan for the facet mark's data (used when data_override is None)
     #[serde_as(as = "Option<FromInto<SerializableDataFrame>>")]
     facet_data_plan: Option<LogicalPlanNode>,
+    /// Position of facet labels ("top" or "bottom")
+    position: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -202,17 +209,23 @@ impl CompiledGuide for FacetColGuide {
             0.0
         };
 
-        // Add facet guide height to top overflow (position=top is default)
-        let total_top = subplot_overflow.top + facet_guide_height;
+        // Add facet guide height to top or bottom overflow depending on position
+        let place_at_bottom = self.position.as_deref() == Some("bottom");
+        let (total_top, total_bottom) = if place_at_bottom {
+            (subplot_overflow.top, subplot_overflow.bottom + facet_guide_height)
+        } else {
+            (subplot_overflow.top + facet_guide_height, subplot_overflow.bottom)
+        };
+
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FacetColGuide measure_overflow: subplot_overflow.top={:.1}, facet_guide_height={:.1}, total_top={:.1}",
-                subplot_overflow.top, facet_guide_height, total_top
+                "FacetColGuide measure_overflow: position={:?}, subplot_overflow.top={:.1}, facet_guide_height={:.1}, total_top={:.1}, total_bottom={:.1}",
+                self.position, subplot_overflow.top, facet_guide_height, total_top, total_bottom
             );
         }
         Ok(OverflowSpaceRequirement {
             top: total_top,
-            bottom: subplot_overflow.bottom,
+            bottom: total_bottom,
             left: subplot_overflow.left,
             right: subplot_overflow.right,
         })
@@ -270,31 +283,47 @@ impl CompiledGuide for FacetColGuide {
             .map(|bp| format_scalar_value(&bp.value))
             .collect();
 
+        // Determine position - "bottom" places labels below, default "top" places above
+        let place_at_bottom = self.position.as_deref() == Some("bottom");
+
         // Use coordinated overflow value (computed globally across all facets at this nesting level)
-        // This ensures all facet labels at the same depth are horizontally aligned
-        let max_subplot_top_overflow = coord_measurement
-            .coordinated_overflow()
-            .map(|co| co.guide.top)
-            .unwrap_or(0.0);
+        // This ensures all facet labels at the same depth are aligned
+        let coordinated_overflow = coord_measurement.coordinated_overflow();
+        let subplot_overflow = if place_at_bottom {
+            coordinated_overflow.map(|co| co.guide.bottom).unwrap_or(0.0)
+        } else {
+            coordinated_overflow.map(|co| co.guide.top).unwrap_or(0.0)
+        };
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FacetColGuide evaluate: plot_bounds.y={:.1}, max_subplot_top_overflow={:.1}, adjusted_y={:.1}, labels={:?}",
+                "FacetColGuide evaluate: position={:?}, plot_bounds.y={:.1}, subplot_overflow={:.1}, labels={:?}",
+                self.position,
                 plot_bounds.y,
-                max_subplot_top_overflow,
-                plot_bounds.y - max_subplot_top_overflow,
+                subplot_overflow,
                 labels
             );
         }
 
         // Adjust plot_bounds to account for subplot overflow
-        // The facet labels should be positioned above the subplot's overflow region
-        // Since y increases downward, we subtract to move labels UP
-        let adjusted_plot_bounds = LayoutBounds {
-            x: plot_bounds.x,
-            y: plot_bounds.y - max_subplot_top_overflow, // Shift up by subplot overflow
-            width: plot_bounds.width,
-            height: plot_bounds.height,
+        // For position=top: shift up by top overflow (subtract, since y increases downward)
+        // For position=bottom: shift down by bottom overflow
+        // Note: calculate_col_label_positions adds plot_bounds.height when place_at_end=true,
+        // so we only need to add the subplot_overflow here
+        let adjusted_plot_bounds = if place_at_bottom {
+            LayoutBounds {
+                x: plot_bounds.x,
+                y: plot_bounds.y + subplot_overflow,
+                width: plot_bounds.width,
+                height: plot_bounds.height,
+            }
+        } else {
+            LayoutBounds {
+                x: plot_bounds.x,
+                y: plot_bounds.y - subplot_overflow,
+                width: plot_bounds.width,
+                height: plot_bounds.height,
+            }
         };
 
         // Get font properties from theme
@@ -319,8 +348,8 @@ impl CompiledGuide for FacetColGuide {
             labels,
             band_positions,
             plot_bounds: adjusted_plot_bounds,
-            is_rotated: false,    // Column labels are horizontal
-            place_at_end: false,  // position=top (above plot area)
+            is_rotated: false,     // Column labels are horizontal
+            place_at_end: place_at_bottom,
             font_family,
             font_size_px: label_font_size,
             title: self.facet_title.clone(),

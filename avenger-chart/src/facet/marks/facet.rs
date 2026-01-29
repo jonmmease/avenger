@@ -30,6 +30,7 @@ pub struct Facet<InnerC: CoordinateSystem> {
     pub(crate) facet_spacing: Option<f32>,
     pub(crate) facet_row_scale_sharing: Option<ScaleSharing>,
     pub(crate) facet_col_scale_sharing: Option<ScaleSharing>,
+    pub(crate) facet_col_position: Option<String>,
 }
 
 impl<InnerC: CoordinateSystem> Facet<InnerC> {
@@ -48,6 +49,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
             facet_spacing: None,
             facet_row_scale_sharing: None,
             facet_col_scale_sharing: None,
+            facet_col_position: None,
         }
     }
 
@@ -97,7 +99,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s
     }
 
-    /// Configure col with facet options (e.g., title, spacing, scale_sharing)
+    /// Configure col with facet options (e.g., title, spacing, scale_sharing, position)
     pub fn col_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -108,6 +110,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s.facet_col_title = cfg.title;
         s.facet_spacing = cfg.spacing;
         s.facet_col_scale_sharing = cfg.scale_sharing;
+        s.facet_col_position = cfg.position;
         s
     }
 
@@ -131,6 +134,8 @@ pub trait CompiledFacetSource {
     fn facet_spacing(&self) -> Option<f32>;
     /// Get the optional facet scale sharing mode
     fn facet_scale_sharing(&self) -> Option<ScaleSharing>;
+    /// Get the optional facet label position ("top" or "bottom")
+    fn facet_position(&self) -> Option<&str>;
 }
 
 /// Compiled facet mark specialized for FacetRow outer coords
@@ -159,6 +164,10 @@ impl CompiledFacetSource for CompiledFacetRow {
     }
     fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
         self.facet_scale_sharing
+    }
+    fn facet_position(&self) -> Option<&str> {
+        // FacetRow position not yet implemented
+        None
     }
 }
 
@@ -336,6 +345,7 @@ pub struct CompiledFacetCol {
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_spacing: Option<f32>,
     pub(crate) facet_scale_sharing: Option<ScaleSharing>,
+    pub(crate) facet_position: Option<String>,
 }
 
 impl CompiledFacetSource for CompiledFacetCol {
@@ -353,6 +363,9 @@ impl CompiledFacetSource for CompiledFacetCol {
     }
     fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
         self.facet_scale_sharing
+    }
+    fn facet_position(&self) -> Option<&str> {
+        self.facet_position.as_deref()
     }
 }
 
@@ -418,6 +431,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
             facet_title,
             facet_spacing: self.facet_spacing,
             facet_scale_sharing: self.facet_col_scale_sharing,
+            facet_position: self.facet_col_position.clone(),
         }))
     }
 }
