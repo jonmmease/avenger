@@ -1030,7 +1030,7 @@ impl CompiledPlot {
         };
 
         // 4. Build final scales with actual plot area dimensions
-        let final_scales = scale_provider
+        let mut final_scales = scale_provider
             .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
             .await?;
 
@@ -1063,6 +1063,12 @@ impl CompiledPlot {
                 facet_path,
             )
             .await?;
+
+        // Allow coordinate systems to update scales after measurement.
+        // For example, FacetColumn updates the column scale with padding_inner_px
+        // computed from cell overflow measurements. This ensures all downstream
+        // consumers (guide, marks) use consistent band positions.
+        coord_measurement.update_scales(&mut final_scales);
 
         // Get clip region from guide (facet guides return Clip::None,
         // Cartesian guides return Rect clip for the plot area)

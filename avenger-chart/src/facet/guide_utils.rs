@@ -546,6 +546,7 @@ fn render_facet_title(
         (x_center, y_center, angle, TextBaseline::Middle)
     } else {
         // Col title (horizontal)
+        // Center title over the cell width to align with outer facet labels
         let x_center = config.plot_bounds.x + 0.5 * config.plot_bounds.width;
         let y_title = if config.place_at_end {
             config.plot_bounds.y + config.plot_bounds.height + max_label_dimension + gap

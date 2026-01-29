@@ -101,6 +101,21 @@ impl CoordMeasurement for FacetColCoordMeasurement {
     fn set_coordinated_overflow(&mut self, overflow: CoordinatedOverflow) {
         self.coordinated_overflow = overflow;
     }
+
+    fn update_scales(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
+        if self.padding_inner_px > 0.0 {
+            if let Some(column_scale) = scales.get_mut("column") {
+                let updated_config = column_scale
+                    .configured()
+                    .clone()
+                    .with_option("padding_inner_px", self.padding_inner_px);
+                *column_scale = ConfiguredScaleWithSpec::new(
+                    column_scale.spec().clone(),
+                    updated_config,
+                );
+            }
+        }
+    }
 }
 
 /// Compute padding_inner_px from the MAX of all adjacent overflow combinations.

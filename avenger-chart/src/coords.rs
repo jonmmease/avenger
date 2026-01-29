@@ -4,6 +4,7 @@ use crate::guide::CoordinateGuide;
 pub use crate::guide::OverflowSpaceRequirement;
 use crate::marks::CompiledMark;
 use crate::plot::compiled::ComponentsMeasurement;
+use crate::scales::ConfiguredScaleWithSpec;
 use crate::serialization::SerializableScalar;
 use avenger_common::value::ScalarOrArray;
 use datafusion::common::ScalarValue;
@@ -101,6 +102,20 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     /// Set coordinated overflow during distribution pass.
     /// Default: no-op for non-coordinatable measurements.
     fn set_coordinated_overflow(&mut self, _overflow: CoordinatedOverflow) {
+        // Default: no-op
+    }
+
+    /// Update scales after measurement is complete.
+    ///
+    /// This allows coordinate systems to adjust scale configurations based on
+    /// measurement results. For example, FacetColumn updates the column scale
+    /// with `padding_inner_px` computed from cell overflow measurements.
+    ///
+    /// # Arguments
+    /// * `scales` - Mutable map of scales to update
+    ///
+    /// Default implementation: no-op (for coordinate systems that don't need scale updates)
+    fn update_scales(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
         // Default: no-op
     }
 }

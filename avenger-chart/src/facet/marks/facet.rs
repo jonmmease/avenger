@@ -491,18 +491,13 @@ impl CompiledMark for CompiledFacetCol {
             return Ok(Vec::new());
         }
 
-        // Get the column scale and rebuild it with padding_inner_px
+        // Get the column scale (already has padding_inner_px from ComponentsMeasurement)
         let column_scale = context
             .scales()
             .get("column")
             .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
 
-        let updated_scale = column_scale
-            .configured()
-            .clone()
-            .with_option("padding_inner_px", facet_measurement.padding_inner_px);
-
-        // Compute positions from the updated scale
+        // Compute positions from the scale
         let domain_array = ScalarValue::iter_to_array(
             facet_measurement.cell_values.iter().cloned(),
         )
@@ -510,16 +505,17 @@ impl CompiledMark for CompiledFacetCol {
             AvengerChartError::InternalError(format!("Failed to create domain array: {}", e))
         })?;
 
-        let positions = updated_scale
+        let configured = column_scale.configured();
+        let positions = configured
             .scale_impl
-            .scale_to_numeric(&updated_scale.config, &domain_array)
+            .scale_to_numeric(&configured.config, &domain_array)
             .map_err(|e| {
                 AvengerChartError::InternalError(format!("Failed to scale positions: {}", e))
             })?;
         let cell_positions: Vec<f32> = positions.as_vec(facet_measurement.cell_values.len(), None);
 
-        // Get subplot width from updated scale (used for debug logging)
-        let subplot_width = bandwidth(&updated_scale.config).map_err(|e| {
+        // Get subplot width from scale (used for debug logging)
+        let subplot_width = bandwidth(&configured.config).map_err(|e| {
             AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
         })?;
 
