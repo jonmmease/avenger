@@ -1,12 +1,12 @@
 use crate::coords::{
-    CoordMeasurement, CoordinatedOverflow, CoordinateSystem, CoordinateSystemTransform,
+    CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, CoordinatedOverflow,
     OverflowSpaceRequirement,
 };
 use crate::error::AvengerChartError;
 use crate::facet::guide::{FacetColGuideConfig, FacetRowGuideConfig};
 use crate::facet::marks::facet::CompiledFacetCol;
 use crate::marks::CompiledMark;
-use crate::plot::compiled::ComponentsMeasurement;
+use crate::plot::compiled::{CompiledPlot, ComponentsMeasurement};
 use crate::render::EvaluationContext;
 use crate::scales::ConfiguredScaleWithSpec;
 use avenger_common::value::ScalarOrArray;
@@ -26,6 +26,10 @@ pub struct FacetColCoordMeasurement {
     pub cell_values: Vec<ScalarValue>,
     /// Computed padding between cells in pixels (MAX of adjacent overflow combinations)
     pub padding_inner_px: f32,
+    /// Outer left total_overflow (first cell's left edge) - used to adjust scale range
+    pub outer_left: f32,
+    /// Outer right total_overflow (last cell's right edge) - used to adjust scale range
+    pub outer_right: f32,
     /// Filtered DataFrames for each cell
     pub data_overrides: Vec<DataFrame>,
     /// Pre-built shared scales for subplots (domains from full data).
@@ -38,10 +42,16 @@ pub struct FacetColCoordMeasurement {
     /// These are used directly by render_from_data to avoid re-measuring.
     pub subplot_measurements: Vec<ComponentsMeasurement>,
     /// Coordinated overflow values aggregated across ALL facets at this nesting level.
-    /// Populated by `coordinate_nested_overflow()` after measurement.
+    /// Populated by `coordinate_overflow()` after measurement.
     pub coordinated_overflow: CoordinatedOverflow,
+    /// Reference to compiled subplot for re-measurement after coordination.
+    /// Used by `apply_coordinated_overflow` to re-measure with adjusted height.
+    pub compiled_subplot: Arc<CompiledPlot>,
+    /// Subplot width (bandwidth) for re-measurement.
+    pub subplot_width: f32,
 }
 
+#[async_trait::async_trait]
 impl CoordMeasurement for FacetColCoordMeasurement {
     fn as_any(&self) -> &dyn Any {
         self
@@ -103,18 +113,143 @@ impl CoordMeasurement for FacetColCoordMeasurement {
     }
 
     fn update_scales(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
-        if self.padding_inner_px > 0.0 {
+        use datafusion::arrow::array::Float32Array;
+
+        // Apply padding_inner_px and outer edge adjustments to the column scale
+        let needs_update =
+            self.padding_inner_px > 0.0 || self.outer_left > 0.0 || self.outer_right > 0.0;
+
+        if needs_update {
             if let Some(column_scale) = scales.get_mut("column") {
-                let updated_config = column_scale
-                    .configured()
-                    .clone()
-                    .with_option("padding_inner_px", self.padding_inner_px);
-                *column_scale = ConfiguredScaleWithSpec::new(
-                    column_scale.spec().clone(),
-                    updated_config,
-                );
+                let mut updated_config = column_scale.configured().clone();
+
+                if self.padding_inner_px > 0.0 {
+                    updated_config =
+                        updated_config.with_option("padding_inner_px", self.padding_inner_px);
+                }
+
+                // Reduce scale range to account for edge overflows.
+                // The outer ChartLayout will allocate space for of-left/of-right, but we need
+                // to shrink the column scale range so subplots fit within the remaining space.
+                // This ensures the rightmost subplot doesn't extend beyond the plot area.
+                if self.outer_left > 0.0 || self.outer_right > 0.0 {
+                    let range_array = updated_config.config.range.clone();
+                    if let Some(range_f32) = range_array.as_any().downcast_ref::<Float32Array>() {
+                        if range_f32.len() == 2 {
+                            let range_min = range_f32.value(0);
+                            let range_max = range_f32.value(1) - self.outer_left - self.outer_right;
+                            updated_config =
+                                updated_config.with_range_interval((range_min, range_max));
+                        }
+                    }
+                }
+
+                *column_scale =
+                    ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
             }
         }
+    }
+
+    fn update_child_dimensions(&mut self, new_height: f32) {
+        // Update subplot measurements to use the correct height from second-pass layout.
+        // This is needed when legends (or other elements) change the available plot area
+        // after the initial measurement pass.
+        for measurement in &mut self.subplot_measurements {
+            if (measurement.plot_area_height - new_height).abs() > 0.1 {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetCol update_child_dimensions: height {:.1} -> {:.1}",
+                        measurement.plot_area_height, new_height
+                    );
+                }
+                measurement.plot_area_height = new_height;
+            }
+        }
+    }
+
+    async fn apply_coordinated_overflow(
+        &mut self,
+        eval_ctx: &EvaluationContext,
+    ) -> Result<(), crate::error::AvengerChartError> {
+        // Compute legend-adjusted height from coordinated overflow
+        let coordinated = &self.coordinated_overflow;
+        let legend_top = (coordinated.total.top - coordinated.guide.top).max(0.0);
+        let legend_bottom = (coordinated.total.bottom - coordinated.guide.bottom).max(0.0);
+
+        // Only re-measure if there's legend overflow affecting height
+        if legend_top <= 0.0 && legend_bottom <= 0.0 {
+            return Ok(());
+        }
+
+        // Get original height from first measurement (all should be same)
+        let original_height = self
+            .subplot_measurements
+            .first()
+            .map(|m| m.plot_area_height)
+            .unwrap_or(0.0);
+
+        let adjusted_height = (original_height - legend_top - legend_bottom).max(1.0);
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "FacetCol apply_coordinated_overflow: height {:.1} -> {:.1} (legend_top={:.1}, legend_bottom={:.1})",
+                original_height, adjusted_height, legend_top, legend_bottom
+            );
+        }
+
+        // Re-measure each subplot with the corrected height
+        use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
+        let scale_provider = PrebuiltScaleProvider {
+            scales: self.shared_scales.clone(),
+        };
+
+        // Create subplot EvaluationContext with merged params
+        let subplot_eval_ctx = {
+            let mut params = self.compiled_subplot.get_default_params().clone();
+            params.extend(eval_ctx.params.clone());
+            eval_ctx.with_params(params)
+        };
+
+        let mut new_measurements = Vec::with_capacity(self.subplot_measurements.len());
+
+        for (idx, (value, data_override)) in self
+            .cell_values
+            .iter()
+            .zip(self.data_overrides.iter())
+            .enumerate()
+        {
+            // Build full cell path from parent_path + current cell value
+            let mut cell_path: Vec<ScalarValue> = self.parent_path.clone();
+            cell_path.push(value.clone());
+
+            let measurement = self
+                .compiled_subplot
+                .measure_plot_components(
+                    &subplot_eval_ctx,
+                    self.subplot_width,
+                    adjusted_height,
+                    &scale_provider,
+                    Some(data_override),
+                    true, // dimensions_are_plot_area
+                    &cell_path,
+                    &*eval_ctx.facet_tree,
+                )
+                .await?;
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "FacetCol apply_coordinated_overflow: re-measured cell[{}]={:?} at height={:.1}",
+                    idx, value, adjusted_height
+                );
+            }
+
+            new_measurements.push(measurement);
+        }
+
+        // Replace measurements with re-measured ones
+        self.subplot_measurements = new_measurements;
+
+        Ok(())
     }
 }
 
@@ -407,9 +542,9 @@ impl CoordinateSystemTransform for FacetColumn {
         let compiled_subplot = &facet_mark.compiled_subplot;
 
         // Get the column scale for layout calculations
-        let column_scale = scales.get("column").ok_or_else(|| {
-            AvengerChartError::InternalError("No column scale found".into())
-        })?;
+        let column_scale = scales
+            .get("column")
+            .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
 
         // Get bandwidth (subplot width) from the band scale
         let subplot_width = bandwidth(&column_scale.configured().config).map_err(|e| {
@@ -436,11 +571,15 @@ impl CoordinateSystemTransform for FacetColumn {
             return Ok(Box::new(FacetColCoordMeasurement {
                 cell_values: Vec::new(),
                 padding_inner_px: 0.0,
+                outer_left: 0.0,
+                outer_right: 0.0,
                 data_overrides: Vec::new(),
                 shared_scales: HashMap::new(),
                 parent_path: facet_path.to_vec(),
                 subplot_measurements: Vec::new(),
                 coordinated_overflow: CoordinatedOverflow::default(),
+                compiled_subplot: compiled_subplot.clone(),
+                subplot_width: 0.0,
             }));
         }
 
@@ -506,43 +645,91 @@ impl CoordinateSystemTransform for FacetColumn {
                     plot_height,
                     &scale_provider,
                     Some(&filtered_df),
-                    true,        // dimensions_are_plot_area
-                    &cell_path,  // Pass extended path for nested facets AND visibility
+                    true,       // dimensions_are_plot_area
+                    &cell_path, // Pass extended path for nested facets AND visibility
                     &*eval_ctx.facet_tree,
                 )
                 .await?;
 
-            // Get the overflow from the layout (now visibility-aware)
-            let overflow = measurement.layout.overflow.clone();
+            // Get both guide-only overflow and total overflow (guide + legend)
+            let guide_overflow = measurement.layout.overflow.clone();
+            let total_overflow = measurement.layout.total_overflow.clone();
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
-                    "FacetCol coord measure pass 1: cell[{}]={:?} overflow={{left={:.1}, right={:.1}}}",
-                    idx, value, overflow.left, overflow.right
+                    "FacetCol coord measure pass 1: cell[{}]={:?} guide_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}} total_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}}",
+                    idx,
+                    value,
+                    guide_overflow.top,
+                    guide_overflow.bottom,
+                    guide_overflow.left,
+                    guide_overflow.right,
+                    total_overflow.top,
+                    total_overflow.bottom,
+                    total_overflow.left,
+                    total_overflow.right
                 );
             }
 
             data_overrides.push(filtered_df);
-            cell_overflows.push(overflow);
+            // Store (guide_overflow, total_overflow) pairs for computing both padding and legend adjustment
+            cell_overflows.push((guide_overflow, total_overflow));
         }
 
-        // Compute padding_inner_px from adjacent overflow combinations
-        let padding_inner_px = compute_padding_from_overflows(&cell_overflows);
+        // Compute padding_inner_px from adjacent total overflow combinations
+        // This ensures gaps between cells accommodate both axes and legends
+        let padding_inner_px = compute_padding_from_overflows(
+            &cell_overflows
+                .iter()
+                .map(|(_, total)| total.clone())
+                .collect::<Vec<_>>(),
+        );
+
+        // Compute outer edge legend-only overflows for scale range adjustment.
+        // We only adjust for LEGEND overflow, not guide overflow, because:
+        // - Guide overflow (axes, tick labels) is already handled by each subplot's internal layout
+        // - Legend overflow extends beyond the subplot, requiring the facet to allocate extra space
+        let outer_left = cell_overflows
+            .first()
+            .map(|(guide, total)| (total.left - guide.left).max(0.0))
+            .unwrap_or(0.0);
+        let outer_right = cell_overflows
+            .last()
+            .map(|(guide, total)| (total.right - guide.right).max(0.0))
+            .unwrap_or(0.0);
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FacetCol coord measure: computed padding_inner_px={:.1} from {} cells",
+                "FacetCol coord measure: padding_inner_px={:.1}, outer_left={:.1}, outer_right={:.1} from {} cells",
                 padding_inner_px,
+                outer_left,
+                outer_right,
                 cell_values.len()
             );
         }
 
-        // === PASS 2: Rebuild column scale with padding_inner_px and re-measure ===
-        // This ensures measurements are computed with the final subplot width
-        let updated_column_scale = column_scale
+        // === PASS 2: Rebuild column scale with padding_inner_px AND range adjustment ===
+        // This ensures measurements are computed with the final subplot width that accounts for:
+        // 1. Inner padding between cells (padding_inner_px)
+        // 2. Outer edge legend space (outer_left + outer_right reduce the range)
+        let mut updated_column_scale = column_scale
             .configured()
             .clone()
             .with_option("padding_inner_px", padding_inner_px);
+
+        // Also apply the outer edge range adjustment so bandwidth matches render time
+        if outer_left > 0.0 || outer_right > 0.0 {
+            use datafusion::arrow::array::Float32Array;
+            let range_array = updated_column_scale.config.range.clone();
+            if let Some(range_f32) = range_array.as_any().downcast_ref::<Float32Array>() {
+                if range_f32.len() == 2 {
+                    let range_min = range_f32.value(0);
+                    let range_max = range_f32.value(1) - outer_left - outer_right;
+                    updated_column_scale =
+                        updated_column_scale.with_range_interval((range_min, range_max));
+                }
+            }
+        }
 
         let final_subplot_width = bandwidth(&updated_column_scale.config).map_err(|e| {
             AvengerChartError::InternalError(format!("Failed to get final bandwidth: {}", e))
@@ -557,8 +744,7 @@ impl CoordinateSystemTransform for FacetColumn {
 
         let mut subplot_measurements = Vec::with_capacity(cell_values.len());
 
-        for (idx, (value, filtered_df)) in
-            cell_values.iter().zip(data_overrides.iter()).enumerate()
+        for (idx, (value, filtered_df)) in cell_values.iter().zip(data_overrides.iter()).enumerate()
         {
             let mut cell_path: Vec<ScalarValue> = facet_path.to_vec();
             cell_path.push(value.clone());
@@ -589,11 +775,15 @@ impl CoordinateSystemTransform for FacetColumn {
         Ok(Box::new(FacetColCoordMeasurement {
             cell_values,
             padding_inner_px,
+            outer_left,
+            outer_right,
             data_overrides,
             shared_scales,
             parent_path: facet_path.to_vec(),
             subplot_measurements,
             coordinated_overflow: CoordinatedOverflow::default(),
+            compiled_subplot: compiled_subplot.clone(),
+            subplot_width: final_subplot_width,
         }))
     }
 

@@ -137,13 +137,14 @@ impl CompiledGuide for FacetColGuide {
             .and_then(|cm| cm.as_any().downcast_ref::<FacetColCoordMeasurement>())
         {
             // Fast path: use pre-computed overflow from coord_measurement
+            // Use total_overflow to include legend space in outer layout calculation
             fcm.subplot_measurements.iter().fold(
                 OverflowSpaceRequirement::default(),
                 |acc, m| OverflowSpaceRequirement {
-                    top: acc.top.max(m.layout.overflow.top),
-                    bottom: acc.bottom.max(m.layout.overflow.bottom),
-                    left: acc.left.max(m.layout.overflow.left),
-                    right: acc.right.max(m.layout.overflow.right),
+                    top: acc.top.max(m.layout.total_overflow.top),
+                    bottom: acc.bottom.max(m.layout.total_overflow.bottom),
+                    left: acc.left.max(m.layout.total_overflow.left),
+                    right: acc.right.max(m.layout.total_overflow.right),
                 },
             )
         } else {
@@ -288,11 +289,12 @@ impl CompiledGuide for FacetColGuide {
 
         // Use coordinated overflow value (computed globally across all facets at this nesting level)
         // This ensures all facet labels at the same depth are aligned
+        // Use total overflow (guide + legend) so labels are positioned outside any legends
         let coordinated_overflow = coord_measurement.coordinated_overflow();
         let subplot_overflow = if place_at_bottom {
-            coordinated_overflow.map(|co| co.guide.bottom).unwrap_or(0.0)
+            coordinated_overflow.map(|co| co.total.bottom).unwrap_or(0.0)
         } else {
-            coordinated_overflow.map(|co| co.guide.top).unwrap_or(0.0)
+            coordinated_overflow.map(|co| co.total.top).unwrap_or(0.0)
         };
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {

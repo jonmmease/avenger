@@ -486,7 +486,7 @@ impl CompiledMark for CompiledFacetCol {
         context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use avenger_scenegraph::marks::group::{Clip, SceneGroup};
+        use avenger_scenegraph::marks::group::SceneGroup;
         use avenger_scales::scales::band::bandwidth;
         use crate::facet::coord::FacetColCoordMeasurement;
 
@@ -543,6 +543,8 @@ impl CompiledMark for CompiledFacetCol {
         let mut scene_marks = Vec::with_capacity(facet_measurement.cell_values.len());
 
         // Render each subplot using pre-computed measurements from coord.measure()
+        // Note: Measurements have already been adjusted for legend overflow by
+        // coordinate_overflow() before build_plot_components() is called.
         for (idx, (data_override, measurement)) in facet_measurement
             .data_overrides
             .iter()
@@ -555,15 +557,14 @@ impl CompiledMark for CompiledFacetCol {
             let mut cell_path: Vec<ScalarValue> = facet_measurement.parent_path.clone();
             cell_path.push(facet_measurement.cell_values[idx].clone());
 
-            // Build subplot components using the pre-computed measurement
-            let components = self
-                .compiled_subplot
+            // Build plot components using pre-computed measurement
+            let components = self.compiled_subplot
                 .build_plot_components(
                     &subplot_eval_ctx,
                     measurement,
                     Some(data_override),
                     true, // dimensions_are_plot_area
-                    &cell_path,  // Value-based path for visibility
+                    &cell_path,
                 )
                 .await?;
 

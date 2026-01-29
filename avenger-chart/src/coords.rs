@@ -67,6 +67,7 @@ impl CoordinatedOverflow {
 /// Default implementations return `None` or empty slices, making coordination opt-in
 /// for coordinate systems that support it (facets) while being a no-op for those
 /// that don't (Cartesian, Polar, etc.).
+#[async_trait::async_trait]
 pub trait CoordMeasurement: Send + Sync + 'static {
     /// Downcast support for accessing concrete measurement types
     fn as_any(&self) -> &dyn Any;
@@ -118,6 +119,36 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     fn update_scales(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
         // Default: no-op
     }
+
+    /// Update child measurement dimensions after second-pass layout.
+    ///
+    /// When the outer layout's second pass computes a different plot_area size
+    /// (due to legend overflow), this method updates child subplot measurements
+    /// to use the correct dimensions.
+    ///
+    /// # Arguments
+    /// * `new_height` - The correct plot_area height from second-pass layout
+    ///
+    /// Default implementation: no-op (for non-facet coordinate systems)
+    fn update_child_dimensions(&mut self, _new_height: f32) {
+        // Default: no-op
+    }
+
+    /// Re-measure children after coordinated overflow is set.
+    ///
+    /// When legend overflow causes subplot height to change, this method
+    /// re-measures child subplots with the corrected dimensions. This ensures
+    /// that measurements passed to `build_plot_components` are accurate.
+    ///
+    /// Called by `coordinate_overflow` after distributing coordinated values.
+    ///
+    /// Default implementation: no-op for non-facet coordinate systems.
+    async fn apply_coordinated_overflow(
+        &mut self,
+        _eval_ctx: &crate::render::EvaluationContext,
+    ) -> Result<(), crate::error::AvengerChartError> {
+        Ok(())
+    }
 }
 
 /// Empty measurement for coordinate systems that don't need measurement data.
@@ -126,6 +157,7 @@ pub trait CoordMeasurement: Send + Sync + 'static {
 #[derive(Debug, Clone, Default)]
 pub struct EmptyCoordMeasurement;
 
+#[async_trait::async_trait]
 impl CoordMeasurement for EmptyCoordMeasurement {
     fn as_any(&self) -> &dyn Any {
         self
@@ -142,16 +174,15 @@ impl CoordMeasurement for EmptyCoordMeasurement {
 // Coordination Functions
 // =============================================================================
 
-/// Coordinate overflow values across ALL facets at each nesting level.
+/// Distribute coordinated overflow values across all facets at each nesting level.
 ///
-/// This is the main entry point called after measurement completes.
 /// Uses a two-pass algorithm:
 /// 1. Collect overflow values by depth (via trait method)
 /// 2. Distribute max values back to all facets at each depth (via trait method)
 ///
 /// This ensures that facet labels at the same nesting depth are horizontally aligned
 /// regardless of their individual subplot overflow requirements ("cousin" coordination).
-pub fn coordinate_nested_overflow(measurement: &mut ComponentsMeasurement) {
+fn distribute_coordinated_overflow(measurement: &mut ComponentsMeasurement) {
     // Pass 1: Collect all overflow values by nesting depth
     let mut overflow_by_level: HashMap<usize, Vec<CoordinatedOverflow>> = HashMap::new();
     collect_overflow_by_level(measurement, 0, &mut overflow_by_level);
@@ -169,7 +200,7 @@ pub fn coordinate_nested_overflow(measurement: &mut ComponentsMeasurement) {
         .collect();
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!("coordinate_nested_overflow: max_by_level={:?}", max_by_level);
+        eprintln!("coordinate_overflow: max_by_level={:?}", max_by_level);
     }
 
     // Pass 2: Distribute max values to all facets at each level
@@ -214,6 +245,46 @@ fn distribute_overflow_by_level(
     for child in measurement.coord_measurement.child_measurements_mut() {
         distribute_overflow_by_level(child, depth + 1, max_by_level);
     }
+}
+
+/// Coordinate overflow values across all facets and re-measure affected subplots.
+///
+/// This is the main entry point for overflow coordination. It:
+/// 1. Collects overflow values by nesting depth
+/// 2. Computes max overflow at each depth level
+/// 3. Distributes coordinated values to all facets
+/// 4. Re-measures any subplots affected by legend overflow
+///
+/// This ensures measurements are correct before `build_plot_components` is called.
+pub async fn coordinate_overflow(
+    measurement: &mut ComponentsMeasurement,
+    eval_ctx: &crate::render::EvaluationContext,
+) -> Result<(), crate::error::AvengerChartError> {
+    // Step 1: Distribute coordinated overflow values
+    distribute_coordinated_overflow(measurement);
+
+    // Step 2: Apply coordinated overflow by re-measuring affected subplots
+    apply_coordinated_overflow_recursive(measurement, eval_ctx).await?;
+
+    Ok(())
+}
+
+/// Recursively apply coordinated overflow to all measurements in the tree.
+fn apply_coordinated_overflow_recursive<'a>(
+    measurement: &'a mut ComponentsMeasurement,
+    eval_ctx: &'a crate::render::EvaluationContext,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), crate::error::AvengerChartError>> + Send + 'a>> {
+    Box::pin(async move {
+        // Apply to this measurement's coord_measurement
+        measurement.coord_measurement.apply_coordinated_overflow(eval_ctx).await?;
+
+        // Recurse into children
+        for child in measurement.coord_measurement.child_measurements_mut() {
+            apply_coordinated_overflow_recursive(child, eval_ctx).await?;
+        }
+
+        Ok(())
+    })
 }
 
 #[typetag::serde(tag = "type")]
