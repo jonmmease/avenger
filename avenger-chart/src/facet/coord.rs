@@ -42,7 +42,7 @@ pub struct FacetColCoordMeasurement {
     /// These are used directly by render_from_data to avoid re-measuring.
     pub subplot_measurements: Vec<ComponentsMeasurement>,
     /// Coordinated overflow values aggregated across ALL facets at this nesting level.
-    /// Populated by `coordinate_overflow()` after measurement.
+    /// Populated by `coordinate_overflow_for_guides()` after measurement.
     pub coordinated_overflow: CoordinatedOverflow,
     /// Reference to compiled subplot for re-measurement after coordination.
     /// Used by `apply_coordinated_overflow` to re-measure with adjusted height.
@@ -112,7 +112,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
         self.coordinated_overflow = overflow;
     }
 
-    fn update_scales(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
+    fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
         use datafusion::arrow::array::Float32Array;
 
         // Apply padding_inner_px and outer edge adjustments to the column scale

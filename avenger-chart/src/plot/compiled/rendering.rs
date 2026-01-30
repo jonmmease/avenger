@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use avenger_scales::scales::ConfiguredScale;
 
 use crate::channel::value::{ChannelValue, ConditionalValue};
-use crate::coords::coordinate_overflow;
+use crate::coords::coordinate_overflow_for_guides;
 use crate::error::AvengerChartError;
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use crate::marks::CompiledMark;
@@ -1064,11 +1064,11 @@ impl CompiledPlot {
             )
             .await?;
 
-        // Allow coordinate systems to update scales after measurement.
+        // Apply local scale adjustments derived during coord measurement.
         // For example, FacetColumn updates the column scale with padding_inner_px
         // computed from cell overflow measurements. This ensures all downstream
         // consumers (guide, marks) use consistent band positions.
-        coord_measurement.update_scales(&mut final_scales);
+        coord_measurement.apply_scale_adjustments(&mut final_scales);
 
         // Get clip region from guide (facet guides return Clip::None,
         // Cartesian guides return Rect clip for the plot area)
@@ -1608,7 +1608,7 @@ impl CompiledPlot {
         // This ensures all facet labels at the same nesting depth are aligned
         // and subplot measurements have correct dimensions accounting for legend overflow
         let mut measurement = measurement;
-        coordinate_overflow(&mut measurement, &eval_ctx).await?;
+        coordinate_overflow_for_guides(&mut measurement, &eval_ctx).await?;
 
         // 5. Build plot components using measurement
         let components = self

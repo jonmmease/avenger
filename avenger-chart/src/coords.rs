@@ -86,7 +86,7 @@ pub trait CoordMeasurement: Send + Sync + 'static {
         &mut []
     }
 
-    /// Get local overflow to contribute to coordination.
+    /// Get local overflow to contribute to guide alignment by nesting depth.
     /// Returns None for non-coordinatable measurements (e.g., EmptyCoordMeasurement).
     ///
     /// Implementations should compute this from their children's overflow values.
@@ -106,7 +106,7 @@ pub trait CoordMeasurement: Send + Sync + 'static {
         // Default: no-op
     }
 
-    /// Update scales after measurement is complete.
+    /// Apply scale adjustments derived from coordinate measurement.
     ///
     /// This allows coordinate systems to adjust scale configurations based on
     /// measurement results. For example, FacetColumn updates the column scale
@@ -116,7 +116,7 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     /// * `scales` - Mutable map of scales to update
     ///
     /// Default implementation: no-op (for coordinate systems that don't need scale updates)
-    fn update_scales(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
+    fn apply_scale_adjustments(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
         // Default: no-op
     }
 
@@ -140,7 +140,7 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     /// re-measures child subplots with the corrected dimensions. This ensures
     /// that measurements passed to `build_plot_components` are accurate.
     ///
-    /// Called by `coordinate_overflow` after distributing coordinated values.
+    /// Called by `coordinate_overflow_for_guides` after distributing coordinated values.
     ///
     /// Default implementation: no-op for non-facet coordinate systems.
     async fn apply_coordinated_overflow(
@@ -200,7 +200,7 @@ fn distribute_coordinated_overflow(measurement: &mut ComponentsMeasurement) {
         .collect();
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!("coordinate_overflow: max_by_level={:?}", max_by_level);
+        eprintln!("coordinate_overflow_for_guides: max_by_level={:?}", max_by_level);
     }
 
     // Pass 2: Distribute max values to all facets at each level
@@ -256,7 +256,7 @@ fn distribute_overflow_by_level(
 /// 4. Re-measures any subplots affected by legend overflow
 ///
 /// This ensures measurements are correct before `build_plot_components` is called.
-pub async fn coordinate_overflow(
+pub async fn coordinate_overflow_for_guides(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &crate::render::EvaluationContext,
 ) -> Result<(), crate::error::AvengerChartError> {

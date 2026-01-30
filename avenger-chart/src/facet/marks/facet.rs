@@ -544,7 +544,7 @@ impl CompiledMark for CompiledFacetCol {
 
         // Render each subplot using pre-computed measurements from coord.measure()
         // Note: Measurements have already been adjusted for legend overflow by
-        // coordinate_overflow() before build_plot_components() is called.
+        // coordinate_overflow_for_guides() before build_plot_components() is called.
         for (idx, (data_override, measurement)) in facet_measurement
             .data_overrides
             .iter()
