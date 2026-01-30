@@ -3762,3 +3762,53 @@ fn test_four_level_col_col_col_col() {
         .await;
     });
 }
+
+/// Test 2-level column nesting: Col > Col > Cartesian
+/// Simplified version for debugging overflow allocation
+#[test]
+fn test_two_level_col_col() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_data().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(1800, 500)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x_with(col("x_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(2))
+                                            })
+                                            .y_with(col("y_val"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Level(2))
+                                            })
+                                            .size(40.0)
+                                            .fill("#9b59b6"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col nesting");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "two_level_col_col",
+        )
+        .await;
+    });
+}

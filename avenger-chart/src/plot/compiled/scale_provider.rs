@@ -82,15 +82,15 @@ impl ScaleProvider for PrebuiltScaleProvider {
         let mut result = HashMap::new();
         for (name, scale_with_spec) in &self.scales {
             let updated_configured = match name.as_str() {
-                "x" | "x2" | "xOffset" => {
-                    // X position scales: range is [0, plot_area_width]
+                "x" | "x2" | "xOffset" | "column" => {
+                    // X position scales and column facet scale: range is [0, plot_area_width]
                     scale_with_spec
                         .configured()
                         .clone()
                         .with_range_interval((0.0, plot_area_width))
                 }
-                "y" | "y2" | "yOffset" => {
-                    // Y position scales: range is [plot_area_height, 0] (inverted for canvas)
+                "y" | "y2" | "yOffset" | "row" => {
+                    // Y position scales and row facet scale: range is [plot_area_height, 0] (inverted for canvas)
                     scale_with_spec
                         .configured()
                         .clone()

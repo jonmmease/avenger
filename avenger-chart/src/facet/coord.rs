@@ -113,40 +113,33 @@ impl CoordMeasurement for FacetColCoordMeasurement {
     }
 
     fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
-        use datafusion::arrow::array::Float32Array;
+        // Apply padding_inner_px and outer edge adjustments to the column scale.
+        // The outer_left/outer_right values represent legend space at the outer edges
+        // of the first/last cells. We reduce the scale range width to account for this space.
+        //
+        // The total available width is reduced by BOTH outer_left and outer_right.
+        // The scale start remains at 0 (or the original start), but the end is reduced
+        // so that cells fit within the remaining space after legends are accounted for.
+        if let Some(column_scale) = scales.get_mut("column") {
+            let mut updated_config = column_scale.configured().clone();
 
-        // Apply padding_inner_px and outer edge adjustments to the column scale
-        let needs_update =
-            self.padding_inner_px > 0.0 || self.outer_left > 0.0 || self.outer_right > 0.0;
-
-        if needs_update {
-            if let Some(column_scale) = scales.get_mut("column") {
-                let mut updated_config = column_scale.configured().clone();
-
-                if self.padding_inner_px > 0.0 {
-                    updated_config =
-                        updated_config.with_option("padding_inner_px", self.padding_inner_px);
-                }
-
-                // Reduce scale range to account for edge overflows.
-                // The outer ChartLayout will allocate space for of-left/of-right, but we need
-                // to shrink the column scale range so subplots fit within the remaining space.
-                // This ensures the rightmost subplot doesn't extend beyond the plot area.
-                if self.outer_left > 0.0 || self.outer_right > 0.0 {
-                    let range_array = updated_config.config.range.clone();
-                    if let Some(range_f32) = range_array.as_any().downcast_ref::<Float32Array>() {
-                        if range_f32.len() == 2 {
-                            let range_min = range_f32.value(0);
-                            let range_max = range_f32.value(1) - self.outer_left - self.outer_right;
-                            updated_config =
-                                updated_config.with_range_interval((range_min, range_max));
-                        }
-                    }
-                }
-
-                *column_scale =
-                    ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
+            // Apply padding_inner_px for cell spacing
+            if self.padding_inner_px > 0.0 {
+                updated_config = updated_config.with_option("padding_inner_px", self.padding_inner_px);
             }
+
+            // Reduce scale range to account for outer legend space
+            if self.outer_left > 0.0 || self.outer_right > 0.0 {
+                if let Ok((range_start, range_end)) = updated_config.config.numeric_interval_range() {
+                    // Keep start unchanged, reduce end by both outer edges
+                    // This shrinks the available width for cells while keeping them
+                    // starting at position 0 within the plot area
+                    let new_end = range_end - self.outer_left - self.outer_right;
+                    updated_config = updated_config.with_range_interval((range_start, new_end));
+                }
+            }
+
+            *column_scale = ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
         }
     }
 
@@ -712,22 +705,22 @@ impl CoordinateSystemTransform for FacetColumn {
         // This ensures measurements are computed with the final subplot width that accounts for:
         // 1. Inner padding between cells (padding_inner_px)
         // 2. Outer edge legend space (outer_left + outer_right reduce the range)
+        //
+        // We must reduce the range here to match what apply_scale_adjustments() does during render.
+        // Without this, cells would be measured at a larger width than they're rendered at.
         let mut updated_column_scale = column_scale
             .configured()
             .clone()
             .with_option("padding_inner_px", padding_inner_px);
 
-        // Also apply the outer edge range adjustment so bandwidth matches render time
+        // Also reduce range for outer legend space (same logic as apply_scale_adjustments)
+        // Both outer_left and outer_right reduce the total available width
         if outer_left > 0.0 || outer_right > 0.0 {
-            use datafusion::arrow::array::Float32Array;
-            let range_array = updated_column_scale.config.range.clone();
-            if let Some(range_f32) = range_array.as_any().downcast_ref::<Float32Array>() {
-                if range_f32.len() == 2 {
-                    let range_min = range_f32.value(0);
-                    let range_max = range_f32.value(1) - outer_left - outer_right;
-                    updated_column_scale =
-                        updated_column_scale.with_range_interval((range_min, range_max));
-                }
+            if let Ok((range_start, range_end)) = updated_column_scale.config.numeric_interval_range()
+            {
+                // Keep start unchanged, reduce end by both outer edges
+                let new_end = range_end - outer_left - outer_right;
+                updated_column_scale = updated_column_scale.with_range_interval((range_start, new_end));
             }
         }
 
