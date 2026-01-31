@@ -924,6 +924,125 @@ impl CompiledPlot {
         }
     }
 
+    /// Compute layout and determine plot area dimensions.
+    ///
+    /// Handles two modes:
+    /// - **Plot area mode** (`is_plot_area_mode=true`): Uses provided dimensions as plot area,
+    ///   computes layout to determine canvas size
+    /// - **Canvas mode** (`is_plot_area_mode=false`): Uses provided dimensions as canvas,
+    ///   computes layout to determine plot area from overflow
+    ///
+    /// Returns (plot_area_width, plot_area_height, canvas_size, layout)
+    async fn compute_layout_and_dimensions(
+        &self,
+        is_plot_area_mode: bool,
+        width: f32,
+        height: f32,
+        layout_spec: &crate::layout::EvaluatedLayoutSpec,
+        scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
+        ctx: &datafusion::prelude::SessionContext,
+        merged_params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        data_override: Option<&DataFrame>,
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
+    ) -> Result<(f32, f32, (f32, f32), crate::render::LayoutSolution), AvengerChartError>
+    {
+        if is_plot_area_mode {
+            // Plot area mode: dimensions specify the plot area size
+            let plot_area_width = width;
+            let plot_area_height = height;
+
+            let initial_scales = scale_provider
+                .build_scales(plot_area_width, plot_area_height, ctx, merged_params)
+                .await?;
+
+            let layout = self
+                .compute_layout_with_spec(
+                    layout_spec,
+                    &initial_scales,
+                    ctx,
+                    merged_params,
+                    data_override,
+                    facet_tree,
+                    facet_path,
+                )
+                .await?;
+
+            Ok((plot_area_width, plot_area_height, layout.canvas_size, layout))
+        } else {
+            // Canvas mode: dimensions are canvas size, compute layout to determine plot area
+            let initial_plot_width = width * Self::INITIAL_PLOT_AREA_RATIO;
+            let initial_plot_height = height * Self::INITIAL_PLOT_AREA_RATIO;
+
+            let initial_scales = scale_provider
+                .build_scales(initial_plot_width, initial_plot_height, ctx, merged_params)
+                .await?;
+
+            let layout = self
+                .compute_layout_with_spec(
+                    layout_spec,
+                    &initial_scales,
+                    ctx,
+                    merged_params,
+                    data_override,
+                    facet_tree,
+                    facet_path,
+                )
+                .await?;
+
+            let plot_bounds = layout.plot_area_bounds();
+            Ok((
+                plot_bounds.width,
+                plot_bounds.height,
+                layout.canvas_size,
+                layout,
+            ))
+        }
+    }
+
+    /// Measure coordinate system layout (e.g., facet cell positioning).
+    ///
+    /// This allows coordinate systems to compute layout data that's available
+    /// to both guides and marks during rendering.
+    ///
+    /// Note: The caller is responsible for calling `apply_scale_adjustments()`
+    /// on the returned measurement to update scales with coord-derived values.
+    async fn measure_coord_system(
+        &self,
+        scales: &std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        params_with_dims: &crate::render::EvaluationContext,
+        data_override: Option<&DataFrame>,
+        facet_path: &[datafusion::common::ScalarValue],
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> Result<Box<dyn crate::coords::CoordMeasurement>, AvengerChartError> {
+        // Get data for coord measurement: use data_override if provided (nested facets),
+        // otherwise use the plot's own data (top-level).
+        let plot_data = if data_override.is_some() {
+            None
+        } else {
+            self.data.as_ref().and_then(|node| {
+                node.to_logical_plan(ctx)
+                    .ok()
+                    .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+            })
+        };
+        let coord_data = data_override.or(plot_data.as_ref());
+
+        self.coord_transform
+            .measure(
+                scales,
+                plot_area_width,
+                plot_area_height,
+                params_with_dims,
+                coord_data,
+                &self.marks,
+                facet_path,
+            )
+            .await
+    }
+
     /// Measure plot components without rendering (for layout coordination).
     ///
     /// This method performs all setup and measurement needed for layout coordination:
@@ -973,101 +1092,42 @@ impl CompiledPlot {
         let params_with_dims = eval_ctx.with_dimension_params(width, height);
         let merged_params = params_with_dims.params.clone();
 
-        // Phase 2: Determine plot area dimensions and build scales
-        let (plot_area_width, plot_area_height, canvas_size, layout) = if is_plot_area_mode {
-            // Plot area mode: dimensions specify the plot area size
-            let plot_area_width = width;
-            let plot_area_height = height;
-
-            // Build initial scales with plot area dimensions
-            let initial_scales = scale_provider
-                .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
-                .await?;
-
-            // Compute layout with the provided spec (which has fixed plot area)
-            let layout = self
-                .compute_layout_with_spec(
-                    layout_spec,
-                    &initial_scales,
-                    ctx,
-                    &merged_params,
-                    data_override,
-                    facet_tree,
-                    facet_path,
-                )
-                .await?;
-
-            let canvas_size = layout.canvas_size;
-            (plot_area_width, plot_area_height, canvas_size, layout)
-        } else {
-            // Canvas mode: dimensions are canvas size, compute layout to determine plot area
-            let initial_plot_width = width * Self::INITIAL_PLOT_AREA_RATIO;
-            let initial_plot_height = height * Self::INITIAL_PLOT_AREA_RATIO;
-            let initial_scales = scale_provider
-                .build_scales(initial_plot_width, initial_plot_height, ctx, &merged_params)
-                .await?;
-
-            // Compute layout with the provided spec
-            let layout = self
-                .compute_layout_with_spec(
-                    layout_spec,
-                    &initial_scales,
-                    ctx,
-                    &merged_params,
-                    data_override,
-                    facet_tree,
-                    facet_path,
-                )
-                .await?;
-
-            let plot_bounds = layout.plot_area_bounds();
-            (
-                plot_bounds.width,
-                plot_bounds.height,
-                layout.canvas_size,
-                layout,
-            )
-        };
-
-        // 4. Build final scales with actual plot area dimensions
-        let mut final_scales = scale_provider
-            .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
-            .await?;
-
-        // 5. Coordinate system measurement (e.g., facet cell layout)
-        // This allows coordinate systems to compute layout data that's available
-        // to both guides and marks during rendering.
-        //
-        // Get data for coord measurement: use data_override if provided (nested facets),
-        // otherwise use the plot's own data (top-level).
-        let plot_data = if data_override.is_some() {
-            None
-        } else {
-            self.data.as_ref().and_then(|node| {
-                node.to_logical_plan(ctx)
-                    .ok()
-                    .map(|plan| DataFrame::new(ctx.state().clone(), plan))
-            })
-        };
-        let coord_data = data_override.or(plot_data.as_ref());
-
-        let coord_measurement = self
-            .coord_transform
-            .measure(
-                &final_scales,
-                plot_area_width,
-                plot_area_height,
-                &params_with_dims,
-                coord_data,
-                &self.marks,
+        // Phase 2: Compute layout and determine plot area dimensions
+        let (plot_area_width, plot_area_height, canvas_size, layout) = self
+            .compute_layout_and_dimensions(
+                is_plot_area_mode,
+                width,
+                height,
+                layout_spec,
+                scale_provider,
+                ctx,
+                &merged_params,
+                data_override,
+                facet_tree,
                 facet_path,
             )
             .await?;
 
-        // Apply local scale adjustments derived during coord measurement.
-        // For example, FacetColumn updates the column scale with padding_inner_px
-        // computed from cell overflow measurements. This ensures all downstream
-        // consumers (guide, marks) use consistent band positions.
+        // Phase 3: Build final scales with actual plot area dimensions
+        let mut final_scales = scale_provider
+            .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
+            .await?;
+
+        // Phase 4: Coordinate system measurement
+        let coord_measurement = self
+            .measure_coord_system(
+                &final_scales,
+                plot_area_width,
+                plot_area_height,
+                &params_with_dims,
+                data_override,
+                facet_path,
+                ctx,
+            )
+            .await?;
+
+        // Apply scale adjustments from coord measurement (stays in main function
+        // because it mutates final_scales which is used by later phases)
         coord_measurement.apply_scale_adjustments(&mut final_scales);
 
         // Phase 5: Get clip region from guide
