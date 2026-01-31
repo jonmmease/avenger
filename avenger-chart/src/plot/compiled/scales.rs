@@ -1,18 +1,65 @@
 //! Scale building and domain inference for CompiledPlot
 
+// Standard library
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+// External crates - Arrow
+use datafusion::arrow::array::AsArray;
+use datafusion::arrow::compute::cast;
+use datafusion::arrow::datatypes::{DataType as ArrowDataType, Float64Type};
+
+// External crates - DataFusion
+use datafusion::common::ScalarValue;
 use datafusion::dataframe::DataFrame;
+use datafusion::functions_aggregate::min_max::{max, min};
+use datafusion::logical_expr::{lit, Expr, LogicalPlan};
 use datafusion::prelude::SessionContext;
+use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
-use crate::channel::value::strip_trailing_numbers;
-use crate::error::AvengerChartError;
-use crate::facet::scalar_cmp::scalar_total_cmp;
-use crate::scales::Scale;
-use crate::serialization::LogicalPlanNodeExt;
+// External crates - avenger_scales
+use avenger_scales::scales::{DomainKind, RangeKind};
 
+// Crate imports - channels
+use crate::channel::resolution::resolve_all_channel_refs;
+use crate::channel::value::strip_trailing_numbers;
+
+// Crate imports - coords
+use crate::coords::{CoordinateSystemTransform, EmptyCoordMeasurement};
+
+// Crate imports - error
+use crate::error::AvengerChartError;
+
+// Crate imports - facet
+use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
+use crate::facet::scalar_cmp::scalar_total_cmp;
+
+// Crate imports - marks
+use crate::marks::{ChannelValue, CompiledMark, RadiusExpression};
+
+// Crate imports - plot (alias to avoid collision with scales::ScaleSpec trait)
+use crate::plot::ScaleSpec as PlotScaleSpec;
+
+// Crate imports - render
+use crate::render::{EvaluationContext, RenderContext, RenderState};
+
+// Crate imports - scales
+use crate::scales::builder::{ChannelScaleData, DataExtents, ScaleBuilder};
+use crate::scales::spec::{Auto, Ordinal};
+use crate::scales::{
+    default_range_for_channel, ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec, DomainExpr,
+    Scale, ScaleDomain, ScaleDefaultDomain, ScaleRange, ScaleSpec,
+};
+
+// Crate imports - serialization
+use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
+
+// Crate imports - theme and utils
+use crate::theme::Theme;
+use crate::utils::{array_value_to_f64, params_to_datafusion};
+
+// Super imports
 use super::CompiledPlot;
 
 /// Build ScaleBuilder by executing expensive data queries once
@@ -34,18 +81,15 @@ use super::CompiledPlot;
 /// with different dimensions (e.g., for initial layout pass vs. final render pass)
 /// without re-querying the data.
 pub(crate) async fn build_scale_builder_from_marks(
-    compiled_marks: &[Arc<dyn crate::marks::CompiledMark>],
-    scale_specs: &HashMap<String, crate::plot::ScaleSpec>,
-    coord_transform: &Box<dyn crate::coords::CoordinateSystemTransform>,
-    data: &Option<datafusion_proto::protobuf::LogicalPlanNode>,
+    compiled_marks: &[Arc<dyn CompiledMark>],
+    scale_specs: &HashMap<String, PlotScaleSpec>,
+    coord_transform: &Box<dyn CoordinateSystemTransform>,
+    data: &Option<LogicalPlanNode>,
     df_override: Option<DataFrame>,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-    theme: &crate::theme::Theme,
-) -> Result<crate::scales::ScaleBuilder, AvengerChartError> {
-    use crate::channel::resolution::resolve_all_channel_refs;
-    use crate::scales::builder::ScaleBuilder;
-
+    params: &IndexMap<String, ScalarValue>,
+    theme: &Theme,
+) -> Result<ScaleBuilder, AvengerChartError> {
     let mut builder = ScaleBuilder::new();
 
     // Get DataFrame if available - mark-level data takes precedence over plot-level data
@@ -59,8 +103,7 @@ pub(crate) async fn build_scale_builder_from_marks(
             .or_else(|| {
                 // Fall back to plot-level data if no mark has data
                 if let Some(data_node) = data {
-                    use datafusion_proto::protobuf::LogicalPlanNode as ProtoNode;
-                    let logical_plan = ProtoNode::to_logical_plan(data_node, ctx).ok()?;
+                    let logical_plan = LogicalPlanNode::to_logical_plan(data_node, ctx).ok()?;
                     Some(DataFrame::new(ctx.state().clone(), logical_plan))
                 } else {
                     None
@@ -156,8 +199,7 @@ pub(crate) async fn build_scale_builder_from_marks(
     }
 
     // 4. Build temporary ConfiguredScaleWithSpec objects from Phase 1 builders for use in Phase 2
-    let mut phase1_configured: HashMap<String, crate::scales::ConfiguredScaleWithSpec> =
-        HashMap::new();
+    let mut phase1_configured: HashMap<String, ConfiguredScaleWithSpec> = HashMap::new();
 
     // Extract non‑positional channel builders from the main builder
     for (channel_name, channel_builder) in &builder.channel_scale_data {
@@ -236,42 +278,34 @@ pub(crate) async fn build_scale_builder_from_marks(
 /// Build scale specification for a channel
 async fn build_scale_for_channel(
     channel: &str,
-    compiled_marks: &[Arc<dyn crate::marks::CompiledMark>],
+    compiled_marks: &[Arc<dyn CompiledMark>],
     df_opt: &Option<DataFrame>,
     ctx: &SessionContext,
-    _params: &IndexMap<String, datafusion::common::ScalarValue>,
+    _params: &IndexMap<String, ScalarValue>,
     _check_radius: bool,
-    _phase1_scales: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+    _phase1_scales: &HashMap<String, ConfiguredScaleWithSpec>,
     // Plot-level scale overrides to apply before extracting options/domain
-    plot_scale_specs: &HashMap<String, crate::plot::ScaleSpec>,
-    coord_transform: &Box<dyn crate::coords::CoordinateSystemTransform>,
+    plot_scale_specs: &HashMap<String, PlotScaleSpec>,
+    coord_transform: &Box<dyn CoordinateSystemTransform>,
 ) -> Result<
     Option<(
-        Box<dyn crate::scales::ScaleSpec>,
-        datafusion::arrow::datatypes::DataType,
+        Box<dyn ScaleSpec>,
+        ArrowDataType,
         HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
         bool,
-        Option<crate::scales::ScaleDomain>,
+        Option<ScaleDomain>,
     )>,
     AvengerChartError,
 > {
-    use crate::channel::resolution::resolve_all_channel_refs;
-    use crate::scales::spec::Auto;
-    use datafusion::arrow::datatypes::DataType;
-    use datafusion::logical_expr::Expr;
-
     // Helper to check if a DataFrame is an EmptyRelation placeholder
     let is_empty_relation = |df: &DataFrame| -> bool {
-        matches!(
-            df.logical_plan(),
-            datafusion::logical_expr::LogicalPlan::EmptyRelation(_)
-        )
+        matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_))
     };
 
     // Find first mark that uses this channel (or a channel mapping to it) and get its expr and preferred scale type.
     // For positional channels like "y", we also check "y2" since both map to the same scale.
-    let mut chosen_spec: Option<Box<dyn crate::scales::ScaleSpec>> = None;
-    let mut data_type: Option<DataType> = None;
+    let mut chosen_spec: Option<Box<dyn ScaleSpec>> = None;
+    let mut data_type: Option<ArrowDataType> = None;
 
     'outer: for mark in compiled_marks {
         let channels = mark.data_context().channels();
@@ -378,9 +412,7 @@ async fn build_scale_for_channel(
             chosen_spec = Some(user_spec);
         } else if let Some(range) = user_scale.get_range() {
             // If no explicit scale type but discrete range is set, infer ordinal scale
-            use crate::scales::ScaleRange;
             if matches!(range, ScaleRange::Discrete(_)) {
-                use crate::scales::spec::Ordinal;
                 chosen_spec = Some(Box::new(Ordinal));
             }
         }
@@ -417,7 +449,6 @@ async fn build_scale_for_channel(
     // but KEEP rendering options (round) as they don't affect the domain
     // User options will be applied after to ensure they take precedence
     if let Ok(scale_impl) = scale.get_scale_impl_or_err() {
-        use datafusion::logical_expr::lit;
         let coord_opts = coord_transform.default_scale_options(channel, scale_impl.as_ref());
         for (k, v) in coord_opts {
             // Skip domain-affecting options if user set explicit domain
@@ -452,7 +483,6 @@ async fn build_scale_for_channel(
     // Apply user-specified options LAST (nice, zero, padding, etc.) from the channel
     // This ensures user options override defaults
     if let Some(channel_scale) = &chosen_scale_config {
-        use crate::serialization::LogicalExprNodeExt;
         for (key, value_node) in channel_scale.get_options() {
             let expr = value_node.to_expr(ctx)?;
             scale = scale.option(key, expr);
@@ -461,7 +491,7 @@ async fn build_scale_for_channel(
 
     // Apply plot-level overrides AFTER mark defaults and channel options so they take precedence
     if let Some(plot_spec) = plot_scale_specs.get(channel) {
-        let crate::plot::ScaleSpec::Local(scale_changes) = plot_spec;
+        let PlotScaleSpec::Local(scale_changes) = plot_spec;
         scale = scale.update(scale_changes.clone());
         // If plot-level override set the domain (including DomainExprs), treat as explicit
         if scale.get_domain().is_some() {
@@ -484,17 +514,12 @@ async fn build_scale_for_channel(
 /// Get radius expression for a positional channel (returns None for non-positional)
 fn get_radius_expression(
     channel: &str,
-    spec: &Box<dyn crate::scales::ScaleSpec>,
-    compiled_marks: &[Arc<dyn crate::marks::CompiledMark>],
+    spec: &Box<dyn ScaleSpec>,
+    compiled_marks: &[Arc<dyn CompiledMark>],
     ctx: &SessionContext,
-    phase1_configured: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-    theme: &crate::theme::Theme,
-) -> Option<crate::marks::RadiusExpression> {
-    use crate::channel::resolution::resolve_all_channel_refs;
-    use crate::scales::{Scale, spec::Auto};
-    use crate::serialization::LogicalExprNodeExt;
-    use datafusion::logical_expr::{Expr, lit};
-
+    phase1_configured: &HashMap<String, ConfiguredScaleWithSpec>,
+    theme: &Theme,
+) -> Option<RadiusExpression> {
     // Check if scale supports radius expansion
     let scale_for_check = Scale::<Auto>::from_spec(spec.clone_box());
     let supports_radius = if let Ok(scale_impl) = scale_for_check.to_scale_impl() {
@@ -515,8 +540,6 @@ fn get_radius_expression(
         // Check if this mark uses this channel
         for (ch, ch_value) in &resolved {
             if let Some(ch_scale_name) = ch_value.get_scale_name(ch) {
-                use crate::channel::value::strip_trailing_numbers;
-                use crate::scales::ConfiguredScaleDataFusionExt;
                 let base_channel = strip_trailing_numbers(channel);
 
                 if ch_scale_name == base_channel {
@@ -524,7 +547,7 @@ fn get_radius_expression(
                     let resolve_channel = |ch_name: &str| -> Expr {
                         if let Some(channel_value) = resolved.get(ch_name) {
                             match channel_value {
-                                crate::marks::ChannelValue::Scaled {
+                                ChannelValue::Scaled {
                                     expr, scale_name, ..
                                 } => {
                                     let scale_key =
@@ -548,7 +571,7 @@ fn get_radius_expression(
                                         return expr_df;
                                     }
                                 }
-                                crate::marks::ChannelValue::Value { expr } => {
+                                ChannelValue::Value { expr } => {
                                     if let Ok(expr_df) = expr.to_expr(ctx) {
                                         return expr_df;
                                     }
@@ -559,24 +582,22 @@ fn get_radius_expression(
 
                         // Channel not found in mark - use default value from mark
                         // Create a minimal RenderContext for querying defaults
-                        let temp_eval_ctx = crate::render::EvaluationContext::new(
+                        let temp_eval_ctx = EvaluationContext::new(
                             Arc::new(theme.clone()),
                             Arc::new(ctx.clone()),
-                            indexmap::IndexMap::new(),
-                            Arc::new(
-                                crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty(),
-                            ),
+                            IndexMap::new(),
+                            Arc::new(EvaluatedFacetTree::empty()),
                         );
-                        let temp_state = crate::render::RenderState::new(
+                        let temp_state = RenderState::new(
                             400.0, // dummy width
                             300.0, // dummy height
                             HashMap::new(),
                         );
-                        let temp_ctx = crate::render::RenderContext::new(
+                        let temp_ctx = RenderContext::new(
                             &temp_eval_ctx,
                             &temp_state,
                             &[],
-                            &crate::coords::EmptyCoordMeasurement,
+                            &EmptyCoordMeasurement,
                         );
 
                         if let Some(default_scalar) = mark.default_channel_value(ch_name, &temp_ctx)
@@ -601,24 +622,19 @@ fn get_radius_expression(
 #[allow(clippy::too_many_arguments)]
 async fn cache_domain_data(
     channel: &str,
-    spec: &Box<dyn crate::scales::ScaleSpec>,
-    dt: &datafusion::arrow::datatypes::DataType,
+    spec: &Box<dyn ScaleSpec>,
+    dt: &ArrowDataType,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
-    domain_opt: Option<crate::scales::ScaleDomain>,
-    compiled_marks: &[Arc<dyn crate::marks::CompiledMark>],
+    domain_opt: Option<ScaleDomain>,
+    compiled_marks: &[Arc<dyn CompiledMark>],
     df_opt: &Option<DataFrame>,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-    phase1_configured: &HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-    builder: &mut crate::scales::ScaleBuilder,
-    radius_expr_opt: Option<crate::marks::RadiusExpression>,
-    theme: &crate::theme::Theme,
+    params: &IndexMap<String, ScalarValue>,
+    phase1_configured: &HashMap<String, ConfiguredScaleWithSpec>,
+    builder: &mut ScaleBuilder,
+    radius_expr_opt: Option<RadiusExpression>,
+    theme: &Theme,
 ) -> Result<(), AvengerChartError> {
-    use crate::channel::resolution::resolve_all_channel_refs;
-    use crate::scales::{Scale, spec::Auto};
-    use crate::serialization::LogicalExprNodeExt;
-    use datafusion::logical_expr::Expr;
-
     // Build a scale with domain and options to inspect domain (including any DomainExprs)
     let mut scale = Scale::<Auto>::from_spec(spec.clone_box());
 
@@ -635,7 +651,6 @@ async fn cache_domain_data(
     // If the domain is set to an explicit interval/discrete, cache as explicit and return.
     // If it's DomainExprs, we will use those expressions to cache data extents.
     if let Some(domain) = scale.get_domain() {
-        use crate::scales::ScaleDefaultDomain;
         match &domain.default_domain {
             ScaleDefaultDomain::Interval(_, _) | ScaleDefaultDomain::Discrete(_) => {
                 builder.add_explicit_domain(
@@ -657,13 +672,10 @@ async fn cache_domain_data(
     }
 
     // Collect data expressions (and per-mark/per-override radius) for this scale
-    let mut entries: Vec<(Arc<DataFrame>, Expr, Option<crate::marks::RadiusExpression>)> =
-        Vec::new();
+    let mut entries: Vec<(Arc<DataFrame>, Expr, Option<RadiusExpression>)> = Vec::new();
 
     // First, if the scale domain is DomainExprs from overrides, use those directly
     if let Some(domain) = scale.get_domain() {
-        use crate::scales::{DomainExpr, ScaleDefaultDomain};
-        use crate::serialization::LogicalPlanNodeExt;
         if let ScaleDefaultDomain::DomainExprs(exprs) = &domain.default_domain {
             for DomainExpr {
                 dataframe,
@@ -681,10 +693,7 @@ async fn cache_domain_data(
 
     // Helper to check if a DataFrame is an EmptyRelation placeholder
     let is_empty_relation = |df: &DataFrame| -> bool {
-        matches!(
-            df.logical_plan(),
-            datafusion::logical_expr::LogicalPlan::EmptyRelation(_)
-        )
+        matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_))
     };
 
     // If overrides didn't provide DomainExprs, fall back to collecting from marks
@@ -715,13 +724,10 @@ async fn cache_domain_data(
                             {
                                 if scale_impl.supports_radius_expansion() {
                                     // Build resolve_channel as in get_radius_expression
-                                    use crate::channel::value::strip_trailing_numbers;
-                                    use crate::scales::ConfiguredScaleDataFusionExt;
-                                    use datafusion::logical_expr::lit;
                                     let resolve_channel = |ch_name: &str| -> Expr {
                                         if let Some(ch_val) = resolved.get(ch_name) {
                                             match ch_val {
-                                                crate::marks::ChannelValue::Scaled {
+                                                ChannelValue::Scaled {
                                                     expr,
                                                     scale_name,
                                                     ..
@@ -742,25 +748,25 @@ async fn cache_domain_data(
                                                     }
                                                     expr.to_expr(ctx).unwrap_or(lit(0.0))
                                                 }
-                                                crate::marks::ChannelValue::Value { expr } => {
+                                                ChannelValue::Value { expr } => {
                                                     expr.to_expr(ctx).unwrap_or(lit(0.0))
                                                 }
                                                 _ => lit(0.0),
                                             }
                                         } else {
                                             // Default or zero
-                                            let temp_eval_ctx = crate::render::EvaluationContext::new(
+                                            let temp_eval_ctx = EvaluationContext::new(
                                                 Arc::new(theme.clone()),
                                                 Arc::new(ctx.clone()),
-                                                indexmap::IndexMap::new(),
-                                                Arc::new(crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty()),
+                                                IndexMap::new(),
+                                                Arc::new(EvaluatedFacetTree::empty()),
                                             );
-                                            let temp_state = crate::render::RenderState::new(
+                                            let temp_state = RenderState::new(
                                                 400.0, 300.0, HashMap::new(),
                                             );
-                                            let temp_ctx = crate::render::RenderContext::new(
+                                            let temp_ctx = RenderContext::new(
                                                 &temp_eval_ctx, &temp_state, &[],
-                                                &crate::coords::EmptyCoordMeasurement,
+                                                &EmptyCoordMeasurement,
                                             );
                                             if let Some(default_scalar) =
                                                 mark.default_channel_value(ch_name, &temp_ctx)
@@ -814,7 +820,7 @@ async fn cache_domain_data(
     if has_any_radius {
         // Radius-aware scale - cache raw vectors
         cache_radius_aware_data(channel, spec, options, &entries, ctx, params, builder, dt).await?;
-    } else if target_domain_kind == avenger_scales::scales::DomainKind::Categorical {
+    } else if target_domain_kind == DomainKind::Categorical {
         cache_categorical_data(
             channel,
             spec,
@@ -826,7 +832,7 @@ async fn cache_domain_data(
             dt,
         )
         .await?;
-    } else if target_domain_kind == avenger_scales::scales::DomainKind::Temporal {
+    } else if target_domain_kind == DomainKind::Temporal {
         cache_temporal_data(
             channel,
             spec,
@@ -857,19 +863,14 @@ async fn cache_domain_data(
 
 /// Build temporary ConfiguredScale used to construct radius‑aware positional expressions
 async fn build_temp_configured_scale(
-    channel_builder: &crate::scales::ChannelScaleData,
+    channel_builder: &ChannelScaleData,
     channel_name: &str,
     width: f32,
     height: f32,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-    theme: &crate::theme::Theme,
-) -> Result<Option<crate::scales::ConfiguredScaleWithSpec>, AvengerChartError> {
-    use crate::scales::{ConfiguredScaleWithSpec, Scale, builder::ChannelScaleData, spec::Auto};
-    use crate::serialization::LogicalExprNodeExt;
-
-    // Debug logging removed
-
+    params: &IndexMap<String, ScalarValue>,
+    theme: &Theme,
+) -> Result<Option<ConfiguredScaleWithSpec>, AvengerChartError> {
     match channel_builder {
         ChannelScaleData::Standard {
             scale_spec,
@@ -898,7 +899,7 @@ async fn build_temp_configured_scale(
             {
                 theme_range
             } else {
-                crate::scales::default_range_for_channel(channel_name, range_kind)
+                default_range_for_channel(channel_name, range_kind)
             };
             scale = scale.range(range);
 
@@ -939,7 +940,7 @@ async fn build_temp_configured_scale(
             {
                 theme_range
             } else {
-                crate::scales::default_range_for_channel(channel_name, range_kind)
+                default_range_for_channel(channel_name, range_kind)
             };
             scale = scale.range(range);
 
@@ -961,33 +962,22 @@ async fn build_temp_configured_scale(
 // Helper functions for caching different types of data (implementations to follow)
 async fn cache_radius_aware_data(
     channel: &str,
-    spec: &Box<dyn crate::scales::ScaleSpec>,
+    spec: &Box<dyn ScaleSpec>,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
-    entries: &[(
-        Arc<DataFrame>,
-        datafusion::logical_expr::Expr,
-        Option<crate::marks::RadiusExpression>,
-    )],
+    entries: &[(Arc<DataFrame>, Expr, Option<RadiusExpression>)],
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-    builder: &mut crate::scales::ScaleBuilder,
-    dt: &datafusion::arrow::datatypes::DataType,
+    params: &IndexMap<String, ScalarValue>,
+    builder: &mut ScaleBuilder,
+    dt: &ArrowDataType,
 ) -> Result<(), AvengerChartError> {
-    use crate::serialization::LogicalExprNodeExt;
-    use datafusion::arrow::array::AsArray;
-    use datafusion::arrow::compute::cast;
-    use datafusion::arrow::datatypes::DataType as ArrowDataType;
-    use datafusion::arrow::datatypes::Float64Type;
-
     let mut all_positions = Vec::new();
     let mut all_radius_lower = Vec::new();
     let mut all_radius_upper = Vec::new();
 
     for (df, expr, mark_radius_opt) in entries {
-        use datafusion::logical_expr::lit;
         let select_exprs = if let Some(mark_radius) = mark_radius_opt {
             match mark_radius {
-                crate::marks::RadiusExpression::Symmetric(radius_node) => {
+                RadiusExpression::Symmetric(radius_node) => {
                     let radius_expr_df = radius_node.to_expr(ctx)?;
                     vec![
                         expr.clone().alias("__position__"),
@@ -995,7 +985,7 @@ async fn cache_radius_aware_data(
                         radius_expr_df.alias("__radius_upper__"),
                     ]
                 }
-                crate::marks::RadiusExpression::Asymmetric { lower, upper } => {
+                RadiusExpression::Asymmetric { lower, upper } => {
                     let lower_expr_df = lower.to_expr(ctx)?;
                     let upper_expr_df = upper.to_expr(ctx)?;
                     vec![
@@ -1016,7 +1006,7 @@ async fn cache_radius_aware_data(
 
         let df_with_exprs = df.as_ref().clone().select(select_exprs)?;
         let batches = if !params.is_empty() {
-            if let Some(param_values) = crate::utils::params_to_datafusion(params) {
+            if let Some(param_values) = params_to_datafusion(params) {
                 df_with_exprs
                     .with_param_values(param_values)?
                     .collect()
@@ -1092,17 +1082,14 @@ async fn cache_radius_aware_data(
 
 async fn cache_categorical_data(
     channel: &str,
-    spec: &Box<dyn crate::scales::ScaleSpec>,
+    spec: &Box<dyn ScaleSpec>,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
-    data_expressions: &[(Arc<DataFrame>, datafusion::logical_expr::Expr)],
+    data_expressions: &[(Arc<DataFrame>, Expr)],
     _ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-    builder: &mut crate::scales::ScaleBuilder,
-    dt: &datafusion::arrow::datatypes::DataType,
+    params: &IndexMap<String, ScalarValue>,
+    builder: &mut ScaleBuilder,
+    dt: &ArrowDataType,
 ) -> Result<(), AvengerChartError> {
-    use crate::scales::builder::DataExtents;
-    use datafusion::common::ScalarValue;
-
     let mut all_unique_values: Vec<ScalarValue> = Vec::new();
 
     for (df, expr) in data_expressions {
@@ -1113,7 +1100,7 @@ async fn cache_categorical_data(
             .distinct()?;
 
         let batches = if !params.is_empty() {
-            if let Some(param_values) = crate::utils::params_to_datafusion(params) {
+            if let Some(param_values) = params_to_datafusion(params) {
                 distinct_df
                     .with_param_values(param_values)?
                     .collect()
@@ -1148,8 +1135,8 @@ async fn cache_categorical_data(
         builder.add_standard(channel.to_string(), spec.clone_box(), extents, options);
 
         // For ordinal scales with continuous range, store Float64 type
-        let stored_type = if spec.range_kind() == avenger_scales::scales::RangeKind::Continuous {
-            datafusion::arrow::datatypes::DataType::Float64
+        let stored_type = if spec.range_kind() == RangeKind::Continuous {
+            ArrowDataType::Float64
         } else {
             dt.clone()
         };
@@ -1161,18 +1148,14 @@ async fn cache_categorical_data(
 
 async fn cache_temporal_data(
     channel: &str,
-    spec: &Box<dyn crate::scales::ScaleSpec>,
+    spec: &Box<dyn ScaleSpec>,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
-    data_expressions: &[(Arc<DataFrame>, datafusion::logical_expr::Expr)],
+    data_expressions: &[(Arc<DataFrame>, Expr)],
     _ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-    builder: &mut crate::scales::ScaleBuilder,
-    dt: &datafusion::arrow::datatypes::DataType,
+    params: &IndexMap<String, ScalarValue>,
+    builder: &mut ScaleBuilder,
+    dt: &ArrowDataType,
 ) -> Result<(), AvengerChartError> {
-    use crate::scales::builder::DataExtents;
-    use datafusion::common::ScalarValue;
-    use datafusion::functions_aggregate::min_max::{max, min};
-
     let mut global_min_ts: Option<i64> = None;
     let mut global_max_ts: Option<i64> = None;
 
@@ -1186,7 +1169,7 @@ async fn cache_temporal_data(
         )?;
 
         let batches = if !params.is_empty() {
-            if let Some(param_values) = crate::utils::params_to_datafusion(params) {
+            if let Some(param_values) = params_to_datafusion(params) {
                 agg_df.with_param_values(param_values)?.collect().await?
             } else {
                 agg_df.collect().await?
@@ -1236,17 +1219,14 @@ async fn cache_temporal_data(
 
 async fn cache_numeric_data(
     channel: &str,
-    spec: &Box<dyn crate::scales::ScaleSpec>,
+    spec: &Box<dyn ScaleSpec>,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
-    data_expressions: &[(Arc<DataFrame>, datafusion::logical_expr::Expr)],
+    data_expressions: &[(Arc<DataFrame>, Expr)],
     _ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-    builder: &mut crate::scales::ScaleBuilder,
-    dt: &datafusion::arrow::datatypes::DataType,
+    params: &IndexMap<String, ScalarValue>,
+    builder: &mut ScaleBuilder,
+    dt: &ArrowDataType,
 ) -> Result<(), AvengerChartError> {
-    use crate::scales::builder::DataExtents;
-    use datafusion::functions_aggregate::min_max::{max, min};
-
     let mut global_min_val: Option<f64> = None;
     let mut global_max_val: Option<f64> = None;
 
@@ -1260,7 +1240,7 @@ async fn cache_numeric_data(
         )?;
 
         let batches = if !params.is_empty() {
-            if let Some(param_values) = crate::utils::params_to_datafusion(params) {
+            if let Some(param_values) = params_to_datafusion(params) {
                 agg_df.with_param_values(param_values)?.collect().await?
             } else {
                 agg_df.collect().await?
@@ -1279,8 +1259,8 @@ async fn cache_numeric_data(
                 continue;
             }
 
-            let min_val = crate::utils::array_value_to_f64(min_col, 0, dt)?;
-            let max_val = crate::utils::array_value_to_f64(max_col, 0, dt)?;
+            let min_val = array_value_to_f64(min_col, 0, dt)?;
+            let max_val = array_value_to_f64(max_col, 0, dt)?;
 
             global_min_val = Some(global_min_val.map_or(min_val, |current| current.min(min_val)));
             global_max_val = Some(global_max_val.map_or(max_val, |current| current.max(max_val)));
@@ -1299,8 +1279,6 @@ async fn cache_numeric_data(
 impl CompiledPlot {
     /// Collect all channels that need scales from marks
     pub(crate) fn collect_channels_needing_scales(&self, ctx: &SessionContext) -> HashSet<String> {
-        use crate::channel::resolution::resolve_all_channel_refs;
-
         let mut used_channels = HashSet::new();
         for mark in &self.marks {
             // Get channels and resolve references first
@@ -1318,24 +1296,23 @@ impl CompiledPlot {
     }
 
     /// Check if a data type is numeric
-    pub(super) fn is_numeric_type(dtype: &datafusion::arrow::datatypes::DataType) -> bool {
-        use datafusion::arrow::datatypes::DataType;
+    pub(super) fn is_numeric_type(dtype: &ArrowDataType) -> bool {
         match dtype {
             // Standard numeric types
-            DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64
-            | DataType::Float16
-            | DataType::Float32
-            | DataType::Float64 => true,
+            ArrowDataType::Int8
+            | ArrowDataType::Int16
+            | ArrowDataType::Int32
+            | ArrowDataType::Int64
+            | ArrowDataType::UInt8
+            | ArrowDataType::UInt16
+            | ArrowDataType::UInt32
+            | ArrowDataType::UInt64
+            | ArrowDataType::Float16
+            | ArrowDataType::Float32
+            | ArrowDataType::Float64 => true,
             // Dictionary types are allowed if their value type is numeric
             // (This happens when categorical data goes through an ordinal scale)
-            DataType::Dictionary(_, value_type) => Self::is_numeric_type(value_type),
+            ArrowDataType::Dictionary(_, value_type) => Self::is_numeric_type(value_type),
             _ => false,
         }
     }
