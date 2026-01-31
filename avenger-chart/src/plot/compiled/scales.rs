@@ -92,7 +92,7 @@ pub(crate) async fn build_scale_builder_from_marks(
             })
     };
 
-    // 1. Collect channels needing scales from marks
+    // Collect channels needing scales from marks
     let mut channels_with_scales = HashSet::new();
     for mark in compiled_marks {
         let encodings = mark.data_context().channels();
@@ -121,7 +121,7 @@ pub(crate) async fn build_scale_builder_from_marks(
         channels_with_scales.insert(ch.clone());
     }
 
-    // 2. Determine positional vs non-positional channels
+    // Determine positional vs non-positional channels
     let positional_channel_set: HashSet<String> = coord_transform
         .required_channels()
         .iter()
@@ -140,7 +140,7 @@ pub(crate) async fn build_scale_builder_from_marks(
         .cloned()
         .collect();
 
-    // 3. PHASE 1: Build non-positional scale builders
+    // PHASE 1: Build non-positional scale builders
     // We build non‑positional scales first so their configured scales can be used to construct radius‑aware positional expressions
     for channel in &non_positional_channels {
         if let Some((spec, dt, options, _has_explicit_domain, domain_opt)) =
@@ -179,7 +179,7 @@ pub(crate) async fn build_scale_builder_from_marks(
         }
     }
 
-    // 4. Build temporary ConfiguredScaleWithSpec objects from Phase 1 builders for use in Phase 2
+    // Build temporary ConfiguredScaleWithSpec objects from Phase 1 builders for use in Phase 2
     let mut phase1_configured: HashMap<String, ConfiguredScaleWithSpec> = HashMap::new();
 
     // Extract non‑positional channel builders from the main builder
@@ -199,7 +199,7 @@ pub(crate) async fn build_scale_builder_from_marks(
         }
     }
 
-    // 5. PHASE 2: Build positional scales with scale-aware radius expressions
+    // PHASE 2: Build positional scales with scale-aware radius expressions
     for channel in &positional_channels {
         if let Some((spec, dt, options, has_explicit_domain, domain_opt)) = build_scale_for_channel(
             channel,
@@ -251,8 +251,7 @@ pub(crate) async fn build_scale_builder_from_marks(
         }
     }
 
-    //     // Phase 2 builders are also in builder.channel_builders
-    // All done!
+    // Phase 2 builders are also in builder.channel_builders
     Ok(builder)
 }
 
