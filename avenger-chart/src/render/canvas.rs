@@ -1,10 +1,11 @@
 //! Canvas extension trait for rendering plots
 
-use crate::error::AvengerChartError;
-use crate::plot::CompiledPlot;
-use avenger_wgpu::canvas::{Canvas, PngCanvas};
-use datafusion::prelude::SessionContext;
+use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
+
+use avenger_wgpu::canvas::{Canvas, PngCanvas};
+
+use crate::{error::AvengerChartError, plot::CompiledPlot};
 
 /// Extension trait for Canvas to render Plot objects
 #[allow(async_fn_in_trait)]
@@ -14,7 +15,7 @@ pub trait CanvasExt {
         &mut self,
         plot: &CompiledPlot,
         ctx: &SessionContext,
-        params: Option<IndexMap<String, datafusion::common::ScalarValue>>,
+        params: Option<IndexMap<String, ScalarValue>>,
     ) -> Result<(), AvengerChartError>;
 }
 
@@ -24,7 +25,7 @@ impl CanvasExt for PngCanvas {
         &mut self,
         plot: &CompiledPlot,
         ctx: &SessionContext,
-        params: Option<IndexMap<String, datafusion::common::ScalarValue>>,
+        params: Option<IndexMap<String, ScalarValue>>,
     ) -> Result<(), AvengerChartError> {
         // Evaluate to scene graph using the provided SessionContext and parameters
         let evaluated_plot = plot.evaluate(ctx, params).await?;

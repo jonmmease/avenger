@@ -1,8 +1,10 @@
 //! Scale configuration methods for Plot
 
-use crate::coords::CoordinateSystem;
-use crate::plot::Plot;
-use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
+use crate::{
+    coords::CoordinateSystem,
+    plot::Plot,
+    scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec},
+};
 
 use super::specs::ScaleSpec;
 

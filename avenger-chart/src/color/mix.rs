@@ -3,8 +3,10 @@
 //! Ported from Mozilla Stylo's style/color/mix.rs
 //! https://searchfox.org/mozilla-central/source/servo/components/style/color/mix.rs
 
-use super::convert::normalize_hue;
-use super::types::{AbsoluteColor, ColorSpace};
+use super::{
+    convert::normalize_hue,
+    types::{AbsoluteColor, ColorSpace},
+};
 
 /// Hue interpolation method for polar color spaces
 ///

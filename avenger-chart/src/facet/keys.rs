@@ -1,8 +1,8 @@
-use crate::error::AvengerChartError;
-use crate::facet::scalar_cmp::scalar_total_cmp;
-use datafusion::common::ScalarValue;
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::Expr;
+use datafusion::{
+    arrow::record_batch::RecordBatch, common::ScalarValue, dataframe::DataFrame, logical_expr::Expr,
+};
+
+use crate::{error::AvengerChartError, facet::scalar_cmp::scalar_total_cmp};
 
 /// Helper utilities for extracting distinct facet keys from DataFusion `DataFrame`s.
 ///
@@ -32,7 +32,7 @@ impl FacetKeyExtractor {
     }
 
     fn scalar_column_to_vec(
-        batches: &[datafusion::arrow::record_batch::RecordBatch],
+        batches: &[RecordBatch],
         column_index: usize,
     ) -> Result<Vec<ScalarValue>, AvengerChartError> {
         let mut values = Vec::new();

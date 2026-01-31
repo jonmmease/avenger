@@ -1,14 +1,15 @@
-use crate::channel::{
-    ColorChannelConfig, OpacityChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
-};
-use crate::coords::CoordinateSystem;
-use crate::error::AvengerChartError;
-use crate::marks::MarkState;
-use crate::{define_common_mark_channels, impl_mark_base};
-use datafusion::arrow::array::ArrayRef;
-use datafusion::arrow::compute::kernels::cast::cast;
-use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::{array::ArrayRef, compute::kernels::cast::cast, datatypes::DataType};
 use datafusion_common::ScalarValue;
+
+use crate::{
+    channel::{
+        ColorChannelConfig, OpacityChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
+    },
+    coords::CoordinateSystem,
+    error::AvengerChartError,
+    marks::MarkState,
+    {define_common_mark_channels, impl_mark_base},
+};
 
 pub struct Line<C: CoordinateSystem> {
     pub(crate) state: MarkState,

@@ -4,9 +4,12 @@
 //! as protobuf bytes for efficient binary serialization.
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use datafusion::prelude::Expr;
 use datafusion_proto::protobuf::LogicalExprNode;
 use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use super::LogicalExprNodeExt;
 
 /// A serializable wrapper for Expr that stores protobuf bytes
 #[derive(Clone, Debug, PartialEq)]
@@ -32,9 +35,8 @@ impl From<SerializableExpr> for LogicalExprNode {
 }
 
 // Conversion from Expr to SerializableExpr via LogicalExprNode
-impl From<datafusion::prelude::Expr> for SerializableExpr {
-    fn from(expr: datafusion::prelude::Expr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+impl From<Expr> for SerializableExpr {
+    fn from(expr: Expr) -> Self {
         // Convert Expr to LogicalExprNode
         let node =
             LogicalExprNode::from_expr(expr).expect("Failed to convert Expr to LogicalExprNode");

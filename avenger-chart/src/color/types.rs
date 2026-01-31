@@ -1,6 +1,9 @@
 //! Core color types for color space support
 
-use crate::theme::CssRgba;
+use crate::{
+    color::convert,
+    theme::{CssRgba, calc::ChannelKeyword},
+};
 
 /// A color space representation in the CSS specification
 ///
@@ -12,7 +15,7 @@ pub enum ColorSpace {
     Srgb = 0,
     /// HSL (Hue-Saturation-Lightness) in sRGB
     Hsl,
-    /// HWB (Hue-Whiteness-Blackness) in sRGB  
+    /// HWB (Hue-Whiteness-Blackness) in sRGB
     Hwb,
     /// Lab color space (CIE L*a*b*)
     Lab,
@@ -118,8 +121,6 @@ impl AbsoluteColor {
             return *self;
         }
 
-        use crate::color::convert;
-
         // Get components in target space (will be implemented in convert.rs)
         let components = convert::convert_color_space(&self.components, self.color_space, target);
 
@@ -141,12 +142,7 @@ impl AbsoluteColor {
     ///
     /// # Returns
     /// The component value, or an error if the keyword is invalid for this color space
-    pub fn get_component_by_channel_keyword(
-        &self,
-        keyword: crate::theme::calc::ChannelKeyword,
-    ) -> Result<f32, String> {
-        use crate::theme::calc::ChannelKeyword;
-
+    pub fn get_component_by_channel_keyword(&self, keyword: ChannelKeyword) -> Result<f32, String> {
         match (self.color_space, keyword) {
             // Oklch: L (lightness), C (chroma), H (hue)
             (ColorSpace::Oklch, ChannelKeyword::L) => Ok(self.components[0]),

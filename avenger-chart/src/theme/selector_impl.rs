@@ -1,10 +1,10 @@
 //! Selector implementation for chart elements
 
+use std::{borrow::Borrow, fmt};
+
 use cssparser::ToCss;
 use precomputed_hash::PrecomputedHash;
 use selectors::parser::{NonTSPseudoClass, SelectorImpl};
-use std::borrow::Borrow;
-use std::fmt;
 
 /// Chart selector implementation
 #[derive(Debug, Clone)]

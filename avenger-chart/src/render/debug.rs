@@ -1,11 +1,13 @@
 //! Debug utilities for visualizing layout bounds
 
+use std::sync::Arc;
+
 use avenger_common::types::ColorOrGradient;
 use avenger_scales::color::parse_color_string;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::rect::SceneRectMark;
-use avenger_scenegraph::marks::text::SceneTextMark;
-use std::sync::Arc;
+use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::SceneTextMark};
+use avenger_text::types::{TextAlign, TextBaseline};
+
+use crate::{cartesian::axis::AxisPosition, layout::LayoutResult};
 
 /// Create debug rectangles to visualize Taffy layout bounds
 ///
@@ -16,7 +18,7 @@ use std::sync::Arc;
 /// * `zindex` - Optional z-index. Defaults to 20
 /// * `flip_label_align` - If true, align labels on opposite side (for subplots to avoid overlap)
 pub fn create_debug_layout_rects(
-    layout: &crate::layout::LayoutResult,
+    layout: &LayoutResult,
     color: Option<String>,
     stroke_width: Option<f32>,
     zindex: Option<i32>,
@@ -52,13 +54,10 @@ pub fn create_debug_layout_rects(
     let (label_x, label_align) = if flip_label_align {
         (
             layout.plot_area.x + layout.plot_area.width - 2.0,
-            avenger_text::types::TextAlign::Right,
+            TextAlign::Right,
         )
     } else {
-        (
-            layout.plot_area.x + 2.0,
-            avenger_text::types::TextAlign::Left,
-        )
+        (layout.plot_area.x + 2.0, TextAlign::Left)
     };
 
     let plot_label = SceneTextMark {
@@ -100,72 +99,72 @@ pub fn create_debug_layout_rects(
             _,
         ) = if flip_label_align {
             match position {
-                crate::cartesian::axis::AxisPosition::Left => (
+                AxisPosition::Left => (
                     "of-left",
                     bounds.x + 2.0,
                     bounds.y + bounds.height - 2.0,
                     -90.0,
-                    avenger_text::types::TextAlign::Left,
-                    avenger_text::types::TextBaseline::Top,
+                    TextAlign::Left,
+                    TextBaseline::Top,
                 ),
-                crate::cartesian::axis::AxisPosition::Right => (
+                AxisPosition::Right => (
                     "of-right",
                     bounds.x + bounds.width - 2.0,
                     bounds.y + bounds.height - 2.0,
                     90.0,
-                    avenger_text::types::TextAlign::Right,
-                    avenger_text::types::TextBaseline::Top,
+                    TextAlign::Right,
+                    TextBaseline::Top,
                 ),
-                crate::cartesian::axis::AxisPosition::Top => (
+                AxisPosition::Top => (
                     "of-top",
                     bounds.x + bounds.width - 2.0, // Right side instead of left
                     bounds.y,
                     0.0,
-                    avenger_text::types::TextAlign::Right, // Flipped from Left
-                    avenger_text::types::TextBaseline::Top,
+                    TextAlign::Right, // Flipped from Left
+                    TextBaseline::Top,
                 ),
-                crate::cartesian::axis::AxisPosition::Bottom => (
+                AxisPosition::Bottom => (
                     "of-bottom",
                     bounds.x + 2.0,
                     bounds.y + bounds.height - 2.0,
                     0.0,
-                    avenger_text::types::TextAlign::Left,
-                    avenger_text::types::TextBaseline::Bottom,
+                    TextAlign::Left,
+                    TextBaseline::Bottom,
                 ),
             }
         } else {
             match position {
-                crate::cartesian::axis::AxisPosition::Left => (
+                AxisPosition::Left => (
                     "of-left",
                     bounds.x + 2.0,
                     bounds.y + 2.0,
                     -90.0,
-                    avenger_text::types::TextAlign::Right,
-                    avenger_text::types::TextBaseline::Top,
+                    TextAlign::Right,
+                    TextBaseline::Top,
                 ),
-                crate::cartesian::axis::AxisPosition::Right => (
+                AxisPosition::Right => (
                     "of-right",
                     bounds.x + bounds.width - 2.0,
                     bounds.y + 2.0,
                     90.0,
-                    avenger_text::types::TextAlign::Left,
-                    avenger_text::types::TextBaseline::Top,
+                    TextAlign::Left,
+                    TextBaseline::Top,
                 ),
-                crate::cartesian::axis::AxisPosition::Top => (
+                AxisPosition::Top => (
                     "of-top",
                     bounds.x + 2.0,
                     bounds.y,
                     0.0,
-                    avenger_text::types::TextAlign::Left,
-                    avenger_text::types::TextBaseline::Top,
+                    TextAlign::Left,
+                    TextBaseline::Top,
                 ),
-                crate::cartesian::axis::AxisPosition::Bottom => (
+                AxisPosition::Bottom => (
                     "of-bottom",
                     bounds.x + 2.0,
                     bounds.y + bounds.height - 2.0,
                     0.0,
-                    avenger_text::types::TextAlign::Left,
-                    avenger_text::types::TextBaseline::Bottom,
+                    TextAlign::Left,
+                    TextBaseline::Bottom,
                 ),
             }
         };
@@ -239,7 +238,7 @@ pub fn create_debug_layout_rects(
             y: (bounds.y + 10.0).into(),
             font_size: 8.0.into(),
             color: ColorOrGradient::Color(debug_color).into(),
-            align: avenger_text::types::TextAlign::Right.into(),
+            align: TextAlign::Right.into(),
             zindex: Some(20),
             clip: false, // Don't clip debug marks
             ..Default::default()
@@ -270,7 +269,7 @@ pub fn create_debug_layout_rects(
             y: (bounds.y + 10.0).into(),
             font_size: 8.0.into(),
             color: ColorOrGradient::Color(debug_color).into(),
-            align: avenger_text::types::TextAlign::Right.into(),
+            align: TextAlign::Right.into(),
             zindex: Some(20),
             clip: false, // Don't clip debug marks
             ..Default::default()

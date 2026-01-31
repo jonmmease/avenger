@@ -1,24 +1,28 @@
-use crate::error::AvengerChartError;
-use crate::serialization::SerializableDataType;
+use std::{collections::HashMap, sync::Arc};
+
+use avenger_scales::{
+    scalar::Scalar,
+    scales::{ConfiguredScale, ScaleConfig, ScaleContext},
+};
 use datafusion::{
-    arrow::{array::Array, datatypes::DataType},
+    arrow::{
+        array::{Array, AsArray},
+        datatypes::DataType,
+    },
     error::DataFusionError,
     logical_expr::{
         ColumnarValue, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, TypeSignature,
         Volatility,
     },
 };
+use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
-use std::sync::Arc;
+
+use crate::{error::AvengerChartError, serialization::SerializableDataType};
 
 /// Convert DataFusion ScalarValue to avenger_scales Scalar
-fn scalar_value_to_avenger_scalar(
-    value: &datafusion_common::ScalarValue,
-) -> Option<avenger_scales::scalar::Scalar> {
-    use avenger_scales::scalar::Scalar;
-    use datafusion_common::ScalarValue;
-
+fn scalar_value_to_avenger_scalar(value: &ScalarValue) -> Option<Scalar> {
     match value {
         ScalarValue::Float64(Some(v)) => Some(Scalar::from_f32(*v as f32)),
         ScalarValue::Float32(Some(v)) => Some(Scalar::from_f32(*v)),
@@ -130,11 +134,6 @@ impl ScalarUDFImpl for ScaleUDF {
         &self,
         args: ScalarFunctionArgs,
     ) -> datafusion::error::Result<ColumnarValue> {
-        use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
-        use datafusion::arrow::array::AsArray;
-        use datafusion_common::ScalarValue;
-        use std::collections::HashMap;
-
         // Extract domain array from first argument
         let domain = match &args.args[0] {
             ColumnarValue::Scalar(ScalarValue::List(domain_arg)) => domain_arg.value(0),

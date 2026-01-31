@@ -1,6 +1,9 @@
 //! Serializable wrapper for ScalarValue
 
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use datafusion_common::ScalarValue;
+use datafusion_proto_common::protobuf_common::ScalarValue as ProtoScalarValue;
+use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Wrapper for ScalarValue that implements Serialize/Deserialize
@@ -42,13 +45,10 @@ impl Serialize for SerializableScalar {
     where
         S: Serializer,
     {
-        use prost::Message;
-
         // Convert ScalarValue to protobuf
-        let proto_scalar = datafusion_proto_common::protobuf_common::ScalarValue::try_from(&self.0)
-            .map_err(|e| {
-                serde::ser::Error::custom(format!("Failed to convert to protobuf: {}", e))
-            })?;
+        let proto_scalar = ProtoScalarValue::try_from(&self.0).map_err(|e| {
+            serde::ser::Error::custom(format!("Failed to convert to protobuf: {}", e))
+        })?;
 
         // Serialize to bytes
         let mut buf = Vec::new();
@@ -58,7 +58,6 @@ impl Serialize for SerializableScalar {
 
         if serializer.is_human_readable() {
             // For JSON and other text formats, use base64
-            use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
             let base64_str = BASE64.encode(&buf);
             serializer.serialize_str(&base64_str)
         } else {
@@ -73,11 +72,8 @@ impl<'de> Deserialize<'de> for SerializableScalar {
     where
         D: Deserializer<'de>,
     {
-        use prost::Message;
-
         let buf = if deserializer.is_human_readable() {
             // For JSON and other text formats, expect base64
-            use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
             let base64_str = String::deserialize(deserializer)?;
             BASE64
                 .decode(&base64_str)
@@ -88,7 +84,7 @@ impl<'de> Deserialize<'de> for SerializableScalar {
         };
 
         // Decode protobuf
-        let proto_scalar = datafusion_proto_common::protobuf_common::ScalarValue::decode(&buf[..])
+        let proto_scalar = ProtoScalarValue::decode(&buf[..])
             .map_err(|e| serde::de::Error::custom(format!("Failed to decode protobuf: {}", e)))?;
 
         // Convert back to ScalarValue

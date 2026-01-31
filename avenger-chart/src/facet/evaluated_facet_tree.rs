@@ -8,21 +8,30 @@
 //! - Domain values for iteration
 //! - Position and count information for layout
 
-use crate::cartesian::axis::AxisPosition;
-use crate::error::AvengerChartError;
-use crate::facet::keys::FacetKeyExtractor;
-use crate::facet::marks::facet::{CompiledFacetCol, CompiledFacetRow};
-use crate::guide::FacetDirection;
-use crate::marks::CompiledMark;
-use crate::plot::CompiledPlot;
-use crate::serialization::LogicalPlanNodeExt;
-use datafusion::common::ScalarValue;
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{Expr, lit};
-use datafusion::prelude::SessionContext;
+use std::{collections::HashMap, sync::Arc};
+
+use datafusion::{
+    common::ScalarValue,
+    dataframe::DataFrame,
+    logical_expr::{Expr, LogicalPlan, lit},
+    prelude::SessionContext,
+};
 use indexmap::IndexMap;
-use std::collections::HashMap;
-use std::sync::Arc;
+
+use crate::{
+    cartesian::axis::AxisPosition,
+    channel::config_traits::ScaleSharing,
+    error::AvengerChartError,
+    facet::{
+        keys::FacetKeyExtractor,
+        marks::facet::{CompiledFacetCol, CompiledFacetRow},
+        scalar_cmp::scalar_total_cmp,
+    },
+    guide::FacetDirection,
+    marks::{ChannelValue, CompiledMark},
+    plot::CompiledPlot,
+    serialization::LogicalPlanNodeExt,
+};
 
 /// Cache for shared domain values to avoid redundant queries.
 /// Key is the field name; value is the ordered list of distinct values.
@@ -387,8 +396,6 @@ impl EvaluatedFacetTree {
     /// # Returns
     /// Sorted vector of all distinct inner domain values, or None if invalid.
     pub fn inner_domain_union(&self, outer_path: &[ScalarValue]) -> Option<Vec<ScalarValue>> {
-        use crate::facet::scalar_cmp::scalar_total_cmp;
-
         let outer_node = if outer_path.is_empty() {
             self.root.as_ref()?
         } else {
@@ -504,12 +511,8 @@ impl EvaluatedFacetTree {
         for (level, value) in path.iter().enumerate() {
             // Find the index of this value at the current level
             let index = match &current_node.content {
-                PartitionContent::Leaf { values } => {
-                    values.iter().position(|v| v == value)?
-                }
-                PartitionContent::Branch { children } => {
-                    children.get_index_of(value)?
-                }
+                PartitionContent::Leaf { values } => values.iter().position(|v| v == value)?,
+                PartitionContent::Branch { children } => children.get_index_of(value)?,
             };
             indices.push(index);
 
@@ -556,7 +559,9 @@ impl EvaluatedFacetTree {
         for &idx in indices {
             match current_node {
                 Some(node) => match &node.content {
-                    PartitionContent::Leaf { values: domain_values } => {
+                    PartitionContent::Leaf {
+                        values: domain_values,
+                    } => {
                         if let Some(val) = domain_values.get(idx) {
                             values.push(val.clone());
                         }
@@ -751,7 +756,6 @@ fn get_dataframe_from_plot(plot: &CompiledPlot, ctx: &SessionContext) -> Option<
 
 /// Check if a DataFrame is an empty relation placeholder.
 fn is_empty_relation(df: &DataFrame) -> bool {
-    use datafusion::logical_expr::LogicalPlan;
     matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_))
 }
 
@@ -826,11 +830,11 @@ async fn build_partition_tree(
 /// Build a partition node for a specific facet.
 #[allow(clippy::too_many_arguments)]
 async fn build_partition_node(
-    channels: &IndexMap<String, crate::marks::ChannelValue>,
+    channels: &IndexMap<String, ChannelValue>,
     channel_name: &str,
     direction: FacetDirection,
     subplot: &Arc<CompiledPlot>,
-    scale_sharing: Option<crate::channel::config_traits::ScaleSharing>,
+    scale_sharing: Option<ScaleSharing>,
     df: &DataFrame,
     ctx: &SessionContext,
     parent_filter: Option<Expr>,
@@ -1230,7 +1234,10 @@ mod tests {
     #[test]
     fn test_path_values_from_indices_empty() {
         let spec = EvaluatedFacetTree::empty();
-        assert_eq!(spec.path_values_from_indices(&[]), Vec::<ScalarValue>::new());
+        assert_eq!(
+            spec.path_values_from_indices(&[]),
+            Vec::<ScalarValue>::new()
+        );
         assert_eq!(
             spec.path_values_from_indices(&[0]),
             Vec::<ScalarValue>::new()

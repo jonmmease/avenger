@@ -3,8 +3,13 @@
 //! Implements parsing and evaluation of color-mix() as defined in:
 //! https://drafts.csswg.org/css-color-5/#color-mix
 
-use crate::color::mix::{HueInterpolationMethod, mix_colors};
-use crate::color::types::{AbsoluteColor, ColorSpace};
+use datafusion_common::ScalarValue;
+use indexmap::IndexMap;
+
+use crate::color::{
+    mix::{HueInterpolationMethod, mix_colors},
+    types::{AbsoluteColor, ColorSpace},
+};
 use crate::theme::{CssRgba, ThemeValue};
 
 /// Parse a color space name
@@ -51,7 +56,7 @@ fn parse_hue_method(s: &str) -> Option<HueInterpolationMethod> {
 /// The mixed color as CssRgba, or None if resolution fails
 pub fn resolve_color_mix_with_params(
     args: &[ThemeValue],
-    params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
+    params: &IndexMap<String, ScalarValue>,
     base_font_size: f32,
 ) -> Option<CssRgba> {
     if args.len() < 3 {
@@ -126,7 +131,7 @@ pub fn resolve_color_mix_with_params(
 /// Returns (color, optional_percentage) and consumes 1 or 2 args
 fn parse_color_and_percentage_with_params(
     args: &[ThemeValue],
-    params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
+    params: &IndexMap<String, ScalarValue>,
     base_font_size: f32,
 ) -> Option<(AbsoluteColor, Option<f32>)> {
     if args.is_empty() {
@@ -153,7 +158,7 @@ fn parse_color_and_percentage_with_params(
 /// Parse a ThemeValue into an AbsoluteColor with runtime parameter resolution
 fn parse_color_value_with_params(
     value: &ThemeValue,
-    params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
+    params: &IndexMap<String, ScalarValue>,
     base_font_size: f32,
 ) -> Option<AbsoluteColor> {
     // Use as_color_with_params to recursively resolve colors, variables, and nested functions
@@ -191,6 +196,8 @@ fn normalize_percentages(p1: Option<f32>, p2: Option<f32>) -> (f32, f32) {
 
 #[cfg(test)]
 mod tests {
+    use crate::theme::value::parse_color_string;
+
     use super::*;
 
     #[test]
@@ -280,8 +287,6 @@ mod tests {
 
     #[test]
     fn test_parse_color_mix_named_colors() {
-        use crate::theme::value::parse_color_string;
-
         // Simulate what the parser does - convert "red" and "blue" to Color values
         let red = parse_color_string("red").expect("red should parse");
         let blue = parse_color_string("blue").expect("blue should parse");

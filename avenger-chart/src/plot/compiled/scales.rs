@@ -1,65 +1,46 @@
 //! Scale building and domain inference for CompiledPlot
 
-// Standard library
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-// External crates - Arrow
-use datafusion::arrow::array::AsArray;
-use datafusion::arrow::compute::cast;
-use datafusion::arrow::datatypes::{DataType as ArrowDataType, Float64Type};
-
-// External crates - DataFusion
-use datafusion::common::ScalarValue;
-use datafusion::dataframe::DataFrame;
-use datafusion::functions_aggregate::min_max::{max, min};
-use datafusion::logical_expr::{lit, Expr, LogicalPlan};
-use datafusion::prelude::SessionContext;
+use avenger_scales::scales::{DomainKind, RangeKind};
+use datafusion::{
+    arrow::{
+        array::AsArray,
+        compute::cast,
+        datatypes::{DataType as ArrowDataType, Float64Type},
+    },
+    common::ScalarValue,
+    dataframe::DataFrame,
+    functions_aggregate::min_max::{max, min},
+    logical_expr::{Expr, LogicalPlan, lit},
+    prelude::SessionContext,
+};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
-// External crates - avenger_scales
-use avenger_scales::scales::{DomainKind, RangeKind};
-
-// Crate imports - channels
-use crate::channel::resolution::resolve_all_channel_refs;
-use crate::channel::value::strip_trailing_numbers;
-
-// Crate imports - coords
-use crate::coords::{CoordinateSystemTransform, EmptyCoordMeasurement};
-
-// Crate imports - error
-use crate::error::AvengerChartError;
-
-// Crate imports - facet
-use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
-use crate::facet::scalar_cmp::scalar_total_cmp;
-
-// Crate imports - marks
-use crate::marks::{ChannelValue, CompiledMark, RadiusExpression};
-
-// Crate imports - plot (alias to avoid collision with scales::ScaleSpec trait)
-use crate::plot::ScaleSpec as PlotScaleSpec;
-
-// Crate imports - render
-use crate::render::{EvaluationContext, RenderContext, RenderState};
-
-// Crate imports - scales
-use crate::scales::builder::{ChannelScaleData, DataExtents, ScaleBuilder};
-use crate::scales::spec::{Auto, Ordinal};
-use crate::scales::{
-    default_range_for_channel, ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec, DomainExpr,
-    Scale, ScaleDomain, ScaleDefaultDomain, ScaleRange, ScaleSpec,
+use crate::{
+    channel::{resolution::resolve_all_channel_refs, value::strip_trailing_numbers},
+    coords::{CoordinateSystemTransform, EmptyCoordMeasurement},
+    error::AvengerChartError,
+    facet::{evaluated_facet_tree::EvaluatedFacetTree, scalar_cmp::scalar_total_cmp},
+    marks::{ChannelValue, CompiledMark, RadiusExpression},
+    plot::ScaleSpec as PlotScaleSpec,
+    render::{EvaluationContext, RenderContext, RenderState},
+    scales::{
+        ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec, DomainExpr, Scale,
+        ScaleDefaultDomain, ScaleDomain, ScaleRange, ScaleSpec,
+        builder::{ChannelScaleData, DataExtents, ScaleBuilder},
+        default_range_for_channel,
+        spec::{Auto, Ordinal},
+    },
+    serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
+    theme::Theme,
+    utils::{array_value_to_f64, params_to_datafusion},
 };
 
-// Crate imports - serialization
-use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
-
-// Crate imports - theme and utils
-use crate::theme::Theme;
-use crate::utils::{array_value_to_f64, params_to_datafusion};
-
-// Super imports
 use super::CompiledPlot;
 
 /// Build ScaleBuilder by executing expensive data queries once
@@ -298,9 +279,8 @@ async fn build_scale_for_channel(
     AvengerChartError,
 > {
     // Helper to check if a DataFrame is an EmptyRelation placeholder
-    let is_empty_relation = |df: &DataFrame| -> bool {
-        matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_))
-    };
+    let is_empty_relation =
+        |df: &DataFrame| -> bool { matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_)) };
 
     // Find first mark that uses this channel (or a channel mapping to it) and get its expr and preferred scale type.
     // For positional channels like "y", we also check "y2" since both map to the same scale.
@@ -692,9 +672,8 @@ async fn cache_domain_data(
     }
 
     // Helper to check if a DataFrame is an EmptyRelation placeholder
-    let is_empty_relation = |df: &DataFrame| -> bool {
-        matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_))
-    };
+    let is_empty_relation =
+        |df: &DataFrame| -> bool { matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_)) };
 
     // If overrides didn't provide DomainExprs, fall back to collecting from marks
     if entries.is_empty() {
@@ -728,9 +707,7 @@ async fn cache_domain_data(
                                         if let Some(ch_val) = resolved.get(ch_name) {
                                             match ch_val {
                                                 ChannelValue::Scaled {
-                                                    expr,
-                                                    scale_name,
-                                                    ..
+                                                    expr, scale_name, ..
                                                 } => {
                                                     let scale_key = scale_name
                                                         .as_ref()
@@ -761,11 +738,12 @@ async fn cache_domain_data(
                                                 IndexMap::new(),
                                                 Arc::new(EvaluatedFacetTree::empty()),
                                             );
-                                            let temp_state = RenderState::new(
-                                                400.0, 300.0, HashMap::new(),
-                                            );
+                                            let temp_state =
+                                                RenderState::new(400.0, 300.0, HashMap::new());
                                             let temp_ctx = RenderContext::new(
-                                                &temp_eval_ctx, &temp_state, &[],
+                                                &temp_eval_ctx,
+                                                &temp_state,
+                                                &[],
                                                 &EmptyCoordMeasurement,
                                             );
                                             if let Some(default_scalar) =

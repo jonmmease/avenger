@@ -1,18 +1,18 @@
-use crate::error::AvengerChartError;
-use crate::facet::band_positions::BandPosition;
-use crate::guide::CoordinateGuide;
-pub use crate::guide::OverflowSpaceRequirement;
-use crate::marks::CompiledMark;
-use crate::plot::compiled::ComponentsMeasurement;
-use crate::scales::ConfiguredScaleWithSpec;
-use crate::serialization::SerializableScalar;
+use std::{any::Any, collections::HashMap, future::Future, pin::Pin, sync::Arc};
+
 use avenger_common::value::ScalarOrArray;
-use datafusion::common::ScalarValue;
+use avenger_scales::scales::ScaleImpl;
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
-use std::any::Any;
-use std::collections::HashMap;
-use std::sync::Arc;
+
+pub use crate::guide::OverflowSpaceRequirement;
+
+use crate::{
+    error::AvengerChartError, facet::band_positions::BandPosition, guide::CoordinateGuide,
+    marks::CompiledMark, plot::compiled::ComponentsMeasurement, render::EvaluationContext,
+    scales::ConfiguredScaleWithSpec, serialization::SerializableScalar,
+};
 
 /// Coordinated overflow values aggregated across ALL facets at the same nesting level.
 ///
@@ -145,8 +145,8 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     /// Default implementation: no-op for non-facet coordinate systems.
     async fn apply_coordinated_overflow(
         &mut self,
-        _eval_ctx: &crate::render::EvaluationContext,
-    ) -> Result<(), crate::error::AvengerChartError> {
+        _eval_ctx: &EvaluationContext,
+    ) -> Result<(), AvengerChartError> {
         Ok(())
     }
 }
@@ -200,7 +200,10 @@ fn distribute_coordinated_overflow(measurement: &mut ComponentsMeasurement) {
         .collect();
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!("coordinate_overflow_for_guides: max_by_level={:?}", max_by_level);
+        eprintln!(
+            "coordinate_overflow_for_guides: max_by_level={:?}",
+            max_by_level
+        );
     }
 
     // Pass 2: Distribute max values to all facets at each level
@@ -258,8 +261,8 @@ fn distribute_overflow_by_level(
 /// This ensures measurements are correct before `build_plot_components` is called.
 pub async fn coordinate_overflow_for_guides(
     measurement: &mut ComponentsMeasurement,
-    eval_ctx: &crate::render::EvaluationContext,
-) -> Result<(), crate::error::AvengerChartError> {
+    eval_ctx: &EvaluationContext,
+) -> Result<(), AvengerChartError> {
     // Step 1: Distribute coordinated overflow values
     distribute_coordinated_overflow(measurement);
 
@@ -272,11 +275,14 @@ pub async fn coordinate_overflow_for_guides(
 /// Recursively apply coordinated overflow to all measurements in the tree.
 fn apply_coordinated_overflow_recursive<'a>(
     measurement: &'a mut ComponentsMeasurement,
-    eval_ctx: &'a crate::render::EvaluationContext,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), crate::error::AvengerChartError>> + Send + 'a>> {
+    eval_ctx: &'a EvaluationContext,
+) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
         // Apply to this measurement's coord_measurement
-        measurement.coord_measurement.apply_coordinated_overflow(eval_ctx).await?;
+        measurement
+            .coord_measurement
+            .apply_coordinated_overflow(eval_ctx)
+            .await?;
 
         // Recurse into children
         for child in measurement.coord_measurement.child_measurements_mut() {
@@ -289,7 +295,7 @@ fn apply_coordinated_overflow_recursive<'a>(
 
 #[typetag::serde(tag = "type")]
 pub trait PlotGeometry: Send + Sync + 'static {
-    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any(&self) -> &dyn Any;
 }
 
 /// Geometry type for point-based coordinate systems (Cartesian, Polar, ZeroD)
@@ -301,7 +307,7 @@ pub struct PointGeometry {
 
 #[typetag::serde]
 impl PlotGeometry for PointGeometry {
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }
@@ -389,7 +395,7 @@ impl SubplotGeometry {
 
 #[typetag::serde]
 impl PlotGeometry for SubplotGeometry {
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }
@@ -451,7 +457,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 pub fn extract_channel_title_from_marks(
     marks: &[Arc<dyn CompiledMark>],
     channel: &str,
-    session_context: &datafusion::prelude::SessionContext,
+    session_context: &SessionContext,
 ) -> Option<String> {
     // Look through marks to find a column name for this channel
     for mark in marks {
@@ -503,11 +509,11 @@ pub trait CoordinateSystemTransform: Send + Sync {
 
     async fn measure(
         &self,
-        _scales: &std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        _scales: &HashMap<String, ConfiguredScaleWithSpec>,
         _plot_width: f32,
         _plot_height: f32,
-        _eval_ctx: &crate::render::EvaluationContext,
-        _data: Option<&datafusion::dataframe::DataFrame>,
+        _eval_ctx: &EvaluationContext,
+        _data: Option<&DataFrame>,
         _compiled_marks: &[Arc<dyn CompiledMark>],
         _facet_path: &[ScalarValue],
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
@@ -586,8 +592,8 @@ pub trait CoordinateSystemTransform: Send + Sync {
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-    ) -> HashMap<String, datafusion::scalar::ScalarValue>;
+        scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, ScalarValue>;
 }
 
 #[cfg(test)]

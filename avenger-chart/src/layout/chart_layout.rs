@@ -1,24 +1,34 @@
 //! Main ChartLayout struct and core implementation
-use crate::theme::Theme;
 
-use super::grid::{GridBuilder, GridLayout};
-use super::sizing::{EvaluatedLayoutSpec, EvaluatedSizeMode};
-use super::types::{
-    ComponentType, LayoutBounds, LayoutResult, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide,
-};
-use crate::cartesian::axis::AxisPosition;
-use crate::error::AvengerChartError;
-use crate::guide::OverflowSpaceRequirement;
-use crate::legend::LegendPosition;
-use crate::plot::compiled::expr_eval::evaluate_string_expr;
-use crate::plot::{PlotSubtitle, PlotTitle, TitleSpan};
-use crate::render::{LayoutSolution, LegendMeasurements};
-use crate::serialization::LogicalExprNodeExt;
-use indexmap::IndexMap;
 use std::collections::HashMap;
-use taffy::prelude::*;
-use taffy::{NodeId, TaffyTree};
+
+use datafusion::{common::ScalarValue, prelude::SessionContext};
+use datafusion_proto::protobuf;
+use indexmap::IndexMap;
+use taffy::{
+    NodeId, TaffyTree,
+    prelude::{Display, FlexDirection, Line, Size, Style, auto, length, line},
+};
 use tracing::debug;
+
+use crate::{
+    cartesian::axis::AxisPosition,
+    error::AvengerChartError,
+    guide::OverflowSpaceRequirement,
+    legend::LegendPosition,
+    maybe::Maybe,
+    plot::{PlotSubtitle, PlotTitle, TitleSpan, compiled::expr_eval::evaluate_string_expr},
+    render::{LayoutSolution, LegendMeasurements},
+    serialization::LogicalExprNodeExt,
+    theme::{Theme, ThemeContext},
+};
+
+use super::{
+    grid::{GridBuilder, GridLayout},
+    info::LegendLayoutInfo,
+    sizing::{EvaluatedLayoutSpec, EvaluatedSizeMode},
+    types::{ComponentType, LayoutBounds, LayoutResult, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide},
+};
 
 /// Dynamic grid-based layout manager for data visualization charts.
 ///
@@ -86,7 +96,7 @@ pub struct ChartLayout {
     grid_layout: GridLayout,
     legends_by_position: IndexMap<LegendPosition, Vec<String>>,
     /// Legend bounding box info computed from measurements
-    legend_info: super::info::LegendLayoutInfo,
+    legend_info: LegendLayoutInfo,
 }
 
 impl ChartLayout {
@@ -101,14 +111,14 @@ impl ChartLayout {
 
     /// Evaluate title/subtitle span from expression or theme
     async fn evaluate_span(
-        span_field: &crate::maybe::Maybe<Option<datafusion_proto::protobuf::LogicalExprNode>>,
-        theme_context: &crate::theme::ThemeContext,
+        span_field: &Maybe<Option<protobuf::LogicalExprNode>>,
+        theme_context: &ThemeContext,
         theme: &Theme,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<TitleSpan, AvengerChartError> {
         match span_field {
-            crate::maybe::Maybe::Set(Some(node)) => {
+            Maybe::Set(Some(node)) => {
                 let expr = node.to_expr(ctx)?;
                 let span_str = evaluate_string_expr(&expr, ctx, params).await?;
                 Ok(match span_str.as_str() {
@@ -141,8 +151,8 @@ impl ChartLayout {
         subtitle: Option<&PlotSubtitle>,
         theme: &Theme,
         legend_measurements: &LegendMeasurements,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<Self, AvengerChartError> {
         let mut builder = GridBuilder::new();
 
@@ -226,7 +236,7 @@ impl ChartLayout {
         )?;
 
         // Legend positions are populated later from Taffy layout bounds
-        let legend_info = super::info::LegendLayoutInfo::default();
+        let legend_info = LegendLayoutInfo::default();
 
         // Create the ChartLayout with the built tree and nodes
         let layout = ChartLayout {
@@ -325,16 +335,16 @@ impl ChartLayout {
         // If dimension is fixed, use Definite; otherwise use MinContent
         let available_width = match &normalized_spec.canvas {
             EvaluatedSizeMode::Fixed { width, .. } | EvaluatedSizeMode::Width(width) => {
-                AvailableSpace::Definite(*width)
+                taffy::prelude::AvailableSpace::Definite(*width)
             }
-            _ => AvailableSpace::MinContent,
+            _ => taffy::prelude::AvailableSpace::MinContent,
         };
 
         let available_height = match &normalized_spec.canvas {
             EvaluatedSizeMode::Fixed { height, .. } | EvaluatedSizeMode::Height(height) => {
-                AvailableSpace::Definite(*height)
+                taffy::prelude::AvailableSpace::Definite(*height)
             }
-            _ => AvailableSpace::MinContent,
+            _ => taffy::prelude::AvailableSpace::MinContent,
         };
 
         // Compute layout
@@ -354,7 +364,7 @@ impl ChartLayout {
         let taffy_layout = self.extract_layout_result()?;
 
         // Overflow for the whole plot is the union of guide overflow nodes; use max per side.
-        let mut overflow = crate::guide::OverflowSpaceRequirement::default();
+        let mut overflow = OverflowSpaceRequirement::default();
         for (pos, bounds) in &taffy_layout.guide_overflows {
             match pos {
                 AxisPosition::Left => {
@@ -379,23 +389,23 @@ impl ChartLayout {
             for (position, legend_keys) in &self.legends_by_position {
                 if legend_keys.contains(_channel) {
                     match position {
-                        crate::legend::LegendPosition::Right => {
+                        LegendPosition::Right => {
                             // Use max X for right legends (we want all to align at rightmost position)
                             legend_info.right_x = legend_info.right_x.max(bounds.x);
                         }
-                        crate::legend::LegendPosition::Left => {
+                        LegendPosition::Left => {
                             // Use min X for left legends (leftmost position)
                             if legend_info.left_x == 0.0 || bounds.x < legend_info.left_x {
                                 legend_info.left_x = bounds.x;
                             }
                         }
-                        crate::legend::LegendPosition::Top => {
+                        LegendPosition::Top => {
                             // Use min Y for top legends
                             if legend_info.top_y == 0.0 || bounds.y < legend_info.top_y {
                                 legend_info.top_y = bounds.y;
                             }
                         }
-                        crate::legend::LegendPosition::Bottom => {
+                        LegendPosition::Bottom => {
                             // Use max Y for bottom legends
                             legend_info.bottom_y = legend_info.bottom_y.max(bounds.y);
                         }
@@ -405,7 +415,7 @@ impl ChartLayout {
             }
         }
 
-        Ok(crate::render::LayoutSolution {
+        Ok(LayoutSolution {
             taffy_layout,
             canvas_size,
             // Guide-only overflow (axes, tick labels, titles)
@@ -487,7 +497,6 @@ impl ChartLayout {
                 height: layout.size.height.ceil(),
             };
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                use crate::cartesian::axis::AxisPosition;
                 let pos = match position {
                     AxisPosition::Left => "Left",
                     AxisPosition::Right => "Right",
@@ -608,7 +617,7 @@ pub(crate) struct TaffyNodes {
 /// Pure function to build a TaffyTree with all component nodes
 fn build_taffy_tree(
     grid_layout: &GridLayout,
-    overflow: &crate::coords::OverflowSpaceRequirement,
+    overflow: &OverflowSpaceRequirement,
     legend_positions: &IndexMap<String, LegendPosition>,
     legend_sizes: &HashMap<String, Size<f32>>,
     legend_flexible: &HashMap<String, bool>,
@@ -719,7 +728,7 @@ fn create_overflow_nodes(
     taffy: &mut TaffyTree,
     nodes: &mut TaffyNodes,
     grid_layout: &GridLayout,
-    overflow: &crate::coords::OverflowSpaceRequirement,
+    overflow: &OverflowSpaceRequirement,
 ) -> Result<(), AvengerChartError> {
     // Helper to create a single overflow node
     let mut create_node = |overflow_value: f32,

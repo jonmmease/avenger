@@ -1,18 +1,19 @@
 //! Default scale creation using theme and trait-based type detection
 
-use crate::scales::ScaleRange;
-use crate::serialization::SerializableScalar;
 use avenger_scales::scales::RangeKind;
 use datafusion::prelude::lit;
+use datafusion_common::ScalarValue;
 use palette::Srgba;
+
+use crate::{
+    scales::ScaleRange, serialization::SerializableScalar, theme::DEFAULT_CATEGORICAL_COLORS,
+};
 
 /// Returns the default discrete color range using the Okabe-Ito palette
 ///
 /// # Arguments
 /// * `domain_cardinality` - Optional number of colors to return. If `None`, returns all colors.
 pub fn default_color_range_discrete(domain_cardinality: Option<usize>) -> ScaleRange {
-    use crate::theme::DEFAULT_CATEGORICAL_COLORS;
-
     let colors: Vec<String> = DEFAULT_CATEGORICAL_COLORS
         .iter()
         .map(|s| s.to_string())
@@ -21,7 +22,7 @@ pub fn default_color_range_discrete(domain_cardinality: Option<usize>) -> ScaleR
     let scalars: Vec<SerializableScalar> = colors
         .iter()
         .take(domain_cardinality.unwrap_or(colors.len()))
-        .map(|c| SerializableScalar::new(datafusion_common::ScalarValue::Utf8(Some(c.clone()))))
+        .map(|c| SerializableScalar::new(ScalarValue::Utf8(Some(c.clone()))))
         .collect();
     ScaleRange::Discrete(scalars)
 }
@@ -46,7 +47,7 @@ pub fn default_size_range_discrete(domain_cardinality: Option<usize>) -> ScaleRa
     let scalars: Vec<SerializableScalar> = sizes
         .iter()
         .take(domain_cardinality.unwrap_or(sizes.len()))
-        .map(|s| SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(*s as f32))))
+        .map(|s| SerializableScalar::new(ScalarValue::Float32(Some(*s as f32))))
         .collect();
     ScaleRange::Discrete(scalars)
 }
@@ -65,7 +66,7 @@ pub fn default_opacity_range_discrete(domain_cardinality: Option<usize>) -> Scal
     let scalars: Vec<SerializableScalar> = opacities
         .iter()
         .take(domain_cardinality.unwrap_or(opacities.len()))
-        .map(|o| SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(*o as f32))))
+        .map(|o| SerializableScalar::new(ScalarValue::Float32(Some(*o as f32))))
         .collect();
     ScaleRange::Discrete(scalars)
 }
@@ -84,7 +85,7 @@ pub fn default_stroke_width_range_discrete(domain_cardinality: Option<usize>) ->
     let scalars: Vec<SerializableScalar> = widths
         .iter()
         .take(domain_cardinality.unwrap_or(widths.len()))
-        .map(|w| SerializableScalar::new(datafusion_common::ScalarValue::Float32(Some(*w as f32))))
+        .map(|w| SerializableScalar::new(ScalarValue::Float32(Some(*w as f32))))
         .collect();
     ScaleRange::Discrete(scalars)
 }
@@ -103,16 +104,16 @@ pub fn default_shape_range_discrete(domain_cardinality: Option<usize>) -> ScaleR
     let scalars: Vec<SerializableScalar> = shapes
         .iter()
         .take(domain_cardinality.unwrap_or(shapes.len()))
-        .map(|s| SerializableScalar::new(datafusion_common::ScalarValue::Utf8(Some(s.to_string()))))
+        .map(|s| SerializableScalar::new(ScalarValue::Utf8(Some(s.to_string()))))
         .collect();
     ScaleRange::Discrete(scalars)
 }
 
 /// Returns a generic default discrete range with a single value (1.0)
 pub fn default_generic_range_discrete() -> ScaleRange {
-    ScaleRange::Discrete(vec![SerializableScalar::new(
-        datafusion_common::ScalarValue::Float32(Some(1.0)),
-    )])
+    ScaleRange::Discrete(vec![SerializableScalar::new(ScalarValue::Float32(Some(
+        1.0,
+    )))])
 }
 
 /// Returns a generic default continuous range (0.0 to 1.0)

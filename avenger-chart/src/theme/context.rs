@@ -1,9 +1,9 @@
 //! Theme context for hierarchical element styling
 
-use datafusion::common::ScalarValue;
+use std::{collections::HashMap, sync::Arc};
+
+use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Context for theme queries, providing information about the element being styled
 #[derive(Debug, Clone)]

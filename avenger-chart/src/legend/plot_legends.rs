@@ -1,6 +1,4 @@
-use crate::coords::CoordinateSystem;
-use crate::legend::Legend;
-use crate::plot::Plot;
+use crate::{coords::CoordinateSystem, legend::Legend, plot::Plot};
 
 /// Methods for adding legends to Plot
 impl<C: CoordinateSystem> Plot<C> {

@@ -1,12 +1,18 @@
-use crate::channel::config_traits::ScaleSharing;
-use crate::legend::Legend;
-use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
-use crate::serialization::{LogicalExprNodeExt, SerializableExpr};
-use datafusion::logical_expr::{Case, Expr, lit};
-use datafusion::prelude::SessionContext;
+use datafusion::{
+    common::ScalarValue,
+    logical_expr::{Case, Expr, lit},
+    prelude::SessionContext,
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
+
+use crate::{
+    channel::config_traits::ScaleSharing,
+    legend::Legend,
+    scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec},
+    serialization::{LogicalExprNodeExt, SerializableExpr},
+};
 
 /// Helper to format floats nicely (avoid unnecessary decimals)
 fn format_float(f: f64) -> String {
@@ -24,8 +30,6 @@ pub fn expr_to_string(expr: &Expr) -> String {
 
 /// Helper to convert an expression to a string, with option to quote strings for nested contexts
 fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
-    use datafusion::scalar::ScalarValue;
-
     match expr {
         // Column reference - strip table qualifier for cleaner display
         Expr::Column(col) => {
@@ -335,7 +339,7 @@ impl ChannelValue {
                             ConditionalValue::Scaled { expr } => expr.to_expr(ctx).ok()?,
                             ConditionalValue::Value { .. } => {
                                 // Use NULL for literal values - they bypass the scale
-                                lit(datafusion::scalar::ScalarValue::Null)
+                                lit(ScalarValue::Null)
                             }
                         };
                         Some((Box::new(cond_expr), Box::new(val_expr)))
@@ -346,7 +350,7 @@ impl ChannelValue {
                     ConditionalValue::Scaled { expr } => expr.to_expr(ctx).ok().map(Box::new),
                     ConditionalValue::Value { .. } => {
                         // Use NULL for literal otherwise value
-                        Some(Box::new(lit(datafusion::scalar::ScalarValue::Null)))
+                        Some(Box::new(lit(ScalarValue::Null)))
                     }
                 };
 
@@ -935,7 +939,6 @@ mod tests {
 
     #[test]
     fn test_smart_string_conversion() {
-        use datafusion::prelude::SessionContext;
         let ctx = SessionContext::new();
         // All strings should be identity literals
         let cv: ChannelValue = "red".into();
@@ -972,10 +975,7 @@ mod tests {
 
     #[test]
     fn test_as_column_name() {
-        use super::ConditionalValue;
-        use datafusion::functions::expr_fn::sqrt;
-        use datafusion::logical_expr::col;
-        use datafusion::prelude::SessionContext;
+        use datafusion::{functions::expr_fn::sqrt, logical_expr::col, prelude::SessionContext};
 
         let ctx = SessionContext::new();
 
@@ -1016,7 +1016,7 @@ mod tests {
 
         // Test null literal
         let cv: ChannelValue = ChannelValue::Value {
-            expr: LogicalExprNode::from_expr(lit(datafusion::scalar::ScalarValue::Null))
+            expr: LogicalExprNode::from_expr(lit(ScalarValue::Null))
                 .expect("Failed to serialize expr"),
         };
         assert_eq!(cv.as_column_name(&ctx), Some("null".to_string()));
@@ -1030,50 +1030,66 @@ mod tests {
         assert_eq!(cv.as_column_name(&ctx), Some("sqrt(16)".to_string()));
 
         // Test nested function calls
-        use datafusion::functions::expr_fn::abs;
-        let cv: ChannelValue = sqrt(abs(col("x"))).into();
-        assert_eq!(cv.as_column_name(&ctx), Some("sqrt(abs(x))".to_string()));
+        {
+            use datafusion::functions::expr_fn::abs;
+
+            let cv: ChannelValue = sqrt(abs(col("x"))).into();
+            assert_eq!(cv.as_column_name(&ctx), Some("sqrt(abs(x))".to_string()));
+        }
 
         // Test function with multiple arguments (using pow as example)
-        use datafusion::functions::expr_fn::power;
-        let cv: ChannelValue = power(col("x"), lit(2)).into();
-        assert_eq!(cv.as_column_name(&ctx), Some("power(x, 2)".to_string()));
+        {
+            use datafusion::functions::expr_fn::power;
+
+            let cv: ChannelValue = power(col("x"), lit(2)).into();
+            assert_eq!(cv.as_column_name(&ctx), Some("power(x, 2)".to_string()));
+        }
 
         // Test function with string arguments (should be quoted in function context)
-        use datafusion::functions::expr_fn::concat;
-        let cv: ChannelValue = concat(vec![lit("hello"), lit("world")]).into();
-        assert_eq!(
-            cv.as_column_name(&ctx),
-            Some("concat('hello', 'world')".to_string())
-        );
+        {
+            use datafusion::functions::expr_fn::concat;
+
+            let cv: ChannelValue = concat(vec![lit("hello"), lit("world")]).into();
+            assert_eq!(
+                cv.as_column_name(&ctx),
+                Some("concat('hello', 'world')".to_string())
+            );
+        }
 
         // Test complex expression (now returns the expression string)
         let cv: ChannelValue = (col("x") + col("y")).into();
         assert_eq!(cv.as_column_name(&ctx), Some("x + y".to_string()));
 
         // Test conditional value (should return None - no single name)
-        let cv = ChannelValue::Conditional {
-            conditions: vec![(
-                LogicalExprNode::from_expr(col("category").eq(lit("A")))
-                    .expect("Failed to serialize expr"),
-                ConditionalValue::Value {
-                    expr: LogicalExprNode::from_expr(lit("red")).expect("Failed to serialize expr"),
+        {
+            use super::ConditionalValue;
+
+            let cv = ChannelValue::Conditional {
+                conditions: vec![(
+                    LogicalExprNode::from_expr(col("category").eq(lit("A")))
+                        .expect("Failed to serialize expr"),
+                    ConditionalValue::Value {
+                        expr: LogicalExprNode::from_expr(lit("red"))
+                            .expect("Failed to serialize expr"),
+                    },
+                )],
+                otherwise: ConditionalValue::Scaled {
+                    expr: LogicalExprNode::from_expr(col("color"))
+                        .expect("Failed to serialize expr"),
                 },
-            )],
-            otherwise: ConditionalValue::Scaled {
-                expr: LogicalExprNode::from_expr(col("color")).expect("Failed to serialize expr"),
-            },
-            scale_config: None,
-            legend_config: None,
-            share_mode: None,
-        };
-        // Conditional values don't have a single column name
-        assert_eq!(cv.as_column_name(&ctx), None);
+                scale_config: None,
+                legend_config: None,
+                share_mode: None,
+            };
+            // Conditional values don't have a single column name
+            assert_eq!(cv.as_column_name(&ctx), None);
+        }
     }
 
     #[test]
     fn test_expr_for_domain_scaled() {
         use datafusion::prelude::SessionContext;
+
         let ctx = SessionContext::new();
 
         // Scaled variant should return same as expr()
@@ -1088,6 +1104,7 @@ mod tests {
     #[test]
     fn test_expr_for_domain_value() {
         use datafusion::prelude::SessionContext;
+
         let ctx = SessionContext::new();
 
         // Value variant should return same as expr()
@@ -1101,8 +1118,10 @@ mod tests {
 
     #[test]
     fn test_expr_for_domain_conditional() {
-        use super::ConditionalValue;
         use datafusion::prelude::SessionContext;
+
+        use super::ConditionalValue;
+
         let ctx = SessionContext::new();
 
         // Build a conditional: if category == "A" then "red" else "blue"
@@ -1151,8 +1170,10 @@ mod tests {
 
     #[test]
     fn test_expr_for_domain_conditional_multiple_branches() {
-        use super::ConditionalValue;
         use datafusion::prelude::SessionContext;
+
+        use super::ConditionalValue;
+
         let ctx = SessionContext::new();
 
         // Build a conditional with multiple branches:
@@ -1200,6 +1221,7 @@ mod tests {
     #[test]
     fn test_scale_input_expr_scaled() {
         use datafusion::prelude::SessionContext;
+
         let ctx = SessionContext::new();
 
         // Scaled variant should return same as expr()
@@ -1214,6 +1236,7 @@ mod tests {
     #[test]
     fn test_scale_input_expr_value() {
         use datafusion::prelude::SessionContext;
+
         let ctx = SessionContext::new();
 
         // Value variant should return None (literals bypass scale)
@@ -1224,8 +1247,10 @@ mod tests {
 
     #[test]
     fn test_scale_input_expr_conditional_mixed() {
-        use super::ConditionalValue;
         use datafusion::prelude::SessionContext;
+
+        use super::ConditionalValue;
+
         let ctx = SessionContext::new();
 
         // Build a conditional with mixed branches:
@@ -1274,8 +1299,10 @@ mod tests {
 
     #[test]
     fn test_scale_input_expr_conditional_all_literals() {
-        use super::ConditionalValue;
         use datafusion::prelude::SessionContext;
+
+        use super::ConditionalValue;
+
         let ctx = SessionContext::new();
 
         // Build a conditional with all literal branches:
@@ -1308,8 +1335,10 @@ mod tests {
 
     #[test]
     fn test_scale_input_expr_conditional_all_scaled() {
-        use super::ConditionalValue;
         use datafusion::prelude::SessionContext;
+
+        use super::ConditionalValue;
+
         let ctx = SessionContext::new();
 
         // Build a conditional with all scaled branches:

@@ -1,16 +1,17 @@
 //! Channel resolution and gathering methods for Plot
 
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
+use std::collections::{HashMap, hash_map::Entry};
 
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
-use crate::channel::resolution::resolve_all_channel_refs;
-use crate::coords::CoordinateSystem;
-use crate::legend::Legend;
-use crate::marks::{ChannelValue, Mark};
-use crate::plot::{AxisSpec, ScaleSpec};
+use crate::{
+    channel::resolution::resolve_all_channel_refs,
+    coords::CoordinateSystem,
+    legend::Legend,
+    marks::{ChannelValue, Mark},
+    plot::{AxisSpec, ScaleSpec},
+};
 
 /// Extract scale, legend, and axis configurations from a mark's channels
 pub(crate) fn extract_channel_configs<C: CoordinateSystem>(

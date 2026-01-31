@@ -1,8 +1,9 @@
-use std::path::Path;
+use std::{fs, path::Path};
 
-use crate::render::types::EvaluatedPlot;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
+
+use crate::render::types::EvaluatedPlot;
 
 /// Render an EvaluatedPlot directly to PNG, writing to the provided path.
 ///
@@ -42,7 +43,7 @@ pub async fn render_evaluated_plot_to_png(
 
     let output_path = output.as_ref();
     if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)?;
     }
     image.save(output_path)?;
 

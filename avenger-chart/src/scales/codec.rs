@@ -4,20 +4,25 @@
 //! scale UDFs, allowing them to work on fresh SessionContexts without
 //! requiring pre-registration.
 
-use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::arrow::ipc::reader::StreamReader;
-use datafusion::arrow::ipc::writer::StreamWriter;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::datasource::MemTable;
-use datafusion::datasource::TableProvider;
-use datafusion::error::{DataFusionError, Result as DataFusionResult};
-use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
-use datafusion::prelude::SessionContext;
+use std::{io::Cursor, sync::Arc};
+
+use datafusion::{
+    arrow::{
+        datatypes::SchemaRef,
+        ipc::{reader::StreamReader, writer::StreamWriter},
+        record_batch::RecordBatch,
+    },
+    datasource::{MemTable, TableProvider},
+    error::{DataFusionError, Result as DataFusionResult},
+    execution::context::TaskContext,
+    logical_expr::{Extension, LogicalPlan, ScalarUDF},
+    prelude::SessionContext,
+};
 use datafusion_common::TableReference;
 use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtensionCodec};
 use futures::TryStreamExt;
-use std::io::Cursor;
-use std::sync::Arc;
+
+use crate::scales::udf::ScaleUDF;
 
 /// Magic header for identifying serialized scale UDFs
 const SCALE_UDF_MAGIC: &[u8] = b"SCALE_UDF_V1";
@@ -135,7 +140,7 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
                 mem_table.scan(&state, None, &[], None).await
             })?;
 
-            let task_ctx = Arc::new(datafusion::execution::context::TaskContext::default());
+            let task_ctx = Arc::new(TaskContext::default());
             let stream = batches.execute(0, task_ctx)?;
 
             // Collect batches
@@ -193,8 +198,6 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
     }
 
     fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> DataFusionResult<()> {
-        use crate::scales::udf::ScaleUDF;
-
         // Check if this is an internal scale UDF
         if node.name() == "scale" {
             // Try to downcast to ScaleUDF
@@ -215,8 +218,6 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> DataFusionResult<Arc<ScalarUDF>> {
-        use crate::scales::udf::ScaleUDF;
-
         // Check if this is a scale UDF with serialized data
         if name == "scale" && buf.len() > SCALE_UDF_MAGIC.len() + 4 {
             if buf.starts_with(SCALE_UDF_MAGIC) {

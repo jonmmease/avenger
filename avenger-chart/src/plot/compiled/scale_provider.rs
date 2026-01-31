@@ -1,12 +1,12 @@
-use async_trait::async_trait;
-use datafusion::common::ScalarValue;
-use datafusion::prelude::SessionContext;
-use indexmap::IndexMap;
 use std::collections::HashMap;
 
-use crate::error::AvengerChartError;
-use crate::plot::compiled::CompiledPlot;
-use crate::scales::ConfiguredScaleWithSpec;
+use async_trait::async_trait;
+use datafusion::{common::ScalarValue, prelude::SessionContext};
+use indexmap::IndexMap;
+
+use crate::{
+    error::AvengerChartError, plot::compiled::CompiledPlot, scales::ConfiguredScaleWithSpec,
+};
 
 /// Provides configured scales for a given plot area size.
 ///
@@ -109,4 +109,3 @@ impl ScaleProvider for PrebuiltScaleProvider {
         Ok(result)
     }
 }
-

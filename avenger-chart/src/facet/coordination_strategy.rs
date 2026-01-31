@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use super::dimension_config::FacetDimensionConfig;
+use crate::facet::dimension_config::FacetDimensionConfig;
 
 /// Strategy for coordinating measurement passes between facets
 ///
@@ -80,6 +80,7 @@ impl CoordinationStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::facet::dimension_config::{ColumnDimensionConfig, RowDimensionConfig};
 
     #[test]

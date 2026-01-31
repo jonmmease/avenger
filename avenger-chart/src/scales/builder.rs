@@ -22,9 +22,30 @@
 //! on each build using cached data. This trades cheap math (microseconds) for
 //! avoiding duplicate queries (milliseconds to seconds).
 
-use crate::error::AvengerChartError;
+use std::{collections::HashMap, sync::Arc};
+
+use avenger_scales::scales::{
+    RangeKind, domain_solver::compute_domain_from_data_with_padding_linear,
+};
+use datafusion::{arrow::datatypes::DataType, logical_expr::lit, prelude::SessionContext};
 use datafusion_common::ScalarValue;
-use std::collections::HashMap;
+use datafusion_proto::protobuf::LogicalExprNode;
+use indexmap::IndexMap;
+
+use crate::{
+    error::AvengerChartError,
+    marks::CompiledMark,
+    maybe::Maybe,
+    plot::ScaleSpec as PlotScaleSpec,
+    scales::{
+        ConfiguredScaleWithSpec, DomainBounds, DomainExtent, RadiusPadding, Scale, ScaleSpec,
+        domain::{ScaleDefaultDomain, ScaleDomain},
+        domain_extent::SerializableDomainValue,
+        spec::Auto,
+    },
+    serialization::LogicalExprNodeExt,
+    theme::Theme,
+};
 
 /// Stores cached query results for building scales on-demand
 ///
@@ -40,7 +61,7 @@ pub struct ScaleBuilder {
     /// Per-channel cached data for scale construction
     pub(crate) channel_scale_data: HashMap<String, ChannelScaleData>,
     /// Data type for each channel (needed for default_channel_range())
-    pub(crate) channel_data_types: HashMap<String, datafusion::arrow::datatypes::DataType>,
+    pub(crate) channel_data_types: HashMap<String, DataType>,
 }
 
 /// Cached data for a single channel's scale
@@ -52,11 +73,11 @@ pub enum ChannelScaleData {
     /// we cache the computed extents (min/max or unique values).
     Standard {
         /// The scale specification (linear, log, ordinal, etc.)
-        scale_spec: Box<dyn crate::scales::ScaleSpec>,
+        scale_spec: Box<dyn ScaleSpec>,
         /// Cached data extents from query
         data_extents: DataExtents,
         /// Scale options (e.g., nice, zero, padding)
-        options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
+        options: HashMap<String, LogicalExprNode>,
     },
 
     /// Radius-aware scale: cache raw data, recompute domain on each build
@@ -66,7 +87,7 @@ pub enum ChannelScaleData {
     /// the domain on each `build_scales()` call.
     RadiusAware {
         /// The scale specification (typically linear)
-        scale_spec: Box<dyn crate::scales::ScaleSpec>,
+        scale_spec: Box<dyn ScaleSpec>,
         /// Cached position values from query
         position_data: Vec<f64>,
         /// Cached lower radius values from query
@@ -74,7 +95,7 @@ pub enum ChannelScaleData {
         /// Cached upper radius values from query
         radius_upper_data: Vec<f64>,
         /// Scale options (e.g., nice, zero, padding)
-        options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
+        options: HashMap<String, LogicalExprNode>,
     },
 
     /// Explicit domain scale: no data caching, domain set explicitly
@@ -83,11 +104,11 @@ pub enum ChannelScaleData {
     /// we don't cache any data - the domain is already known.
     ExplicitDomain {
         /// The scale specification (linear, log, ordinal, etc.)
-        scale_spec: Box<dyn crate::scales::ScaleSpec>,
+        scale_spec: Box<dyn ScaleSpec>,
         /// Scale options (e.g., nice, zero, padding)
-        options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
+        options: HashMap<String, LogicalExprNode>,
         /// The explicit domain that was set by the user
-        domain: crate::scales::ScaleDomain,
+        domain: ScaleDomain,
     },
 }
 
@@ -112,11 +133,7 @@ impl ScaleBuilder {
     }
 
     /// Set the data type for a channel
-    pub fn set_channel_data_type(
-        &mut self,
-        channel_name: String,
-        data_type: datafusion::arrow::datatypes::DataType,
-    ) {
+    pub fn set_channel_data_type(&mut self, channel_name: String, data_type: DataType) {
         self.channel_data_types.insert(channel_name, data_type);
     }
 
@@ -124,9 +141,9 @@ impl ScaleBuilder {
     pub fn add_standard(
         &mut self,
         channel_name: String,
-        scale_spec: Box<dyn crate::scales::ScaleSpec>,
+        scale_spec: Box<dyn ScaleSpec>,
         data_extents: DataExtents,
-        options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
+        options: HashMap<String, LogicalExprNode>,
     ) {
         self.channel_scale_data.insert(
             channel_name,
@@ -142,11 +159,11 @@ impl ScaleBuilder {
     pub fn add_radius_aware(
         &mut self,
         channel_name: String,
-        scale_spec: Box<dyn crate::scales::ScaleSpec>,
+        scale_spec: Box<dyn ScaleSpec>,
         position_data: Vec<f64>,
         radius_lower_data: Vec<f64>,
         radius_upper_data: Vec<f64>,
-        options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
+        options: HashMap<String, LogicalExprNode>,
     ) {
         self.channel_scale_data.insert(
             channel_name,
@@ -164,9 +181,9 @@ impl ScaleBuilder {
     pub fn add_explicit_domain(
         &mut self,
         channel_name: String,
-        scale_spec: Box<dyn crate::scales::ScaleSpec>,
-        options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
-        domain: crate::scales::ScaleDomain,
+        scale_spec: Box<dyn ScaleSpec>,
+        options: HashMap<String, LogicalExprNode>,
+        domain: ScaleDomain,
     ) {
         self.channel_scale_data.insert(
             channel_name,
@@ -195,10 +212,7 @@ impl ScaleBuilder {
     ///
     /// # Returns
     /// HashMap mapping channel names to their DomainExtent values
-    pub fn extract_domain_extents(&self, channels: &[&str]) -> HashMap<String, super::DomainExtent> {
-        use super::{DomainBounds, DomainExtent, RadiusPadding};
-        use crate::scales::domain_extent::SerializableDomainValue;
-
+    pub fn extract_domain_extents(&self, channels: &[&str]) -> HashMap<String, DomainExtent> {
         let mut result = HashMap::new();
 
         for channel in channels {
@@ -266,9 +280,7 @@ impl ScaleBuilder {
     ///
     /// # Arguments
     /// * `shared_extents` - HashMap mapping channel names to their shared DomainExtent values
-    pub fn extend_with_domain_extents(&mut self, shared_extents: &HashMap<String, super::DomainExtent>) {
-        use super::DomainBounds;
-
+    pub fn extend_with_domain_extents(&mut self, shared_extents: &HashMap<String, DomainExtent>) {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "extend_with_domain_extents called with {} channels",
@@ -375,14 +387,10 @@ impl ScaleBuilder {
                                     (radius.max_lower, radius.max_upper)
                                 } else {
                                     // Fall back to computing from local data
-                                    let lower = radius_lower_data
-                                        .iter()
-                                        .copied()
-                                        .fold(0.0_f64, f64::max);
-                                    let upper = radius_upper_data
-                                        .iter()
-                                        .copied()
-                                        .fold(0.0_f64, f64::max);
+                                    let lower =
+                                        radius_lower_data.iter().copied().fold(0.0_f64, f64::max);
+                                    let upper =
+                                        radius_upper_data.iter().copied().fold(0.0_f64, f64::max);
                                     (lower, upper)
                                 };
 
@@ -440,16 +448,12 @@ impl ScaleBuilder {
         width: f32,
         height: f32,
         coord_system_ranges: &HashMap<String, (f64, f64)>,
-        scale_specs: &HashMap<String, crate::plot::ScaleSpec>,
-        compiled_marks: &[std::sync::Arc<dyn crate::marks::CompiledMark>],
-        theme: &crate::theme::Theme,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
-    ) -> Result<HashMap<String, crate::scales::ConfiguredScaleWithSpec>, AvengerChartError> {
-        use crate::scales::spec::Auto;
-        use crate::scales::{ConfiguredScaleWithSpec, Scale};
-        use datafusion::logical_expr::lit;
-
+        scale_specs: &HashMap<String, PlotScaleSpec>,
+        compiled_marks: &[Arc<dyn CompiledMark>],
+        theme: &Theme,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         let mut result = HashMap::new();
 
         // Iterate channel builders in a deterministic order
@@ -481,7 +485,6 @@ impl ScaleBuilder {
 
                     // Apply cached options
                     for (key, value_node) in options {
-                        use crate::serialization::LogicalExprNodeExt;
                         let expr = value_node.to_expr(ctx)?;
                         scale = scale.option(key, expr);
                     }
@@ -491,14 +494,12 @@ impl ScaleBuilder {
                     let use_cached_domain = if let Some(spec) = scale_specs.get(channel_name) {
                         // Apply the spec to see if it has an explicit domain
                         match spec {
-                            crate::plot::ScaleSpec::Local(scale_changes) => {
+                            PlotScaleSpec::Local(scale_changes) => {
                                 scale = scale.update(scale_changes.clone());
                             }
                         }
 
                         // Check if domain is still DomainExprs (needs data) or explicit
-                        use crate::maybe::Maybe;
-                        use crate::scales::domain::ScaleDefaultDomain;
                         match &scale.domain {
                             Maybe::Set(domain) => {
                                 match &domain.default_domain {
@@ -563,7 +564,7 @@ impl ScaleBuilder {
                             let range_kind = scale
                                 .get_scale_impl()
                                 .map(|impl_arc| impl_arc.range_kind())
-                                .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
+                                .unwrap_or(RangeKind::Continuous);
 
                             let range = theme
                                 .get_range_for_channel(
@@ -607,7 +608,6 @@ impl ScaleBuilder {
 
                     // Apply cached options
                     for (key, value_node) in options {
-                        use crate::serialization::LogicalExprNodeExt;
                         let expr = value_node.to_expr(ctx)?;
                         scale = scale.option(key, expr);
                     }
@@ -624,7 +624,6 @@ impl ScaleBuilder {
                     let range_width = (range_max - range_min).abs();
 
                     // Recompute domain with new range_width using cached data
-                    use avenger_scales::scales::domain_solver::compute_domain_from_data_with_padding_linear;
                     let (d_min, d_max) = compute_domain_from_data_with_padding_linear(
                         position_data,
                         radius_lower_data,
@@ -695,7 +694,7 @@ impl ScaleBuilder {
                             let range_kind = scale
                                 .get_scale_impl()
                                 .map(|impl_arc| impl_arc.range_kind())
-                                .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
+                                .unwrap_or(RangeKind::Continuous);
 
                             let range = theme
                                 .get_range_for_channel(
@@ -740,7 +739,6 @@ impl ScaleBuilder {
 
                     // Apply cached options
                     for (key, value_node) in options {
-                        use crate::serialization::LogicalExprNodeExt;
                         let expr = value_node.to_expr(ctx)?;
                         scale = scale.option(key, expr);
                     }
@@ -748,7 +746,7 @@ impl ScaleBuilder {
                     // Apply scale spec overrides (which might override the explicit domain)
                     if let Some(spec) = scale_specs.get(channel_name) {
                         match spec {
-                            crate::plot::ScaleSpec::Local(scale_changes) => {
+                            PlotScaleSpec::Local(scale_changes) => {
                                 scale = scale.update(scale_changes.clone());
                             }
                         }
@@ -790,7 +788,7 @@ impl ScaleBuilder {
                             let range_kind = scale
                                 .get_scale_impl()
                                 .map(|impl_arc| impl_arc.range_kind())
-                                .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
+                                .unwrap_or(RangeKind::Continuous);
 
                             let range = theme
                                 .get_range_for_channel(
@@ -837,10 +835,7 @@ impl Default for ScaleBuilder {
 
 impl DataExtents {
     /// Convert data extents to a scale domain
-    pub fn to_scale_domain(&self) -> Result<crate::scales::domain::ScaleDomain, AvengerChartError> {
-        use crate::scales::domain::ScaleDomain;
-        use datafusion::logical_expr::lit;
-
+    pub fn to_scale_domain(&self) -> Result<ScaleDomain, AvengerChartError> {
         match self {
             DataExtents::Interval(min, max) => Ok(ScaleDomain::new_interval(lit(*min), lit(*max))),
             DataExtents::Discrete(values) => {
@@ -855,6 +850,7 @@ impl DataExtents {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scales::spec::Linear;
 
     #[test]
     fn test_scale_builder_new() {
@@ -864,10 +860,8 @@ mod tests {
 
     #[test]
     fn test_add_standard_scale() {
-        use crate::scales::spec::Linear;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         let data_extents = DataExtents::Interval(0.0, 100.0);
         let options = HashMap::new();
 
@@ -879,10 +873,8 @@ mod tests {
 
     #[test]
     fn test_add_radius_aware_scale() {
-        use crate::scales::spec::Linear;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         let position_data = vec![0.0, 1.0, 2.0];
         let radius_lower = vec![0.5, 0.5, 0.5];
         let radius_upper = vec![0.5, 0.5, 0.5];
@@ -908,7 +900,7 @@ mod tests {
 
         // Verify it created an interval domain
         match domain.default_domain {
-            crate::scales::domain::ScaleDefaultDomain::Interval(_, _) => {
+            ScaleDefaultDomain::Interval(_, _) => {
                 // Success
             }
             _ => panic!("Expected interval domain"),
@@ -917,8 +909,6 @@ mod tests {
 
     #[test]
     fn test_data_extents_to_domain_discrete() {
-        use datafusion_common::ScalarValue;
-
         let extents = DataExtents::Discrete(vec![
             ScalarValue::Utf8(Some("a".to_string())),
             ScalarValue::Utf8(Some("b".to_string())),
@@ -927,7 +917,7 @@ mod tests {
 
         // Verify it created a discrete domain
         match domain.default_domain {
-            crate::scales::domain::ScaleDefaultDomain::Discrete(values) => {
+            ScaleDefaultDomain::Discrete(values) => {
                 assert_eq!(values.len(), 2);
             }
             _ => panic!("Expected discrete domain"),
@@ -941,7 +931,7 @@ mod tests {
 
         // Verify it created an interval domain
         match domain.default_domain {
-            crate::scales::domain::ScaleDefaultDomain::Interval(_, _) => {
+            ScaleDefaultDomain::Interval(_, _) => {
                 // Success
             }
             _ => panic!("Expected interval domain"),
@@ -950,12 +940,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_scales_standard() {
-        use crate::scales::spec::Linear;
-        use datafusion::prelude::SessionContext;
-        use indexmap::IndexMap;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         let data_extents = DataExtents::Interval(0.0, 100.0);
         let options = HashMap::new();
 
@@ -974,7 +960,7 @@ mod tests {
                 &coord_ranges,
                 &HashMap::new(),
                 &[], // No marks in this test
-                &crate::theme::Theme::light(),
+                &Theme::light(),
                 &ctx,
                 &params,
             )
@@ -993,12 +979,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_scales_radius_aware() {
-        use crate::scales::spec::Linear;
-        use datafusion::prelude::SessionContext;
-        use indexmap::IndexMap;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         let position_data = vec![0.0, 50.0, 100.0];
         let radius_lower = vec![5.0, 5.0, 5.0];
         let radius_upper = vec![5.0, 5.0, 5.0];
@@ -1026,7 +1008,7 @@ mod tests {
                 &coord_ranges,
                 &HashMap::new(),
                 &[], // No marks in this test
-                &crate::theme::Theme::light(),
+                &Theme::light(),
                 &ctx,
                 &params,
             )
@@ -1051,12 +1033,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_scales_radius_aware_range_change() {
-        use crate::scales::spec::Linear;
-        use datafusion::prelude::SessionContext;
-        use indexmap::IndexMap;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         let position_data = vec![0.0, 50.0, 100.0];
         let radius_lower = vec![5.0, 5.0, 5.0];
         let radius_upper = vec![5.0, 5.0, 5.0];
@@ -1085,7 +1063,7 @@ mod tests {
                 &coord_ranges1,
                 &HashMap::new(),
                 &[], // No marks in this test
-                &crate::theme::Theme::light(),
+                &Theme::light(),
                 &ctx,
                 &params,
             )
@@ -1110,7 +1088,7 @@ mod tests {
                 &coord_ranges2,
                 &HashMap::new(),
                 &[], // No marks in this test
-                &crate::theme::Theme::light(),
+                &Theme::light(),
                 &ctx,
                 &params,
             )
@@ -1139,10 +1117,8 @@ mod tests {
 
     #[test]
     fn test_extract_domain_extents_standard() {
-        use crate::scales::spec::Linear;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         let data_extents = DataExtents::Interval(0.0, 100.0);
         let options = HashMap::new();
 
@@ -1158,10 +1134,8 @@ mod tests {
 
     #[test]
     fn test_extract_domain_extents_radius_aware() {
-        use crate::scales::spec::Linear;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         let position_data = vec![0.0, 50.0, 100.0];
         let radius_lower = vec![5.0, 3.0, 5.0];
         let radius_upper = vec![7.0, 7.0, 4.0];
@@ -1191,13 +1165,10 @@ mod tests {
 
     #[test]
     fn test_extract_domain_extents_mixed() {
-        use crate::scales::spec::Linear;
-        use datafusion_common::ScalarValue;
-
         let mut builder = ScaleBuilder::new();
 
         // Add standard scale
-        let scale_spec1 = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec1 = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         builder.add_standard(
             "x".to_string(),
             scale_spec1,
@@ -1206,7 +1177,7 @@ mod tests {
         );
 
         // Add radius-aware scale
-        let scale_spec2 = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec2 = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         builder.add_radius_aware(
             "y".to_string(),
             scale_spec2,
@@ -1217,7 +1188,7 @@ mod tests {
         );
 
         // Add discrete scale
-        let scale_spec3 = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec3 = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         builder.add_standard(
             "color".to_string(),
             scale_spec3,
@@ -1251,11 +1222,8 @@ mod tests {
 
     #[test]
     fn test_extend_with_domain_extents_standard_numeric() {
-        use crate::scales::spec::Linear;
-        use crate::scales::DomainExtent;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         builder.add_standard(
             "x".to_string(),
             scale_spec,
@@ -1277,11 +1245,8 @@ mod tests {
 
     #[test]
     fn test_extend_with_domain_extents_radius_aware_with_radius() {
-        use crate::scales::spec::Linear;
-        use crate::scales::DomainExtent;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         builder.add_radius_aware(
             "y".to_string(),
             scale_spec,
@@ -1314,11 +1279,8 @@ mod tests {
 
     #[test]
     fn test_extend_with_domain_extents_radius_aware_without_radius() {
-        use crate::scales::spec::Linear;
-        use crate::scales::DomainExtent;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         builder.add_radius_aware(
             "y".to_string(),
             scale_spec,
@@ -1350,13 +1312,8 @@ mod tests {
 
     #[test]
     fn test_extend_with_domain_extents_discrete() {
-        use crate::scales::domain_extent::SerializableDomainValue;
-        use crate::scales::spec::Linear;
-        use crate::scales::DomainExtent;
-        use datafusion_common::ScalarValue;
-
         let mut builder = ScaleBuilder::new();
-        let scale_spec = Box::new(Linear::default()) as Box<dyn crate::scales::ScaleSpec>;
+        let scale_spec = Box::new(Linear::default()) as Box<dyn ScaleSpec>;
         builder.add_standard(
             "color".to_string(),
             scale_spec,

@@ -33,11 +33,8 @@ async fn test_symbol_default_channel_values() {
         indexmap::IndexMap::new(),
         Arc::new(avenger_chart::facet::evaluated_facet_tree::EvaluatedFacetTree::empty()),
     );
-    let render_state = avenger_chart::render::RenderState::new(
-        500.0,
-        400.0,
-        std::collections::HashMap::new(),
-    );
+    let render_state =
+        avenger_chart::render::RenderState::new(500.0, 400.0, std::collections::HashMap::new());
     let context = RenderContext::new(&eval_ctx, &render_state, &[], &EmptyCoordMeasurement);
 
     // Build the CompiledMark

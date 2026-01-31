@@ -2,8 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::error::AvengerChartError;
-use crate::scales::ConfiguredScaleWithSpec;
+use crate::{error::AvengerChartError, scales::ConfiguredScaleWithSpec};
 
 use super::CompiledPlot;
 

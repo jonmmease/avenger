@@ -1,12 +1,18 @@
-use crate::error::AvengerChartError;
-use crate::scales::ScaleRange;
-use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt, SerializableExpr};
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{Expr, lit};
+use std::sync::Arc;
+
+use datafusion::{
+    dataframe::DataFrame,
+    logical_expr::{Expr, lit},
+};
 use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
-use std::sync::Arc;
+
+use crate::{
+    error::AvengerChartError,
+    scales::ScaleRange,
+    serialization::{LogicalExprNodeExt, LogicalPlanNodeExt, SerializableExpr},
+};
 
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]

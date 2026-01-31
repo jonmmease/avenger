@@ -1,9 +1,10 @@
 //! Core types for chart layout
 
-use crate::cartesian::axis::AxisPosition;
-use crate::legend::LegendPosition;
-use indexmap::IndexMap;
 use std::collections::HashMap;
+
+use indexmap::IndexMap;
+
+use crate::{cartesian::axis::AxisPosition, legend::LegendPosition};
 
 /// Result of layout computation
 #[derive(Debug, Clone)]

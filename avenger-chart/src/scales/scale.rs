@@ -1,24 +1,36 @@
 //! Type-safe scale system with compile-time method resolution
 
-use crate::error::AvengerChartError;
-use crate::maybe::Maybe;
-use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
-use crate::scales::domain_inference::DomainInferrer;
-use crate::scales::range::ScaleRange;
-use crate::scales::spec::*;
-use crate::serialization::{LogicalExprNodeExt, SerializableExpr};
-use crate::utils::{ScalarValueHelpers, eval_to_scalars, scalar_to_scalar_value};
-use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{Expr, lit};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+
+use avenger_scales::scales::{
+    ConfiguredScale, DomainKind, RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
+};
+use datafusion::{
+    arrow::array::{
+        ArrayRef, Date32Array, Date64Array, Float32Array, Float32Builder, ListBuilder, StringArray,
+    },
+    dataframe::DataFrame,
+    logical_expr::{Expr, lit},
+};
 use datafusion_common::ScalarValue;
 use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
+use indexmap::IndexMap;
 use palette::Srgba;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::sync::Arc;
+
+use crate::{
+    error::AvengerChartError,
+    maybe::Maybe,
+    scales::{
+        domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain},
+        domain_inference::DomainInferrer,
+        range::ScaleRange,
+        spec::*,
+    },
+    serialization::{LogicalExprNodeExt, LogicalPlanNodeExt, SerializableExpr},
+    utils::{ScalarValueHelpers, eval_to_scalars, scalar_to_scalar_value},
+};
 
 /// Helper to infer default domain from scale implementation
 fn infer_default_domain(scale_impl: &Arc<dyn ScaleImpl>) -> ScaleDomain {
@@ -187,7 +199,6 @@ impl<S: ScaleSpec> Scale<S> {
 
     /// Set domain from data field
     pub fn domain_data(mut self, dataframe: Arc<DataFrame>, expr: Expr) -> Self {
-        use crate::serialization::LogicalPlanNodeExt;
         let mut domain = self
             .domain
             .unwrap_or(ScaleDomain::new_interval(lit(0.0), lit(1.0)));
@@ -206,7 +217,6 @@ impl<S: ScaleSpec> Scale<S> {
 
     /// Set domain from data fields
     pub fn domain_data_fields(mut self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
-        use crate::serialization::LogicalPlanNodeExt;
         let exprs = fields
             .into_iter()
             .map(|(df, expr)| {
@@ -526,11 +536,8 @@ impl<S: ScaleSpec> Scale<S> {
         _plot_area_width: f32,
         _plot_area_height: f32,
         ctx: &datafusion::prelude::SessionContext,
-        params: &indexmap::IndexMap<String, ScalarValue>,
-    ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
-        use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
-        use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
-
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<ConfiguredScale, AvengerChartError> {
         // Get scale implementation (required)
         let scale_impl = self.get_scale_impl_or_err()?;
 
@@ -568,8 +575,6 @@ impl<S: ScaleSpec> Scale<S> {
                 // Handle temporal vs numeric domains
                 if scale_impl.domain_kind() == DomainKind::Temporal {
                     // Preserve temporal types (Date32, Date64, Timestamp, etc.)
-                    use datafusion::arrow::array::{Date32Array, Date64Array};
-                    use datafusion::common::ScalarValue;
                     match (start_val, end_val) {
                         (ScalarValue::Date32(Some(s)), ScalarValue::Date32(Some(e))) => {
                             Arc::new(Date32Array::from(vec![*s, *e])) as ArrayRef
@@ -686,9 +691,6 @@ impl<S: ScaleSpec> Scale<S> {
             }
             Maybe::Set(ScaleRange::Color(colors)) => {
                 // Convert colors to a list array of RGBA values
-                use datafusion::arrow::array::Float32Builder;
-                use datafusion::arrow::array::ListBuilder;
-
                 let mut list_builder = ListBuilder::new(Float32Builder::new());
 
                 for color in colors {

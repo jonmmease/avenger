@@ -1,19 +1,36 @@
 //! Cartesian coordinate system guide implementation
-use crate::plot::compiled::expr_eval::evaluate_string_expr;
-use crate::theme::Theme;
+use std::{collections::HashMap, sync::Arc};
 
-use crate::cartesian::axis::{AxisPosition, CartesianAxis};
-use crate::coords::extract_channel_title_from_marks;
-use crate::error::AvengerChartError;
-use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
-use crate::layout::LayoutBounds;
-use crate::maybe::{Maybe, MaybeOptionalExpr};
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::marks::{group::Clip, mark::SceneMark, rect::SceneRectMark};
+use datafusion::{
+    dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext,
+    scalar::ScalarValue as DFScalarValue,
+};
+use datafusion_common::ScalarValue;
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use std::collections::HashMap;
-use std::sync::Arc;
+
+use crate::{
+    cartesian::axis::{AxisPosition, CartesianAxis},
+    coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
+    error::AvengerChartError,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    guide::{
+        CompiledGuide, CoordinateGuide, FacetDirection, GuideUpdate, OverflowSpaceRequirement,
+        UnifiableChannelInfo,
+    },
+    layout::LayoutBounds,
+    marks::CompiledMark,
+    maybe::{Maybe, MaybeOptionalExpr},
+    plot::{IntoExpr, compiled::expr_eval::evaluate_string_expr},
+    serialization::LogicalExprNodeExt,
+    theme::{Theme, ThemeContext},
+    utils::parse_color_to_array_strict,
+};
 
 /// Options for Cartesian coordinate system (beyond axes)
 #[serde_as]
@@ -65,8 +82,7 @@ impl CartesianGuide {
     }
 
     /// Set the plot background color
-    pub fn plot_background_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn plot_background_color(mut self, color: impl IntoExpr) -> Self {
         let expr = color.into_expr();
         self.options.plot_background_color = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr)
@@ -87,11 +103,9 @@ impl CartesianGuide {
     async fn get_background_color(
         &self,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
+        params: &indexmap::IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
     ) -> Option<[f32; 4]> {
-        use crate::serialization::LogicalExprNodeExt;
-
         // Try to evaluate expression if set
         if let Some(color_node) = self
             .options
@@ -103,7 +117,7 @@ impl CartesianGuide {
                 // Evaluate the expression to get color string
                 if let Ok(color_str) = evaluate_string_expr(&color_expr, ctx, params).await {
                     // Parse the color string
-                    if let Ok(color) = crate::utils::parse_color_to_array_strict(&color_str) {
+                    if let Ok(color) = parse_color_to_array_strict(&color_str) {
                         return Some(color);
                     }
                 }
@@ -111,8 +125,7 @@ impl CartesianGuide {
         }
 
         // Fallback to theme
-        let guide_ctx =
-            crate::theme::ThemeContext::new("guide", params.clone()).with_subtype("cartesian");
+        let guide_ctx = ThemeContext::new("guide", params.clone()).with_subtype("cartesian");
         theme
             .query(&guide_ctx, "background-color")
             .and_then(|v| v.as_color_array())
@@ -159,8 +172,8 @@ impl CoordinateGuide for CartesianGuide {
 
     fn set_compiled_marks(
         &mut self,
-        compiled_marks: Vec<Arc<dyn crate::marks::CompiledMark>>,
-        session_context: &datafusion::prelude::SessionContext,
+        compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        session_context: &SessionContext,
     ) {
         // Extract titles from mark renderers immediately
         for channel in ["x", "y"] {
@@ -187,21 +200,19 @@ impl CompiledGuide for CartesianGuide {
     /// Measure how much space this guide needs outside the plot area
     async fn measure_overflow(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        data_override: Option<&datafusion::dataframe::DataFrame>,
-        ctx: &datafusion::prelude::SessionContext,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        params: &indexmap::IndexMap<String, ScalarValue>,
+        data_override: Option<&DataFrame>,
+        ctx: &SessionContext,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        use avenger_geometry::marks::MarkGeometryUtils;
-
         // Use provided coord_measurement or default empty one (CartesianGuide doesn't use it)
-        let empty_coord = crate::coords::EmptyCoordMeasurement;
+        let empty_coord = EmptyCoordMeasurement;
         let coord_measurement = coord_measurement.unwrap_or(&empty_coord);
 
         // For overflow measurement, we can place the plot at origin
@@ -288,26 +299,22 @@ impl CompiledGuide for CartesianGuide {
 
     async fn evaluate(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
-        _data_override: Option<&datafusion::dataframe::DataFrame>,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-        _coord_measurement: &dyn crate::coords::CoordMeasurement,
+        params: &indexmap::IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
+        _data_override: Option<&DataFrame>,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 
         // Render background if specified (behind everything else)
         if let Some(bg_color) = self.get_background_color(theme, params, ctx).await {
-            use avenger_common::types::ColorOrGradient;
-            use avenger_common::value::ScalarOrArray;
-            use avenger_scenegraph::marks::rect::SceneRectMark;
-
             let bg_rect = SceneRectMark {
                 name: "plot-background".to_string(),
                 clip: false,
@@ -403,10 +410,8 @@ impl CompiledGuide for CartesianGuide {
         &self,
         plot_width: f32,
         plot_height: f32,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> avenger_scenegraph::marks::group::Clip {
-        use avenger_scenegraph::marks::group::Clip;
-
+        _scales: &HashMap<String, ConfiguredScale>,
+    ) -> Clip {
         // Cartesian coordinates use a rectangular clip
         Clip::Rect {
             x: 0.0,
@@ -418,13 +423,10 @@ impl CompiledGuide for CartesianGuide {
 
     fn facet_unifiable_channel(
         &self,
-        facet_direction: crate::guide::FacetDirection,
-        marks: &[Arc<dyn crate::marks::CompiledMark>],
-        session_context: &datafusion::prelude::SessionContext,
-    ) -> Option<crate::guide::UnifiableChannelInfo> {
-        use crate::coords::extract_channel_title_from_marks;
-        use crate::guide::{FacetDirection, UnifiableChannelInfo};
-
+        facet_direction: FacetDirection,
+        marks: &[Arc<dyn CompiledMark>],
+        session_context: &SessionContext,
+    ) -> Option<UnifiableChannelInfo> {
         // Cartesian can unify y-axis in row faceting, x-axis in column faceting
         let channel = match facet_direction {
             FacetDirection::Row => "y",
@@ -440,21 +442,14 @@ impl CompiledGuide for CartesianGuide {
         })
     }
 
-    fn axis_position(&self, channel: &str) -> Option<crate::cartesian::axis::AxisPosition> {
-        use crate::cartesian::axis::AxisPosition;
-        use crate::serialization::LogicalExprNodeExt;
-
+    fn axis_position(&self, channel: &str) -> Option<AxisPosition> {
         // Check if we have an axis configured for this channel
         if let Some(axis) = self.axes.get(channel) {
             // If axis has explicit position expression, try to extract it if it's a simple literal
             if let Some(position_node) = axis.position.as_option().and_then(|o| o.as_ref()) {
                 // Try to convert to datafusion Expr and check if it's a literal
-                if let Ok(expr) = position_node.to_expr(&datafusion::prelude::SessionContext::new())
-                {
-                    use datafusion::logical_expr::Expr;
-                    if let Expr::Literal(datafusion::scalar::ScalarValue::Utf8(Some(pos_str)), _) =
-                        expr
-                    {
+                if let Ok(expr) = position_node.to_expr(&SessionContext::new()) {
+                    if let Expr::Literal(DFScalarValue::Utf8(Some(pos_str)), _) = expr {
                         // Got a literal string, parse it as an axis position
                         return match pos_str.to_lowercase().as_str() {
                             "top" => Some(AxisPosition::Top),

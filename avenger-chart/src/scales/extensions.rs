@@ -3,15 +3,21 @@
 //! These traits extend avenger_scales::ConfiguredScale with DataFusion integration
 //! and legend-specific convenience methods without adding dependencies to avenger-scales.
 
-use crate::error::AvengerChartError;
-use crate::scales::ConfiguredScaleWithSpec;
-use crate::scales::udf::create_scale_udf;
-use crate::utils::ScalarValueHelpers;
 use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind};
-use datafusion::arrow::array::{Array, ArrayRef, Float32Array, ListArray};
-use datafusion::arrow::datatypes::{Field, Float32Type};
-use datafusion::logical_expr::{Expr, ExprSchemable};
+use datafusion::{
+    arrow::{
+        array::{Array, ArrayRef, Float32Array, ListArray},
+        datatypes::{Field, Float32Type},
+    },
+    logical_expr::{Expr, ExprSchemable},
+};
 use datafusion_common::ScalarValue;
+
+use crate::{
+    error::AvengerChartError,
+    scales::{ConfiguredScaleWithSpec, udf::create_scale_udf},
+    utils::ScalarValueHelpers,
+};
 
 /// Extension trait for DataFusion integration
 pub trait ConfiguredScaleDataFusionExt {

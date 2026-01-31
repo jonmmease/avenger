@@ -1,25 +1,30 @@
 //! Legend-specific layout logic
 
-use crate::error::AvengerChartError;
-use crate::legend::{Legend, LegendChannel};
-use crate::theme::Theme;
 use std::sync::Arc;
+
+use datafusion::{common::ScalarValue, prelude::SessionContext};
+use indexmap::IndexMap;
 use taffy::Size;
+
+use crate::{
+    error::AvengerChartError,
+    legend::{Legend, LegendChannel, LegendRenderer},
+    plot::compiled::expr_eval::evaluate_bool_expr,
+    serialization::LogicalExprNodeExt,
+    theme::Theme,
+};
 
 /// Measure legend size with pre-built legend channels and return flexibility preference
 pub async fn measure_legend_size_with_channels(
     legend_channels: &[LegendChannel],
     legend: &Legend,
-    renderer: Arc<dyn crate::legend::LegendRenderer>,
+    renderer: Arc<dyn LegendRenderer>,
     available_space: Size<f32>,
     theme: &Theme,
-    params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-    ctx: &datafusion::prelude::SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    ctx: &SessionContext,
 ) -> Result<(Size<f32>, bool), AvengerChartError> {
     // Evaluate visibility expression - skip measurement if not visible
-    use crate::plot::compiled::expr_eval::*;
-    use crate::serialization::LogicalExprNodeExt;
-
     let visible = if let Some(node) = legend.visible.as_option().and_then(|o| o.as_ref()) {
         let expr = node.to_expr(ctx)?;
         evaluate_bool_expr(&expr, ctx, params).await?

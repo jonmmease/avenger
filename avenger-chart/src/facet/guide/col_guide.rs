@@ -6,11 +6,11 @@
 use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
-use crate::facet::guide_utils::{
-    measure_facet_label_slab, render_facet_label_slab, FacetLabelMeasurementConfig,
-    FacetLabelRenderConfig,
-};
 use crate::facet::coord::FacetColCoordMeasurement;
+use crate::facet::guide_utils::{
+    FacetLabelMeasurementConfig, FacetLabelRenderConfig, measure_facet_label_slab,
+    render_facet_label_slab,
+};
 use crate::facet::marks::facet::{CompiledFacetCol, CompiledFacetSource};
 use crate::guide::{CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
@@ -25,7 +25,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{FromInto, serde_as};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -133,20 +133,21 @@ impl CompiledGuide for FacetColGuide {
         // Try to extract pre-computed subplot overflow from coord_measurement.
         // This optimization avoids expensive re-measurement when coord_measurement
         // is already populated (second pass).
-        let subplot_overflow = if let Some(fcm) = coord_measurement
-            .and_then(|cm| cm.as_any().downcast_ref::<FacetColCoordMeasurement>())
+        let subplot_overflow = if let Some(fcm) =
+            coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetColCoordMeasurement>())
         {
             // Fast path: use pre-computed overflow from coord_measurement
             // Use total_overflow to include legend space in outer layout calculation
-            fcm.subplot_measurements.iter().fold(
-                OverflowSpaceRequirement::default(),
-                |acc, m| OverflowSpaceRequirement {
-                    top: acc.top.max(m.layout.total_overflow.top),
-                    bottom: acc.bottom.max(m.layout.total_overflow.bottom),
-                    left: acc.left.max(m.layout.total_overflow.left),
-                    right: acc.right.max(m.layout.total_overflow.right),
-                },
-            )
+            fcm.subplot_measurements
+                .iter()
+                .fold(OverflowSpaceRequirement::default(), |acc, m| {
+                    OverflowSpaceRequirement {
+                        top: acc.top.max(m.layout.total_overflow.top),
+                        bottom: acc.bottom.max(m.layout.total_overflow.bottom),
+                        left: acc.left.max(m.layout.total_overflow.left),
+                        right: acc.right.max(m.layout.total_overflow.right),
+                    }
+                })
         } else {
             // Slow path: compute subplot overflow (first pass, before coord_measurement exists)
             self.compute_subplot_overflow(
@@ -163,16 +164,14 @@ impl CompiledGuide for FacetColGuide {
         };
 
         // Get column scale for labels
-        let column_scale = scales.get("column").ok_or_else(|| {
-            AvengerChartError::InternalError("No column scale found".into())
-        })?;
+        let column_scale = scales
+            .get("column")
+            .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
 
         // Measure facet label slab space requirement
         // Get labels from column scale domain
         let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
-        let labels: Vec<String> = band_iter
-            .map(|bp| format_scalar_value(&bp.value))
-            .collect();
+        let labels: Vec<String> = band_iter.map(|bp| format_scalar_value(&bp.value)).collect();
 
         // Add facet guide space for all nesting levels
         // Each level measures and renders its own labels
@@ -213,9 +212,15 @@ impl CompiledGuide for FacetColGuide {
         // Add facet guide height to top or bottom overflow depending on position
         let place_at_bottom = self.position.as_deref() == Some("bottom");
         let (total_top, total_bottom) = if place_at_bottom {
-            (subplot_overflow.top, subplot_overflow.bottom + facet_guide_height)
+            (
+                subplot_overflow.top,
+                subplot_overflow.bottom + facet_guide_height,
+            )
         } else {
-            (subplot_overflow.top + facet_guide_height, subplot_overflow.bottom)
+            (
+                subplot_overflow.top + facet_guide_height,
+                subplot_overflow.bottom,
+            )
         };
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -267,9 +272,9 @@ impl CompiledGuide for FacetColGuide {
         // Each level renders its own labels in its local coordinate system
 
         // Get column scale for band positions
-        let column_scale = scales.get("column").ok_or_else(|| {
-            AvengerChartError::InternalError("No column scale found".into())
-        })?;
+        let column_scale = scales
+            .get("column")
+            .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
 
         // Get band positions and labels from column scale
         let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
@@ -292,7 +297,9 @@ impl CompiledGuide for FacetColGuide {
         // Use total overflow (guide + legend) so labels are positioned outside any legends
         let coordinated_overflow = coord_measurement.coordinated_overflow();
         let subplot_overflow = if place_at_bottom {
-            coordinated_overflow.map(|co| co.total.bottom).unwrap_or(0.0)
+            coordinated_overflow
+                .map(|co| co.total.bottom)
+                .unwrap_or(0.0)
         } else {
             coordinated_overflow.map(|co| co.total.top).unwrap_or(0.0)
         };
@@ -300,10 +307,7 @@ impl CompiledGuide for FacetColGuide {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "FacetColGuide evaluate: position={:?}, plot_bounds.y={:.1}, subplot_overflow={:.1}, labels={:?}",
-                self.position,
-                plot_bounds.y,
-                subplot_overflow,
-                labels
+                self.position, plot_bounds.y, subplot_overflow, labels
             );
         }
 
@@ -350,7 +354,7 @@ impl CompiledGuide for FacetColGuide {
             labels,
             band_positions,
             plot_bounds: adjusted_plot_bounds,
-            is_rotated: false,     // Column labels are horizontal
+            is_rotated: false, // Column labels are horizontal
             place_at_end: place_at_bottom,
             font_family,
             font_size_px: label_font_size,
@@ -392,8 +396,9 @@ impl FacetColGuide {
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        use crate::serialization::LogicalPlanNodeExt;
         use datafusion::dataframe::DataFrame;
+
+        use crate::serialization::LogicalPlanNodeExt;
 
         let Some(subplot) = &self.compiled_subplot else {
             return Ok(OverflowSpaceRequirement::default());
@@ -417,12 +422,12 @@ impl FacetColGuide {
         };
 
         // Get column scale to determine subplot width
-        let column_scale = scales.get("column").ok_or_else(|| {
-            AvengerChartError::InternalError("No column scale found".into())
-        })?;
+        let column_scale = scales
+            .get("column")
+            .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
 
-        let subplot_width = avenger_scales::scales::band::bandwidth(&column_scale.config)
-            .map_err(|e| {
+        let subplot_width =
+            avenger_scales::scales::band::bandwidth(&column_scale.config).map_err(|e| {
                 AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
             })?;
 

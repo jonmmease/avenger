@@ -1,32 +1,49 @@
-use crate::cartesian::Cartesian;
-use crate::define_position_channels;
-use crate::impl_mark_trait_common;
-use crate::marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Mark};
+use std::sync::Arc;
+
 use arrow::array::RecordBatch;
-use avenger_scenegraph::marks::mark::SceneMark;
-// Import Rect for the macro, then re-export it
-use crate::channel::ChannelDescriptor;
-use crate::coords::CoordinateSystemTransform;
-use crate::error::AvengerChartError;
-pub use crate::marks::rect::Rect;
-use crate::render::RenderContext;
+use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark};
+use datafusion::arrow::datatypes::DataType;
 use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    cartesian::{Cartesian, channels::CartesianPositionConfig},
+    channel::ChannelDescriptor,
+    coords::{CoordinateSystemTransform, PointGeometry},
+    define_position_channels,
+    error::AvengerChartError,
+    impl_mark_trait_common,
+    legend::{CompiledColorbar, LegendRenderer, renderer::rect::CompiledRectLegend},
+    marks::{
+        CompiledDataContext, CompiledMark, CompiledMarkState, Mark, default_scale_for_data_type,
+        rect::{Rect, rect_channel_defaults},
+        util::{
+            coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+            is_continuous_scale,
+        },
+    },
+    render::RenderContext,
+    scales::{
+        ScaleSpec,
+        spec::{Band, Ordinal},
+    },
+};
 
 // Define position channels for Cartesian Rect using the macro
 define_position_channels! {
     Rect<Cartesian> {
         x: {
-            with_config: crate::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         },
         x2: {
-            with_config: crate::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         },
         y: {
-            with_config: crate::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         },
         y2: {
-            with_config: crate::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         }
     }
 }
@@ -40,8 +57,8 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         &self,
         compiled_state: CompiledMarkState,
         _session_context: &datafusion::prelude::SessionContext,
-    ) -> Result<std::sync::Arc<dyn CompiledMark>, AvengerChartError> {
-        Ok(std::sync::Arc::new(CompiledCartesianRect {
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(Arc::new(CompiledCartesianRect {
             state: compiled_state,
         }))
     }
@@ -140,11 +157,6 @@ impl CompiledMark for CompiledCartesianRect {
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::marks::util::{
-            coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-        };
-        use avenger_scenegraph::marks::rect::SceneRectMark;
-
         // Determine number of marks from data batch or default to 1
         let len = data.map_or(1, |data| data.num_rows()) as u32;
 
@@ -184,7 +196,7 @@ impl CompiledMark for CompiledCartesianRect {
         // Extract transformed coordinates as PointGeometry
         let point1 = geometry1
             .as_any()
-            .downcast_ref::<crate::coords::PointGeometry>()
+            .downcast_ref::<PointGeometry>()
             .ok_or_else(|| {
                 AvengerChartError::CoordinateSystemError(
                     "Failed to downcast corner1 to PointGeometry".to_string(),
@@ -192,7 +204,7 @@ impl CompiledMark for CompiledCartesianRect {
             })?;
         let point2 = geometry2
             .as_any()
-            .downcast_ref::<crate::coords::PointGeometry>()
+            .downcast_ref::<PointGeometry>()
             .ok_or_else(|| {
                 AvengerChartError::CoordinateSystemError(
                     "Failed to downcast corner2 to PointGeometry".to_string(),
@@ -263,17 +275,14 @@ impl CompiledMark for CompiledCartesianRect {
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        crate::marks::rect::rect_channel_defaults(channel)
+        rect_channel_defaults(channel)
     }
 
     fn preferred_scale_type(
         &self,
         channel: &str,
-        data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
-        use crate::scales::spec::{Band, Ordinal};
-        use datafusion::arrow::datatypes::DataType;
-
+        data_type: &DataType,
+    ) -> Option<Box<dyn ScaleSpec>> {
         match (channel, data_type) {
             // Rect marks use band scales for categorical position data
             (
@@ -286,19 +295,15 @@ impl CompiledMark for CompiledCartesianRect {
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
             ) => Some(Box::new(Ordinal::default())),
             // Fall back to data type-based inference for other channels
-            _ => crate::marks::default_scale_for_data_type(data_type),
+            _ => default_scale_for_data_type(data_type),
         }
     }
 
     fn preferred_legend_renderer(
         &self,
         channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        use crate::legend::{CompiledColorbar, renderer::rect::CompiledRectLegend};
-        use crate::marks::util::is_continuous_scale;
-        use std::sync::Arc;
-
+        scale: &ConfiguredScale,
+    ) -> Option<Arc<dyn LegendRenderer>> {
         // Check if scale is continuous (for colorbar)
         let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 

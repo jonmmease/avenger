@@ -1,7 +1,7 @@
 //! Rendering pipeline for CompiledPlot
 
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -27,7 +27,7 @@ use datafusion::{
     },
     common::ScalarValue,
     dataframe::DataFrame,
-    logical_expr::{lit, when, Expr},
+    logical_expr::{Expr, lit, when},
     prelude::SessionContext,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -36,9 +36,9 @@ use indexmap::IndexMap;
 use crate::{
     channel::{
         resolution::resolve_all_channel_refs,
-        value::{strip_trailing_numbers, ChannelValue, ConditionalValue},
+        value::{ChannelValue, ConditionalValue, strip_trailing_numbers},
     },
-    coords::{coordinate_overflow_for_guides, CoordMeasurement},
+    coords::{CoordMeasurement, coordinate_overflow_for_guides},
     error::AvengerChartError,
     facet::evaluated_facet_tree::EvaluatedFacetTree,
     guide::OverflowSpaceRequirement,
@@ -50,8 +50,8 @@ use crate::{
     marks::CompiledMark,
     maybe::Maybe,
     render::{
-        debug::create_debug_layout_rects, EvaluatedPlot, EvaluationContext, LayoutSolution,
-        RenderContext, RenderState,
+        EvaluatedPlot, EvaluationContext, LayoutSolution, RenderContext, RenderState,
+        debug::create_debug_layout_rects,
     },
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
@@ -60,10 +60,10 @@ use crate::{
 };
 
 use super::{
+    CompiledPlot, ComponentsMeasurement, PlotComponents,
     expr_eval::{evaluate_bool_expr, evaluate_f32_expr},
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
-    ComponentsMeasurement, CompiledPlot, PlotComponents,
 };
 
 /// Prepared data for mark evaluation (measure or render pass)
@@ -221,29 +221,26 @@ impl CompiledPlot {
                     if let Expr::Literal(scalar_value, _) = expr {
                         if let ScalarValue::Utf8(Some(s)) = scalar_value {
                             // Use our existing color parsing utility
-                            if let Some(color_or_gradient) = parse_color_string(s)
-                                {
-                                    if let ColorOrGradient::Color(rgba) = color_or_gradient {
-                                        // Convert to List ScalarValue with Float32 values
-                                        let values: Vec<ScalarValue> = rgba
-                                            .into_iter()
-                                            .map(|v| ScalarValue::Float32(Some(v)))
-                                            .collect();
+                            if let Some(color_or_gradient) = parse_color_string(s) {
+                                if let ColorOrGradient::Color(rgba) = color_or_gradient {
+                                    // Convert to List ScalarValue with Float32 values
+                                    let values: Vec<ScalarValue> = rgba
+                                        .into_iter()
+                                        .map(|v| ScalarValue::Float32(Some(v)))
+                                        .collect();
 
-                                        // Create the list array and wrap in ScalarValue
-                                        let list_array = ScalarValue::new_list_nullable(
-                                            &values,
-                                            &DataType::Float32,
-                                        );
-                                        let scalar_list = ScalarValue::List(list_array);
-                                        return lit(scalar_list);
-                                    }
+                                    // Create the list array and wrap in ScalarValue
+                                    let list_array =
+                                        ScalarValue::new_list_nullable(&values, &DataType::Float32);
+                                    let scalar_list = ScalarValue::List(list_array);
+                                    return lit(scalar_list);
                                 }
                             }
                         }
-                        // Not a color literal or failed to parse, return as-is
-                        expr.clone()
-                    };
+                    }
+                    // Not a color literal or failed to parse, return as-is
+                    expr.clone()
+                };
 
                 // For conditional values, the scale name is derived from the channel name
                 let scale_key = strip_trailing_numbers(channel_name).to_string();
@@ -254,28 +251,28 @@ impl CompiledPlot {
                 // Helper to apply scale to a conditional value
                 let apply_to_conditional =
                     |cond_val: &ConditionalValue| -> Result<Expr, AvengerChartError> {
-                    match cond_val {
-                        ConditionalValue::Scaled { expr } => {
-                            // Apply scale transformation
-                            if let Some(scale) = scales.get(&scale_key) {
-                                // Convert SerializableExpr to Expr first
-                                expr.to_expr(ctx).and_then(|e| scale.to_expr(e))
-                            } else {
-                                // No scale found, return expression as-is - convert to Expr
-                                expr.to_expr(ctx)
+                        match cond_val {
+                            ConditionalValue::Scaled { expr } => {
+                                // Apply scale transformation
+                                if let Some(scale) = scales.get(&scale_key) {
+                                    // Convert SerializableExpr to Expr first
+                                    expr.to_expr(ctx).and_then(|e| scale.to_expr(e))
+                                } else {
+                                    // No scale found, return expression as-is - convert to Expr
+                                    expr.to_expr(ctx)
+                                }
+                            }
+                            ConditionalValue::Value { expr } => {
+                                // Pass through literal values unchanged - convert to Expr
+                                let expr_df = expr.to_expr(ctx)?;
+                                if needs_color_conversion {
+                                    Ok(convert_color_literal(&expr_df))
+                                } else {
+                                    Ok(expr_df)
+                                }
                             }
                         }
-                        ConditionalValue::Value { expr } => {
-                            // Pass through literal values unchanged - convert to Expr
-                            let expr_df = expr.to_expr(ctx)?;
-                            if needs_color_conversion {
-                                Ok(convert_color_literal(&expr_df))
-                            } else {
-                                Ok(expr_df)
-                            }
-                        }
-                    }
-                };
+                    };
 
                 // Start with the first condition
                 let first_cond = &conditions[0];
@@ -459,9 +456,7 @@ impl CompiledPlot {
             if batch.is_empty() {
                 // Return empty batch WITH SCHEMA for facets (enables key extraction)
                 let arrow_schema = std::sync::Arc::new(df.schema().as_arrow().clone());
-                Some(RecordBatch::new_empty(
-                    arrow_schema,
-                ))
+                Some(RecordBatch::new_empty(arrow_schema))
             } else {
                 let schema = batch[0].schema();
                 Some(concat_batches(&schema, &batch)?)
@@ -608,14 +603,10 @@ impl CompiledPlot {
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 if let Some(y_scale) = configured_scales.get("y") {
                     let domain = y_scale.domain();
-                    if let Some(float_arr) =
-                        domain.as_any().downcast_ref::<Float32Array>()
-                    {
+                    if let Some(float_arr) = domain.as_any().downcast_ref::<Float32Array>() {
                         let vals: Vec<f32> = float_arr.iter().filter_map(|v| v).collect();
                         eprintln!("create_guide_marks: y scale domain = {:?}", vals);
-                    } else if let Some(float_arr) =
-                        domain.as_any().downcast_ref::<Float64Array>()
-                    {
+                    } else if let Some(float_arr) = domain.as_any().downcast_ref::<Float64Array>() {
                         let vals: Vec<f64> = float_arr.iter().filter_map(|v| v).collect();
                         eprintln!("create_guide_marks: y scale domain = {:?}", vals);
                     } else {
@@ -870,9 +861,7 @@ impl CompiledPlot {
     /// Returns (width, height, is_plot_area_mode) where:
     /// - Plot area mode (`is_plot_area_mode=true`): canvas Auto + plot_area Fixed
     /// - Canvas mode (`is_plot_area_mode=false`): canvas specified, compute plot area later
-    fn resolve_dimensions_from_spec(
-        layout_spec: &EvaluatedLayoutSpec,
-    ) -> (f32, f32, bool) {
+    fn resolve_dimensions_from_spec(layout_spec: &EvaluatedLayoutSpec) -> (f32, f32, bool) {
         const DEFAULT_WIDTH: f32 = 400.0;
         const DEFAULT_HEIGHT: f32 = 300.0;
 
@@ -954,8 +943,7 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
-    ) -> Result<(f32, f32, (f32, f32), LayoutSolution), AvengerChartError>
-    {
+    ) -> Result<(f32, f32, (f32, f32), LayoutSolution), AvengerChartError> {
         if is_plot_area_mode {
             // Plot area mode: dimensions specify the plot area size
             let plot_area_width = width;
@@ -977,7 +965,12 @@ impl CompiledPlot {
                 )
                 .await?;
 
-            Ok((plot_area_width, plot_area_height, layout.canvas_size, layout))
+            Ok((
+                plot_area_width,
+                plot_area_height,
+                layout.canvas_size,
+                layout,
+            ))
         } else {
             // Canvas mode: dimensions are canvas size, compute layout to determine plot area
             let initial_plot_width = width * Self::INITIAL_PLOT_AREA_RATIO;
@@ -1214,8 +1207,7 @@ impl CompiledPlot {
         let mark_eval_ctx = eval_ctx.with_params(merged_params.clone());
 
         // Render marks using pre-computed measurements from measurement
-        let coord_measurement_ref: &dyn CoordMeasurement =
-            measurement.coord_measurement.as_ref();
+        let coord_measurement_ref: &dyn CoordMeasurement = measurement.coord_measurement.as_ref();
 
         let mut data_marks = Vec::new();
         for mark in &self.marks {
@@ -1582,9 +1574,13 @@ impl CompiledPlot {
         let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
 
         // Evaluate layout spec to get concrete dimensions
-        let evaluated_layout_spec =
-            evaluate_layout_spec(&self.layout_spec, ctx, &merged_params, self.get_theme().as_ref())
-                .await?;
+        let evaluated_layout_spec = evaluate_layout_spec(
+            &self.layout_spec,
+            ctx,
+            &merged_params,
+            self.get_theme().as_ref(),
+        )
+        .await?;
 
         // Build scale provider
         let scale_builder = build_scale_builder_from_marks(
@@ -1673,15 +1669,11 @@ impl CompiledPlot {
                 zindex: Some(-100),
                 ..Default::default()
             };
-            all_marks.push(SceneMark::Rect(
-                background_rect,
-            ));
+            all_marks.push(SceneMark::Rect(background_rect));
         }
 
         // Add marks in proper z-order
-        all_marks.push(SceneMark::Group(
-            data_marks_group,
-        ));
+        all_marks.push(SceneMark::Group(data_marks_group));
         all_marks.extend(components.guide_marks);
         all_marks.extend(components.legend_marks);
         all_marks.extend(components.title_marks);
@@ -1699,9 +1691,7 @@ impl CompiledPlot {
 
         // Create scene graph
         let scene_graph = SceneGraph {
-            marks: vec![SceneMark::Group(
-                root_group,
-            )],
+            marks: vec![SceneMark::Group(root_group)],
             width: final_width,
             height: final_height,
             origin: [0.0, 0.0],

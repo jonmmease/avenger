@@ -1,12 +1,22 @@
 //! Empty guide implementation for coordinate systems without visual guides
-use crate::theme::Theme;
 
-use crate::error::AvengerChartError;
-use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
-use crate::layout::LayoutBounds;
-use avenger_scenegraph::marks::mark::SceneMark;
+use std::{any::Any, collections::HashMap, sync::Arc};
+
+use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::{
+    coords::CoordMeasurement,
+    error::AvengerChartError,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement},
+    layout::LayoutBounds,
+    marks::CompiledMark,
+    theme::Theme,
+};
 
 /// Empty guide for coordinate systems without visual guides
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -28,8 +38,8 @@ impl CoordinateGuide for NoGuide {
 
     fn set_compiled_marks(
         &mut self,
-        _compiled_marks: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
-        _session_context: &datafusion::prelude::SessionContext,
+        _compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        _session_context: &SessionContext,
     ) {
         // No-op for systems without axes
     }
@@ -48,33 +58,33 @@ impl CoordinateGuide for NoGuide {
 impl CompiledGuide for NoGuide {
     async fn measure_overflow(
         &self,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _scales: &HashMap<String, ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
         _theme: &Theme,
-        _params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        _data_override: Option<&datafusion::dataframe::DataFrame>,
-        _ctx: &datafusion::prelude::SessionContext,
-        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_path: &[datafusion::common::ScalarValue],
-        _coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        _params: &IndexMap<String, ScalarValue>,
+        _data_override: Option<&DataFrame>,
+        _ctx: &SessionContext,
+        _facet_tree: &EvaluatedFacetTree,
+        _facet_path: &[ScalarValue],
+        _coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
     }
 
     async fn evaluate(
         &self,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _scales: &HashMap<String, ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
         _plot_bounds: &LayoutBounds,
         _theme: &Theme,
-        _params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        _ctx: &datafusion::prelude::SessionContext,
-        _data_override: Option<&datafusion::dataframe::DataFrame>,
-        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_path: &[datafusion::common::ScalarValue],
-        _coord_measurement: &dyn crate::coords::CoordMeasurement,
+        _params: &IndexMap<String, ScalarValue>,
+        _ctx: &SessionContext,
+        _data_override: Option<&DataFrame>,
+        _facet_tree: &EvaluatedFacetTree,
+        _facet_path: &[ScalarValue],
+        _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }
@@ -83,13 +93,13 @@ impl CompiledGuide for NoGuide {
         &self,
         _plot_width: f32,
         _plot_height: f32,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> avenger_scenegraph::marks::group::Clip {
+        _scales: &HashMap<String, ConfiguredScale>,
+    ) -> Clip {
         // No clipping for zero-dimensional coordinate systems
-        avenger_scenegraph::marks::group::Clip::None
+        Clip::None
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }

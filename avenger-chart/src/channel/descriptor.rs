@@ -1,6 +1,6 @@
 //! Channel descriptor types for defining mark channels
 
-use datafusion::scalar::ScalarValue;
+use datafusion::common::ScalarValue;
 
 /// Default value for a channel
 #[derive(Debug, Clone)]

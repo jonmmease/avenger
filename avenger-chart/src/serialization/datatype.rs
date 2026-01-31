@@ -1,9 +1,9 @@
 //! Serializable wrapper for DataType
 
-use super::scalar::SerializableScalar;
-use datafusion::arrow::datatypes::DataType;
-use datafusion_common::ScalarValue;
+use datafusion::{arrow::datatypes::DataType, common::ScalarValue};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use super::scalar::SerializableScalar;
 
 /// Wrapper for DataType that implements Serialize/Deserialize
 /// using a null ScalarValue of the appropriate type
@@ -70,8 +70,9 @@ impl<'de> Deserialize<'de> for SerializableDataType {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use datafusion::arrow::datatypes::{Field, Fields};
+
+    use super::*;
 
     #[test]
     fn test_serializable_datatype_simple() {

@@ -9,7 +9,8 @@ use std::pin::Pin;
 
 /// Type alias for async measure overflow functions
 pub type AsyncMeasureOverflowFn = Box<
-    dyn Fn() -> Pin<Box<dyn Future<Output = Result<OverflowSpaceRequirement, AvengerChartError>> + Send>>
-        + Send
+    dyn Fn() -> Pin<
+            Box<dyn Future<Output = Result<OverflowSpaceRequirement, AvengerChartError>> + Send>,
+        > + Send
         + Sync,
 >;

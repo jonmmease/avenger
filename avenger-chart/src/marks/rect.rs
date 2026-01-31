@@ -1,8 +1,11 @@
-use crate::channel::{ColorChannelConfig, OpacityChannelConfig, StrokeWidthChannelConfig};
-use crate::coords::CoordinateSystem;
-use crate::marks::MarkState;
-use crate::{define_common_mark_channels, impl_mark_base};
 use datafusion_common::ScalarValue;
+
+use crate::{
+    channel::{ColorChannelConfig, OpacityChannelConfig, StrokeWidthChannelConfig},
+    coords::CoordinateSystem,
+    marks::MarkState,
+    {define_common_mark_channels, impl_mark_base},
+};
 
 pub struct Rect<C: CoordinateSystem> {
     pub(crate) state: MarkState,

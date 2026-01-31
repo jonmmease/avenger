@@ -1,10 +1,18 @@
-use super::LegendRenderer;
-use crate::maybe::{Maybe, MaybeOptionalExpr};
-use crate::serialization::SerializableNestedScalarMap;
+use std::sync::Arc;
+
+use datafusion::{common::ScalarValue, prelude::lit};
 use datafusion_proto::protobuf::LogicalExprNode;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
-use std::sync::Arc;
+
+use crate::{
+    maybe::{Maybe, MaybeOptionalExpr},
+    plot::IntoExpr,
+    serialization::{LogicalExprNodeExt, SerializableNestedScalarMap},
+};
+
+use super::LegendRenderer;
 
 /// Legend configuration for visualizations
 #[serde_as]
@@ -52,9 +60,7 @@ pub struct Legend {
     pub label_color: Maybe<Option<LogicalExprNode>>,
     /// Theme mark defaults (for legend symbol rendering)
     #[serde_as(as = "Option<FromInto<SerializableNestedScalarMap>>")]
-    pub theme_mark_defaults: Option<
-        indexmap::IndexMap<String, indexmap::IndexMap<String, datafusion_common::ScalarValue>>,
-    >,
+    pub theme_mark_defaults: Option<IndexMap<String, IndexMap<String, ScalarValue>>>,
     /// Typography from theme
     #[serde_as(as = "MaybeOptionalExpr")]
     pub title_font_family: Maybe<Option<LogicalExprNode>>,
@@ -135,9 +141,6 @@ pub enum LegendOrientation {
 
 impl Legend {
     pub fn new() -> Self {
-        use crate::serialization::LogicalExprNodeExt;
-        use datafusion::prelude::lit;
-
         Self {
             visible: Maybe::Set(Some(
                 LogicalExprNode::from_expr(lit(true)).expect("Failed to serialize visible expr"),
@@ -273,8 +276,7 @@ impl Legend {
         self
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         let expr = visible.into_expr();
         self.visible = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize visible expr"),
@@ -282,8 +284,7 @@ impl Legend {
         self
     }
 
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         let expr = title.into_expr();
         self.title = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
@@ -291,8 +292,7 @@ impl Legend {
         self
     }
 
-    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn position(mut self, position: impl IntoExpr) -> Self {
         let expr = position.into_expr();
         self.position = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize position expr"),
@@ -300,8 +300,7 @@ impl Legend {
         self
     }
 
-    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn orientation(mut self, orientation: impl IntoExpr) -> Self {
         let expr = orientation.into_expr();
         self.orientation = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize orientation expr"),
@@ -309,8 +308,7 @@ impl Legend {
         self
     }
 
-    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn symbol_size(mut self, size: impl IntoExpr) -> Self {
         let expr = size.into_expr();
         self.symbol_size = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize symbol_size expr"),
@@ -318,8 +316,7 @@ impl Legend {
         self
     }
 
-    pub fn gradient_thickness(mut self, thickness: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn gradient_thickness(mut self, thickness: impl IntoExpr) -> Self {
         let expr = thickness.into_expr();
         self.gradient_thickness = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize gradient_thickness expr"),
@@ -327,8 +324,7 @@ impl Legend {
         self
     }
 
-    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn columns(mut self, columns: impl IntoExpr) -> Self {
         let expr = columns.into_expr();
         self.columns = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize columns expr"),
@@ -336,8 +332,7 @@ impl Legend {
         self
     }
 
-    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn label_limit(mut self, limit: impl IntoExpr) -> Self {
         let expr = limit.into_expr();
         self.label_limit = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize label_limit expr"),
@@ -346,8 +341,7 @@ impl Legend {
     }
 
     /// Set a numeric formatting string for legend labels.
-    pub fn format_number(mut self, pattern: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn format_number(mut self, pattern: impl IntoExpr) -> Self {
         let expr = pattern.into_expr();
         self.format_number = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize format_number expr"),
@@ -355,8 +349,7 @@ impl Legend {
         self
     }
 
-    pub fn background_fill(mut self, color: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn background_fill(mut self, color: impl IntoExpr) -> Self {
         let expr = color.into_expr();
         self.background_fill = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize background_fill expr"),
@@ -364,8 +357,7 @@ impl Legend {
         self
     }
 
-    pub fn background_stroke(mut self, color: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn background_stroke(mut self, color: impl IntoExpr) -> Self {
         let expr = color.into_expr();
         self.background_stroke = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize background_stroke expr"),
@@ -373,8 +365,7 @@ impl Legend {
         self
     }
 
-    pub fn background_stroke_width(mut self, width: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn background_stroke_width(mut self, width: impl IntoExpr) -> Self {
         let expr = width.into_expr();
         self.background_stroke_width = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr)
@@ -383,8 +374,7 @@ impl Legend {
         self
     }
 
-    pub fn background_corner_radius(mut self, r: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn background_corner_radius(mut self, r: impl IntoExpr) -> Self {
         let expr = r.into_expr();
         self.background_corner_radius = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr)
@@ -393,8 +383,7 @@ impl Legend {
         self
     }
 
-    pub fn background_padding(mut self, pad: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn background_padding(mut self, pad: impl IntoExpr) -> Self {
         let expr = pad.into_expr();
         self.background_padding = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize background_padding expr"),
@@ -402,8 +391,7 @@ impl Legend {
         self
     }
 
-    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn order(mut self, order: impl IntoExpr) -> Self {
         let expr = order.into_expr();
         self.order = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize order expr"),
@@ -417,8 +405,7 @@ impl Legend {
     }
 
     /// Set title color
-    pub fn title_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn title_color(mut self, color: impl IntoExpr) -> Self {
         let expr = color.into_expr();
         self.title_color = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title_color expr"),
@@ -427,8 +414,7 @@ impl Legend {
     }
 
     /// Set label color
-    pub fn label_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn label_color(mut self, color: impl IntoExpr) -> Self {
         let expr = color.into_expr();
         self.label_color = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize label_color expr"),
@@ -437,8 +423,7 @@ impl Legend {
     }
 
     /// Set tick color
-    pub fn tick_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn tick_color(mut self, color: impl IntoExpr) -> Self {
         let expr = color.into_expr();
         self.tick_color = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_color expr"),
@@ -447,8 +432,7 @@ impl Legend {
     }
 
     /// Set title font family
-    pub fn title_font_family(mut self, family: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn title_font_family(mut self, family: impl IntoExpr) -> Self {
         let expr = family.into_expr();
         self.title_font_family = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title_font_family expr"),
@@ -457,8 +441,7 @@ impl Legend {
     }
 
     /// Set title font size
-    pub fn title_font_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn title_font_size(mut self, size: impl IntoExpr) -> Self {
         let expr = size.into_expr();
         self.title_font_size = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title_font_size expr"),
@@ -467,8 +450,7 @@ impl Legend {
     }
 
     /// Set title font weight
-    pub fn title_font_weight(mut self, weight: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn title_font_weight(mut self, weight: impl IntoExpr) -> Self {
         let expr = weight.into_expr();
         self.title_font_weight = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title_font_weight expr"),
@@ -477,8 +459,7 @@ impl Legend {
     }
 
     /// Set label font family
-    pub fn label_font_family(mut self, family: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn label_font_family(mut self, family: impl IntoExpr) -> Self {
         let expr = family.into_expr();
         self.label_font_family = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize label_font_family expr"),
@@ -487,8 +468,7 @@ impl Legend {
     }
 
     /// Set label font size
-    pub fn label_font_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn label_font_size(mut self, size: impl IntoExpr) -> Self {
         let expr = size.into_expr();
         self.label_font_size = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize label_font_size expr"),
@@ -497,8 +477,7 @@ impl Legend {
     }
 
     /// Set label font weight
-    pub fn label_font_weight(mut self, weight: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn label_font_weight(mut self, weight: impl IntoExpr) -> Self {
         let expr = weight.into_expr();
         self.label_font_weight = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize label_font_weight expr"),
@@ -507,8 +486,7 @@ impl Legend {
     }
 
     /// Set tick font family
-    pub fn tick_font_family(mut self, family: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn tick_font_family(mut self, family: impl IntoExpr) -> Self {
         let expr = family.into_expr();
         self.tick_font_family = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_font_family expr"),
@@ -517,8 +495,7 @@ impl Legend {
     }
 
     /// Set tick font size
-    pub fn tick_font_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn tick_font_size(mut self, size: impl IntoExpr) -> Self {
         let expr = size.into_expr();
         self.tick_font_size = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_font_size expr"),
@@ -527,8 +504,7 @@ impl Legend {
     }
 
     /// Set tick font weight
-    pub fn tick_font_weight(mut self, weight: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn tick_font_weight(mut self, weight: impl IntoExpr) -> Self {
         let expr = weight.into_expr();
         self.tick_font_weight = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_font_weight expr"),

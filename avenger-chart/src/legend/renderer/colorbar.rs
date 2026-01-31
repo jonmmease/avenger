@@ -1,17 +1,28 @@
 //! Colorbar legend renderer for continuous color scales
 
-use super::{LegendChannel, LegendRenderer};
-use crate::error::AvengerChartError;
-use crate::legend::Legend;
-use crate::plot::compiled::expr_eval::{
-    evaluate_f32_expr, evaluate_f64_expr, evaluate_legend_position_expr, evaluate_string_expr,
-};
-use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
-use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_geometry::rtree::EnvelopeUtils;
-use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation};
+use avenger_common::types::ColorOrGradient;
+use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
+use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation, make_colorbar_marks};
+use avenger_scales::scales::{DomainKind, RangeKind};
 use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_text::types::FontWeight;
+use datafusion::{common::ScalarValue, prelude::SessionContext};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    error::AvengerChartError,
+    legend::{Legend, LegendPosition},
+    plot::compiled::expr_eval::{
+        evaluate_f32_expr, evaluate_f64_expr, evaluate_legend_position_expr, evaluate_string_expr,
+    },
+    scales::{ConfiguredScaleLegendExt, DomainValues},
+    serialization::LogicalExprNodeExt,
+    theme::Theme,
+    utils::{parse_color_string, parse_color_string_strict},
+};
+
+use super::{LegendChannel, LegendRenderer};
 
 /// Colorbar legend renderer for continuous color scales
 #[derive(Default, Serialize, Deserialize)]
@@ -38,8 +49,6 @@ impl LegendRenderer for CompiledColorbar {
     }
 
     fn can_evaluate(&self, channels: &[LegendChannel]) -> bool {
-        use avenger_scales::scales::{DomainKind, RangeKind};
-
         // Colorbar is for continuous color scales with numeric/temporal domains
         channels.iter().all(|c| {
             (c.channel_type == "fill" || c.channel_type == "stroke")
@@ -59,12 +68,10 @@ impl LegendRenderer for CompiledColorbar {
         y: f32,
         width: f32,
         height: f32,
-        theme: &crate::theme::Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
-        use avenger_guides::legend::colorbar::make_colorbar_marks;
-
         if channels.is_empty() {
             return Ok(None);
         }
@@ -91,8 +98,6 @@ impl LegendRenderer for CompiledColorbar {
         }
 
         // Evaluate gradient_thickness expression (from expression, theme, or default)
-        use crate::serialization::LogicalExprNodeExt;
-
         let gradient_thickness = if let Some(node) = config
             .gradient_thickness
             .as_option()
@@ -120,26 +125,26 @@ impl LegendRenderer for CompiledColorbar {
             if let Some(theme_value) = theme.query(&legend_ctx, "position") {
                 if let Some(position_str) = theme_value.as_string() {
                     match position_str.to_lowercase().as_str() {
-                        "top" => crate::legend::LegendPosition::Top,
-                        "bottom" => crate::legend::LegendPosition::Bottom,
-                        "left" => crate::legend::LegendPosition::Left,
-                        "right" => crate::legend::LegendPosition::Right,
-                        _ => crate::legend::LegendPosition::Right,
+                        "top" => LegendPosition::Top,
+                        "bottom" => LegendPosition::Bottom,
+                        "left" => LegendPosition::Left,
+                        "right" => LegendPosition::Right,
+                        _ => LegendPosition::Right,
                     }
                 } else {
-                    crate::legend::LegendPosition::Right
+                    LegendPosition::Right
                 }
             } else {
-                crate::legend::LegendPosition::Right // default
+                LegendPosition::Right // default
             }
         };
 
         // Map position to ColorbarOrientation
         let orientation = match position {
-            crate::legend::LegendPosition::Top => ColorbarOrientation::Top,
-            crate::legend::LegendPosition::Bottom => ColorbarOrientation::Bottom,
-            crate::legend::LegendPosition::Left => ColorbarOrientation::Left,
-            crate::legend::LegendPosition::Right => ColorbarOrientation::Right,
+            LegendPosition::Top => ColorbarOrientation::Top,
+            LegendPosition::Bottom => ColorbarOrientation::Bottom,
+            LegendPosition::Left => ColorbarOrientation::Left,
+            LegendPosition::Right => ColorbarOrientation::Right,
         };
 
         // Determine colorbar dimensions based on orientation
@@ -202,9 +207,7 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let title_color_str = evaluate_string_expr(&expr, ctx, params).await?;
-            if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
-                crate::utils::parse_color_string_strict(&title_color_str)
-            {
+            if let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(&title_color_str) {
                 legend_config.title_color = Some(c);
             }
         } else {
@@ -212,9 +215,7 @@ impl LegendRenderer for CompiledColorbar {
             let title_ctx = legend_ctx.child("title");
             if let Some(color_value) = theme.query(&title_ctx, "color") {
                 if let Some(color_str) = color_value.as_string() {
-                    if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
-                        crate::utils::parse_color_string_strict(&color_str)
-                    {
+                    if let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(&color_str) {
                         legend_config.title_color = Some(c);
                     }
                 }
@@ -225,9 +226,7 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(node) = config.tick_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let tick_color_str = evaluate_string_expr(&expr, ctx, params).await?;
-            if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
-                crate::utils::parse_color_string_strict(&tick_color_str)
-            {
+            if let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(&tick_color_str) {
                 legend_config.label_color = Some(c);
             }
         } else {
@@ -235,9 +234,7 @@ impl LegendRenderer for CompiledColorbar {
             let tick_ctx = legend_ctx.child("tick");
             if let Some(color_value) = theme.query(&tick_ctx, "color") {
                 if let Some(color_str) = color_value.as_string() {
-                    if let Ok(avenger_common::types::ColorOrGradient::Color(c)) =
-                        crate::utils::parse_color_string_strict(&color_str)
-                    {
+                    if let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(&color_str) {
                         legend_config.label_color = Some(c);
                     }
                 }
@@ -289,13 +286,12 @@ impl LegendRenderer for CompiledColorbar {
         {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.title_font_weight = Some(FontWeight::Number(weight));
         } else {
             // Check theme for title font weight
             let title_ctx = legend_ctx.child("title");
             if let Some(weight) = theme.font_weight(&title_ctx) {
-                legend_config.title_font_weight =
-                    Some(avenger_text::types::FontWeight::Number(weight));
+                legend_config.title_font_weight = Some(FontWeight::Number(weight));
             }
         }
 
@@ -318,13 +314,12 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(node) = config.tick_font_weight.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.label_font_weight = Some(FontWeight::Number(weight));
         } else {
             // Check theme for tick font weight
             let tick_ctx = legend_ctx.child("tick");
             if let Some(weight) = theme.font_weight(&tick_ctx) {
-                legend_config.label_font_weight =
-                    Some(avenger_text::types::FontWeight::Number(weight));
+                legend_config.label_font_weight = Some(FontWeight::Number(weight));
             }
         }
 
@@ -372,7 +367,7 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
-            if let Some(color) = crate::utils::parse_color_string(&fill_str) {
+            if let Some(color) = parse_color_string(&fill_str) {
                 legend_config.background_fill = Some(color);
             }
         } else {
@@ -380,7 +375,7 @@ impl LegendRenderer for CompiledColorbar {
             let background_ctx = legend_ctx.child("background");
             if let Some(fill_value) = theme.query(&background_ctx, "fill") {
                 if let Some(fill_str) = fill_value.as_string() {
-                    if let Some(color) = crate::utils::parse_color_string(&fill_str) {
+                    if let Some(color) = parse_color_string(&fill_str) {
                         legend_config.background_fill = Some(color);
                     }
                 }
@@ -395,7 +390,7 @@ impl LegendRenderer for CompiledColorbar {
         {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
-            if let Some(color) = crate::utils::parse_color_string(&stroke_str) {
+            if let Some(color) = parse_color_string(&stroke_str) {
                 legend_config.background_stroke = Some(color);
             }
         } else {
@@ -403,7 +398,7 @@ impl LegendRenderer for CompiledColorbar {
             let background_ctx = legend_ctx.child("background");
             if let Some(stroke_value) = theme.query(&background_ctx, "stroke") {
                 if let Some(stroke_str) = stroke_value.as_string() {
-                    if let Some(color) = crate::utils::parse_color_string(&stroke_str) {
+                    if let Some(color) = parse_color_string(&stroke_str) {
                         legend_config.background_stroke = Some(color);
                     }
                 }

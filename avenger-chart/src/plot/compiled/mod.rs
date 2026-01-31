@@ -8,23 +8,41 @@ pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_fr
 mod titles;
 mod validation;
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
+use avenger_scales::scales::{RangeKind, ScaleImpl};
+use datafusion::{
+    arrow::datatypes::DataType as ArrowDataType,
+    common::ScalarValue,
+    dataframe::DataFrame,
+    logical_expr::{Expr, lit},
+    prelude::SessionContext,
+};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
-use super::specs::{AxisSpec, ScaleSpec};
-use super::title::{PlotSubtitle, PlotTitle};
-use crate::coords::CoordinateSystemTransform;
-use crate::guide::CompiledGuide;
-use crate::layout::LayoutSpec;
-use crate::legend::Legend;
-use crate::marks::CompiledMark;
-use crate::serialization::SerializableDataFrame;
-use crate::theme::Theme;
+use crate::{
+    channel::{resolution::resolve_all_channel_refs, value::strip_trailing_numbers},
+    coords::CoordinateSystemTransform,
+    error::AvengerChartError,
+    guide::CompiledGuide,
+    layout::LayoutSpec,
+    legend::Legend,
+    marks::CompiledMark,
+    scales::{
+        ConfiguredScaleWithSpec, Scale, ScaleBuilder, ScaleSpec as ScaleSpecTrait,
+        default_range_for_channel, spec::Auto,
+    },
+    serialization::SerializableDataFrame,
+    theme::Theme,
+};
+
+use super::{
+    specs::{AxisSpec, ScaleSpec},
+    title::{PlotSubtitle, PlotTitle},
+};
 
 #[serde_as]
 #[derive(Serialize, Deserialize)]
@@ -71,7 +89,7 @@ pub struct CompiledPlot {
 
     /// Default parameter values for prepared statements
     #[serde_as(as = "FromInto<crate::serialization::SerializableScalarMap>")]
-    pub(crate) default_params: IndexMap<String, datafusion::common::ScalarValue>,
+    pub(crate) default_params: IndexMap<String, ScalarValue>,
 }
 
 impl CompiledPlot {
@@ -98,7 +116,7 @@ impl CompiledPlot {
     }
 
     /// Get default parameter values
-    pub fn get_default_params(&self) -> &IndexMap<String, datafusion::common::ScalarValue> {
+    pub fn get_default_params(&self) -> &IndexMap<String, ScalarValue> {
         &self.default_params
     }
 
@@ -124,19 +142,15 @@ impl CompiledPlot {
     /// ```
     pub async fn build_scales_from_builder(
         &self,
-        builder: &crate::scales::ScaleBuilder,
+        builder: &ScaleBuilder,
         plot_area_width: f32,
         plot_area_height: f32,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<
-        std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-        crate::error::AvengerChartError,
-    > {
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         // Build coordinate system ranges map
-        let mut coord_system_ranges = std::collections::HashMap::new();
+        let mut coord_system_ranges = HashMap::new();
         for channel in builder.channel_builders().keys() {
-            use crate::channel::value::strip_trailing_numbers;
             let base = strip_trailing_numbers(channel);
             if let Some((min, max)) = self.coord_transform.default_range(
                 base,
@@ -177,21 +191,12 @@ impl CompiledPlot {
     /// Build configured scales for a provided DataFrame and plot-area dimensions.
     pub async fn build_scales_for_dataframe(
         &self,
-        df: &datafusion::dataframe::DataFrame,
+        df: &DataFrame,
         plot_area_width: f32,
         plot_area_height: f32,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<
-        std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
-        crate::error::AvengerChartError,
-    > {
-        use crate::channel::resolution::resolve_all_channel_refs;
-        use crate::scales::ConfiguredScaleWithSpec;
-        use crate::scales::{Scale, spec::Auto};
-        use avenger_scales::scales::ScaleImpl;
-        use datafusion::logical_expr::{Expr, lit};
-
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         // Collect channels that need scales
         let mut channels_with_scales = self.collect_channels_needing_scales(ctx);
         // Also include any explicit plot-level scales
@@ -203,14 +208,13 @@ impl CompiledPlot {
         let mut sorted_channels: Vec<String> = channels_with_scales.into_iter().collect();
         sorted_channels.sort();
 
-        let mut configured: std::collections::HashMap<String, ConfiguredScaleWithSpec> =
-            std::collections::HashMap::new();
+        let mut configured: HashMap<String, ConfiguredScaleWithSpec> = HashMap::new();
 
         // Build each scale using provided DataFrame for type inference and domain collection
         for channel in sorted_channels.iter() {
             // Find first mark that uses this channel and get its expr and preferred scale type
-            let mut chosen_spec: Option<Box<dyn crate::scales::ScaleSpec>> = None;
-            let mut data_type: Option<datafusion::arrow::datatypes::DataType> = None;
+            let mut chosen_spec: Option<Box<dyn ScaleSpecTrait>> = None;
+            let mut data_type: Option<ArrowDataType> = None;
             let mut expr_opt: Option<Expr> = None;
 
             for mark in &self.marks {
@@ -223,7 +227,7 @@ impl CompiledPlot {
                     if let Some(expr) = channel_value.scale_input_expr(ctx) {
                         // Try to infer type directly from schema for simple column refs
                         let inferred_dt = match &expr {
-                            datafusion::logical_expr::Expr::Column(col) => {
+                            Expr::Column(col) => {
                                 let name = col.name.clone();
                                 df.schema()
                                     .field_with_unqualified_name(&name)
@@ -253,7 +257,7 @@ impl CompiledPlot {
             }
 
             let scale_spec = chosen_spec.ok_or_else(|| {
-                crate::error::AvengerChartError::InternalError(format!(
+                AvengerChartError::InternalError(format!(
                     "Failed to infer scale specification for channel '{}' (no matching mark expr)",
                     channel
                 ))
@@ -264,13 +268,12 @@ impl CompiledPlot {
             // Apply coord and mark default options
             if let Some(dt) = &data_type {
                 // Get an impl for option discovery
-                let scale_impl: std::sync::Arc<dyn ScaleImpl> =
-                    scale.get_scale_impl().ok_or_else(|| {
-                        crate::error::AvengerChartError::InternalError(format!(
-                            "Failed to create scale impl for '{}'",
-                            channel
-                        ))
-                    })?;
+                let scale_impl: Arc<dyn ScaleImpl> = scale.get_scale_impl().ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to create scale impl for '{}'",
+                        channel
+                    ))
+                })?;
 
                 // Coordinate defaults
                 let coord_opts = self
@@ -303,7 +306,7 @@ impl CompiledPlot {
 
             // Domain: use provided df + expr
             if let Some(expr) = expr_opt.clone() {
-                scale = scale.domain_data_fields(vec![(std::sync::Arc::new(df.clone()), expr)]);
+                scale = scale.domain_data_fields(vec![(Arc::new(df.clone()), expr)]);
             }
 
             // Infer domain and normalize
@@ -319,9 +322,9 @@ impl CompiledPlot {
                 let range_kind = scale
                     .get_scale_impl()
                     .map(|impl_arc| impl_arc.range_kind())
-                    .unwrap_or(avenger_scales::scales::RangeKind::Continuous);
+                    .unwrap_or(RangeKind::Continuous);
 
-                let range = crate::scales::default_range_for_channel(channel, range_kind);
+                let range = default_range_for_channel(channel, range_kind);
                 scale = scale.range(range);
             }
 
@@ -332,7 +335,6 @@ impl CompiledPlot {
                 .await?;
             // Use base scale name (strip trailing numbers like y2 -> y) as key
             // to match lookup semantics during rendering
-            use crate::channel::value::strip_trailing_numbers;
             let scale_key = strip_trailing_numbers(channel).to_string();
             configured.insert(
                 scale_key,

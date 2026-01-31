@@ -10,7 +10,7 @@
 //! - Adjacent overflow calculation (bottom+top vs right+left)
 //! - FacetDirection enum value
 
-use crate::guide::{FacetDirection, OverflowSpaceRequirement};
+use crate::guide::{FacetDirection, OverflowSpaceRequirement, spacing_keys};
 
 /// Configuration trait that abstracts row vs column faceting behavior
 pub trait FacetDimensionConfig: Clone + Send + Sync + 'static {
@@ -268,7 +268,7 @@ impl FacetDimensionConfig for RowDimensionConfig {
     }
 
     fn inter_gap_spacing_key() -> &'static str {
-        crate::guide::spacing_keys::INTER_ROW_GAP
+        spacing_keys::INTER_ROW_GAP
     }
 }
 
@@ -394,6 +394,6 @@ impl FacetDimensionConfig for ColumnDimensionConfig {
     }
 
     fn inter_gap_spacing_key() -> &'static str {
-        crate::guide::spacing_keys::INTER_COL_GAP
+        spacing_keys::INTER_COL_GAP
     }
 }

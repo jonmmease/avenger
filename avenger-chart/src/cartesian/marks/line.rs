@@ -1,27 +1,45 @@
-use crate::cartesian::Cartesian;
-use crate::define_position_channels;
-use crate::impl_mark_trait_common;
-use crate::marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression};
+use std::sync::Arc;
+
 use arrow::array::{AsArray, RecordBatch};
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_common::{types::ColorOrGradient, value::ScalarOrArrayValue};
+use avenger_scales::scales::coerce::Coercer;
+use avenger_scenegraph::marks::{line::SceneLineMark, mark::SceneMark};
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
-// Import Line for the macro, then re-export it
-use crate::channel::ChannelDescriptor;
-use crate::coords::CoordinateSystemTransform;
-use crate::error::AvengerChartError;
-pub use crate::marks::line::{Line, ensure_dictionary_array};
-use crate::render::RenderContext;
+use datafusion_proto::protobuf::LogicalExprNode;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    cartesian::{Cartesian, channels::CartesianPositionConfig},
+    channel::ChannelDescriptor,
+    coords::{CoordinateSystemTransform, PointGeometry},
+    define_position_channels,
+    error::AvengerChartError,
+    impl_mark_trait_common,
+    legend::{CompiledColorbar, CompiledLineLegend, LegendRenderer},
+    marks::{
+        CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression,
+        line::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults},
+        util::{
+            coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
+            coerce_numeric_channel_with_renderer, is_continuous_scale,
+        },
+    },
+    render::RenderContext,
+    serialization::LogicalExprNodeExt,
+};
+
+pub use crate::marks::line::ensure_dictionary_array as ensure_dictionary_array_fn;
 
 // Define position channels for Cartesian Line using the macro
 define_position_channels! {
     Line<Cartesian> {
         x: {
-            with_config: crate::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         },
         y: {
-            with_config: crate::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         }
     }
 }
@@ -35,8 +53,8 @@ impl Mark<Cartesian> for Line<Cartesian> {
         &self,
         compiled_state: CompiledMarkState,
         _session_context: &datafusion::prelude::SessionContext,
-    ) -> Result<std::sync::Arc<dyn CompiledMark>, AvengerChartError> {
-        Ok(std::sync::Arc::new(CompiledCartesianLine {
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(Arc::new(CompiledCartesianLine {
             state: compiled_state,
         }))
     }
@@ -145,14 +163,6 @@ impl CompiledMark for CompiledCartesianLine {
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::marks::util::{
-            coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
-            coerce_numeric_channel_with_renderer,
-        };
-        use avenger_common::value::ScalarOrArrayValue;
-        use avenger_scales::scales::coerce::Coercer;
-        use avenger_scenegraph::marks::line::SceneLineMark;
-
         // For lines, we need array data for positions
         let data = data.ok_or_else(|| {
             AvengerChartError::InternalError(
@@ -186,7 +196,7 @@ impl CompiledMark for CompiledCartesianLine {
         )?;
         let geometry = geometry
             .as_any()
-            .downcast_ref::<crate::coords::PointGeometry>()
+            .downcast_ref::<PointGeometry>()
             .ok_or_else(|| {
                 AvengerChartError::CoordinateSystemError(
                     "Failed to downcast to PointGeometry".to_string(),
@@ -300,9 +310,6 @@ impl CompiledMark for CompiledCartesianLine {
         }
 
         // Complex case: need to partition based on varying style properties
-        use crate::marks::line::ensure_dictionary_array;
-        use indexmap::IndexMap;
-
         // Convert to dictionary arrays for efficient partitioning
         let stroke_dict = if has_varying_stroke {
             Some(ensure_dictionary_array(stroke_array.unwrap())?)
@@ -339,12 +346,7 @@ impl CompiledMark for CompiledCartesianLine {
         // Coerce unique dictionary values only once
         let stroke_values = if let Some((dict, _)) = &stroke_keys {
             let values = dict.values();
-            Some(coercer.to_color(
-                values,
-                Some(avenger_common::types::ColorOrGradient::Color([
-                    0.0, 0.0, 0.0, 1.0,
-                ])),
-            )?)
+            Some(coercer.to_color(values, Some(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])))?)
         } else {
             None
         };
@@ -368,15 +370,13 @@ impl CompiledMark for CompiledCartesianLine {
             coercer
                 .to_color(
                     stroke_scalar,
-                    Some(avenger_common::types::ColorOrGradient::Color([
-                        0.0, 0.0, 0.0, 1.0,
-                    ])),
+                    Some(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
                 )?
                 .first()
                 .unwrap()
                 .clone()
         } else {
-            avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])
+            ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])
         };
 
         let width_default = if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
@@ -404,11 +404,10 @@ impl CompiledMark for CompiledCartesianLine {
         };
 
         // Build partition map
-        let mut partition_groups: IndexMap<crate::marks::line::PartitionKey, Vec<usize>> =
-            IndexMap::new();
+        let mut partition_groups: IndexMap<PartitionKey, Vec<usize>> = IndexMap::new();
 
         for i in 0..len {
-            let key = crate::marks::line::PartitionKey {
+            let key = PartitionKey {
                 stroke: stroke_keys.as_ref().and_then(|(dict, keys)| {
                     if dict.is_null(i) { None } else { Some(keys[i]) }
                 }),
@@ -524,7 +523,7 @@ impl CompiledMark for CompiledCartesianLine {
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        crate::marks::line::line_channel_defaults(channel)
+        line_channel_defaults(channel)
     }
 
     fn radius_expression(
@@ -534,8 +533,6 @@ impl CompiledMark for CompiledCartesianLine {
     ) -> Option<RadiusExpression> {
         match dimension {
             "y" => {
-                use crate::serialization::LogicalExprNodeExt;
-                use datafusion_proto::protobuf::LogicalExprNode;
                 let stroke_width_expr = resolve_channel("stroke_width");
                 let radius_expr = stroke_width_expr * lit(2.0);
                 let radius_expr_node =
@@ -551,11 +548,7 @@ impl CompiledMark for CompiledCartesianLine {
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-        use crate::legend::{CompiledColorbar, CompiledLineLegend};
-        use crate::marks::util::is_continuous_scale;
-        use std::sync::Arc;
-
+    ) -> Option<Arc<dyn LegendRenderer>> {
         // Check if scale is continuous (for colorbar)
         let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 

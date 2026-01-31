@@ -3,19 +3,25 @@
 //! This module provides helper functions to evaluate DataFusion expressions with parameter
 //! support, converting them to specific Rust types (f32, String, bool, etc.)
 
-use datafusion::prelude::SessionContext;
+use datafusion::{
+    common::ScalarValue,
+    prelude::{Expr, SessionContext},
+};
 use indexmap::IndexMap;
 
-use crate::error::AvengerChartError;
+use crate::{
+    cartesian::axis::AxisPosition,
+    error::AvengerChartError,
+    legend::{LegendOrientation, LegendPosition},
+    utils::{ScalarValueHelpers, eval_to_scalars, params_to_datafusion},
+};
 
 /// Helper function to evaluate an expression to a concrete f32 value
 pub(crate) async fn evaluate_f32_expr(
-    expr: &datafusion::prelude::Expr,
+    expr: &Expr,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
+    params: &IndexMap<String, ScalarValue>,
 ) -> Result<f32, AvengerChartError> {
-    use crate::utils::{ScalarValueHelpers, eval_to_scalars, params_to_datafusion};
-
     // Use the existing eval_to_scalars utility which handles parameters via with_param_values()
     let scalars = eval_to_scalars(
         vec![expr.clone()],
@@ -39,12 +45,10 @@ pub(crate) async fn evaluate_f32_expr(
 
 /// Helper function to evaluate a string expression to a concrete String value
 pub(crate) async fn evaluate_string_expr(
-    expr: &datafusion::prelude::Expr,
+    expr: &Expr,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
+    params: &IndexMap<String, ScalarValue>,
 ) -> Result<String, AvengerChartError> {
-    use crate::utils::{ScalarValueHelpers, eval_to_scalars, params_to_datafusion};
-
     // Use the existing eval_to_scalars utility which handles parameters via with_param_values()
     let scalars = eval_to_scalars(
         vec![expr.clone()],
@@ -71,12 +75,10 @@ pub(crate) async fn evaluate_string_expr(
 
 /// Helper function to evaluate a boolean expression to a concrete bool value
 pub(crate) async fn evaluate_bool_expr(
-    expr: &datafusion::prelude::Expr,
+    expr: &Expr,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
+    params: &IndexMap<String, ScalarValue>,
 ) -> Result<bool, AvengerChartError> {
-    use crate::utils::{eval_to_scalars, params_to_datafusion};
-
     let scalars = eval_to_scalars(
         vec![expr.clone()],
         Some(ctx),
@@ -92,7 +94,7 @@ pub(crate) async fn evaluate_bool_expr(
     })?;
 
     match scalar {
-        datafusion::common::ScalarValue::Boolean(Some(b)) => Ok(*b),
+        ScalarValue::Boolean(Some(b)) => Ok(*b),
         _ => Err(AvengerChartError::InternalError(format!(
             "Cannot convert expression result to bool: {}",
             scalar
@@ -102,12 +104,10 @@ pub(crate) async fn evaluate_bool_expr(
 
 /// Helper function to evaluate an integer expression to a concrete i32 value
 pub(crate) async fn evaluate_i32_expr(
-    expr: &datafusion::prelude::Expr,
+    expr: &Expr,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
+    params: &IndexMap<String, ScalarValue>,
 ) -> Result<i32, AvengerChartError> {
-    use crate::utils::{eval_to_scalars, params_to_datafusion};
-
     let scalars = eval_to_scalars(
         vec![expr.clone()],
         Some(ctx),
@@ -123,10 +123,10 @@ pub(crate) async fn evaluate_i32_expr(
     })?;
 
     match scalar {
-        datafusion::common::ScalarValue::Int32(Some(i)) => Ok(*i),
-        datafusion::common::ScalarValue::Int64(Some(i)) => Ok(*i as i32),
-        datafusion::common::ScalarValue::UInt32(Some(u)) => Ok(*u as i32),
-        datafusion::common::ScalarValue::UInt64(Some(u)) => Ok(*u as i32),
+        ScalarValue::Int32(Some(i)) => Ok(*i),
+        ScalarValue::Int64(Some(i)) => Ok(*i as i32),
+        ScalarValue::UInt32(Some(u)) => Ok(*u as i32),
+        ScalarValue::UInt64(Some(u)) => Ok(*u as i32),
         _ => Err(AvengerChartError::InternalError(format!(
             "Cannot convert expression result to i32: {}",
             scalar
@@ -137,12 +137,10 @@ pub(crate) async fn evaluate_i32_expr(
 /// Helper function to evaluate a usize expression to a concrete usize value
 #[allow(dead_code)]
 pub(crate) async fn evaluate_usize_expr(
-    expr: &datafusion::prelude::Expr,
+    expr: &Expr,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
+    params: &IndexMap<String, ScalarValue>,
 ) -> Result<usize, AvengerChartError> {
-    use crate::utils::{eval_to_scalars, params_to_datafusion};
-
     let scalars = eval_to_scalars(
         vec![expr.clone()],
         Some(ctx),
@@ -158,10 +156,10 @@ pub(crate) async fn evaluate_usize_expr(
     })?;
 
     match scalar {
-        datafusion::common::ScalarValue::UInt64(Some(u)) => Ok(*u as usize),
-        datafusion::common::ScalarValue::UInt32(Some(u)) => Ok(*u as usize),
-        datafusion::common::ScalarValue::Int64(Some(i)) if *i >= 0 => Ok(*i as usize),
-        datafusion::common::ScalarValue::Int32(Some(i)) if *i >= 0 => Ok(*i as usize),
+        ScalarValue::UInt64(Some(u)) => Ok(*u as usize),
+        ScalarValue::UInt32(Some(u)) => Ok(*u as usize),
+        ScalarValue::Int64(Some(i)) if *i >= 0 => Ok(*i as usize),
+        ScalarValue::Int32(Some(i)) if *i >= 0 => Ok(*i as usize),
         _ => Err(AvengerChartError::InternalError(format!(
             "Cannot convert expression result to usize: {}",
             scalar
@@ -171,12 +169,10 @@ pub(crate) async fn evaluate_usize_expr(
 
 /// Helper function to evaluate a f64 expression to a concrete f64 value
 pub(crate) async fn evaluate_f64_expr(
-    expr: &datafusion::prelude::Expr,
+    expr: &Expr,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
+    params: &IndexMap<String, ScalarValue>,
 ) -> Result<f64, AvengerChartError> {
-    use crate::utils::{ScalarValueHelpers, eval_to_scalars, params_to_datafusion};
-
     let scalars = eval_to_scalars(
         vec![expr.clone()],
         Some(ctx),
@@ -205,12 +201,10 @@ pub(crate) async fn evaluate_f64_expr(
 
 /// Helper function to evaluate an AxisPosition expression (string-only)
 pub(crate) async fn evaluate_axis_position_expr(
-    expr: &datafusion::prelude::Expr,
+    expr: &Expr,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-) -> Result<crate::cartesian::axis::AxisPosition, AvengerChartError> {
-    use crate::cartesian::axis::AxisPosition;
-
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<AxisPosition, AvengerChartError> {
     let s = evaluate_string_expr(expr, ctx, params).await?;
 
     match s.to_lowercase().as_str() {
@@ -227,12 +221,10 @@ pub(crate) async fn evaluate_axis_position_expr(
 
 /// Helper function to evaluate a LegendPosition expression (string-only)
 pub(crate) async fn evaluate_legend_position_expr(
-    expr: &datafusion::prelude::Expr,
+    expr: &Expr,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-) -> Result<crate::legend::LegendPosition, AvengerChartError> {
-    use crate::legend::LegendPosition;
-
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<LegendPosition, AvengerChartError> {
     let s = evaluate_string_expr(expr, ctx, params).await?;
 
     match s.to_lowercase().as_str() {
@@ -250,12 +242,10 @@ pub(crate) async fn evaluate_legend_position_expr(
 /// Helper function to evaluate a LegendOrientation expression (string-only)
 #[allow(dead_code)]
 pub(crate) async fn evaluate_legend_orientation_expr(
-    expr: &datafusion::prelude::Expr,
+    expr: &Expr,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-) -> Result<crate::legend::LegendOrientation, AvengerChartError> {
-    use crate::legend::LegendOrientation;
-
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<LegendOrientation, AvengerChartError> {
     let s = evaluate_string_expr(expr, ctx, params).await?;
 
     match s.to_lowercase().as_str() {

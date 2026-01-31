@@ -1,9 +1,10 @@
 //! Serializable wrapper for IndexMap<String, ScalarValue>
 
-use super::SerializableScalar;
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+
+use super::SerializableScalar;
 
 /// Serializable wrapper for IndexMap<String, ScalarValue>
 /// Stores as Vec<(String, SerializableScalar)> for serialization

@@ -69,14 +69,17 @@
 //!
 //! For typical visualizations with < 20 channels, this is very efficient.
 
-use super::value::ChannelValue;
-use datafusion::logical_expr::Expr;
-use datafusion::prelude::SessionContext;
+use std::collections::{HashMap, HashSet, VecDeque};
+
+use datafusion::{common::tree_node::Transformed, logical_expr::Expr, prelude::SessionContext};
 use datafusion_common::tree_node::{TransformedResult, TreeNode};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
-use std::collections::{HashMap, HashSet, VecDeque};
 use strsim::levenshtein;
+
+use crate::serialization::LogicalExprNodeExt;
+
+use super::value::{ChannelValue, ConditionalValue};
 
 /// Error types for channel resolution
 #[derive(Debug, Clone)]
@@ -456,9 +459,6 @@ pub fn resolve_channel_refs(
     channels: &IndexMap<String, ChannelValue>,
     ctx: &SessionContext,
 ) -> LogicalExprNode {
-    use crate::serialization::LogicalExprNodeExt;
-    use datafusion::common::tree_node::Transformed;
-
     // Convert to Expr for transformation
     let expr_value = match expr.to_expr(ctx) {
         Ok(e) => e,
@@ -479,8 +479,8 @@ pub fn resolve_channel_refs(
                         if let ChannelValue::Conditional { otherwise, .. } = channel_value {
                             // Extract the expression from the 'otherwise' ConditionalValue
                             let otherwise_node = match otherwise {
-                                crate::channel::value::ConditionalValue::Scaled { expr } => expr,
-                                crate::channel::value::ConditionalValue::Value { expr } => expr,
+                                ConditionalValue::Scaled { expr } => expr,
+                                ConditionalValue::Value { expr } => expr,
                             };
                             // Convert LogicalExprNode to Expr using to_expr
                             if let Ok(otherwise_datafusion_expr) = otherwise_node.to_expr(ctx) {
@@ -564,8 +564,6 @@ pub fn resolve_all_channel_refs(
                     ..
                 } => {
                     // Resolve channel references in conditions and otherwise
-                    use crate::channel::ConditionalValue;
-
                     let resolved_conditions = conditions
                         .iter()
                         .map(|(test, value)| {
@@ -619,11 +617,9 @@ pub fn resolve_all_channel_refs(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::serialization::LogicalExprNodeExt;
     use datafusion::logical_expr::{col, lit};
-    use datafusion::prelude::SessionContext;
-    use datafusion_proto::protobuf::LogicalExprNode;
+
+    use super::*;
 
     #[test]
     fn test_simple_channel_reference() {

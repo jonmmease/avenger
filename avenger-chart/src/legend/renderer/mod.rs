@@ -10,13 +10,25 @@ pub use line::CompiledLineLegend;
 pub use rect::CompiledRectLegend;
 pub use symbol::CompiledSymbolLegend;
 
-use crate::error::AvengerChartError;
-use crate::legend::Legend;
+use std::{
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
+
+use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::SceneGroup;
-use datafusion::logical_expr::Expr;
-use datafusion_common::ScalarValue;
-use std::sync::Arc;
+use datafusion::{common::ScalarValue, logical_expr::Expr, prelude::SessionContext};
+use indexmap::IndexMap;
+use taffy::Size;
+
+use crate::{
+    error::AvengerChartError,
+    legend::Legend,
+    scales::{ConfiguredScaleLegendExt, DomainValues},
+    theme::Theme,
+};
 
 /// Trait for implementing custom legend renderers
 #[async_trait::async_trait]
@@ -41,16 +53,15 @@ pub trait LegendRenderer: Send + Sync + 'static {
         }
 
         // Check if this renderer can vary all the channel types
-        let channel_types: std::collections::HashSet<_> =
-            channels.iter().map(|c| c.channel_type.as_str()).collect();
+        let channel_types: HashSet<_> = channels.iter().map(|c| c.channel_type.as_str()).collect();
 
         // All channel types must be in the supported set
         channel_types.is_subset(&self.supported_merge_channels())
     }
 
     /// Return set of channel types this renderer can merge
-    fn supported_merge_channels(&self) -> std::collections::HashSet<&'static str> {
-        std::collections::HashSet::new() // Default: no merging support
+    fn supported_merge_channels(&self) -> HashSet<&'static str> {
+        HashSet::new() // Default: no merging support
     }
 
     /// Whether this legend prefers flexible layout (can stretch to fill space)
@@ -68,9 +79,9 @@ pub trait LegendRenderer: Send + Sync + 'static {
         y: f32,
         width: f32,
         height: f32,
-        theme: &crate::theme::Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
     ) -> Result<Option<SceneGroup>, AvengerChartError>;
 
     /// Measure the size this legend will require by rendering it
@@ -78,15 +89,12 @@ pub trait LegendRenderer: Send + Sync + 'static {
         &self,
         channels: &[LegendChannel],
         config: &Legend,
-        available_space: taffy::Size<f32>,
-        theme: &crate::theme::Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
-    ) -> Result<taffy::Size<f32>, AvengerChartError> {
+        available_space: Size<f32>,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
+    ) -> Result<Size<f32>, AvengerChartError> {
         // Default implementation: render at origin and measure bounds
-        use avenger_geometry::marks::MarkGeometryUtils;
-        use avenger_geometry::rtree::EnvelopeUtils;
-        use taffy::Size;
 
         if let Some(group) = self
             .evaluate(
@@ -146,7 +154,7 @@ pub struct LegendChannel {
     pub channel_type: String, // "fill", "stroke", "size", etc.
     pub mark_type: String,    // "point", "line", "rect", etc.
     pub mark_index: usize,    // Index of the mark in the plot's marks array
-    pub related_channels: std::collections::HashMap<String, ChannelInfo>, // Other channels from same mark
+    pub related_channels: HashMap<String, ChannelInfo>, // Other channels from same mark
 }
 
 /// Type of domain for merging purposes
@@ -170,8 +178,6 @@ pub struct MergeKey {
 impl MergeKey {
     /// Create a merge key from a legend channel
     pub fn from_channel(channel: &LegendChannel) -> Option<Self> {
-        use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
-
         // Only discrete scales can be merged
         let domain_values = match channel.scale.domain_values().ok()? {
             DomainValues::Discrete(values) => values,
@@ -235,29 +241,34 @@ pub fn normalize_expression(expr: &Expr) -> String {
 
 /// Helper functions for extracting constant values from channels
 pub mod helpers {
-    use crate::channel::ChannelValue;
-    use crate::utils::ScalarValueHelpers;
-    use avenger_common::types::ColorOrGradient;
-    use datafusion_common::ScalarValue;
     use std::collections::HashMap;
+
+    use avenger_common::types::ColorOrGradient;
+    use datafusion::{common::ScalarValue, prelude::SessionContext};
+
+    use super::ChannelInfo;
+    use crate::{
+        channel::ChannelValue,
+        utils::{ScalarValueHelpers, simplify_to_scalar_sync},
+    };
 
     /// Extract a constant scalar value from related_channels or mark_encodings
     /// Returns None if the expression is not constant (references columns)
     pub fn get_constant_scalar(
         channel_name: &str,
-        related_channels: &HashMap<String, super::ChannelInfo>,
+        related_channels: &HashMap<String, ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
-        session_context: &datafusion::prelude::SessionContext,
+        session_context: &SessionContext,
     ) -> Option<ScalarValue> {
         // First check related_channels
         match related_channels.get(channel_name) {
-            Some(super::ChannelInfo::Scaled {
+            Some(ChannelInfo::Scaled {
                 expr: Some(expr), ..
             })
-            | Some(super::ChannelInfo::Constant { expr }) => {
+            | Some(ChannelInfo::Constant { expr }) => {
                 if expr.column_refs().is_empty() {
                     // Try to simplify - this handles literals and simple expressions
-                    if let Ok(scalar) = crate::utils::simplify_to_scalar_sync(expr.clone()) {
+                    if let Ok(scalar) = simplify_to_scalar_sync(expr.clone()) {
                         return Some(scalar);
                     }
                 }
@@ -270,7 +281,7 @@ pub mod helpers {
             if let Some(expr) = channel_value.expr(session_context) {
                 if expr.column_refs().is_empty() {
                     // Try to simplify - this handles literals and simple expressions
-                    if let Ok(scalar) = crate::utils::simplify_to_scalar_sync(expr.clone()) {
+                    if let Ok(scalar) = simplify_to_scalar_sync(expr.clone()) {
                         return Some(scalar);
                     }
                 }
@@ -283,10 +294,12 @@ pub mod helpers {
     /// Extract a constant color value from related_channels or mark_encodings
     pub fn get_constant_color(
         channel_name: &str,
-        related_channels: &HashMap<String, super::ChannelInfo>,
+        related_channels: &HashMap<String, ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
-        session_context: &datafusion::prelude::SessionContext,
+        session_context: &SessionContext,
     ) -> Option<ColorOrGradient> {
+        use avenger_scales::scales::coerce::Coercer;
+
         if let Some(scalar) = get_constant_scalar(
             channel_name,
             related_channels,
@@ -295,7 +308,6 @@ pub mod helpers {
         ) {
             // Try to convert to color
             if let Ok(color_array) = ScalarValue::iter_to_array(std::iter::once(scalar)) {
-                use avenger_scales::scales::coerce::Coercer;
                 let coercer = Coercer::default();
                 if let Ok(colors) = coercer.to_color(&color_array, None) {
                     if let Some(color) = colors.as_vec(1, None).first() {
@@ -310,9 +322,9 @@ pub mod helpers {
     /// Extract a constant f32 value from related_channels or mark_encodings
     pub fn get_constant_f32(
         channel_name: &str,
-        related_channels: &HashMap<String, super::ChannelInfo>,
+        related_channels: &HashMap<String, ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
-        session_context: &datafusion::prelude::SessionContext,
+        session_context: &SessionContext,
     ) -> Option<f32> {
         if let Some(scalar) = get_constant_scalar(
             channel_name,
@@ -329,9 +341,9 @@ pub mod helpers {
     /// Extract a constant string value from related_channels or mark_encodings
     pub fn get_constant_string(
         channel_name: &str,
-        related_channels: &HashMap<String, super::ChannelInfo>,
+        related_channels: &HashMap<String, ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
-        session_context: &datafusion::prelude::SessionContext,
+        session_context: &SessionContext,
     ) -> Option<String> {
         if let Some(ScalarValue::Utf8(Some(s))) = get_constant_scalar(
             channel_name,
@@ -347,9 +359,6 @@ pub mod helpers {
 
 /// Compute hash of range values for merging comparison
 pub fn compute_range_hash(values: &[ScalarValue]) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
     let mut hasher = DefaultHasher::new();
     for value in values {
         format!("{:?}", value).hash(&mut hasher);

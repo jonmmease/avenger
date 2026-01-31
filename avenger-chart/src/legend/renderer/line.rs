@@ -1,25 +1,41 @@
 //! Line legend renderer for stroke properties on line marks
 
-use super::{LegendChannel, LegendRenderer, helpers};
-use crate::error::AvengerChartError;
-use crate::legend::Legend;
-use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr};
-use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
-use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
-use avenger_common::value::ScalarOrArray;
+use std::{collections::HashMap, sync::Arc};
+
+use avenger_common::{
+    types::{ColorOrGradient, StrokeCap, StrokeJoin},
+    value::ScalarOrArray,
+};
 use avenger_guides::legend::line::{LineLegendConfig, make_line_legend};
+use avenger_scales::scales::coerce::Coercer;
 use avenger_scenegraph::marks::group::SceneGroup;
-use datafusion::arrow::array::{ArrayRef, StringArray};
-use datafusion_common::ScalarValue;
+use avenger_text::types::FontWeight;
+use datafusion::{
+    arrow::array::{ArrayRef, StringArray},
+    common::ScalarValue,
+    prelude::SessionContext,
+};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
+
+use crate::{
+    channel::ChannelValue,
+    error::AvengerChartError,
+    legend::Legend,
+    plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr},
+    scales::{ConfiguredScaleLegendExt, DomainValues},
+    serialization::LogicalExprNodeExt,
+    theme::Theme,
+    utils::parse_color_string_strict,
+};
+
+use super::{LegendChannel, LegendRenderer, helpers};
 
 /// Line legend renderer for stroke properties on line marks
 #[derive(Serialize, Deserialize)]
 pub struct CompiledLineLegend {
     /// Map of mark encodings from the plot
-    mark_encodings: HashMap<String, crate::channel::ChannelValue>,
+    mark_encodings: HashMap<String, ChannelValue>,
     /// Stroke cap and join settings from line marks
     stroke_cap: StrokeCap,
     stroke_join: StrokeJoin,
@@ -91,8 +107,6 @@ impl CompiledLineLegend {
 
     /// Convert dash pattern names to numeric arrays using the coercer
     fn convert_dash_pattern(pattern: &str) -> Option<Vec<f32>> {
-        use avenger_scales::scales::coerce::Coercer;
-
         // Create a single-element string array with the pattern
         let array = StringArray::from(vec![Some(pattern)]);
         let array_ref = Arc::new(array) as ArrayRef;
@@ -148,9 +162,9 @@ impl LegendRenderer for CompiledLineLegend {
         y: f32,
         _width: f32,
         _height: f32,
-        theme: &crate::theme::Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
@@ -192,8 +206,6 @@ impl LegendRenderer for CompiledLineLegend {
         let default_stroke_width = 2.0;
 
         // Evaluate title expression
-        use crate::serialization::LogicalExprNodeExt;
-
         let title = if let Some(node) = config.title.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             Some(evaluate_string_expr(&expr, ctx, params).await?)
@@ -263,8 +275,7 @@ impl LegendRenderer for CompiledLineLegend {
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_fill =
-                Some(crate::utils::parse_color_string_strict(&fill_str)?);
+            legend_config.background_fill = Some(parse_color_string_strict(&fill_str)?);
         }
         if let Some(node) = config
             .background_stroke
@@ -273,15 +284,14 @@ impl LegendRenderer for CompiledLineLegend {
         {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_stroke =
-                Some(crate::utils::parse_color_string_strict(&stroke_str)?);
+            legend_config.background_stroke = Some(parse_color_string_strict(&stroke_str)?);
         }
 
         // Set text colors from legend config - fail if colors cannot be parsed
         if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let title_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = crate::utils::parse_color_string_strict(&title_color)?;
+            let color = parse_color_string_strict(&title_color)?;
             legend_config.title_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
                 _ => {
@@ -295,7 +305,7 @@ impl LegendRenderer for CompiledLineLegend {
         if let Some(node) = config.label_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let label_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = crate::utils::parse_color_string_strict(&label_color)?;
+            let color = parse_color_string_strict(&label_color)?;
             legend_config.label_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
                 _ => {
@@ -344,7 +354,7 @@ impl LegendRenderer for CompiledLineLegend {
         {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.title_font_weight = Some(FontWeight::Number(weight));
         }
         if let Some(node) = config
             .label_font_family
@@ -361,7 +371,7 @@ impl LegendRenderer for CompiledLineLegend {
         {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.label_font_weight = Some(FontWeight::Number(weight));
         }
 
         // When multiple channels are present, vary all of them together

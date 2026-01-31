@@ -1,9 +1,8 @@
 //! Parameter support for parameterized plots
 
-use datafusion::logical_expr::expr::Placeholder;
-use datafusion::prelude::Expr;
-use datafusion::scalar::ScalarValue;
 use std::fmt::Debug;
+
+use datafusion::{logical_expr::expr::Placeholder, prelude::Expr, scalar::ScalarValue};
 
 /// A parameter that can be used in plot expressions
 #[derive(Debug, Clone)]

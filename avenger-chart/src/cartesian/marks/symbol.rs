@@ -1,29 +1,53 @@
-use crate::cartesian::Cartesian;
-use crate::define_position_channels;
-use crate::impl_mark_trait_common;
-use crate::marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression};
-use crate::theme::Theme;
+use std::{collections::HashMap, sync::Arc};
+
 use arrow::array::RecordBatch;
-use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::logical_expr::{Expr, lit};
+use avenger_common::{types::SymbolShape, value::ScalarOrArray};
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
+use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
+use datafusion::{
+    arrow::datatypes::DataType,
+    functions::expr_fn::sqrt,
+    logical_expr::{Expr, lit},
+};
 use datafusion_common::ScalarValue;
-// Import Symbol for the macro, then re-export it
-use crate::channel::ChannelDescriptor;
-use crate::coords::CoordinateSystemTransform;
-use crate::error::AvengerChartError;
-pub use crate::marks::symbol::Symbol;
-use crate::render::RenderContext;
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+
+use crate::{
+    cartesian::{Cartesian, channels::CartesianPositionConfig},
+    channel::ChannelDescriptor,
+    coords::{CoordinateSystemTransform, PointGeometry},
+    define_position_channels,
+    error::AvengerChartError,
+    impl_mark_trait_common,
+    legend::LegendRenderer,
+    marks::{
+        CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression,
+        default_scale_for_data_type,
+        symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer},
+        util::{
+            coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+            is_continuous_scale,
+        },
+    },
+    render::RenderContext,
+    scales::{
+        ResolvedDomain, ScaleRange, ScaleSpec,
+        spec::{Ordinal, Point, Sqrt},
+    },
+    serialization::LogicalExprNodeExt,
+    theme::Theme,
+    utils::ScalarValueHelpers,
+};
 
 // Define position channels for Cartesian Symbol using the macro
 define_position_channels! {
     Symbol<Cartesian> {
         x: {
-            with_config: crate::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         },
         y: {
-            with_config: crate::cartesian::channels::CartesianPositionConfig,
+            with_config: CartesianPositionConfig,
         }
     }
 }
@@ -37,8 +61,8 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         &self,
         compiled_state: CompiledMarkState,
         _session_context: &datafusion::prelude::SessionContext,
-    ) -> Result<std::sync::Arc<dyn CompiledMark>, AvengerChartError> {
-        Ok(std::sync::Arc::new(CompiledCartesianSymbol {
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(Arc::new(CompiledCartesianSymbol {
             state: compiled_state,
         }))
     }
@@ -130,14 +154,6 @@ impl CompiledMark for CompiledCartesianSymbol {
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::marks::util::{
-            coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-        };
-        use avenger_common::value::ScalarOrArray;
-        use avenger_scales::scales::coerce::Coercer;
-        use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-        use datafusion_common::ScalarValue;
-
         // Extract position channels based on what the coordinate system requires
         let mut position_channels = std::collections::HashMap::new();
         for channel_name in coord.required_channels() {
@@ -161,7 +177,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         )?;
         let geometry = geometry
             .as_any()
-            .downcast_ref::<crate::coords::PointGeometry>()
+            .downcast_ref::<PointGeometry>()
             .ok_or_else(|| {
                 AvengerChartError::CoordinateSystemError(
                     "Failed to downcast to PointGeometry".to_string(),
@@ -204,12 +220,12 @@ impl CompiledMark for CompiledCartesianSymbol {
                 match scalar {
                     ScalarValue::Utf8(Some(s)) => {
                         // Convert string to SymbolShape using from_vega_str
-                        avenger_common::types::SymbolShape::from_vega_str(&s).ok()
+                        SymbolShape::from_vega_str(&s).ok()
                     }
                     _ => None,
                 }
             })
-            .unwrap_or(avenger_common::types::SymbolShape::Circle);
+            .unwrap_or(SymbolShape::Circle);
 
         let (shapes, shape_index) =
             if let Some(shape_array) = data.and_then(|d| d.column_by_name("shape")) {
@@ -227,7 +243,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         let stroke_width_scalar = self.default_channel_value("stroke_width", context);
 
         let stroke_width_default = stroke_width_scalar
-            .and_then(|scalar| crate::utils::ScalarValueHelpers::as_f32(&scalar).ok())
+            .and_then(|scalar| ScalarValueHelpers::as_f32(&scalar).ok())
             .unwrap_or(1.0);
 
         let stroke_width = if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
@@ -264,7 +280,7 @@ impl CompiledMark for CompiledCartesianSymbol {
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        crate::marks::symbol::symbol_channel_defaults(channel)
+        symbol_channel_defaults(channel)
     }
 
     fn radius_expression(
@@ -282,12 +298,9 @@ impl CompiledMark for CompiledCartesianSymbol {
                 // The size channel represents the area of the bounding square
                 // The base circle SVG path has radius 0.5 for a unit square (size=1)
                 // Add half the stroke width since stroke extends both inward and outward
-                use datafusion::functions::expr_fn::sqrt;
                 let radius_expr =
                     sqrt(size_expr) * lit(0.5) + stroke_width_expr / lit(2.0) + lit(4.0);
 
-                use crate::serialization::LogicalExprNodeExt;
-                use datafusion_proto::protobuf::LogicalExprNode;
                 let radius_expr_node =
                     LogicalExprNode::from_expr(radius_expr).expect("Failed to serialize expr");
                 Some(RadiusExpression::Symmetric(radius_expr_node))
@@ -299,20 +312,17 @@ impl CompiledMark for CompiledCartesianSymbol {
     fn preferred_legend_renderer(
         &self,
         channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<Arc<dyn crate::legend::LegendRenderer>> {
+        scale: &ConfiguredScale,
+    ) -> Option<Arc<dyn LegendRenderer>> {
         // Use the same logic as the Symbol mark
-        crate::marks::symbol::symbol_legend_renderer(channel, scale, &["x", "y", "x2", "y2"])
+        symbol_legend_renderer(channel, scale, &["x", "y", "x2", "y2"])
     }
 
     fn preferred_scale_type(
         &self,
         channel: &str,
-        data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
-        use crate::scales::spec::{Ordinal, Point, Sqrt};
-        use datafusion::arrow::datatypes::DataType;
-
+        data_type: &DataType,
+    ) -> Option<Box<dyn ScaleSpec>> {
         match (channel, data_type) {
             // Symbol marks use point scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
@@ -349,18 +359,16 @@ impl CompiledMark for CompiledCartesianSymbol {
                 Some(Box::new(Ordinal::default()))
             }
             // Fall back to data type-based inference for other channels
-            _ => crate::marks::default_scale_for_data_type(data_type),
+            _ => default_scale_for_data_type(data_type),
         }
     }
 
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> std::collections::HashMap<String, datafusion::logical_expr::Expr> {
-        use datafusion::logical_expr::lit;
-        use std::collections::HashMap;
+        scale_impl: &dyn ScaleImpl,
+        _data_type: &DataType,
+    ) -> HashMap<String, Expr> {
         let mut options = HashMap::new();
 
         // Configure PowScale as Sqrt scale for size channel
@@ -369,9 +377,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         }
 
         // For color channels, use the parent implementation
-        if matches!(channel, "fill" | "stroke" | "color")
-            && crate::marks::util::is_continuous_scale(scale_impl)
-        {
+        if matches!(channel, "fill" | "stroke" | "color") && is_continuous_scale(scale_impl) {
             options.insert("nice".to_string(), lit(true));
         }
 
@@ -381,22 +387,18 @@ impl CompiledMark for CompiledCartesianSymbol {
     fn default_channel_range(
         &self,
         channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-        domain: &crate::scales::ResolvedDomain,
-        _data_type: &datafusion::arrow::datatypes::DataType,
+        scale_impl: &dyn ScaleImpl,
+        domain: &ResolvedDomain,
+        _data_type: &DataType,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
-    ) -> Option<crate::scales::ScaleRange> {
-        use crate::scales::ScaleRange;
-        use datafusion::logical_expr::lit;
-        use datafusion_common::ScalarValue;
-
+        params: &indexmap::IndexMap<String, ScalarValue>,
+    ) -> Option<ScaleRange> {
         // Query theme first, passing cardinality for discrete scales to enable
         // cardinality-specific ranges (e.g., CSS rules like [cardinality="3"])
         let range_kind = scale_impl.range_kind();
         let cardinality = match domain {
-            crate::scales::ResolvedDomain::Discrete(count) => Some(*count),
-            crate::scales::ResolvedDomain::Interval => None,
+            ResolvedDomain::Discrete(count) => Some(*count),
+            ResolvedDomain::Interval => None,
         };
 
         if let Some(theme_range) =
@@ -408,7 +410,7 @@ impl CompiledMark for CompiledCartesianSymbol {
         // Provide mark-specific computed defaults for channels with domain-aware logic
         match channel {
             "size" => match domain {
-                crate::scales::ResolvedDomain::Discrete(count) => {
+                ResolvedDomain::Discrete(count) => {
                     let min = 40.0;
                     let max = 400.0;
                     if *count == 1 {
@@ -419,9 +421,7 @@ impl CompiledMark for CompiledCartesianSymbol {
                         Some(ScaleRange::new_linspace_discrete(min, max, *count))
                     }
                 }
-                crate::scales::ResolvedDomain::Interval => {
-                    Some(ScaleRange::new_interval(lit(0.0), lit(400.0)))
-                }
+                ResolvedDomain::Interval => Some(ScaleRange::new_interval(lit(0.0), lit(400.0))),
             },
             "angle" => Some(domain.make_interval_or_linspaced_range(0.0, 360.0)),
             "opacity" => Some(domain.make_interval_or_linspaced_range(0.0, 1.0)),

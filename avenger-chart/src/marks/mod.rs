@@ -1,14 +1,40 @@
 pub mod compiled_data_context;
 pub mod data_context;
-use crate::theme::Theme;
 pub mod facet_strategy;
 pub mod line;
+#[macro_use]
+pub mod macros;
 pub mod rect;
 pub mod state;
 pub mod symbol;
 pub mod util;
-#[macro_use]
-pub mod macros;
+
+use std::{any::Any, collections::HashMap, sync::Arc};
+
+use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
+use serde_with::{FromInto, serde_as};
+
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
+use avenger_scenegraph::marks::mark::SceneMark;
+
+use datafusion::{
+    arrow::{datatypes::DataType, record_batch::RecordBatch},
+    logical_expr::{Expr, lit},
+    scalar::ScalarValue,
+};
+use datafusion_common::ScalarValue as DatafusionScalarValue;
+use datafusion_proto::protobuf::LogicalExprNode;
+
+use crate::{
+    coords::{CoordinateSystem, CoordinateSystemTransform},
+    error::AvengerChartError,
+    legend::LegendRenderer,
+    render::RenderContext,
+    scales::{ScaleRange, ScaleSpec},
+    serialization::SerializableExpr,
+    theme::Theme,
+};
 
 pub use crate::channel::{ChannelDefault, ChannelDescriptor, ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
@@ -16,26 +42,6 @@ pub use data_context::DataContext;
 pub use facet_strategy::FacetStrategy;
 pub use state::{CompiledMarkState, MarkState};
 pub use util::default_scale_for_data_type;
-
-use crate::coords::{CoordinateSystem, CoordinateSystemTransform};
-use crate::error::AvengerChartError;
-use crate::legend::LegendRenderer;
-use crate::render::RenderContext;
-use crate::scales::{ScaleRange, ScaleSpec};
-use crate::serialization::SerializableExpr;
-use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
-use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::arrow::datatypes::DataType;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::logical_expr::Expr;
-use datafusion::scalar::ScalarValue;
-use datafusion_proto::protobuf::LogicalExprNode;
-use serde::{Deserialize, Serialize};
-use serde_with::{FromInto, serde_as};
-use std::any::Any;
-use std::collections::HashMap;
-use std::sync::Arc;
-
 
 /// Expression for computing radius/padding requirements for marks
 ///
@@ -158,7 +164,11 @@ pub trait CompiledMark: Any + Send + Sync {
 
     /// Returns the default value for a channel if not explicitly mapped
     /// First checks theme defaults, then falls back to mark-specific defaults
-    fn default_channel_value(&self, channel: &str, context: &RenderContext<'_>) -> Option<ScalarValue> {
+    fn default_channel_value(
+        &self,
+        channel: &str,
+        context: &RenderContext<'_>,
+    ) -> Option<ScalarValue> {
         // Check theme defaults first
         let mark_type = self.mark_type();
 
@@ -296,7 +306,6 @@ pub trait CompiledMark: Any + Send + Sync {
         scale_impl: &dyn ScaleImpl,
         _data_type: &DataType,
     ) -> HashMap<String, Expr> {
-        use datafusion::logical_expr::lit;
         let mut options = HashMap::new();
 
         // Default: Color scales with continuous numeric output should use nice for better legend labels
@@ -330,7 +339,7 @@ pub trait CompiledMark: Any + Send + Sync {
         _domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
         _theme: &Theme,
-        _params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
+        _params: &IndexMap<String, DatafusionScalarValue>,
     ) -> Option<ScaleRange> {
         None
     }

@@ -1,22 +1,26 @@
-use crate::coords::{
-    CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, CoordinatedOverflow,
-    OverflowSpaceRequirement,
-};
-use crate::error::AvengerChartError;
-use crate::facet::guide::{FacetColGuideConfig, FacetRowGuideConfig};
-use crate::facet::marks::facet::CompiledFacetCol;
-use crate::layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode};
-use crate::marks::CompiledMark;
-use crate::plot::compiled::{CompiledPlot, ComponentsMeasurement};
-use crate::render::EvaluationContext;
-use crate::scales::ConfiguredScaleWithSpec;
+use std::{any::Any, collections::HashMap, sync::Arc};
+
 use avenger_common::value::ScalarOrArray;
-use datafusion::common::ScalarValue;
-use datafusion::dataframe::DataFrame;
+use avenger_scales::scales::{ScaleImpl, band::bandwidth};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, scalar::ScalarValue as DfScalarValue};
 use serde::{Deserialize, Serialize};
-use std::any::Any;
-use std::collections::HashMap;
-use std::sync::Arc;
+
+use crate::{
+    coords::{
+        CoordMeasurement, CoordinateSystem, CoordinateSystemTransform, CoordinatedOverflow,
+        OverflowSpaceRequirement, PaddingSpec, PlotGeometry, SubplotGeometry, SubplotRect,
+    },
+    error::AvengerChartError,
+    facet::{
+        guide::{FacetColGuideConfig, FacetRowGuideConfig},
+        marks::facet::CompiledFacetCol,
+    },
+    layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
+    marks::CompiledMark,
+    plot::compiled::{CompiledPlot, ComponentsMeasurement, scale_provider::PrebuiltScaleProvider},
+    render::EvaluationContext,
+    scales::ConfiguredScaleWithSpec,
+};
 
 /// Measurement data for FacetColumn coordinate system.
 ///
@@ -126,12 +130,14 @@ impl CoordMeasurement for FacetColCoordMeasurement {
 
             // Apply padding_inner_px for cell spacing
             if self.padding_inner_px > 0.0 {
-                updated_config = updated_config.with_option("padding_inner_px", self.padding_inner_px);
+                updated_config =
+                    updated_config.with_option("padding_inner_px", self.padding_inner_px);
             }
 
             // Reduce scale range to account for outer legend space
             if self.outer_left > 0.0 || self.outer_right > 0.0 {
-                if let Ok((range_start, range_end)) = updated_config.config.numeric_interval_range() {
+                if let Ok((range_start, range_end)) = updated_config.config.numeric_interval_range()
+                {
                     // Keep start unchanged, reduce end by both outer edges
                     // This shrinks the available width for cells while keeping them
                     // starting at position 0 within the plot area
@@ -140,7 +146,8 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 }
             }
 
-            *column_scale = ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
+            *column_scale =
+                ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
         }
     }
 
@@ -164,7 +171,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
     async fn apply_coordinated_overflow(
         &mut self,
         eval_ctx: &EvaluationContext,
-    ) -> Result<(), crate::error::AvengerChartError> {
+    ) -> Result<(), AvengerChartError> {
         // Compute legend-adjusted height from coordinated overflow
         let coordinated = &self.coordinated_overflow;
         let legend_top = (coordinated.total.top - coordinated.guide.top).max(0.0);
@@ -192,7 +199,6 @@ impl CoordMeasurement for FacetColCoordMeasurement {
         }
 
         // Re-measure each subplot with the corrected height
-        use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
         let scale_provider = PrebuiltScaleProvider {
             scales: self.shared_scales.clone(),
         };
@@ -369,12 +375,9 @@ impl CoordinateSystemTransform for FacetRow {
         Box::new(self.clone())
     }
 
-    fn with_measured_padding(
-        &self,
-        spec: &crate::coords::PaddingSpec,
-    ) -> Box<dyn CoordinateSystemTransform> {
+    fn with_measured_padding(&self, spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
         match spec {
-            crate::coords::PaddingSpec::Single {
+            PaddingSpec::Single {
                 padding_px,
                 overflow,
             } => {
@@ -392,21 +395,21 @@ impl CoordinateSystemTransform for FacetRow {
         position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
-    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
         let row_positions = position_channels.get("row").ok_or_else(|| {
             AvengerChartError::InternalError("Missing 'row' channel for FacetRow transform".into())
         })?;
 
         let count = row_positions.len();
         if count == 0 {
-            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+            return Ok(Box::new(SubplotGeometry::default()));
         }
 
         let centers = row_positions.as_vec(count, None);
         let (starts, bandwidth) = compute_band_layout(&centers, plot_height, self.padding_px);
 
         if starts.is_empty() {
-            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+            return Ok(Box::new(SubplotGeometry::default()));
         }
 
         // Extract actual row values from position_values (if provided)
@@ -421,11 +424,11 @@ impl CoordinateSystemTransform for FacetRow {
             .map(|(i, start)| {
                 // Use actual facet value if available, otherwise Null
                 let value = row_values.get(i).cloned().unwrap_or(ScalarValue::Null);
-                crate::coords::SubplotRect::new(value, 0.0, start, plot_width, bandwidth)
+                SubplotRect::new(value, 0.0, start, plot_width, bandwidth)
             })
             .collect();
 
-        Ok(Box::new(crate::coords::SubplotGeometry::new(rects)))
+        Ok(Box::new(SubplotGeometry::new(rects)))
     }
 
     fn default_range(
@@ -443,16 +446,21 @@ impl CoordinateSystemTransform for FacetRow {
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-    ) -> HashMap<String, datafusion::scalar::ScalarValue> {
-        use datafusion::scalar::ScalarValue;
+        scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, DfScalarValue> {
         let mut options = HashMap::new();
         if channel == "row" && scale_impl.scale_type() == "band" {
             // Set outer padding to 0 to avoid extra space at top/bottom
             // Set inner padding to 0.1 for default spacing between facets
-            options.insert("padding_inner".to_string(), ScalarValue::Float64(Some(0.1)));
-            options.insert("padding_outer".to_string(), ScalarValue::Float64(Some(0.0)));
-            options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
+            options.insert(
+                "padding_inner".to_string(),
+                DfScalarValue::Float64(Some(0.1)),
+            );
+            options.insert(
+                "padding_outer".to_string(),
+                DfScalarValue::Float64(Some(0.0)),
+            );
+            options.insert("round".to_string(), DfScalarValue::Boolean(Some(true)));
         }
         options
     }
@@ -505,12 +513,9 @@ impl CoordinateSystemTransform for FacetColumn {
         Box::new(self.clone())
     }
 
-    fn with_measured_padding(
-        &self,
-        spec: &crate::coords::PaddingSpec,
-    ) -> Box<dyn CoordinateSystemTransform> {
+    fn with_measured_padding(&self, spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
         match spec {
-            crate::coords::PaddingSpec::Single {
+            PaddingSpec::Single {
                 padding_px,
                 overflow,
             } => {
@@ -532,9 +537,6 @@ impl CoordinateSystemTransform for FacetColumn {
         compiled_marks: &[Arc<dyn CompiledMark>],
         facet_path: &[ScalarValue],
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        use crate::plot::compiled::scale_provider::PrebuiltScaleProvider;
-        use avenger_scales::scales::band::bandwidth;
-
         // Find the CompiledFacetCol mark to access its subplot
         let facet_mark = compiled_marks
             .iter()
@@ -740,11 +742,13 @@ impl CoordinateSystemTransform for FacetColumn {
         // Also reduce range for outer legend space (same logic as apply_scale_adjustments)
         // Both outer_left and outer_right reduce the total available width
         if outer_left > 0.0 || outer_right > 0.0 {
-            if let Ok((range_start, range_end)) = updated_column_scale.config.numeric_interval_range()
+            if let Ok((range_start, range_end)) =
+                updated_column_scale.config.numeric_interval_range()
             {
                 // Keep start unchanged, reduce end by both outer edges
                 let new_end = range_end - outer_left - outer_right;
-                updated_column_scale = updated_column_scale.with_range_interval((range_start, new_end));
+                updated_column_scale =
+                    updated_column_scale.with_range_interval((range_start, new_end));
             }
         }
 
@@ -821,7 +825,7 @@ impl CoordinateSystemTransform for FacetColumn {
         position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
-    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
         let column_positions = position_channels.get("column").ok_or_else(|| {
             AvengerChartError::InternalError(
                 "Missing 'column' channel for FacetColumn transform".into(),
@@ -830,14 +834,14 @@ impl CoordinateSystemTransform for FacetColumn {
 
         let count = column_positions.len();
         if count == 0 {
-            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+            return Ok(Box::new(SubplotGeometry::default()));
         }
 
         let centers = column_positions.as_vec(count, None);
         let (starts, bandwidth) = compute_band_layout(&centers, plot_width, self.padding_px);
 
         if starts.is_empty() {
-            return Ok(Box::new(crate::coords::SubplotGeometry::default()));
+            return Ok(Box::new(SubplotGeometry::default()));
         }
 
         // Extract actual column values from position_values (if provided)
@@ -852,11 +856,11 @@ impl CoordinateSystemTransform for FacetColumn {
             .map(|(i, start)| {
                 // Use actual facet value if available, otherwise Null
                 let value = column_values.get(i).cloned().unwrap_or(ScalarValue::Null);
-                crate::coords::SubplotRect::new(value, start, 0.0, bandwidth, plot_height)
+                SubplotRect::new(value, start, 0.0, bandwidth, plot_height)
             })
             .collect();
 
-        Ok(Box::new(crate::coords::SubplotGeometry::new(rects)))
+        Ok(Box::new(SubplotGeometry::new(rects)))
     }
 
     fn default_range(
@@ -874,16 +878,21 @@ impl CoordinateSystemTransform for FacetColumn {
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-    ) -> HashMap<String, datafusion::scalar::ScalarValue> {
-        use datafusion::scalar::ScalarValue;
+        scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, DfScalarValue> {
         let mut options = HashMap::new();
         if channel == "column" && scale_impl.scale_type() == "band" {
             // Set outer padding to 0 to avoid extra space at left/right
             // Set inner padding to 0.1 for default spacing between facets
-            options.insert("padding_inner".to_string(), ScalarValue::Float64(Some(0.1)));
-            options.insert("padding_outer".to_string(), ScalarValue::Float64(Some(0.0)));
-            options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
+            options.insert(
+                "padding_inner".to_string(),
+                DfScalarValue::Float64(Some(0.1)),
+            );
+            options.insert(
+                "padding_outer".to_string(),
+                DfScalarValue::Float64(Some(0.0)),
+            );
+            options.insert("round".to_string(), DfScalarValue::Boolean(Some(true)));
         }
         options
     }
@@ -892,7 +901,6 @@ impl CoordinateSystemTransform for FacetColumn {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coords::OverflowSpaceRequirement;
 
     #[test]
     fn facet_row_constructs_struct() {

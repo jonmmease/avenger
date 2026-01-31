@@ -4,17 +4,22 @@
 //! (FacetRowGuide and FacetColGuide) to eliminate code duplication and ensure
 //! consistent behavior across faceting dimensions.
 
-use crate::facet::band_positions::BandPosition;
-use crate::layout::LayoutBounds;
-use crate::theme::Theme;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::rule::SceneRuleMark;
-use avenger_scenegraph::marks::text::SceneTextMark;
-use avenger_text::measurement::{TextMeasurementConfig, TextMeasurer};
-use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use std::sync::Arc as StdArc;
+
+use avenger_common::types::ColorOrGradient;
+use avenger_scenegraph::marks::{mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark};
+use avenger_text::{
+    measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer},
+    types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
+};
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
-use std::sync::Arc as StdArc;
+
+use crate::{
+    facet::band_positions::BandPosition,
+    layout::LayoutBounds,
+    theme::{Theme, ThemeContext},
+};
 
 /// Configuration for measuring facet label slab space requirements
 ///
@@ -77,7 +82,7 @@ pub struct FacetLabelRenderConfig {
 /// For rotated labels (row facets), this measures the horizontal footprint.
 /// For horizontal labels (col facets), this measures the vertical footprint.
 pub fn measure_facet_label_slab(config: &FacetLabelMeasurementConfig) -> f32 {
-    let measurer = avenger_text::measurement::default_text_measurer();
+    let measurer = default_text_measurer();
 
     // Measure label dimensions
     let mut max_label_dimension = 0.0_f32;
@@ -152,7 +157,7 @@ pub fn render_facet_label_slab(
     let mut marks = Vec::new();
 
     // Get font properties from theme
-    let label_ctx = crate::theme::ThemeContext::new("guide", theme_params.clone())
+    let label_ctx = ThemeContext::new("guide", theme_params.clone())
         .child("facet")
         .child("label");
 
@@ -207,7 +212,7 @@ fn calculate_row_label_positions(
     _theme: &Theme,
     _theme_params: &IndexMap<String, ScalarValue>,
 ) -> (Vec<f32>, Vec<f32>) {
-    let measurer = avenger_text::measurement::default_text_measurer();
+    let measurer = default_text_measurer();
 
     let mut x_positions = Vec::new();
     let mut y_positions = Vec::new();
@@ -272,7 +277,7 @@ fn create_label_mark(
     x: f32,
     y: f32,
     theme: &Theme,
-    label_ctx: &crate::theme::ThemeContext,
+    label_ctx: &ThemeContext,
 ) -> SceneTextMark {
     let angle = if config.is_rotated {
         if config.place_at_end {
@@ -301,10 +306,8 @@ fn create_label_mark(
         angle: angle.into(),
         font: config.font_family.clone().into(),
         font_size: config.font_size_px.into(),
-        color: avenger_common::types::ColorOrGradient::Color(
-            theme.text_color(label_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
-        )
-        .into(),
+        color: ColorOrGradient::Color(theme.text_color(label_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]))
+            .into(),
         zindex: Some(5),
         ..Default::default()
     }
@@ -322,7 +325,7 @@ fn render_rule_with_ticks(
         return marks;
     }
 
-    let measurer = avenger_text::measurement::default_text_measurer();
+    let measurer = default_text_measurer();
 
     // Measure label dimensions to position rule
     let mut max_label_dimension = 0.0_f32;
@@ -343,7 +346,7 @@ fn render_rule_with_ticks(
     }
 
     // Query rule styling from theme
-    let rule_ctx = crate::theme::ThemeContext::new("guide", theme_params.clone())
+    let rule_ctx = ThemeContext::new("guide", theme_params.clone())
         .child("facet")
         .child("rule");
     let mut rule_stroke = theme.text_color(&rule_ctx).unwrap_or([0.5, 0.5, 0.5, 1.0]);
@@ -389,7 +392,7 @@ fn render_rule_with_ticks(
             y: (y_top - half_stroke).into(),
             x2: x_rule.into(),
             y2: (y_bottom + half_stroke).into(),
-            stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
+            stroke: ColorOrGradient::Color(rule_stroke).into(),
             stroke_width: rule_stroke_width.into(),
             zindex: Some(5),
             ..Default::default()
@@ -411,7 +414,7 @@ fn render_rule_with_ticks(
                 y: y_center.into(),
                 x2: x_tick_end.into(),
                 y2: y_center.into(),
-                stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
+                stroke: ColorOrGradient::Color(rule_stroke).into(),
                 stroke_width: rule_stroke_width.into(),
                 zindex: Some(5),
                 ..Default::default()
@@ -451,7 +454,7 @@ fn render_rule_with_ticks(
             y: y_rule.into(),
             x2: (x_right + half_stroke).into(),
             y2: y_rule.into(),
-            stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
+            stroke: ColorOrGradient::Color(rule_stroke).into(),
             stroke_width: rule_stroke_width.into(),
             zindex: Some(5),
             ..Default::default()
@@ -473,7 +476,7 @@ fn render_rule_with_ticks(
                 y: y_tick_start.into(),
                 x2: x_center.into(),
                 y2: y_tick_end.into(),
-                stroke: avenger_common::types::ColorOrGradient::Color(rule_stroke).into(),
+                stroke: ColorOrGradient::Color(rule_stroke).into(),
                 stroke_width: rule_stroke_width.into(),
                 zindex: Some(5),
                 ..Default::default()
@@ -492,8 +495,8 @@ fn render_facet_title(
     theme: &Theme,
     theme_params: &IndexMap<String, ScalarValue>,
 ) -> SceneTextMark {
-    let measurer = avenger_text::measurement::default_text_measurer();
-    let title_ctx = crate::theme::ThemeContext::new("guide", theme_params.clone())
+    let measurer = default_text_measurer();
+    let title_ctx = ThemeContext::new("guide", theme_params.clone())
         .child("facet")
         .child("title");
 
@@ -570,10 +573,8 @@ fn render_facet_title(
         angle: angle.into(),
         font: config.title_font_family.clone().into(),
         font_size: config.title_font_size_px.into(),
-        color: avenger_common::types::ColorOrGradient::Color(
-            theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
-        )
-        .into(),
+        color: ColorOrGradient::Color(theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]))
+            .into(),
         zindex: Some(6),
         ..Default::default()
     }
@@ -607,7 +608,7 @@ pub fn render_unified_axis_title(
     theme: &Theme,
     theme_params: &IndexMap<String, ScalarValue>,
 ) -> SceneTextMark {
-    let title_ctx = crate::theme::ThemeContext::new("guide", theme_params.clone())
+    let title_ctx = ThemeContext::new("guide", theme_params.clone())
         .child("facet")
         .child("title");
 
@@ -632,10 +633,8 @@ pub fn render_unified_axis_title(
         angle: config.angle.into(),
         font: config.font_family.clone().into(),
         font_size: config.font_size_px.into(),
-        color: avenger_common::types::ColorOrGradient::Color(
-            theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]),
-        )
-        .into(),
+        color: ColorOrGradient::Color(theme.text_color(&title_ctx).unwrap_or([0.0, 0.0, 0.0, 1.0]))
+            .into(),
         zindex: Some(6),
         ..Default::default()
     }

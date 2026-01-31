@@ -3,14 +3,15 @@
 //! This module provides SerializableDataFrame which stores LogicalPlanNode
 //! as protobuf bytes for efficient binary serialization.
 
-use super::LogicalPlanNodeExt;
-use crate::error::AvengerChartError;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use datafusion::dataframe::DataFrame;
-use datafusion::prelude::SessionContext;
+use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::error::AvengerChartError;
+
+use super::LogicalPlanNodeExt;
 
 /// A serializable wrapper for DataFrames that stores protobuf bytes
 #[derive(Clone, Debug, PartialEq)]

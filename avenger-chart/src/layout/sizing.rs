@@ -43,12 +43,15 @@
 //! When both canvas and plot dimensions are fixed in the same direction, margins become
 //! expandable and will grow to center the plot within the canvas.
 
-use crate::maybe::{Maybe, MaybeOptionalExpr};
-use crate::serialization::{LogicalExprNodeExt, SerializableExpr};
 use datafusion::prelude::{Expr, lit};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
+
+use crate::{
+    maybe::{Maybe, MaybeOptionalExpr},
+    serialization::{LogicalExprNodeExt, SerializableExpr},
+};
 
 /// Trait for types that can be converted to Expr (for dimensions)
 pub trait IntoExprDimension {

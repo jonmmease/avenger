@@ -1,13 +1,7 @@
 //! CSS stylesheet parser using cssparser's high-level APIs
 
-use crate::theme::calc::{CalcLeaf, CalcNode, ChannelKeyword, RoundingStrategy};
-// Color parsing functions are now imported within _with_origin helper functions
-use crate::theme::css_value;
-use crate::theme::lab_color;
-use crate::theme::selector_impl::{ChartPseudoClass, ChartSelectors};
-use crate::theme::theme::CompiledRule;
-use crate::theme::value::parse_color_string;
-use crate::theme::{AngleUnit, CssRgba, LengthUnit, ThemeValue};
+use std::cell::RefCell;
+
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
@@ -16,7 +10,19 @@ use cssparser::{
 };
 use indexmap::IndexMap;
 use selectors::parser::{ParseRelative, Parser as SelectorParser, SelectorList};
-use std::cell::RefCell;
+
+use crate::{
+    color::types::ColorSpace,
+    theme::{
+        AngleUnit, CssRgba, LengthUnit, ThemeValue,
+        calc::{CalcLeaf, CalcNode, ChannelKeyword, RoundingStrategy},
+        color_component::ColorComponent,
+        css_value, lab_color,
+        selector_impl::{ChartPseudoClass, ChartSelectors},
+        theme::CompiledRule,
+        value::parse_color_string,
+    },
+};
 
 /// Parse a CSS stylesheet into rules
 pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
@@ -1140,11 +1146,8 @@ fn parse_color_component<'i, 't>(
 fn parse_color_component_with_space<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
-    color_space: Option<crate::color::types::ColorSpace>,
-) -> Result<super::color_component::ColorComponent, ParseError<'i, ()>> {
-    use super::calc::ChannelKeyword;
-    use super::color_component::ColorComponent;
-
+    color_space: Option<ColorSpace>,
+) -> Result<ColorComponent, ParseError<'i, ()>> {
     // Try to parse a value
     let value = parse_single_value(parser, unsupported_units)?;
 
@@ -1170,9 +1173,6 @@ fn parse_oklch_with_origin<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
-    use super::color_component::ColorComponent;
-    use crate::color::types::ColorSpace;
-
     parser.parse_nested_block(|p| {
         // Try to parse "from <origin>"
         let origin = try_parse_origin_color(p, unsupported_units)?;
@@ -1238,9 +1238,6 @@ fn parse_oklab_with_origin<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
-    use super::color_component::ColorComponent;
-    use crate::color::types::ColorSpace;
-
     parser.parse_nested_block(|p| {
         let origin = try_parse_origin_color(p, unsupported_units)?;
 
@@ -1301,9 +1298,6 @@ fn parse_lch_with_origin<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
-    use super::color_component::ColorComponent;
-    use crate::color::types::ColorSpace;
-
     parser.parse_nested_block(|p| {
         let origin = try_parse_origin_color(p, unsupported_units)?;
 
@@ -1361,9 +1355,6 @@ fn parse_lab_with_origin<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
-    use super::color_component::ColorComponent;
-    use crate::color::types::ColorSpace;
-
     parser.parse_nested_block(|p| {
         let origin = try_parse_origin_color(p, unsupported_units)?;
 
@@ -1424,9 +1415,6 @@ fn parse_hsl_with_origin<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
-    use super::color_component::ColorComponent;
-    use crate::color::types::ColorSpace;
-
     parser.parse_nested_block(|p| {
         let origin = try_parse_origin_color(p, unsupported_units)?;
 
@@ -1490,9 +1478,6 @@ fn parse_hwb_with_origin<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
-    use super::color_component::ColorComponent;
-    use crate::color::types::ColorSpace;
-
     parser.parse_nested_block(|p| {
         let origin = try_parse_origin_color(p, unsupported_units)?;
 
@@ -1554,9 +1539,6 @@ fn parse_rgb_with_origin<'i, 't>(
     parser: &mut Parser<'i, 't>,
     unsupported_units: &RefCell<Vec<String>>,
 ) -> Result<ThemeValue, ParseError<'i, ()>> {
-    use super::color_component::ColorComponent;
-    use crate::color::types::ColorSpace;
-
     parser.parse_nested_block(|p| {
         let origin = try_parse_origin_color(p, unsupported_units)?;
 

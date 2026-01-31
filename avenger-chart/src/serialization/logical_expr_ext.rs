@@ -1,10 +1,12 @@
 //! Extension trait for LogicalExprNode to provide SessionContext-dependent conversions
 
-use crate::error::AvengerChartError;
-use datafusion::logical_expr::Expr;
-use datafusion::prelude::SessionContext;
-use datafusion_proto::logical_plan::{from_proto::parse_expr, to_proto::serialize_expr};
-use datafusion_proto::protobuf::LogicalExprNode;
+use datafusion::{logical_expr::Expr, prelude::SessionContext};
+use datafusion_proto::{
+    logical_plan::{from_proto::parse_expr, to_proto::serialize_expr},
+    protobuf::LogicalExprNode,
+};
+
+use crate::{error::AvengerChartError, scales::AvengerChartExtensionCodec};
 
 /// Extension trait for LogicalExprNode providing conversions with SessionContext
 pub trait LogicalExprNodeExt: Sized {
@@ -18,7 +20,7 @@ pub trait LogicalExprNodeExt: Sized {
 impl LogicalExprNodeExt for LogicalExprNode {
     fn from_expr(expr: Expr) -> Result<Self, AvengerChartError> {
         // Use our custom codec for serialization
-        let codec = crate::scales::AvengerChartExtensionCodec::new();
+        let codec = AvengerChartExtensionCodec::new();
 
         // Convert Expr to LogicalExprNode
         serialize_expr(&expr, &codec).map_err(|e| {
@@ -28,7 +30,7 @@ impl LogicalExprNodeExt for LogicalExprNode {
 
     fn to_expr(&self, ctx: &SessionContext) -> Result<Expr, AvengerChartError> {
         // Use our custom codec for deserialization
-        let codec = crate::scales::AvengerChartExtensionCodec::new();
+        let codec = AvengerChartExtensionCodec::new();
 
         // Convert LogicalExprNode back to Expr
         parse_expr(self, ctx, &codec)

@@ -204,6 +204,12 @@ pub fn parse_hwb_function(args: &[ThemeValue]) -> Option<CssRgba> {
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::PI;
+
+    use indexmap::IndexMap;
+
+    use crate::theme::{AngleUnit, Theme, ThemeContext};
+
     use super::*;
 
     // ============================================================
@@ -212,8 +218,6 @@ mod tests {
 
     #[test]
     fn test_parse_rgb_legacy_numbers() {
-        use crate::theme::Theme;
-
         // Legacy comma-separated syntax with numbers
         let css = r#"
             mark {
@@ -222,7 +226,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should parse rgb with legacy syntax");
@@ -245,7 +249,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should parse rgb with percentages");
@@ -268,7 +272,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should parse rgba with alpha");
@@ -292,7 +296,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should parse rgb with modern syntax");
@@ -315,7 +319,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(
@@ -342,7 +346,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(
@@ -368,7 +372,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should parse rgb with percentage alpha");
@@ -559,7 +563,7 @@ mod tests {
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
         // Query the fill color for a mark
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should have parsed fill color");
@@ -582,7 +586,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should parse hsl with modern syntax");
@@ -606,7 +610,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(
@@ -634,7 +638,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should parse hsl with percentage alpha");
@@ -659,7 +663,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should parse hsla with legacy syntax");
@@ -823,7 +827,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should have parsed fill color");
@@ -846,7 +850,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should have parsed fill color");
@@ -869,7 +873,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should have parsed fill color");
@@ -893,7 +897,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should have parsed fill color");
@@ -917,7 +921,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should have parsed fill color");
@@ -956,7 +960,7 @@ mod tests {
         "#;
 
         let theme = Theme::from_css(css).expect("Failed to parse CSS");
-        let ctx = crate::theme::ThemeContext::new("mark", indexmap::IndexMap::new());
+        let ctx = ThemeContext::new("mark", indexmap::IndexMap::new());
         let color = theme.fill_color(&ctx);
 
         assert!(color.is_some(), "Should have parsed fill color");

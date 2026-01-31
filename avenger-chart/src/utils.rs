@@ -1,29 +1,42 @@
-use crate::error::AvengerChartError;
-use arrow::array::{ArrayRef, ListArray};
-use arrow::datatypes::DataType;
-use async_trait::async_trait;
-use avenger_scales::scalar::Scalar;
-use datafusion::arrow::datatypes::Schema;
-use datafusion::common::{ParamValues, Spans};
-use datafusion::error::DataFusionError;
-use datafusion::functions_aggregate::expr_fn::array_agg;
-use datafusion::functions_aggregate::min_max::{max, min};
-use datafusion::functions_array::expr_fn::{array_sort, make_array};
-use datafusion::logical_expr::Subquery;
-use datafusion::optimizer::simplify_expressions::{ExprSimplifier, SimplifyContext};
-use datafusion::prelude::{DataFrame, Expr, SessionContext, col, lit};
-use datafusion::scalar::ScalarValue;
-use datafusion_common::ToDFSchema;
-use indexmap::IndexMap;
 use std::sync::Arc;
 
-/// Strict color parser that returns an error if the color string cannot be parsed
-pub fn parse_color_string_strict(
-    color_str: &str,
-) -> Result<avenger_common::types::ColorOrGradient, AvengerChartError> {
-    use avenger_scales::scales::coerce::Coercer;
-    use datafusion::scalar::ScalarValue;
+use arrow::{
+    array::{ArrayRef, AsArray, ListArray},
+    datatypes::DataType,
+};
+use async_trait::async_trait;
+use avenger_common::types::ColorOrGradient;
+use avenger_scales::{scalar::Scalar, scales::coerce::Coercer};
+use datafusion::{
+    arrow::{
+        compute::cast,
+        datatypes::{
+            Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, Schema, UInt8Type,
+            UInt16Type, UInt32Type, UInt64Type,
+        },
+    },
+    common::{
+        ParamValues, Spans,
+        tree_node::{TreeNode, TreeNodeRecursion},
+    },
+    error::DataFusionError,
+    functions_aggregate::{
+        expr_fn::array_agg,
+        min_max::{max, min},
+    },
+    functions_array::expr_fn::{array_sort, make_array},
+    logical_expr::{Subquery, cast as cast_expr, try_cast},
+    optimizer::simplify_expressions::{ExprSimplifier, SimplifyContext},
+    prelude::{DataFrame, Expr, SessionContext, col, lit},
+    scalar::ScalarValue,
+};
+use datafusion_common::ToDFSchema;
+use indexmap::IndexMap;
 
+use crate::error::AvengerChartError;
+
+/// Strict color parser that returns an error if the color string cannot be parsed
+pub fn parse_color_string_strict(color_str: &str) -> Result<ColorOrGradient, AvengerChartError> {
     let coercer = Coercer::default();
     let array = ScalarValue::iter_to_array(
         [ScalarValue::Utf8(Some(color_str.to_string()))]
@@ -45,7 +58,7 @@ pub fn parse_color_string_strict(
 
 /// Helper to parse color from string using the color coercer
 /// Returns None if parsing fails (kept for backward compatibility)
-pub fn parse_color_string(color_str: &str) -> Option<avenger_common::types::ColorOrGradient> {
+pub fn parse_color_string(color_str: &str) -> Option<ColorOrGradient> {
     parse_color_string_strict(color_str).ok()
 }
 
@@ -54,7 +67,7 @@ pub fn parse_color_string(color_str: &str) -> Option<avenger_common::types::Colo
 pub fn parse_color_to_array_strict(color_str: &str) -> Result<[f32; 4], AvengerChartError> {
     let color = parse_color_string_strict(color_str)?;
     match color {
-        avenger_common::types::ColorOrGradient::Color(rgba) => Ok(rgba),
+        ColorOrGradient::Color(rgba) => Ok(rgba),
         _ => Err(AvengerChartError::InternalError(format!(
             "Color string '{}' parsed to gradient, expected solid color",
             color_str
@@ -89,16 +102,13 @@ impl DataFrameChartHelpers for DataFrame {
         let col_name = "span_col";
 
         for field in self.schema().fields() {
-            use datafusion::arrow::datatypes::DataType;
-            use datafusion::logical_expr::{cast, try_cast};
-
             // Try to handle columns that might contain numeric values
             // For mixed-type columns (e.g., from conditional encoding), try_cast will convert
             // non-numeric values to NULL, which we can then filter out
             if field.data_type().is_numeric() {
                 // Already numeric, just cast to Float32
                 union_dfs.push(self.clone().select(vec![
-                    cast(col(field.name()), DataType::Float32).alias(col_name),
+                    cast_expr(col(field.name()), DataType::Float32).alias(col_name),
                 ])?)
             } else if matches!(
                 field.data_type(),
@@ -525,10 +535,18 @@ impl ArrayRefHelpers for ArrayRef {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use datafusion::{
+        arrow::{
+            array::{Float32Array, StringArray},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        prelude::SessionContext,
+    };
+
     use super::*;
-    use datafusion::arrow::array::{Float32Array, StringArray};
-    use datafusion::arrow::datatypes::{DataType, Field, Schema};
-    use datafusion::arrow::record_batch::RecordBatch;
 
     #[test]
     fn test_parse_white_color() {
@@ -746,14 +764,12 @@ pub fn params_to_datafusion(params: &IndexMap<String, ScalarValue>) -> Option<Pa
 /// This recursively walks the expression tree to detect aggregate functions
 /// like sum(), avg(), count(), etc.
 pub fn contains_aggregate(expr: &Expr) -> bool {
-    use datafusion::common::tree_node::TreeNode;
-
     let mut has_aggregate = false;
     let _ = expr.apply(|e| {
         if matches!(e, Expr::AggregateFunction(_)) {
             has_aggregate = true;
         }
-        Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
+        Ok(TreeNodeRecursion::Continue)
     });
     has_aggregate
 }
@@ -786,13 +802,6 @@ pub fn array_value_to_f64(
     index: usize,
     data_type: &DataType,
 ) -> Result<f64, AvengerChartError> {
-    use arrow::array::AsArray;
-    use datafusion::arrow::compute::cast;
-    use datafusion::arrow::datatypes::{
-        Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
-        UInt32Type, UInt64Type,
-    };
-
     // Prefer the array's actual data type when it is numeric; fall back to provided data_type.
     let actual_dt = array.data_type();
     let dt = match actual_dt {

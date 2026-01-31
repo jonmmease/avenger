@@ -12,10 +12,13 @@
 //! oklch(from blue calc(l - 0.2) c h)
 //! ```
 
-use super::calc::{CalcNode, ChannelKeyword};
-use super::value::ThemeValue;
-use crate::color::types::AbsoluteColor;
 use indexmap::IndexMap;
+
+use super::{
+    calc::{CalcLeaf, CalcNode, ChannelKeyword},
+    value::ThemeValue,
+};
+use crate::color::types::AbsoluteColor;
 
 /// A single color component that may contain channel keywords or calc expressions
 ///
@@ -112,12 +115,9 @@ impl ColorComponent {
             ThemeValue::Calc(node) => Ok(ColorComponent::Calc(*node.clone())),
 
             // Handle CSS variables - wrap in a Calc node
-            ThemeValue::Variable(name) => {
-                use super::calc::{CalcLeaf, CalcNode};
-                Ok(ColorComponent::Calc(CalcNode::Leaf(CalcLeaf::Variable(
-                    name.clone(),
-                ))))
-            }
+            ThemeValue::Variable(name) => Ok(ColorComponent::Calc(CalcNode::Leaf(
+                CalcLeaf::Variable(name.clone()),
+            ))),
 
             _ => Err(format!("Cannot convert {:?} to ColorComponent", value)),
         }

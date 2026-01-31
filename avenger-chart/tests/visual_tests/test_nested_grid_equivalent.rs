@@ -2781,22 +2781,22 @@ async fn hierarchical_5level_data() -> datafusion::dataframe::DataFrame {
             "division",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
                 // Eng: 16 rows
-                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng",
-                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng",
-                // Ops: 16 rows
-                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops",
-                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops",
+                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng",
+                "Eng", "Eng", "Eng", "Eng", // Ops: 16 rows
+                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops",
+                "Ops", "Ops", "Ops", "Ops",
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "department",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
                 // Eng departments
-                "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend",
-                "Backend", "Backend", "Backend", "Backend", "Backend", "Backend", "Backend", "Backend",
-                // Ops departments
-                "Support", "Support", "Support", "Support", "Support", "Support", "Support", "Support",
-                "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps",
+                "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend",
+                "Frontend", "Backend", "Backend", "Backend", "Backend", "Backend", "Backend",
+                "Backend", "Backend", // Ops departments
+                "Support", "Support", "Support", "Support", "Support", "Support", "Support",
+                "Support", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps",
+                "DevOps",
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
@@ -2816,30 +2816,25 @@ async fn hierarchical_5level_data() -> datafusion::dataframe::DataFrame {
             "subteam",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
                 // Each team has 2 subteams (X, Y), 2 points each
-                "X", "X", "Y", "Y", "X", "X", "Y", "Y",
-                "X", "X", "Y", "Y", "X", "X", "Y", "Y",
-                "X", "X", "Y", "Y", "X", "X", "Y", "Y",
-                "X", "X", "Y", "Y", "X", "X", "Y", "Y",
+                "X", "X", "Y", "Y", "X", "X", "Y", "Y", "X", "X", "Y", "Y", "X", "X", "Y", "Y", "X",
+                "X", "Y", "Y", "X", "X", "Y", "Y", "X", "X", "Y", "Y", "X", "X", "Y", "Y",
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "x_val",
             std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
-                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
-                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
-                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
-                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
         (
             "y_val",
             std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
                 // Eng values (higher): 70-130 range
-                90.0, 95.0, 85.0, 90.0, 100.0, 105.0, 95.0, 100.0,
-                110.0, 115.0, 105.0, 110.0, 120.0, 125.0, 115.0, 120.0,
-                // Ops values (lower): 30-70 range
-                40.0, 45.0, 35.0, 40.0, 50.0, 55.0, 45.0, 50.0,
-                55.0, 60.0, 50.0, 55.0, 65.0, 70.0, 60.0, 65.0,
+                90.0, 95.0, 85.0, 90.0, 100.0, 105.0, 95.0, 100.0, 110.0, 115.0, 105.0, 110.0,
+                120.0, 125.0, 115.0, 120.0, // Ops values (lower): 30-70 range
+                40.0, 45.0, 35.0, 40.0, 50.0, 55.0, 45.0, 50.0, 55.0, 60.0, 50.0, 55.0, 65.0, 70.0,
+                60.0, 65.0,
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
     ])
@@ -3798,17 +3793,8 @@ fn test_two_level_col_col() {
                     ),
             );
 
-        let compiled = outer
-            .compile(&ctx)
-            .await
-            .expect("compile col>col nesting");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "nested_grid",
-            "two_level_col_col",
-        )
-        .await;
+        let compiled = outer.compile(&ctx).await.expect("compile col>col nesting");
+        assert_visual_match_default(&compiled, &ctx, None, "nested_grid", "two_level_col_col")
+            .await;
     });
 }

@@ -1,12 +1,35 @@
 //! Plot builder for creating visualizations
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use datafusion::dataframe::DataFrame;
-use datafusion::prelude::{Expr, lit};
+use datafusion::{
+    common::{DFSchema, ScalarValue},
+    dataframe::DataFrame,
+    logical_expr::{EmptyRelation, LogicalPlan},
+    prelude::{Expr, lit},
+};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
+
+use crate::{
+    cartesian::axis::AxisPosition,
+    coords::CoordinateSystem,
+    error::AvengerChartError,
+    guide::CoordinateGuide,
+    layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
+    legend::{Legend, LegendOrientation, LegendPosition},
+    marks::{CompiledMark, CompiledMarkState, Mark},
+    param::Param,
+    polar::axis::{PolarAxisType, PolarDirection},
+    serialization::LogicalPlanNodeExt,
+    theme::Theme,
+};
+
+use super::{
+    compiled::CompiledPlot,
+    specs::{AxisSpec, ScaleSpec},
+    title::{PlotSubtitle, PlotTitle, TitleAlign, TitleSpan},
+};
 
 /// Trait for types that can be converted to Expr (for dimensions)
 pub trait IntoExpr {
@@ -67,9 +90,8 @@ impl IntoExpr for usize {
     }
 }
 
-impl IntoExpr for crate::cartesian::axis::AxisPosition {
+impl IntoExpr for AxisPosition {
     fn into_expr(self) -> Expr {
-        use crate::cartesian::axis::AxisPosition;
         let s = match self {
             AxisPosition::Top => "top",
             AxisPosition::Bottom => "bottom",
@@ -80,21 +102,20 @@ impl IntoExpr for crate::cartesian::axis::AxisPosition {
     }
 }
 
-impl IntoExpr for crate::param::Param {
+impl IntoExpr for Param {
     fn into_expr(self) -> Expr {
         self.expr()
     }
 }
 
-impl IntoExpr for &crate::param::Param {
+impl IntoExpr for &Param {
     fn into_expr(self) -> Expr {
         self.expr()
     }
 }
 
-impl IntoExpr for crate::polar::axis::PolarAxisType {
+impl IntoExpr for PolarAxisType {
     fn into_expr(self) -> Expr {
-        use crate::polar::axis::PolarAxisType;
         let s = match self {
             PolarAxisType::Radial => "radial",
             PolarAxisType::Angular => "angular",
@@ -103,9 +124,8 @@ impl IntoExpr for crate::polar::axis::PolarAxisType {
     }
 }
 
-impl IntoExpr for crate::polar::axis::PolarDirection {
+impl IntoExpr for PolarDirection {
     fn into_expr(self) -> Expr {
-        use crate::polar::axis::PolarDirection;
         let s = match self {
             PolarDirection::Clockwise => "clockwise",
             PolarDirection::CounterClockwise => "counterclockwise",
@@ -114,9 +134,8 @@ impl IntoExpr for crate::polar::axis::PolarDirection {
     }
 }
 
-impl IntoExpr for crate::legend::LegendPosition {
+impl IntoExpr for LegendPosition {
     fn into_expr(self) -> Expr {
-        use crate::legend::LegendPosition;
         let s = match self {
             LegendPosition::Top => "top",
             LegendPosition::Right => "right",
@@ -127,9 +146,8 @@ impl IntoExpr for crate::legend::LegendPosition {
     }
 }
 
-impl IntoExpr for crate::legend::LegendOrientation {
+impl IntoExpr for LegendOrientation {
     fn into_expr(self) -> Expr {
-        use crate::legend::LegendOrientation;
         let s = match self {
             LegendOrientation::Horizontal => "horizontal",
             LegendOrientation::Vertical => "vertical",
@@ -138,29 +156,17 @@ impl IntoExpr for crate::legend::LegendOrientation {
     }
 }
 
-impl IntoExpr for crate::plot::title::TitleSpan {
+impl IntoExpr for TitleSpan {
     fn into_expr(self) -> Expr {
         lit(self.to_str())
     }
 }
 
-impl IntoExpr for crate::plot::title::TitleAlign {
+impl IntoExpr for TitleAlign {
     fn into_expr(self) -> Expr {
         lit(self.to_str())
     }
 }
-
-use super::compiled::CompiledPlot;
-use super::specs::{AxisSpec, ScaleSpec};
-use super::title::{PlotSubtitle, PlotTitle};
-use crate::coords::CoordinateSystem;
-use crate::error::AvengerChartError;
-use crate::guide::CoordinateGuide;
-use crate::layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint};
-use crate::legend::Legend;
-use crate::marks::{CompiledMark, CompiledMarkState, Mark};
-use crate::serialization::LogicalPlanNodeExt;
-use crate::theme::Theme;
 
 #[derive(Clone)]
 pub struct Plot<C: CoordinateSystem> {
@@ -194,7 +200,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) guide_config: Option<C::Guide>,
 
     /// Parameters that can be used in expressions
-    pub(crate) params: Vec<crate::param::Param>,
+    pub(crate) params: Vec<Param>,
 }
 
 impl<C: CoordinateSystem> Plot<C> {
@@ -277,12 +283,10 @@ impl<C: CoordinateSystem> Plot<C> {
                 let df = df_opt.unwrap_or_else(|| {
                     DataFrame::new(
                         session_context.state().clone(),
-                        datafusion::logical_expr::LogicalPlan::EmptyRelation(
-                            datafusion::logical_expr::EmptyRelation {
-                                produce_one_row: false,
-                                schema: Arc::new(datafusion::common::DFSchema::empty()),
-                            },
-                        ),
+                        LogicalPlan::EmptyRelation(EmptyRelation {
+                            produce_one_row: false,
+                            schema: Arc::new(DFSchema::empty()),
+                        }),
                     )
                 });
                 self.compile_mark_with_aggregation(m, mark_state, df, session_context)
@@ -309,7 +313,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Add user-specified axes from axis_specs
         for (channel, axis_spec) in &axis_specs {
-            let crate::plot::AxisSpec::Local(axis_config) = axis_spec;
+            let AxisSpec::Local(axis_config) = axis_spec;
             // The axis_config is already the correct type for this coordinate system
             // We need to downcast it to the specific axis type for the guide
             // This is safe because the axis type matches the coordinate system
@@ -345,7 +349,7 @@ impl<C: CoordinateSystem> Plot<C> {
         };
 
         // Build default params for scale building
-        let default_params: IndexMap<String, datafusion::common::ScalarValue> = self
+        let default_params: IndexMap<String, ScalarValue> = self
             .params
             .iter()
             .map(|p| (p.name.clone(), p.default.clone()))
@@ -483,13 +487,13 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Add a parameter that can be used in plot expressions
-    pub fn add_param(mut self, param: crate::param::Param) -> Self {
+    pub fn add_param(mut self, param: Param) -> Self {
         self.params.push(param);
         self
     }
 
     /// Add multiple parameters at once
-    pub fn add_params(mut self, params: impl IntoIterator<Item = crate::param::Param>) -> Self {
+    pub fn add_params(mut self, params: impl IntoIterator<Item = Param>) -> Self {
         self.params.extend(params);
         self
     }
@@ -513,7 +517,7 @@ impl<C: CoordinateSystem> Plot<C> {
         let width_expr = width.into_expr();
         let height_expr = height.into_expr();
 
-        self.layout_spec.canvas = crate::layout::SizeMode::Fixed {
+        self.layout_spec.canvas = SizeMode::Fixed {
             width: width_expr.into(),
             height: height_expr.into(),
         };
@@ -538,7 +542,7 @@ impl<C: CoordinateSystem> Plot<C> {
         let width_expr = width.into_expr();
         let height_expr = height.into_expr();
 
-        self.layout_spec.plot_area = crate::layout::SizeMode::Fixed {
+        self.layout_spec.plot_area = SizeMode::Fixed {
             width: width_expr.into(),
             height: height_expr.into(),
         };
@@ -548,9 +552,9 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Set plot area sizing constraint for responsive layouts
     pub fn plot_constraint(mut self, constraint: PlotConstraint) -> Self {
         self.layout_spec.plot_area = match constraint {
-            PlotConstraint::Auto => crate::layout::SizeMode::Auto,
-            PlotConstraint::Width(w) => crate::layout::SizeMode::Width(w.into()),
-            PlotConstraint::Height(h) => crate::layout::SizeMode::Height(h.into()),
+            PlotConstraint::Auto => SizeMode::Auto,
+            PlotConstraint::Width(w) => SizeMode::Width(w.into()),
+            PlotConstraint::Height(h) => SizeMode::Height(h.into()),
         };
         self
     }

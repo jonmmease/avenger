@@ -5,15 +5,17 @@
 //! - `RenderState` - Changes per subplot, contains computed dimensions and scales
 //! - `RenderContext` - Thin facade combining both for mark rendering API
 
-use crate::coords::CoordMeasurement;
-use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
-use crate::scales::ConfiguredScaleWithSpec;
-use crate::theme::Theme;
-use datafusion::common::ScalarValue;
-use datafusion::prelude::SessionContext;
+use std::{collections::HashMap, sync::Arc};
+
+use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
-use std::collections::HashMap;
-use std::sync::Arc;
+
+use crate::{
+    coords::CoordMeasurement,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    scales::ConfiguredScaleWithSpec,
+    theme::{Theme, ThemeContext, ThemeValue},
+};
 
 /// Immutable context built once at evaluate() entry.
 ///
@@ -111,7 +113,7 @@ pub struct RenderContext<'a> {
     pub state: &'a RenderState,
     /// Current cell path in facet hierarchy (values at each nesting level).
     /// Empty when not inside a facet cell. e.g., `["East", "Eng"]`
-    pub facet_path: &'a [datafusion::common::ScalarValue],
+    pub facet_path: &'a [ScalarValue],
     /// Coordinate-system-specific measurement data (e.g., facet cell layout).
     /// For facet coordinate systems this contains subplot measurements.
     /// For non-facet coordinate systems this is `EmptyCoordMeasurement`.
@@ -123,7 +125,7 @@ impl<'a> RenderContext<'a> {
     pub fn new(
         eval: &'a EvaluationContext,
         state: &'a RenderState,
-        facet_path: &'a [datafusion::common::ScalarValue],
+        facet_path: &'a [ScalarValue],
         coord_measurement: &'a dyn CoordMeasurement,
     ) -> Self {
         Self {
@@ -182,18 +184,14 @@ impl<'a> RenderContext<'a> {
     /// It resolves:
     /// - CSS variables (var()) using params or theme defaults
     /// - light-dark() functions using the "color-scheme" param
-    pub fn query_theme(
-        &self,
-        context: &crate::theme::ThemeContext,
-        property: &str,
-    ) -> Option<crate::theme::ThemeValue> {
+    pub fn query_theme(&self, context: &ThemeContext, property: &str) -> Option<ThemeValue> {
         let mut context_with_params = context.clone();
         context_with_params.params.extend(self.eval.params.clone());
         self.eval.theme.query(&context_with_params, property)
     }
 
     /// Get font size with parameter support
-    pub fn font_size(&self, context: &crate::theme::ThemeContext) -> Option<f32> {
+    pub fn font_size(&self, context: &ThemeContext) -> Option<f32> {
         let mut context_with_params = context.clone();
         context_with_params.params.extend(self.eval.params.clone());
         self.eval.theme.font_size(&context_with_params)

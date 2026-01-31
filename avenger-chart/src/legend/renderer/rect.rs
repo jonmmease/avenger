@@ -1,18 +1,30 @@
 //! Rectangle/bar legend renderer for discrete scales
 
-use super::{LegendChannel, LegendRenderer, helpers};
-use crate::channel::ChannelValue;
-use crate::error::AvengerChartError;
-use crate::legend::Legend;
-use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr};
-use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
-use crate::utils::ScalarValueHelpers;
-use avenger_common::types::{ColorOrGradient, SymbolShape};
-use avenger_common::value::ScalarOrArray;
+use std::collections::HashMap;
+
+use avenger_common::{
+    types::{ColorOrGradient, SymbolShape},
+    value::ScalarOrArray,
+};
 use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
 use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_text::types::FontWeight;
+use datafusion::{common::ScalarValue, prelude::SessionContext};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::{
+    channel::ChannelValue,
+    error::AvengerChartError,
+    legend::Legend,
+    plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr},
+    scales::{ConfiguredScaleLegendExt, DomainValues},
+    serialization::LogicalExprNodeExt,
+    theme::Theme,
+    utils::{ScalarValueHelpers, parse_color_string_strict},
+};
+
+use super::{LegendChannel, LegendRenderer, helpers};
 
 /// Rectangle legend renderer for rect/bar marks
 #[derive(Default, Serialize, Deserialize)]
@@ -67,9 +79,9 @@ impl LegendRenderer for CompiledRectLegend {
         y: f32,
         _width: f32,
         _height: f32,
-        theme: &crate::theme::Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
@@ -104,8 +116,6 @@ impl LegendRenderer for CompiledRectLegend {
         .unwrap_or(Self::DEFAULT_SIZE);
 
         // Evaluate title expression
-        use crate::serialization::LogicalExprNodeExt;
-
         let title = if let Some(node) = config.title.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             Some(evaluate_string_expr(&expr, ctx, params).await?)
@@ -137,12 +147,8 @@ impl LegendRenderer for CompiledRectLegend {
             ), // Always use square for rect marks
             size: ScalarOrArray::new_scalar(symbol_size),
             angle: ScalarOrArray::new_scalar(Self::DEFAULT_ANGLE),
-            fill: ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(
-                Self::DEFAULT_FILL,
-            )?),
-            stroke: ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(
-                Self::DEFAULT_STROKE,
-            )?),
+            fill: ScalarOrArray::new_scalar(parse_color_string_strict(Self::DEFAULT_FILL)?),
+            stroke: ScalarOrArray::new_scalar(parse_color_string_strict(Self::DEFAULT_STROKE)?),
             stroke_width: Some(Self::DEFAULT_STROKE_WIDTH),
             inner_width: 0.0,
             inner_height: Self::INNER_HEIGHT,
@@ -183,8 +189,7 @@ impl LegendRenderer for CompiledRectLegend {
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_fill =
-                Some(crate::utils::parse_color_string_strict(&fill_str)?);
+            legend_config.background_fill = Some(parse_color_string_strict(&fill_str)?);
         }
         if let Some(node) = config
             .background_stroke
@@ -193,15 +198,14 @@ impl LegendRenderer for CompiledRectLegend {
         {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_stroke =
-                Some(crate::utils::parse_color_string_strict(&stroke_str)?);
+            legend_config.background_stroke = Some(parse_color_string_strict(&stroke_str)?);
         }
 
         // Evaluate and apply legend colors
         if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let title_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = crate::utils::parse_color_string_strict(&title_color)?;
+            let color = parse_color_string_strict(&title_color)?;
             legend_config.title_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
                 _ => {
@@ -215,7 +219,7 @@ impl LegendRenderer for CompiledRectLegend {
         if let Some(node) = config.label_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let label_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = crate::utils::parse_color_string_strict(&label_color)?;
+            let color = parse_color_string_strict(&label_color)?;
             legend_config.label_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
                 _ => {
@@ -258,7 +262,7 @@ impl LegendRenderer for CompiledRectLegend {
         {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.title_font_weight = Some(FontWeight::Number(weight));
         }
         if let Some(node) = config
             .label_font_family
@@ -275,7 +279,7 @@ impl LegendRenderer for CompiledRectLegend {
         {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.label_font_weight = Some(FontWeight::Number(weight));
         }
 
         // Use constant values from mark if available (and not the legend channel itself)

@@ -120,9 +120,12 @@
 //! font-size: clamp(12px, calc(var(--scale) * 1rem), 20px);
 //! ```
 
-use super::value::{AngleUnit, LengthUnit};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+
+use crate::color::types::{AbsoluteColor, ColorSpace};
+
+use super::value::{AngleUnit, LengthUnit};
 
 /// Calculation node - tree structure for calc expressions
 ///
@@ -402,10 +405,8 @@ impl ChannelKeyword {
     /// - 'a' as Lab/Oklab a-axis vs alpha (though 'a' defaults to a-axis in Lab/Oklab)
     pub fn from_ident_with_color_space(
         ident: &str,
-        color_space: Option<crate::color::types::ColorSpace>,
+        color_space: Option<ColorSpace>,
     ) -> Option<Self> {
-        use crate::color::types::ColorSpace;
-
         let lower = ident.to_lowercase();
         match (lower.as_str(), color_space) {
             // In Lab/Oklab contexts, 'b' refers to the b-axis, not blue
@@ -888,7 +889,7 @@ impl CalcNode {
         &self,
         params: &IndexMap<String, f64>,
         base_font_size: f32,
-        origin_color: Option<&crate::color::types::AbsoluteColor>,
+        origin_color: Option<&AbsoluteColor>,
     ) -> Result<CalcLeaf, String> {
         // First, substitute variables
         let mut substituted = self.substitute_variables(params)?;
@@ -1266,7 +1267,7 @@ impl CalcNode {
     /// A new CalcNode with channel keywords replaced by concrete values
     pub fn substitute_channel_keywords(
         &self,
-        origin_color: Option<&crate::color::types::AbsoluteColor>,
+        origin_color: Option<&AbsoluteColor>,
     ) -> Result<CalcNode, String> {
         match self {
             CalcNode::Leaf(CalcLeaf::ChannelKeyword(keyword)) => {

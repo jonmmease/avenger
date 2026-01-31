@@ -245,8 +245,8 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
 
     match (from, to) {
         // Direct conversions: sRGB ↔ HSL
-        (Srgb, Hsl) => crate::color::convert::hsl::rgb_to_hsl(components),
-        (Hsl, Srgb) => crate::color::convert::hsl::hsl_to_rgb(components),
+        (Srgb, Hsl) => hsl::rgb_to_hsl(components),
+        (Hsl, Srgb) => hsl::hsl_to_rgb(components),
 
         // Polar ↔ Orthogonal conversions
         (Lab, Lch) => orthogonal_to_polar(components, 0.0001),
@@ -281,14 +281,14 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
 
         // HSL → other (via sRGB)
         (Hsl, Lab) | (Hsl, Lch) | (Hsl, Oklab) | (Hsl, Oklch) | (Hsl, Hwb) => {
-            let srgb = crate::color::convert::hsl::hsl_to_rgb(components);
+            let srgb = hsl::hsl_to_rgb(components);
             convert_color_space(&srgb, Srgb, to)
         }
 
         // other → HSL (via sRGB)
         (Lab, Hsl) | (Lch, Hsl) | (Oklab, Hsl) | (Oklch, Hsl) | (Hwb, Hsl) => {
             let srgb = convert_color_space(components, from, Srgb);
-            crate::color::convert::hsl::rgb_to_hsl(&srgb)
+            hsl::rgb_to_hsl(&srgb)
         }
 
         // HWB conversions (via sRGB)

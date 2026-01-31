@@ -1,10 +1,10 @@
 //! Full CSS-compliant theme system using cssparser and selectors
 
-use crate::theme::parser;
-use crate::theme::{ThemeContext, ThemeValue, select_available_font};
 use indexmap::IndexMap;
 use selectors::matching::SelectorCaches;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::theme::{ThemeContext, ThemeValue, parser, select_available_font};
 
 /// Default font family fallback used when no CSS theme is specified
 #[allow(dead_code)]

@@ -25,14 +25,14 @@ pub mod zerod;
 
 #[cfg(test)]
 mod serialization_tests {
-    use crate::channel::value::ChannelValue;
-    use crate::serialization::LogicalExprNodeExt;
-    use datafusion::prelude::*;
+    use datafusion::prelude::col;
+    use datafusion_proto::protobuf::LogicalExprNode;
+
+    use crate::{channel::value::ChannelValue, serialization::LogicalExprNodeExt};
 
     #[test]
     fn test_channel_value_serialization() {
         // Test that we can create a ChannelValue with LogicalExprNode
-        use datafusion_proto::protobuf::LogicalExprNode;
         let expr = col("test");
         let expr_node = LogicalExprNode::from_expr(expr).expect("Failed to serialize expr");
 

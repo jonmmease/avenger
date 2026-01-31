@@ -1,15 +1,28 @@
 //! Legend construction and configuration for CompiledPlot
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use datafusion::prelude::SessionContext;
+use avenger_scales::scales::ConfiguredScale;
+use datafusion::{common::ScalarValue, logical_expr::lit, prelude::SessionContext};
 use indexmap::IndexMap;
 
-use crate::error::AvengerChartError;
-use crate::legend::Legend;
-use crate::render::RenderContext;
-use crate::scales::ConfiguredScaleWithSpec;
+use crate::{
+    channel::value::ChannelValue,
+    coords::{EmptyCoordMeasurement, extract_channel_title_from_marks},
+    error::AvengerChartError,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    layout::legend::measure_legend_size_with_channels,
+    legend::{
+        ChannelInfo, Legend, LegendChannel, LegendPosition, MergeKey, renderer::LegendRenderer,
+    },
+    marks::CompiledMark,
+    maybe::Maybe,
+    render::{
+        EvaluationContext, LegendMeasurements, RenderContext, RenderState, types::LegendMeasurement,
+    },
+    scales::ConfiguredScaleWithSpec,
+    serialization::LogicalExprNodeExt,
+};
 
 use super::CompiledPlot;
 
@@ -38,10 +51,10 @@ impl CompiledPlot {
         theme_query: G,
         setter: impl FnOnce(Legend, T) -> Legend,
     ) where
-        F: FnOnce(&Legend) -> &crate::maybe::Maybe<Option<U>>,
+        F: FnOnce(&Legend) -> &Maybe<Option<U>>,
         G: FnOnce() -> Option<T>,
     {
-        if matches!(field_check(legend), crate::maybe::Maybe::Unset) {
+        if matches!(field_check(legend), Maybe::Unset) {
             if let Some(value) = theme_query() {
                 *legend = setter(legend.clone(), value);
             }
@@ -53,7 +66,7 @@ impl CompiledPlot {
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         session_context: &SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        params: &IndexMap<String, ScalarValue>,
     ) -> IndexMap<String, Legend> {
         let mut default_legends = IndexMap::new();
 
@@ -218,7 +231,7 @@ impl CompiledPlot {
         &self,
         channel: &str,
         scale: &ConfiguredScaleWithSpec,
-    ) -> Option<Arc<dyn crate::legend::renderer::LegendRenderer>> {
+    ) -> Option<Arc<dyn LegendRenderer>> {
         // Find the first mark that has this channel and get its preference
         for mark in &self.marks {
             if mark.data_context().channels().contains_key(channel) {
@@ -232,8 +245,8 @@ impl CompiledPlot {
     pub(super) fn get_legends_with_theme(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        session_context: &datafusion::prelude::SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        session_context: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
     ) -> IndexMap<String, Legend> {
         // 1. Start with plot-level legends
         let mut all_legends = self.legends.clone();
@@ -442,7 +455,7 @@ impl CompiledPlot {
             // Apply legend position from theme if not explicitly set
             // Don't set position at compile time if there are media queries -
             // it will be determined at evaluate time with actual parameters
-            if matches!(legend.position, crate::maybe::Maybe::Unset) {
+            if matches!(legend.position, Maybe::Unset) {
                 // Check if theme has any media queries that affect legend position
                 let has_media_queries =
                     theme.has_media_queries_for_property(&legend_ctx, "position");
@@ -452,10 +465,10 @@ impl CompiledPlot {
                     if let Some(theme_value) = theme.query(&legend_ctx, "position") {
                         if let Some(position_str) = theme_value.as_string() {
                             let position = match position_str.to_lowercase().as_str() {
-                                "top" => Some(crate::legend::LegendPosition::Top),
-                                "bottom" => Some(crate::legend::LegendPosition::Bottom),
-                                "left" => Some(crate::legend::LegendPosition::Left),
-                                "right" => Some(crate::legend::LegendPosition::Right),
+                                "top" => Some(LegendPosition::Top),
+                                "bottom" => Some(LegendPosition::Bottom),
+                                "left" => Some(LegendPosition::Left),
+                                "right" => Some(LegendPosition::Right),
                                 _ => None,
                             };
                             if let Some(pos) = position {
@@ -479,17 +492,14 @@ impl CompiledPlot {
     fn build_legend_channel(
         &self,
         channel_name: &str,
-        channel_value: &crate::channel::value::ChannelValue,
+        channel_value: &ChannelValue,
         scale: &ConfiguredScaleWithSpec,
-        mark: &dyn crate::marks::CompiledMark,
+        mark: &dyn CompiledMark,
         mark_index: usize,
         configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> crate::legend::LegendChannel {
-        use crate::legend::{ChannelInfo, LegendChannel};
-        use datafusion::logical_expr::lit;
-
+        params: &IndexMap<String, ScalarValue>,
+    ) -> LegendChannel {
         // Collect related channels from the mark
         let mut related_channels = HashMap::new();
 
@@ -516,23 +526,18 @@ impl CompiledPlot {
 
         // For channels not explicitly set, check if they have theme defaults
         // This ensures legend symbols match the chart's actual appearance
-        let eval_ctx = crate::render::EvaluationContext::new(
+        let eval_ctx = EvaluationContext::new(
             self.get_theme(),
             Arc::new(ctx.clone()),
             params.clone(),
-            Arc::new(crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty()),
+            Arc::new(EvaluatedFacetTree::empty()),
         );
-        let render_state = crate::render::RenderState::new(
+        let render_state = RenderState::new(
             100.0, // Dummy values for getting defaults
             100.0,
             std::collections::HashMap::new(),
         );
-        let context = RenderContext::new(
-            &eval_ctx,
-            &render_state,
-            &[],
-            &crate::coords::EmptyCoordMeasurement,
-        );
+        let context = RenderContext::new(&eval_ctx, &render_state, &[], &EmptyCoordMeasurement);
 
         // Iterate through all supported channels of this mark
         for channel_desc in mark.supported_channels() {
@@ -567,15 +572,9 @@ impl CompiledPlot {
         all_legends: &IndexMap<String, Legend>,
         configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<
-        (
-            Vec<Vec<crate::legend::LegendChannel>>,
-            IndexMap<String, Legend>,
-        ),
-        AvengerChartError,
-    > {
-        use crate::legend::MergeKey;
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<(Vec<Vec<LegendChannel>>, IndexMap<String, Legend>), AvengerChartError> {
+        use super::expr_eval::{evaluate_bool_expr, evaluate_i32_expr};
 
         // Collect all channels that need legends from all marks
         let mut all_channels = Vec::new();
@@ -610,7 +609,7 @@ impl CompiledPlot {
         }
 
         // Group channels by MergeKey
-        let mut channel_groups: Vec<Vec<crate::legend::LegendChannel>> = Vec::new();
+        let mut channel_groups: Vec<Vec<LegendChannel>> = Vec::new();
 
         for channel in all_channels {
             let merge_key = MergeKey::from_channel(&channel);
@@ -641,12 +640,9 @@ impl CompiledPlot {
         }
 
         // Sort channel groups by their legend order
-        let mut groups_with_order: Vec<(Vec<crate::legend::LegendChannel>, i32)> = Vec::new();
+        let mut groups_with_order: Vec<(Vec<LegendChannel>, i32)> = Vec::new();
 
         // Evaluate order expressions
-        use crate::plot::compiled::expr_eval::*;
-        use crate::serialization::LogicalExprNodeExt;
-
         for channels in channel_groups {
             if !channels.is_empty() {
                 let primary_channel = &channels[0];
@@ -668,7 +664,7 @@ impl CompiledPlot {
         groups_with_order.sort_by_key(|(_, order)| *order);
 
         // Extract sorted channel groups
-        let sorted_channel_groups: Vec<Vec<crate::legend::LegendChannel>> = groups_with_order
+        let sorted_channel_groups: Vec<Vec<LegendChannel>> = groups_with_order
             .iter()
             .map(|(channels, _)| channels.clone())
             .collect();
@@ -712,13 +708,11 @@ impl CompiledPlot {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         available_space: taffy::Size<f32>,
         ctx: &SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<crate::render::LegendMeasurements, AvengerChartError> {
-        use crate::layout::legend::measure_legend_size_with_channels;
-        use crate::render::types::LegendMeasurement;
-        use avenger_scales::scales::ConfiguredScale;
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<LegendMeasurements, AvengerChartError> {
+        use super::expr_eval::evaluate_legend_position_expr;
 
-        let mut legend_measurements = crate::render::LegendMeasurements::new();
+        let mut legend_measurements = LegendMeasurements::new();
 
         // Get all legends including channel-level configs
         let all_legends = self.get_legends_with_theme(scales, ctx, params);
@@ -790,8 +784,6 @@ impl CompiledPlot {
                 )
                 .await?;
                 // Evaluate position expression
-                use crate::plot::compiled::expr_eval::*;
-                use crate::serialization::LogicalExprNodeExt;
                 let position =
                     if let Some(node) = legend.position.as_option().and_then(|o| o.as_ref()) {
                         let expr = node.to_expr(ctx)?;
@@ -833,20 +825,20 @@ impl CompiledPlot {
                             if let Some(theme_value) = theme.query(&legend_ctx, "position") {
                                 if let Some(position_str) = theme_value.as_string() {
                                     match position_str.to_lowercase().as_str() {
-                                        "top" => crate::legend::LegendPosition::Top,
-                                        "bottom" => crate::legend::LegendPosition::Bottom,
-                                        "left" => crate::legend::LegendPosition::Left,
-                                        "right" => crate::legend::LegendPosition::Right,
-                                        _ => crate::legend::LegendPosition::Right,
+                                        "top" => LegendPosition::Top,
+                                        "bottom" => LegendPosition::Bottom,
+                                        "left" => LegendPosition::Left,
+                                        "right" => LegendPosition::Right,
+                                        _ => LegendPosition::Right,
                                     }
                                 } else {
-                                    crate::legend::LegendPosition::Right
+                                    LegendPosition::Right
                                 }
                             } else {
-                                crate::legend::LegendPosition::Right
+                                LegendPosition::Right
                             }
                         } else {
-                            crate::legend::LegendPosition::Right
+                            LegendPosition::Right
                         }
                     };
                 if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
@@ -870,13 +862,8 @@ impl CompiledPlot {
     }
 
     /// Infer a title for the legend based on channel
-    fn infer_legend_title(
-        &self,
-        channel: &str,
-        session_context: &datafusion::prelude::SessionContext,
-    ) -> String {
+    fn infer_legend_title(&self, channel: &str, session_context: &SessionContext) -> String {
         // First try to extract from marks (like we do for axes)
-        use crate::coords::extract_channel_title_from_marks;
         if let Some(title) = extract_channel_title_from_marks(&self.marks, channel, session_context)
         {
             return title;
@@ -898,8 +885,8 @@ impl CompiledPlot {
     }
 
     /// Get default legend position for a channel
-    fn default_legend_position(&self, _channel: &str) -> crate::legend::LegendPosition {
+    fn default_legend_position(&self, _channel: &str) -> LegendPosition {
         // All legends default to the right
-        crate::legend::LegendPosition::Right
+        LegendPosition::Right
     }
 }

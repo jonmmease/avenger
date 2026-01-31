@@ -1,20 +1,42 @@
-use crate::define_position_channels;
-use crate::error::AvengerChartError;
-use crate::impl_mark_trait_common;
-use crate::marks::{CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use crate::channel::ChannelDescriptor;
-use crate::coords::CoordinateSystemTransform;
-use crate::polar::Polar;
-use crate::render::RenderContext;
 use arrow::array::RecordBatch;
-use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::logical_expr::Expr;
+use datafusion::{
+    arrow::datatypes::DataType as ArrowDataType,
+    logical_expr::{Expr, lit},
+};
 use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
-// Import Symbol for the macro, then re-export it
-use crate::marks::symbol::Symbol;
+
+use avenger_common::{types::SymbolShape, value::ScalarOrArray};
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
+use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
+
+use crate::{
+    channel::ChannelDescriptor,
+    coords::{CoordinateSystemTransform, PointGeometry},
+    define_position_channels,
+    error::AvengerChartError,
+    impl_mark_trait_common,
+    legend::LegendRenderer,
+    marks::{
+        CompiledDataContext, CompiledMark, CompiledMarkState, Mark, RadiusExpression,
+        default_scale_for_data_type,
+        symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer},
+        util::{
+            coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+            is_continuous_scale,
+        },
+    },
+    render::RenderContext,
+    scales::{
+        ScaleSpec,
+        spec::{Ordinal, Point, Sqrt},
+    },
+    utils::ScalarValueHelpers,
+};
+
+use super::super::Polar;
 
 // Define position channels for Polar Symbol using the macro
 define_position_channels! {
@@ -37,8 +59,8 @@ impl Mark<Polar> for Symbol<Polar> {
         &self,
         compiled_state: CompiledMarkState,
         _session_context: &datafusion::prelude::SessionContext,
-    ) -> Result<std::sync::Arc<dyn CompiledMark>, AvengerChartError> {
-        Ok(std::sync::Arc::new(CompiledPolarSymbol {
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(Arc::new(CompiledPolarSymbol {
             state: compiled_state,
         }))
     }
@@ -131,16 +153,8 @@ impl CompiledMark for CompiledPolarSymbol {
         context: &RenderContext,
         coord: Box<dyn CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::marks::util::{
-            coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-        };
-        use avenger_common::value::ScalarOrArray;
-        use avenger_scales::scales::coerce::Coercer;
-        use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-        use datafusion_common::ScalarValue;
-
         // Extract position channels for polar coordinates
-        let mut position_channels = std::collections::HashMap::new();
+        let mut position_channels = HashMap::new();
         for channel_name in coord.required_channels() {
             let value = coerce_numeric_channel_with_renderer(
                 self,
@@ -162,7 +176,7 @@ impl CompiledMark for CompiledPolarSymbol {
         )?;
         let geometry = geometry
             .as_any()
-            .downcast_ref::<crate::coords::PointGeometry>()
+            .downcast_ref::<PointGeometry>()
             .ok_or_else(|| {
                 AvengerChartError::CoordinateSystemError(
                     "Failed to downcast to PointGeometry".to_string(),
@@ -202,12 +216,10 @@ impl CompiledMark for CompiledPolarSymbol {
         let shape_default = self
             .default_channel_value("shape", context)
             .and_then(|scalar| match scalar {
-                ScalarValue::Utf8(Some(s)) => {
-                    avenger_common::types::SymbolShape::from_vega_str(&s).ok()
-                }
+                ScalarValue::Utf8(Some(s)) => SymbolShape::from_vega_str(&s).ok(),
                 _ => None,
             })
-            .unwrap_or(avenger_common::types::SymbolShape::Circle);
+            .unwrap_or(SymbolShape::Circle);
 
         let (shapes, shape_index) =
             if let Some(shape_array) = data.and_then(|d| d.column_by_name("shape")) {
@@ -221,7 +233,7 @@ impl CompiledMark for CompiledPolarSymbol {
         // Stroke width
         let stroke_width_default = self
             .default_channel_value("stroke_width", context)
-            .and_then(|scalar| crate::utils::ScalarValueHelpers::as_f32(&scalar).ok())
+            .and_then(|scalar| ScalarValueHelpers::as_f32(&scalar).ok())
             .unwrap_or(1.0);
 
         let stroke_width = if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
@@ -258,7 +270,7 @@ impl CompiledMark for CompiledPolarSymbol {
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        crate::marks::symbol::symbol_channel_defaults(channel)
+        symbol_channel_defaults(channel)
     }
 
     fn radius_expression(
@@ -277,68 +289,65 @@ impl CompiledMark for CompiledPolarSymbol {
     fn preferred_legend_renderer(
         &self,
         channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<Arc<dyn crate::legend::LegendRenderer>> {
+        scale: &ConfiguredScale,
+    ) -> Option<Arc<dyn LegendRenderer>> {
         // Use the same logic as the Symbol mark
-        crate::marks::symbol::symbol_legend_renderer(channel, scale, &["r", "theta"])
+        symbol_legend_renderer(channel, scale, &["r", "theta"])
     }
 
     fn preferred_scale_type(
         &self,
         channel: &str,
-        data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<Box<dyn crate::scales::ScaleSpec>> {
-        use crate::scales::spec::{Ordinal, Point, Sqrt};
-        use datafusion::arrow::datatypes::DataType;
-
+        data_type: &ArrowDataType,
+    ) -> Option<Box<dyn ScaleSpec>> {
         match (channel, data_type) {
             // Symbol marks use point scales for categorical position data
-            ("r" | "theta", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Point::default()))
-            }
+            (
+                "r" | "theta",
+                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
+            ) => Some(Box::new(Point::default())),
             // Size uses sqrt scale for numeric data (better for area perception)
             (
                 "size",
-                DataType::Float32
-                | DataType::Float64
-                | DataType::Int8
-                | DataType::Int16
-                | DataType::Int32
-                | DataType::Int64
-                | DataType::UInt8
-                | DataType::UInt16
-                | DataType::UInt32
-                | DataType::UInt64,
+                ArrowDataType::Float32
+                | ArrowDataType::Float64
+                | ArrowDataType::Int8
+                | ArrowDataType::Int16
+                | ArrowDataType::Int32
+                | ArrowDataType::Int64
+                | ArrowDataType::UInt8
+                | ArrowDataType::UInt16
+                | ArrowDataType::UInt32
+                | ArrowDataType::UInt64,
             ) => {
                 // Use Sqrt scale for better area perception
                 Some(Box::new(Sqrt::default()))
             }
             // Size uses ordinal for categorical data
-            ("size", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+            ("size", ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View) => {
                 Some(Box::new(Ordinal::default()))
             }
             // Color and shape channels use ordinal scales for categorical data
             (
                 "fill" | "stroke" | "color" | "shape",
-                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
+                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
             ) => Some(Box::new(Ordinal::default())),
             // Stroke width uses ordinal scale only for categorical data
-            ("stroke_width", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Box::new(Ordinal::default()))
-            }
+            (
+                "stroke_width",
+                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
+            ) => Some(Box::new(Ordinal::default())),
             // Fall back to data type-based inference for other channels
-            _ => crate::marks::default_scale_for_data_type(data_type),
+            _ => default_scale_for_data_type(data_type),
         }
     }
 
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> std::collections::HashMap<String, datafusion::logical_expr::Expr> {
-        use datafusion::logical_expr::lit;
-        use std::collections::HashMap;
+        scale_impl: &dyn ScaleImpl,
+        _data_type: &ArrowDataType,
+    ) -> HashMap<String, Expr> {
         let mut options = HashMap::new();
 
         // Configure PowScale as Sqrt scale for size channel
@@ -347,9 +356,7 @@ impl CompiledMark for CompiledPolarSymbol {
         }
 
         // For color channels, use the parent implementation
-        if matches!(channel, "fill" | "stroke" | "color")
-            && crate::marks::util::is_continuous_scale(scale_impl)
-        {
+        if matches!(channel, "fill" | "stroke" | "color") && is_continuous_scale(scale_impl) {
             options.insert("nice".to_string(), lit(true));
         }
 

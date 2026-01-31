@@ -1,10 +1,11 @@
-use crate::serialization::{LogicalExprNodeExt, SerializableExpr, SerializableScalar};
 use datafusion::logical_expr::Expr;
 use datafusion_common::ScalarValue;
 use datafusion_proto::protobuf::LogicalExprNode;
 use palette::Srgba;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
+
+use crate::serialization::{LogicalExprNodeExt, SerializableExpr, SerializableScalar};
 
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]

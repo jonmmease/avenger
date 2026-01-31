@@ -5,15 +5,16 @@
 //! configuration such as the output scale and canvas options, making it easier
 //! to share across renders.
 
-use crate::error::AvengerChartError;
-use crate::plot::CompiledPlot;
-use avenger_common::canvas::CanvasDimensions;
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
-use datafusion::common::ScalarValue;
-use datafusion::prelude::SessionContext;
+use std::path::Path;
+
+use datafusion::{common::ScalarValue, prelude::SessionContext};
 use image::RgbaImage;
 use indexmap::IndexMap;
-use std::path::Path;
+
+use avenger_common::canvas::CanvasDimensions;
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+
+use crate::{error::AvengerChartError, plot::CompiledPlot};
 
 /// Renderer that uses the WGPU backend to rasterize plots.
 #[derive(Clone)]

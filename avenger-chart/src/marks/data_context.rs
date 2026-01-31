@@ -1,6 +1,8 @@
-use crate::marks::ChannelValue;
-use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
+
+use datafusion::{dataframe::DataFrame, prelude::SessionContext};
+
+use crate::marks::ChannelValue;
 
 /// Stores a mark's data source and channel-to-expression mappings during construction
 /// This is the uncompiled version that holds a live DataFrame that can be transformed
@@ -58,14 +60,14 @@ impl DataContext {
 
     // Compatibility methods for tests
     pub fn encoding(&self, channel: &str) -> Option<String> {
-        let session_context = datafusion::prelude::SessionContext::new();
+        let session_context = SessionContext::new();
         self.channels
             .get(channel)
             .and_then(|v| v.as_column_name(&session_context))
     }
 
     pub fn encoding_expr_string(&self, channel: &str) -> Option<String> {
-        let session_context = datafusion::prelude::SessionContext::new();
+        let session_context = SessionContext::new();
         self.channels
             .get(channel)
             .map(|v| format!("{:?}", v.expr(&session_context)))

@@ -1,12 +1,12 @@
-use crate::channel::resolution::ChannelResolutionError;
 use avenger_app::error::AvengerAppError;
 use avenger_guides::error::AvengerGuidesError;
 use avenger_scales::error::AvengerScaleError;
 use avenger_scenegraph::error::AvengerSceneGraphError;
 use avenger_wgpu::error::AvengerWgpuError;
-use datafusion::arrow::error::ArrowError;
-use datafusion::error::DataFusionError;
+use datafusion::{arrow::error::ArrowError, error::DataFusionError};
 use thiserror::Error;
+
+use crate::channel::resolution::ChannelResolutionError;
 
 #[derive(Error, Debug)]
 pub enum AvengerChartError {

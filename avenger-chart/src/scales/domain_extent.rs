@@ -406,7 +406,9 @@ impl From<&SerializableDataExtents> for DomainExtent {
                 max,
                 max_radius_lower,
                 max_radius_upper,
-            } => DomainExtent::numeric_with_radius(*min, *max, *max_radius_lower, *max_radius_upper),
+            } => {
+                DomainExtent::numeric_with_radius(*min, *max, *max_radius_lower, *max_radius_upper)
+            }
             SerializableDataExtents::Discrete(values) => DomainExtent::discrete(values.clone()),
             SerializableDataExtents::Temporal { min, max } => DomainExtent::temporal(*min, *max),
         }
@@ -459,7 +461,10 @@ mod tests {
 
     #[test]
     fn test_from_serializable_interval() {
-        let serializable = SerializableDataExtents::Interval { min: 0.0, max: 100.0 };
+        let serializable = SerializableDataExtents::Interval {
+            min: 0.0,
+            max: 100.0,
+        };
         let extent: DomainExtent = serializable.into();
         assert_eq!(extent.numeric_bounds(), Some((0.0, 100.0)));
         assert!(!extent.has_radius());
@@ -489,7 +494,13 @@ mod tests {
     fn test_into_serializable_interval() {
         let extent = DomainExtent::numeric(0.0, 100.0);
         let serializable: SerializableDataExtents = extent.into();
-        assert!(matches!(serializable, SerializableDataExtents::Interval { min: 0.0, max: 100.0 }));
+        assert!(matches!(
+            serializable,
+            SerializableDataExtents::Interval {
+                min: 0.0,
+                max: 100.0
+            }
+        ));
     }
 
     #[test]
@@ -511,7 +522,10 @@ mod tests {
     fn test_roundtrip_conversion() {
         // Test all variants round-trip correctly
         let test_cases = vec![
-            SerializableDataExtents::Interval { min: -10.0, max: 50.0 },
+            SerializableDataExtents::Interval {
+                min: -10.0,
+                max: 50.0,
+            },
             SerializableDataExtents::RadiusAwareInterval {
                 min: 0.0,
                 max: 100.0,
@@ -522,13 +536,20 @@ mod tests {
                 SerializableDomainValue::String("a".to_string()),
                 SerializableDomainValue::Int(42),
             ]),
-            SerializableDataExtents::Temporal { min: 1000, max: 2000 },
+            SerializableDataExtents::Temporal {
+                min: 1000,
+                max: 2000,
+            },
         ];
 
         for original in test_cases {
             let extent: DomainExtent = original.clone().into();
             let round_tripped: SerializableDataExtents = extent.into();
-            assert_eq!(original, round_tripped, "Round-trip failed for {:?}", original);
+            assert_eq!(
+                original, round_tripped,
+                "Round-trip failed for {:?}",
+                original
+            );
         }
     }
 

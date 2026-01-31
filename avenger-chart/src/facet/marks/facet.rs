@@ -486,9 +486,9 @@ impl CompiledMark for CompiledFacetCol {
         context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use avenger_scenegraph::marks::group::SceneGroup;
-        use avenger_scales::scales::band::bandwidth;
         use crate::facet::coord::FacetColCoordMeasurement;
+        use avenger_scales::scales::band::bandwidth;
+        use avenger_scenegraph::marks::group::SceneGroup;
 
         // Get coord_measurement from context and downcast to FacetColCoordMeasurement
         let facet_measurement = context
@@ -558,7 +558,8 @@ impl CompiledMark for CompiledFacetCol {
             cell_path.push(facet_measurement.cell_values[idx].clone());
 
             // Build plot components using pre-computed measurement
-            let components = self.compiled_subplot
+            let components = self
+                .compiled_subplot
                 .build_plot_components(
                     &subplot_eval_ctx,
                     measurement,
@@ -666,9 +667,10 @@ impl CompiledMark for CompiledFacetCol {
 /// # Returns
 /// Band scale align value: 0.0 (start) or 1.0 (end)
 pub fn determine_facet_band_align(is_row_facet: bool, compiled_subplot: &CompiledPlot) -> f32 {
-    use crate::cartesian::axis::AxisPosition;
-    use crate::cartesian::guide::CartesianGuide;
-    use crate::guide::CompiledGuide;
+    use crate::{
+        cartesian::{axis::AxisPosition, guide::CartesianGuide},
+        guide::CompiledGuide,
+    };
 
     // Try to get the axis position from the compiled guide
     if let Some(guide) = compiled_subplot.compiled_guide.as_ref() {

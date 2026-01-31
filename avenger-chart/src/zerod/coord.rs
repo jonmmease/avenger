@@ -3,11 +3,18 @@
 //! The ZeroDCoord type represents a zero-dimensional coordinate system - essentially
 //! a single point with no spatial extent.
 
-use crate::coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry};
-use crate::error::AvengerChartError;
-use crate::guide::NoGuide;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_scales::scales::ScaleImpl;
+use datafusion::common::ScalarValue;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry},
+    error::AvengerChartError,
+    guide::NoGuide,
+};
 
 /// A zero-dimensional coordinate system
 ///
@@ -49,13 +56,12 @@ impl CoordinateSystemTransform for ZeroDCoord {
 
     fn transform(
         &self,
-        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
-        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
         let _ = position_values;
-        use avenger_common::value::ScalarOrArray;
 
         // In 0D space, all points collapse to the center of the plot area
         let center_x = plot_width / 2.0;
@@ -66,7 +72,7 @@ impl CoordinateSystemTransform for ZeroDCoord {
         let len = position_channels
             .values()
             .find_map(|v| match v.value() {
-                avenger_common::value::ScalarOrArrayValue::Array(arr) => Some(arr.len()),
+                ScalarOrArrayValue::Array(arr) => Some(arr.len()),
                 _ => None,
             })
             .unwrap_or(1);
@@ -100,8 +106,8 @@ impl CoordinateSystemTransform for ZeroDCoord {
     fn default_scale_options(
         &self,
         _channel: &str,
-        _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-    ) -> HashMap<String, datafusion::scalar::ScalarValue> {
+        _scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, ScalarValue> {
         // Zero-dimensional coordinate system has no positional channels
         HashMap::new()
     }
@@ -110,7 +116,6 @@ impl CoordinateSystemTransform for ZeroDCoord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_zerod_transform_to_center() {
@@ -129,7 +134,6 @@ mod tests {
             .expect("Expected PointGeometry");
 
         // Verify single point is at center (50, 50)
-        use avenger_common::value::ScalarOrArrayValue;
         match (point_geometry.x.value(), point_geometry.y.value()) {
             (ScalarOrArrayValue::Scalar(x_val), ScalarOrArrayValue::Scalar(y_val)) => {
                 assert_eq!(*x_val, 50.0);
@@ -140,10 +144,7 @@ mod tests {
 
         // Test with array data (should return arrays of center points)
         let mut position_channels_with_data = HashMap::new();
-        position_channels_with_data.insert(
-            "dummy",
-            avenger_common::value::ScalarOrArray::new_array(vec![1.0, 2.0, 3.0]),
-        );
+        position_channels_with_data.insert("dummy", ScalarOrArray::new_array(vec![1.0, 2.0, 3.0]));
 
         let geometry_arr = coord_transform
             .transform(&position_channels_with_data, None, 100.0, 100.0)

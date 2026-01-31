@@ -37,8 +37,9 @@
 //! let color = theme_value.eval_as_color(&ctx)?;
 //! ```
 
-use super::value::{CssRgba, ThemeValue};
 use std::fmt;
+
+use super::value::{CssRgba, ThemeValue};
 
 /// Evaluation context for resolving theme values
 ///

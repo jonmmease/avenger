@@ -1,12 +1,15 @@
 //! Minimal element type for CSS selector matching that converts from ThemeContext
 
+use std::{collections::HashMap, sync::Arc};
+
+use selectors::{
+    Element, OpaqueElement,
+    attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint},
+    matching::ElementSelectorFlags,
+};
+
 use super::selector_impl::{ChartPseudoClass, ChartPseudoElement, ChartSelectors, ChartString};
 use crate::theme::ThemeContext;
-use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
-use selectors::matching::ElementSelectorFlags;
-use selectors::{Element, OpaqueElement};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Element for CSS selector matching (created from ThemeContext)
 #[derive(Debug, Clone)]

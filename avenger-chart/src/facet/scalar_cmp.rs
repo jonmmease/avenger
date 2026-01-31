@@ -4,8 +4,9 @@
 //! (e.g., NaN vs number, different types). This module provides a total ordering
 //! comparison that defines a consistent order for all ScalarValue variants.
 
-use datafusion::common::ScalarValue;
 use std::cmp::Ordering;
+
+use datafusion::common::ScalarValue;
 
 /// Compare two ScalarValues with total ordering.
 ///

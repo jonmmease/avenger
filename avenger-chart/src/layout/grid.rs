@@ -1,21 +1,33 @@
 //! Grid layout building logic
-use crate::theme::Theme;
 
-use super::types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide};
-use crate::error::AvengerChartError;
-use crate::legend::LegendPosition;
-use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr};
-use crate::plot::{PlotSubtitle, PlotTitle};
-use crate::serialization::LogicalExprNodeExt;
-use avenger_text::measurement::{
-    TextBounds, TextMeasurementConfig, TextMeasurer, default_text_measurer,
+use std::collections::HashMap;
+
+use avenger_text::{
+    measurement::{TextBounds, TextMeasurementConfig, TextMeasurer, default_text_measurer},
+    types::{FontStyle, FontWeight, FontWeightNameSpec},
 };
-use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec};
+use datafusion::{common::ScalarValue, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
-use std::collections::HashMap;
-use taffy::Size;
-use taffy::prelude::*;
+use taffy::{Size, prelude::*};
+
+use crate::{
+    error::AvengerChartError,
+    guide::OverflowSpaceRequirement,
+    legend::LegendPosition,
+    maybe::Maybe,
+    plot::{
+        PlotSubtitle, PlotTitle,
+        compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr},
+    },
+    serialization::LogicalExprNodeExt,
+    theme::{Theme, ThemeContext},
+};
+
+use super::{
+    sizing::EvaluatedLayoutSpec,
+    types::{ComponentType, MIN_GUIDE_OVERFLOW_SIZE, OverflowSide},
+};
 
 /// Spacing multipliers for title and subtitle rows
 const TITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.15;
@@ -166,17 +178,17 @@ impl GridLayout {
 /// Helper function to measure title/subtitle text height
 async fn measure_text_bounds(
     text_expr: &LogicalExprNode,
-    font_size_field: &crate::maybe::Maybe<Option<LogicalExprNode>>,
-    font_family_field: &crate::maybe::Maybe<Option<LogicalExprNode>>,
-    theme_context: &crate::theme::ThemeContext,
+    font_size_field: &Maybe<Option<LogicalExprNode>>,
+    font_family_field: &Maybe<Option<LogicalExprNode>>,
+    theme_context: &ThemeContext,
     theme: &Theme,
     default_font_size: f32,
-    ctx: &datafusion::prelude::SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
 ) -> Result<TextBounds, AvengerChartError> {
     // Evaluate font_size
     let font_size = match font_size_field {
-        crate::maybe::Maybe::Set(Some(node)) => {
+        Maybe::Set(Some(node)) => {
             let expr = node.to_expr(ctx)?;
             evaluate_f32_expr(&expr, ctx, params).await?
         }
@@ -185,7 +197,7 @@ async fn measure_text_bounds(
 
     // Evaluate font_family
     let font_family = match font_family_field {
-        crate::maybe::Maybe::Set(Some(node)) => {
+        Maybe::Set(Some(node)) => {
             let expr = node.to_expr(ctx)?;
             evaluate_string_expr(&expr, ctx, params).await?
         }
@@ -278,14 +290,14 @@ impl GridBuilder {
     /// Returns a `GridLayout` containing both the track sizing functions and component positions
     pub async fn build_with_overflow(
         &self,
-        overflow: &crate::coords::OverflowSpaceRequirement,
+        overflow: &OverflowSpaceRequirement,
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         theme: &Theme,
-        layout_spec: &crate::layout::sizing::EvaluatedLayoutSpec,
+        layout_spec: &EvaluatedLayoutSpec,
         legend_sizes: &HashMap<String, Size<f32>>,
-        ctx: &datafusion::prelude::SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<GridLayout, AvengerChartError> {
         // Use margins from layout spec
         let margins = &layout_spec.margins;
@@ -394,8 +406,8 @@ impl GridBuilder {
         // Use fixed width if plot width is specified, otherwise flexible (fr)
         let plot_col_index = col_index;
         let plot_col_size = match &layout_spec.plot_area {
-            crate::layout::sizing::EvaluatedSizeMode::Fixed { width, .. }
-            | crate::layout::sizing::EvaluatedSizeMode::Width(width) => length(*width),
+            super::sizing::EvaluatedSizeMode::Fixed { width, .. }
+            | super::sizing::EvaluatedSizeMode::Width(width) => length(*width),
             _ => fr(1.0), // Flexible - takes remaining space
         };
         grid.cols.push(plot_col_size);
@@ -494,8 +506,8 @@ impl GridBuilder {
         // Use fixed height if plot height is specified, otherwise flexible (fr)
         let plot_row_index = row_index;
         let plot_row_size = match &layout_spec.plot_area {
-            crate::layout::sizing::EvaluatedSizeMode::Fixed { height, .. }
-            | crate::layout::sizing::EvaluatedSizeMode::Height(height) => length(*height),
+            super::sizing::EvaluatedSizeMode::Fixed { height, .. }
+            | super::sizing::EvaluatedSizeMode::Height(height) => length(*height),
             _ => fr(1.0),
         };
         grid.rows.push(plot_row_size);

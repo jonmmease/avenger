@@ -256,6 +256,8 @@ pub(crate) mod parser;
 pub(crate) mod selector_impl;
 mod theme;
 
+use avenger_text::font_resolver::{FontResolver, default_font_resolver};
+
 // Re-export core types
 pub use context::ThemeContext;
 pub use value::{AngleUnit, CssRgba, LengthUnit, ThemeValue};
@@ -272,8 +274,6 @@ pub use theme::{
 /// Select the first available font from a list of font families
 /// Checks against the fonts available in the system using avenger-text
 pub(crate) fn select_available_font(fonts: Vec<String>) -> String {
-    use avenger_text::font_resolver::{FontResolver, default_font_resolver};
-
     let resolver = default_font_resolver();
     resolver.select_available_font(fonts)
 }

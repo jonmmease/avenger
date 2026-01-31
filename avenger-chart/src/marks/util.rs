@@ -3,12 +3,21 @@
 //! This module provides functions to coerce channel values from DataFusion RecordBatches
 //! into typed values using the avenger-scales Coercer system.
 
-use crate::error::AvengerChartError;
-use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use avenger_scales::scales::coerce::Coercer;
-use datafusion::arrow::array::ArrayRef;
-use datafusion::arrow::record_batch::RecordBatch;
+use avenger_common::{
+    types::{ColorOrGradient, StrokeCap, StrokeJoin},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
+use avenger_scales::scales::{RangeKind, ScaleImpl, coerce::Coercer};
+
+use datafusion::arrow::{array::ArrayRef, datatypes::DataType, record_batch::RecordBatch};
+use datafusion_common::ScalarValue;
+
+use crate::{
+    error::AvengerChartError,
+    render::RenderContext,
+    scales::spec::{Linear, Ordinal, ScaleSpec, Time},
+    utils::ScalarValueHelpers,
+};
 
 /// Coerce a channel from either data or scalar batch using the provided coercion function
 ///
@@ -101,7 +110,7 @@ pub fn coerce_color_channel(
 
 /// Helper to convert a ScalarValue to a ColorOrGradient using the Coercer
 fn scalar_to_color(
-    scalar: &datafusion::scalar::ScalarValue,
+    scalar: &ScalarValue,
     fallback: [f32; 4],
 ) -> Result<ColorOrGradient, AvengerChartError> {
     let array_ref = scalar.to_array()?;
@@ -229,8 +238,7 @@ pub fn coerce_stroke_dash_channel(
 ///
 /// A scale is considered continuous if it produces continuous numeric output
 /// in its range, regardless of its domain type.
-pub fn is_continuous_scale(scale_impl: &dyn avenger_scales::scales::ScaleImpl) -> bool {
-    use avenger_scales::scales::RangeKind;
+pub fn is_continuous_scale(scale_impl: &dyn ScaleImpl) -> bool {
     scale_impl.range_kind() == RangeKind::Continuous
 }
 
@@ -238,12 +246,7 @@ pub fn is_continuous_scale(scale_impl: &dyn avenger_scales::scales::ScaleImpl) -
 ///
 /// This function can be called by marks that override preferred_scale_type
 /// to provide fallback behavior for unhandled channels.
-pub fn default_scale_for_data_type(
-    data_type: &datafusion::arrow::datatypes::DataType,
-) -> Option<Box<dyn crate::scales::spec::ScaleSpec>> {
-    use crate::scales::spec::{Linear, Ordinal, Time};
-    use datafusion::arrow::datatypes::DataType;
-
+pub fn default_scale_for_data_type(data_type: &DataType) -> Option<Box<dyn ScaleSpec>> {
     match data_type {
         // Categorical data uses ordinal scale
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean => {
@@ -277,11 +280,9 @@ pub fn coerce_numeric_channel_with_renderer(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render::RenderContext,
+    context: &RenderContext,
     fallback_default: f32,
 ) -> Result<ScalarOrArray<f32>, AvengerChartError> {
-    use crate::utils::ScalarValueHelpers;
-
     // Get default from mark, falling back to provided default
     let default = mark
         .default_channel_value(channel, context)
@@ -303,7 +304,7 @@ pub fn coerce_color_channel_with_renderer(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render::RenderContext,
+    context: &RenderContext,
     fallback_default: [f32; 4],
 ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
     // Get default from mark - the mark's default_channel_value returns a ScalarValue
@@ -330,11 +331,9 @@ pub fn coerce_bool_channel_with_renderer(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render::RenderContext,
+    context: &RenderContext,
     fallback_default: bool,
 ) -> Result<ScalarOrArray<bool>, AvengerChartError> {
-    use datafusion_common::ScalarValue;
-
     // Get default from mark, falling back to provided default
     let default = mark
         .default_channel_value(channel, context)
@@ -353,11 +352,9 @@ pub fn coerce_stroke_cap_channel_with_renderer(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render::RenderContext,
+    context: &RenderContext,
     fallback_default: StrokeCap,
 ) -> Result<StrokeCap, AvengerChartError> {
-    use datafusion_common::ScalarValue;
-
     // Get default from mark
     let default = mark
         .default_channel_value(channel, context)
@@ -382,11 +379,9 @@ pub fn coerce_stroke_join_channel_with_renderer(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-    context: &crate::render::RenderContext,
+    context: &RenderContext,
     fallback_default: StrokeJoin,
 ) -> Result<StrokeJoin, AvengerChartError> {
-    use datafusion_common::ScalarValue;
-
     // Get default from mark
     let default = mark
         .default_channel_value(channel, context)

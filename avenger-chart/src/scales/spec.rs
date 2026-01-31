@@ -1,9 +1,9 @@
 //! Scale type specifications for compile-time type safety
 
+use std::{collections::HashMap, sync::Arc};
+
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Marker trait for scale types
 #[typetag::serde(tag = "type")]

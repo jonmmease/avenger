@@ -1,8 +1,15 @@
-use crate::cartesian::CartesianGuide;
-use crate::coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry};
-use crate::error::AvengerChartError;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use avenger_common::value::ScalarOrArray;
+use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
+use datafusion::scalar::ScalarValue;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    cartesian::CartesianGuide,
+    coords::{CoordinateSystem, CoordinateSystemTransform, PlotGeometry, PointGeometry},
+    error::AvengerChartError,
+};
 
 /// Cartesian coordinate system with x and y axes
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -33,11 +40,11 @@ impl CoordinateSystemTransform for Cartesian {
 
     fn transform(
         &self,
-        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
         position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         _plot_width: f32,
         _plot_height: f32,
-    ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
         let _ = position_values;
         // In Cartesian coordinates, the scaled values are already in plot coordinates
         // Just extract x and y from the position channels
@@ -74,11 +81,8 @@ impl CoordinateSystemTransform for Cartesian {
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-    ) -> HashMap<String, datafusion::scalar::ScalarValue> {
-        use avenger_scales::scales::{DomainKind, RangeKind};
-        use datafusion::scalar::ScalarValue;
-
+        scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, ScalarValue> {
         // Get domain and range kinds directly from scale implementation
         let domain_kind = scale_impl.domain_kind();
         let range_kind = scale_impl.range_kind();

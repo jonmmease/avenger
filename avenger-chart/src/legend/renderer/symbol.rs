@@ -1,20 +1,32 @@
 //! Symbol legend renderer for discrete channels
 
-use super::{LegendChannel, LegendRenderer, helpers};
-use crate::error::AvengerChartError;
-use crate::legend::Legend;
-use crate::plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr};
-use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
-use crate::serialization::SerializableScalarMap;
-use crate::utils::ScalarValueHelpers;
-use avenger_common::types::{ColorOrGradient, SymbolShape};
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use std::collections::HashMap;
+
+use avenger_common::{
+    types::{ColorOrGradient, SymbolShape},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
+use avenger_scales::scales::RangeKind;
 use avenger_scenegraph::marks::group::SceneGroup;
-use datafusion_common::ScalarValue;
+use avenger_text::types::FontWeight;
+use datafusion::{common::ScalarValue, prelude::SessionContext};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
-use std::collections::HashMap;
+
+use crate::{
+    channel::ChannelValue,
+    error::AvengerChartError,
+    legend::Legend,
+    plot::compiled::expr_eval::{evaluate_f32_expr, evaluate_string_expr},
+    scales::{ConfiguredScaleLegendExt, DomainValues, ScaleRange},
+    serialization::{LogicalExprNodeExt, SerializableScalarMap},
+    theme::Theme,
+    utils::{ScalarValueHelpers, parse_color_string_strict},
+};
+
+use super::{LegendChannel, LegendRenderer, helpers};
 
 /// Default symbol size for legends
 const DEFAULT_SYMBOL_SIZE: f32 = 64.0;
@@ -28,7 +40,7 @@ const LEGEND_ZINDEX: i32 = 10;
 pub struct CompiledSymbolLegend {
     /// Plot reference for accessing mark data
     /// Map of mark encodings from the plot
-    mark_encodings: HashMap<String, crate::channel::ChannelValue>,
+    mark_encodings: HashMap<String, ChannelValue>,
     /// Whether the plot has rect marks
     has_rect_mark: bool,
     /// Theme mark defaults for symbols
@@ -65,8 +77,6 @@ impl LegendRenderer for CompiledSymbolLegend {
     }
 
     fn can_evaluate(&self, channels: &[LegendChannel]) -> bool {
-        use avenger_scales::scales::RangeKind;
-
         // Symbol legends work with any scale that has discrete outputs
         // This includes ordinal, threshold, quantize, quantile, etc.
         channels
@@ -96,9 +106,9 @@ impl LegendRenderer for CompiledSymbolLegend {
         y: f32,
         _width: f32,
         _height: f32,
-        theme: &crate::theme::Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         // Determine if this is a measure call (x=0, y=0) or actual render
         let is_measure = x == 0.0 && y == 0.0;
@@ -230,8 +240,6 @@ impl LegendRenderer for CompiledSymbolLegend {
         );
 
         // Evaluate title expression
-        use crate::serialization::LogicalExprNodeExt;
-
         let title = if let Some(node) = config.title.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             Some(evaluate_string_expr(&expr, ctx, params).await?)
@@ -253,7 +261,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let title_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = crate::utils::parse_color_string_strict(&title_color)?;
+            let color = parse_color_string_strict(&title_color)?;
             legend_config.title_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
                 _ => {
@@ -267,7 +275,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         if let Some(node) = config.label_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let label_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = crate::utils::parse_color_string_strict(&label_color)?;
+            let color = parse_color_string_strict(&label_color)?;
             legend_config.label_color = Some(match color {
                 ColorOrGradient::Color(c) => c,
                 _ => {
@@ -316,7 +324,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.title_font_weight = Some(FontWeight::Number(weight));
         }
         if let Some(node) = config
             .label_font_family
@@ -333,7 +341,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         {
             let expr = node.to_expr(ctx)?;
             let weight = evaluate_f32_expr(&expr, ctx, params).await?;
-            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+            legend_config.label_font_weight = Some(FontWeight::Number(weight));
         }
 
         // Evaluate and apply legend background styling if provided
@@ -361,8 +369,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_fill =
-                Some(crate::utils::parse_color_string_strict(&fill_str)?);
+            legend_config.background_fill = Some(parse_color_string_strict(&fill_str)?);
         }
         if let Some(node) = config
             .background_stroke
@@ -371,8 +378,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_stroke =
-                Some(crate::utils::parse_color_string_strict(&stroke_str)?);
+            legend_config.background_stroke = Some(parse_color_string_strict(&stroke_str)?);
         }
 
         // Evaluate symbol size (from expression, theme, or mark defaults)
@@ -395,10 +401,9 @@ impl LegendRenderer for CompiledSymbolLegend {
 
         // Start with defaults
         legend_config.shape = ScalarOrArray::new_scalar(parse_shape(&default_shape)?);
-        legend_config.fill =
-            ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(&default_fill)?);
+        legend_config.fill = ScalarOrArray::new_scalar(parse_color_string_strict(&default_fill)?);
         legend_config.stroke =
-            ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(&default_stroke)?);
+            ScalarOrArray::new_scalar(parse_color_string_strict(&default_stroke)?);
         legend_config.size = ScalarOrArray::new_scalar(symbol_size);
         legend_config.angle = ScalarOrArray::new_scalar(default_angle);
         legend_config.stroke_width = Some(default_stroke_width);
@@ -414,7 +419,6 @@ impl LegendRenderer for CompiledSymbolLegend {
                             names
                         } else {
                             // Fallback to theme's default shape sequence
-                            use avenger_scales::scales::RangeKind;
                             if let Some(range) = theme.get_range_for_channel(
                                 &channel.mark_type,
                                 "shape",
@@ -422,15 +426,12 @@ impl LegendRenderer for CompiledSymbolLegend {
                                 Some(domain_values.len()),
                                 params,
                             ) {
-                                if let crate::scales::ScaleRange::Discrete(scalars) = range {
+                                if let ScaleRange::Discrete(scalars) = range {
                                     // Convert SerializableScalar wrappers to strings
                                     scalars
                                         .iter()
                                         .filter_map(|s| {
-                                            if let datafusion_common::ScalarValue::Utf8(Some(
-                                                string,
-                                            )) = &s.0
-                                            {
+                                            if let ScalarValue::Utf8(Some(string)) = &s.0 {
                                                 Some(string.clone())
                                             } else {
                                                 None

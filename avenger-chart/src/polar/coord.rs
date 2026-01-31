@@ -1,8 +1,17 @@
-use crate::coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry};
-use crate::error::AvengerChartError;
-use crate::polar::PolarGuide;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use datafusion::scalar::ScalarValue;
+use serde::{Deserialize, Serialize};
+
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
+
+use crate::{
+    coords::{CoordinateSystem, CoordinateSystemTransform, PointGeometry},
+    error::AvengerChartError,
+};
+
+use super::PolarGuide;
 
 /// Polar coordinate system with radial and angular axes
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -39,13 +48,12 @@ impl CoordinateSystemTransform for Polar {
 
     fn transform(
         &self,
-        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
         position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Box<dyn crate::coords::PlotGeometry>, AvengerChartError> {
         let _ = position_values;
-        use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 
         // Get r and theta channels
         let r = position_channels.get("r").ok_or_else(|| {
@@ -122,11 +130,8 @@ impl CoordinateSystemTransform for Polar {
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-    ) -> HashMap<String, datafusion::scalar::ScalarValue> {
-        use avenger_scales::scales::{DomainKind, RangeKind};
-        use datafusion::scalar::ScalarValue;
-
+        scale_impl: &dyn ScaleImpl,
+    ) -> HashMap<String, ScalarValue> {
         let mut options = HashMap::new();
 
         // Get domain and range kinds directly from scale implementation

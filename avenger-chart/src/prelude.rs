@@ -81,8 +81,8 @@ pub use crate::error::AvengerChartError;
 // Re-export parameter type
 pub use crate::param::Param;
 
-// Re-export DataFusion prelude for data manipulation
-pub use datafusion::prelude::{Expr, col, lit};
-
-// Re-export common DataFrame type
-pub use datafusion::dataframe::DataFrame;
+// Re-export DataFusion types for data manipulation
+pub use datafusion::{
+    dataframe::DataFrame,
+    prelude::{Expr, col, lit},
+};

@@ -1,19 +1,34 @@
 //! Polar coordinate system guide implementation
 
-use crate::coords::extract_channel_title_from_marks;
-use crate::error::AvengerChartError;
-use crate::guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement};
-use crate::layout::LayoutBounds;
-use crate::maybe::{Maybe, MaybeOptionalExpr};
-use crate::plot::compiled::expr_eval::evaluate_string_expr;
-use crate::polar::{PolarAxis, PolarAxisType};
-use crate::theme::Theme;
-use avenger_scenegraph::marks::mark::SceneMark;
+use std::{any::Any, collections::HashMap, sync::Arc};
+
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalExprNode;
+use indexmap::IndexMap;
+use lyon_path::Path;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use std::collections::HashMap;
-use std::sync::Arc;
+
+use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::marks::{arc::SceneArcMark, group::Clip, mark::SceneMark};
+
+use crate::{
+    coords::{CoordMeasurement, EmptyCoordMeasurement, extract_channel_title_from_marks},
+    error::AvengerChartError,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    guide::{CompiledGuide, CoordinateGuide, GuideUpdate, OverflowSpaceRequirement},
+    layout::LayoutBounds,
+    marks::CompiledMark,
+    maybe::{Maybe, MaybeOptionalExpr},
+    plot::{IntoExpr, compiled::expr_eval::evaluate_string_expr},
+    serialization::LogicalExprNodeExt,
+    theme::{Theme, ThemeContext},
+    utils::parse_color_to_array_strict,
+};
+
+use super::{PolarAxis, PolarAxisType};
 
 /// Options for polar coordinate system
 #[serde_as]
@@ -65,8 +80,7 @@ impl PolarGuide {
     }
 
     /// Set the plot background color
-    pub fn plot_background_color(mut self, color: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn plot_background_color(mut self, color: impl IntoExpr) -> Self {
         let expr = color.into_expr();
         self.options.plot_background_color = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr)
@@ -124,8 +138,8 @@ impl CoordinateGuide for PolarGuide {
 
     fn set_compiled_marks(
         &mut self,
-        compiled_marks: Vec<Arc<dyn crate::marks::CompiledMark>>,
-        session_context: &datafusion::prelude::SessionContext,
+        compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        session_context: &SessionContext,
     ) {
         // Extract titles from mark renderers immediately
         for channel in ["r", "theta"] {
@@ -151,21 +165,19 @@ impl CoordinateGuide for PolarGuide {
 impl CompiledGuide for PolarGuide {
     async fn measure_overflow(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        data_override: Option<&datafusion::dataframe::DataFrame>,
-        ctx: &datafusion::prelude::SessionContext,
-        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        params: &IndexMap<String, ScalarValue>,
+        data_override: Option<&DataFrame>,
+        ctx: &SessionContext,
+        _facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        use avenger_geometry::marks::MarkGeometryUtils;
-
         // Use provided coord_measurement or default empty one (PolarGuide doesn't use it)
-        let empty_coord = crate::coords::EmptyCoordMeasurement;
+        let empty_coord = EmptyCoordMeasurement;
         let coord_measurement = coord_measurement.unwrap_or(&empty_coord);
 
         // For overflow measurement, we can place the plot at origin
@@ -178,7 +190,7 @@ impl CompiledGuide for PolarGuide {
 
         // Evaluate axes to measure their bounding box with actual params
         // Use facet_path for visibility-aware overflow measurement
-        let empty_facet_tree = crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty();
+        let empty_facet_tree = EvaluatedFacetTree::empty();
         let axis_marks = self
             .evaluate(
                 scales,
@@ -245,35 +257,33 @@ impl CompiledGuide for PolarGuide {
 
     async fn evaluate(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        _ctx: &datafusion::prelude::SessionContext,
-        _data_override: Option<&datafusion::dataframe::DataFrame>,
-        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_path: &[datafusion::common::ScalarValue],
-        _coord_measurement: &dyn crate::coords::CoordMeasurement,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
+        _data_override: Option<&DataFrame>,
+        _facet_tree: &EvaluatedFacetTree,
+        _facet_path: &[ScalarValue],
+        _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 
         // Render background circle if specified (behind everything else)
         // First try to evaluate expression if set
-        use crate::serialization::LogicalExprNodeExt;
-
         let bg_color = if let Some(color_node) = self
             .options
             .plot_background_color
             .as_option()
             .and_then(|o| o.as_ref())
         {
-            if let Ok(color_expr) = color_node.to_expr(_ctx) {
+            if let Ok(color_expr) = color_node.to_expr(ctx) {
                 // Evaluate the expression to get color string
-                if let Ok(color_str) = evaluate_string_expr(&color_expr, _ctx, params).await {
+                if let Ok(color_str) = evaluate_string_expr(&color_expr, ctx, params).await {
                     // Parse the color string
-                    crate::utils::parse_color_to_array_strict(&color_str).ok()
+                    parse_color_to_array_strict(&color_str).ok()
                 } else {
                     None
                 }
@@ -282,18 +292,13 @@ impl CompiledGuide for PolarGuide {
             }
         } else {
             // Fallback to theme
-            let guide_ctx =
-                crate::theme::ThemeContext::new("guide", params.clone()).with_subtype("polar");
+            let guide_ctx = ThemeContext::new("guide", params.clone()).with_subtype("polar");
             theme
                 .query(&guide_ctx, "background-color")
                 .and_then(|v| v.as_color_array())
         };
 
         if let Some(bg_color) = bg_color {
-            use avenger_common::types::ColorOrGradient;
-            use avenger_common::value::ScalarOrArray;
-            use avenger_scenegraph::marks::arc::SceneArcMark;
-
             // Calculate center and radius
             let center_x = plot_bounds.x + plot_width / 2.0;
             let center_y = plot_bounds.y + plot_height / 2.0;
@@ -368,7 +373,7 @@ impl CompiledGuide for PolarGuide {
                         plot_bounds,
                         theme,
                         params,
-                        _ctx,
+                        ctx,
                     )
                     .await?;
                 marks.extend(axis_marks);
@@ -382,17 +387,15 @@ impl CompiledGuide for PolarGuide {
         &self,
         plot_width: f32,
         plot_height: f32,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> avenger_scenegraph::marks::group::Clip {
-        use avenger_scenegraph::marks::group::Clip;
-
+        _scales: &HashMap<String, ConfiguredScale>,
+    ) -> Clip {
         // Polar coordinates use circular clipping
         let radius = plot_width.min(plot_height) / 2.0;
         let center_x = plot_width / 2.0;
         let center_y = plot_height / 2.0;
 
         // Create a circular clip path
-        let mut builder = lyon_path::Path::builder();
+        let mut builder = Path::builder();
         builder.add_circle(
             lyon_path::geom::point(center_x, center_y),
             radius,
@@ -403,7 +406,7 @@ impl CompiledGuide for PolarGuide {
         Clip::Path(path)
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }

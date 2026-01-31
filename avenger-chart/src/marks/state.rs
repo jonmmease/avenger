@@ -1,11 +1,16 @@
 //! State for marks
 
-use crate::axis::Axis;
-use crate::marks::{CompiledDataContext, DataContext, FacetStrategy};
-use datafusion::dataframe::DataFrame;
+use std::{collections::HashMap, sync::Arc};
+
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
+
+use datafusion::dataframe::DataFrame;
+
+use crate::{
+    axis::Axis,
+    marks::{ChannelValue, CompiledDataContext, DataContext, FacetStrategy},
+};
 
 /// State shared by all mark types (uncompiled version)
 /// Used during mark construction - stores live DataFrames that can be transformed
@@ -61,7 +66,7 @@ impl CompiledMarkState {
     pub fn from_mark_state_with_channels(
         state: &MarkState,
         transformed_df: DataFrame,
-        channels: indexmap::IndexMap<String, crate::marks::ChannelValue>,
+        channels: IndexMap<String, ChannelValue>,
     ) -> Self {
         Self {
             data: CompiledDataContext::new(Some(transformed_df), channels),

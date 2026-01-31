@@ -1,15 +1,24 @@
 //! Core trait for coordinate system guides
 
-use crate::theme::Theme;
+use std::{any::Any, collections::HashMap, sync::Arc};
 
-use crate::axis::Axis;
-use crate::error::AvengerChartError;
-use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
-use crate::guide::{MeasurementResult, OverflowSpaceRequirement};
-use crate::layout::LayoutBounds;
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::{
+    axis::Axis,
+    cartesian::axis::AxisPosition,
+    coords::CoordMeasurement,
+    error::AvengerChartError,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    guide::{MeasurementResult, OverflowSpaceRequirement},
+    layout::LayoutBounds,
+    marks::CompiledMark,
+    theme::Theme,
+};
 
 /// Direction of faceting for determining which channel can be unified
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,8 +58,8 @@ pub trait CoordinateGuide: Clone + Default + Send + Sync {
     /// so that default axis titles can be extracted at render time.
     fn set_compiled_marks(
         &mut self,
-        compiled_marks: Vec<std::sync::Arc<dyn crate::marks::CompiledMark>>,
-        session_context: &datafusion::prelude::SessionContext,
+        compiled_marks: Vec<Arc<dyn CompiledMark>>,
+        session_context: &SessionContext,
     );
 
     fn update(&mut self, other: Self);
@@ -78,16 +87,16 @@ pub trait CompiledGuide: Send + Sync + 'static {
     ///   The result must be identical whether or not this is provided.
     async fn measure_overflow(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        data_override: Option<&datafusion::dataframe::DataFrame>,
-        ctx: &datafusion::prelude::SessionContext,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        params: &IndexMap<String, ScalarValue>,
+        data_override: Option<&DataFrame>,
+        ctx: &SessionContext,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
     /// Measure only the intrinsic subplot overflow, excluding facet-level decorative content
@@ -100,16 +109,16 @@ pub trait CompiledGuide: Send + Sync + 'static {
     /// For non-facet guides (Cartesian, Polar), this is equivalent to `measure_overflow()`.
     async fn measure_intrinsic_overflow(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        data_override: Option<&datafusion::dataframe::DataFrame>,
-        ctx: &datafusion::prelude::SessionContext,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        params: &IndexMap<String, ScalarValue>,
+        data_override: Option<&DataFrame>,
+        ctx: &SessionContext,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // Default implementation: same as measure_overflow()
         self.measure_overflow(
@@ -140,16 +149,16 @@ pub trait CompiledGuide: Send + Sync + 'static {
     /// * `coord_measurement` - Optional, purely for efficiency (see `measure_overflow` docs).
     async fn measure_with_coordination(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        data_override: Option<&datafusion::dataframe::DataFrame>,
-        ctx: &datafusion::prelude::SessionContext,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-        coord_measurement: Option<&dyn crate::coords::CoordMeasurement>,
+        params: &IndexMap<String, ScalarValue>,
+        data_override: Option<&DataFrame>,
+        ctx: &SessionContext,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<MeasurementResult, AvengerChartError> {
         // Default: measure once, return with empty spacing_needs
         let overflow = self
@@ -183,17 +192,17 @@ pub trait CompiledGuide: Send + Sync + 'static {
     ///   needed for proper label positioning. For non-facet guides, this is `EmptyCoordMeasurement`.
     async fn evaluate(
         &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
-        data_override: Option<&datafusion::dataframe::DataFrame>,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
+        data_override: Option<&DataFrame>,
         facet_tree: &EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-        coord_measurement: &dyn crate::coords::CoordMeasurement,
+        facet_path: &[ScalarValue],
+        coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Get the clipping region for the coordinate system
@@ -204,22 +213,22 @@ pub trait CompiledGuide: Send + Sync + 'static {
         &self,
         plot_width: f32,
         plot_height: f32,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> avenger_scenegraph::marks::group::Clip;
+        scales: &HashMap<String, ConfiguredScale>,
+    ) -> Clip;
 
     /// Determine which channel axis can be unified when this subplot is used in faceting.
     fn facet_unifiable_channel(
         &self,
         _facet_direction: FacetDirection,
-        _marks: &[std::sync::Arc<dyn crate::marks::CompiledMark>],
-        _session_context: &datafusion::prelude::SessionContext,
+        _marks: &[Arc<dyn CompiledMark>],
+        _session_context: &SessionContext,
     ) -> Option<UnifiableChannelInfo> {
         // Default: no unification
         None
     }
 
     /// Query the position of an axis by channel name
-    fn axis_position(&self, _channel: &str) -> Option<crate::cartesian::axis::AxisPosition> {
+    fn axis_position(&self, _channel: &str) -> Option<AxisPosition> {
         // Default: no position info available
         None
     }
@@ -231,5 +240,5 @@ pub trait CompiledGuide: Send + Sync + 'static {
     }
 
     /// Get this guide as Any for downcasting to concrete types
-    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any(&self) -> &dyn Any;
 }

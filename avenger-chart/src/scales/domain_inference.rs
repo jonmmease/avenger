@@ -3,21 +3,33 @@
 //! This module handles the logic of inferring scale domains from data,
 //! including special handling for radius-aware padding calculations.
 
-use crate::error::AvengerChartError;
-use crate::marks::RadiusExpression;
-use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
-use crate::serialization::LogicalExprNodeExt;
-use crate::utils::DataFrameChartHelpers;
-use avenger_scales::scales::{DomainKind, InferDomainFromDataMethod, RangeKind, ScaleImpl};
-use datafusion::arrow::array::{Array, AsArray};
-use datafusion::arrow::datatypes::{DataType, Field, Float64Type, Schema};
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{col, lit};
-use datafusion::prelude::SessionContext;
-use datafusion_common::ScalarValue;
-use indexmap::IndexMap;
 use std::sync::Arc;
+
+use avenger_scales::scales::{
+    DomainKind, InferDomainFromDataMethod, RangeKind, ScaleImpl,
+    domain_solver::compute_domain_from_data_with_padding_linear,
+};
+use datafusion::{
+    arrow::{
+        array::{Array, AsArray, Float64Array},
+        datatypes::{DataType, Field, Float64Type, Schema},
+        record_batch::RecordBatch,
+    },
+    dataframe::DataFrame,
+    logical_expr::{col, lit},
+    prelude::SessionContext,
+};
+use datafusion_common::ScalarValue;
+use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
+use indexmap::IndexMap;
+
+use crate::{
+    error::AvengerChartError,
+    marks::RadiusExpression,
+    scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain},
+    serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
+    utils::DataFrameChartHelpers,
+};
 
 // Column name constants to avoid magic strings
 const POSITION_COL: &str = "__position__";
@@ -145,7 +157,6 @@ impl DomainInferrer {
         };
 
         // Convert LogicalPlanNode to DataFrame and select
-        use crate::serialization::LogicalPlanNodeExt;
         let plan = dataframe.to_logical_plan(ctx)?;
         let df = DataFrame::new(ctx.state().clone(), plan);
         let df_with_exprs = df.select(select_exprs)?;
@@ -184,8 +195,7 @@ impl DomainInferrer {
         })?;
 
         // Cast to Float64
-        use datafusion::arrow::compute::cast;
-        use datafusion::arrow::datatypes::DataType as ArrowDataType;
+        use datafusion::arrow::{compute::cast, datatypes::DataType as ArrowDataType};
 
         let position_f64 = cast(position_array, &ArrowDataType::Float64)?;
         let radius_lower_f64 = cast(radius_lower_array, &ArrowDataType::Float64)?;
@@ -211,8 +221,6 @@ impl DomainInferrer {
         }
 
         // Use the padding solver
-        use avenger_scales::scales::domain_solver::compute_domain_from_data_with_padding_linear;
-
         let (d_min, d_max) = if pos_len != lower_len || pos_len != upper_len {
             // Log warning about mismatched lengths and use minimum
             let min_len = pos_len.min(lower_len).min(upper_len);
@@ -236,8 +244,6 @@ impl DomainInferrer {
         };
 
         // Create a new DataFrame with the computed domain
-        use datafusion::arrow::array::Float64Array;
-
         let domain_array = Float64Array::from(vec![d_min, d_max]);
         let schema = Arc::new(Schema::new(vec![Field::new(
             DOMAIN_FIELD,
@@ -248,7 +254,6 @@ impl DomainInferrer {
 
         let domain_df = Arc::new(ctx.read_batch(batch)?);
         let plan = domain_df.logical_plan().clone();
-        use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
         let plan_node = Arc::new(LogicalPlanNode::from_logical_plan(&plan)?);
         let expr_node = LogicalExprNode::from_expr(col(DOMAIN_FIELD))?;
 
@@ -271,7 +276,6 @@ impl DomainInferrer {
 
         for field in data_fields {
             // Convert LogicalPlanNode to DataFrame
-            use crate::serialization::LogicalPlanNodeExt;
             let plan = field.dataframe.to_logical_plan(ctx)?;
             let df = DataFrame::new(ctx.state().clone(), plan);
 
@@ -281,7 +285,6 @@ impl DomainInferrer {
             // For scales expecting categorical domains, cast numeric values to strings
             let expr = if scale_impl.domain_kind() == DomainKind::Categorical {
                 // Categorical scales expect string domains
-                use datafusion::arrow::datatypes::DataType;
                 use datafusion::logical_expr::cast;
                 cast(expr_df, DataType::Utf8)
             } else {
@@ -297,8 +300,6 @@ impl DomainInferrer {
         // Union all DataFrames
         let union_df = if single_col_dfs.is_empty() {
             // No data to infer from - return default interval
-            use datafusion::logical_expr::lit;
-            use datafusion_proto::protobuf::LogicalExprNode;
             let start = LogicalExprNode::from_expr(lit(0.0))?;
             let end = LogicalExprNode::from_expr(lit(1.0))?;
             return Ok(ScaleDefaultDomain::Interval(start, Box::new(end)));
@@ -377,7 +378,6 @@ impl DomainInferrer {
             if inner_array.len() >= 2 {
                 let min_val = ScalarValue::try_from_array(&inner_array, 0)?;
                 let max_val = ScalarValue::try_from_array(&inner_array, inner_array.len() - 1)?;
-                use datafusion_proto::protobuf::LogicalExprNode;
                 let min_expr = LogicalExprNode::from_expr(lit(min_val))?;
                 let max_expr = LogicalExprNode::from_expr(lit(max_val))?;
                 Ok(ScaleDefaultDomain::Interval(min_expr, Box::new(max_expr)))
@@ -386,7 +386,6 @@ impl DomainInferrer {
             }
         } else {
             // For discrete domains, extract all values
-            use datafusion_proto::protobuf::LogicalExprNode;
             let mut values = Vec::new();
             for i in 0..inner_array.len() {
                 let val = ScalarValue::try_from_array(&inner_array, i)?;

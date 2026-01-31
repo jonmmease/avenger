@@ -6,11 +6,16 @@
 //!
 //! Eliminates duplication of band position calculation logic across faceting system.
 
-use crate::error::AvengerChartError;
-use crate::scales::ConfiguredScaleWithSpec;
-use crate::scales::extensions::{ConfiguredScaleLegendExt, DomainValues};
-use avenger_scales::scales::ConfiguredScale;
+use avenger_scales::scales::{ConfiguredScale, band};
 use datafusion::common::ScalarValue;
+
+use crate::{
+    error::AvengerChartError,
+    scales::{
+        ConfiguredScaleWithSpec,
+        extensions::{ConfiguredScaleLegendExt, DomainValues},
+    },
+};
 
 /// Position information for a single band in a band scale
 #[derive(Debug, Clone)]
@@ -76,8 +81,6 @@ impl BandPositionIterator {
     ///
     /// Returns positions at the start of each band (band offset = 0.0)
     pub fn from_scale(scale: &ConfiguredScaleWithSpec) -> Result<Self, AvengerChartError> {
-        use avenger_scales::scales::band;
-
         let configured = scale.configured();
         let domain_vals = configured.domain_values()?;
 
@@ -121,8 +124,6 @@ impl BandPositionIterator {
     /// This is a convenience method for when you already have a ConfiguredScale
     /// instead of a ConfiguredScaleWithSpec.
     pub fn from_configured_scale(scale: &ConfiguredScale) -> Result<Self, AvengerChartError> {
-        use avenger_scales::scales::band;
-
         let domain_vals = scale.domain_values()?;
 
         let positions = match &domain_vals {

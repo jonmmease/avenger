@@ -1,12 +1,32 @@
-use crate::axis::Axis;
-use crate::error::AvengerChartError;
-use crate::maybe::{Maybe, MaybeOptionalExpr};
-use crate::theme::Theme;
-use avenger_scenegraph::marks::mark::SceneMark;
+use std::any::Any;
+
+use avenger_guides::axis::{
+    band::make_band_axis_marks,
+    numeric::make_numeric_axis_marks,
+    opts::{AxisConfig, AxisOrientation},
+    point::make_point_axis_marks,
+};
+use avenger_scales::scales::{DomainKind, band::BandScale};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use std::any::Any;
+
+use crate::{
+    axis::Axis,
+    error::AvengerChartError,
+    facet::evaluated_facet_tree::{AxisVisibility, EvaluatedFacetTree},
+    layout::LayoutBounds,
+    maybe::{Maybe, MaybeOptionalExpr},
+    plot::{
+        IntoExpr,
+        compiled::expr_eval::{
+            evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
+        },
+    },
+    serialization::LogicalExprNodeExt,
+    theme::Theme,
+};
 
 /// Position for Cartesian axes
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -49,8 +69,7 @@ impl CartesianAxis {
         Self::default()
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         let expr = visible.into_expr();
         self.visible = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize visible expr"),
@@ -58,8 +77,7 @@ impl CartesianAxis {
         self
     }
 
-    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn position(mut self, position: impl IntoExpr) -> Self {
         let expr = position.into_expr();
         self.position = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize position expr"),
@@ -67,8 +85,7 @@ impl CartesianAxis {
         self
     }
 
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         let expr = title.into_expr();
         self.title = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
@@ -76,8 +93,7 @@ impl CartesianAxis {
         self
     }
 
-    pub fn grid(mut self, grid: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn grid(mut self, grid: impl IntoExpr) -> Self {
         let expr = grid.into_expr();
         self.grid = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize grid expr"),
@@ -85,8 +101,7 @@ impl CartesianAxis {
         self
     }
 
-    pub fn tick_count(mut self, count: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn tick_count(mut self, count: impl IntoExpr) -> Self {
         let expr = count.into_expr();
         self.tick_count = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_count expr"),
@@ -94,8 +109,7 @@ impl CartesianAxis {
         self
     }
 
-    pub fn label_angle(mut self, angle: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn label_angle(mut self, angle: impl IntoExpr) -> Self {
         let expr = angle.into_expr();
         self.label_angle = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize label_angle expr"),
@@ -103,8 +117,7 @@ impl CartesianAxis {
         self
     }
 
-    pub fn format(mut self, format: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn format(mut self, format: impl IntoExpr) -> Self {
         let expr = format.into_expr();
         self.format_number = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize format expr"),
@@ -112,8 +125,7 @@ impl CartesianAxis {
         self
     }
 
-    pub fn title_font_family(mut self, font: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn title_font_family(mut self, font: impl IntoExpr) -> Self {
         let expr = font.into_expr();
         self.title_font_family = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title_font_family expr"),
@@ -121,8 +133,7 @@ impl CartesianAxis {
         self
     }
 
-    pub fn label_font_family(mut self, font: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn label_font_family(mut self, font: impl IntoExpr) -> Self {
         let expr = font.into_expr();
         self.label_font_family = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize label_font_family expr"),
@@ -131,8 +142,7 @@ impl CartesianAxis {
     }
 
     /// Show or hide the axis title only (labels unaffected)
-    pub fn show_title(mut self, show: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn show_title(mut self, show: impl IntoExpr) -> Self {
         let expr = show.into_expr();
         self.show_title = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize show_title expr"),
@@ -179,24 +189,13 @@ impl CartesianAxis {
         scale: &avenger_scales::scales::ConfiguredScale,
         plot_width: f32,
         plot_height: f32,
-        plot_bounds: &crate::layout::LayoutBounds,
+        plot_bounds: &LayoutBounds,
         theme: &Theme,
         params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
         ctx: &datafusion::prelude::SessionContext,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_tree: &EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<SceneMark, AvengerChartError> {
-        use crate::plot::compiled::expr_eval::{
-            evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
-        };
-        use crate::serialization::LogicalExprNodeExt;
-        use avenger_guides::axis::{
-            band::make_band_axis_marks,
-            numeric::make_numeric_axis_marks,
-            opts::{AxisConfig, AxisOrientation},
-            point::make_point_axis_marks,
-        };
-
         // Evaluate visible expression (default to true if not set)
         let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref())
         {
@@ -208,12 +207,10 @@ impl CartesianAxis {
 
         // Skip if invisible
         if !visible {
-            return Ok(SceneMark::Group(
-                avenger_scenegraph::marks::group::SceneGroup {
-                    marks: vec![],
-                    ..Default::default()
-                },
-            ));
+            return Ok(SceneMark::Group(SceneGroup {
+                marks: vec![],
+                ..Default::default()
+            }));
         }
 
         // Evaluate position expression
@@ -305,7 +302,7 @@ impl CartesianAxis {
 
         // Query facet-aware visibility based on cell path and axis position
         let facet_visibility = if facet_path.is_empty() {
-            crate::facet::evaluated_facet_tree::AxisVisibility::visible()
+            AxisVisibility::visible()
         } else {
             facet_tree.axis_visibility_for_path(facet_path, position)
         };
@@ -356,8 +353,6 @@ impl CartesianAxis {
 
         // Generate axis marks based on scale characteristics
         // Use domain and range kinds to determine which axis maker to use
-        use avenger_scales::scales::DomainKind;
-
         let domain_kind = scale.scale_impl.domain_kind();
 
         // For categorical domains, check the scale type
@@ -373,7 +368,6 @@ impl CartesianAxis {
                     "ordinal" => {
                         // Ordinal scales with discrete ranges need band-like rendering
                         // For ordinal scales, convert to band scale for axis rendering
-                        use avenger_scales::scales::band::BandScale;
                         let band_scale = BandScale::from_point_scale(scale);
                         make_band_axis_marks(&band_scale, title, axis_origin, &axis_config)?
                     }

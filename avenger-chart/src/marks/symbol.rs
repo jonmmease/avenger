@@ -1,11 +1,18 @@
-use crate::channel::{
-    AngleChannelConfig, ColorChannelConfig, ShapeChannelConfig, SizeChannelConfig,
-    StrokeWidthChannelConfig,
-};
-use crate::coords::CoordinateSystem;
-use crate::marks::MarkState;
-use crate::{define_common_mark_channels, impl_mark_base};
+use std::sync::Arc;
+
+use avenger_scales::scales::ConfiguredScale;
 use datafusion_common::ScalarValue;
+
+use crate::{
+    channel::{
+        AngleChannelConfig, ColorChannelConfig, ShapeChannelConfig, SizeChannelConfig,
+        StrokeWidthChannelConfig,
+    },
+    coords::CoordinateSystem,
+    legend::{CompiledColorbar, CompiledSymbolLegend, LegendRenderer},
+    marks::{MarkState, util::is_continuous_scale},
+    {define_common_mark_channels, impl_mark_base},
+};
 
 pub struct Symbol<C: CoordinateSystem> {
     pub(crate) state: MarkState,
@@ -65,13 +72,9 @@ pub fn symbol_channel_defaults(channel: &str) -> Option<ScalarValue> {
 /// Get the preferred legend renderer for Symbol marks
 pub fn symbol_legend_renderer(
     channel: &str,
-    scale: &avenger_scales::scales::ConfiguredScale,
+    scale: &ConfiguredScale,
     position_channels: &[&str],
-) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
-    use crate::legend::{CompiledColorbar, CompiledSymbolLegend};
-    use crate::marks::util::is_continuous_scale;
-    use std::sync::Arc;
-
+) -> Option<Arc<dyn LegendRenderer>> {
     let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 
     match channel {

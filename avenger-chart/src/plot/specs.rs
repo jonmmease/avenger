@@ -1,8 +1,11 @@
 //! Specification types for scales and axes
 
-use crate::axis::Axis;
-use crate::scales::{Auto, Scale};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    axis::Axis,
+    scales::{Auto, Scale},
+};
 
 /// How a scale is defined for a channel
 #[derive(Clone, Serialize, Deserialize)]

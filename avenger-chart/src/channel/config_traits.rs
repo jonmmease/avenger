@@ -3,10 +3,15 @@
 //! This module provides traits that reduce duplication across channel configs
 //! by implementing common behavior once and allowing configs to opt into capabilities.
 
-use crate::channel::{ChannelValue, ConditionalValue};
-use crate::legend::{Legend, LegendBuilder};
-use crate::scales::{Auto, Scale, ScaleSpec};
 use datafusion::logical_expr::Expr;
+use datafusion_proto::protobuf::LogicalExprNode;
+
+use crate::{
+    channel::{ChannelValue, ConditionalValue},
+    legend::{Legend, LegendBuilder},
+    scales::{Auto, Scale, ScaleSpec},
+    serialization::LogicalExprNodeExt,
+};
 
 /// Base trait that all channel configs implement (includes scaling and conditionals)
 pub trait ChannelConfig: Sized {
@@ -284,8 +289,6 @@ pub trait LegendableChannel: ChannelConfig {
 
 /// Add a scaled condition to a ChannelValue
 fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> ChannelValue {
-    use crate::serialization::LogicalExprNodeExt;
-    use datafusion_proto::protobuf::LogicalExprNode;
     let value_node = LogicalExprNode::from_expr(value).expect("Failed to serialize expr");
     let new_branch = ConditionalValue::Scaled { expr: value_node };
     let condition_node = LogicalExprNode::from_expr(condition).expect("Failed to serialize expr");
@@ -333,8 +336,6 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
 
 /// Add a value condition to a ChannelValue
 fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> ChannelValue {
-    use crate::serialization::LogicalExprNodeExt;
-    use datafusion_proto::protobuf::LogicalExprNode;
     let value_node = LogicalExprNode::from_expr(value).expect("Failed to serialize expr");
     let new_branch = ConditionalValue::Value { expr: value_node };
     let condition_node = LogicalExprNode::from_expr(condition).expect("Failed to serialize expr");

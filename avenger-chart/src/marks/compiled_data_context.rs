@@ -1,11 +1,14 @@
-use crate::marks::ChannelValue;
-use crate::serialization::{LogicalPlanNodeExt, SerializableDataFrame};
-use datafusion::dataframe::DataFrame;
-use datafusion::prelude::SessionContext;
-use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
+
+use datafusion::{dataframe::DataFrame, prelude::SessionContext};
+use datafusion_proto::protobuf::LogicalPlanNode;
+
+use crate::{
+    marks::ChannelValue,
+    serialization::{LogicalPlanNodeExt, SerializableDataFrame},
+};
 
 /// Compiled version of DataContext - stores serialized LogicalPlanNode
 /// This is created during plot compilation and is immutable thereafter
@@ -69,14 +72,14 @@ impl CompiledDataContext {
 
     // Compatibility methods for tests
     pub fn encoding(&self, channel: &str) -> Option<String> {
-        let session_context = datafusion::prelude::SessionContext::new();
+        let session_context = SessionContext::new();
         self.channels
             .get(channel)
             .and_then(|v| v.as_column_name(&session_context))
     }
 
     pub fn encoding_expr_string(&self, channel: &str) -> Option<String> {
-        let session_context = datafusion::prelude::SessionContext::new();
+        let session_context = SessionContext::new();
         self.channels
             .get(channel)
             .map(|v| format!("{:?}", v.expr(&session_context)))

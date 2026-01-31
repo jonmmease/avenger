@@ -1,6 +1,8 @@
-use super::LegendRenderer;
-use crate::legend::Legend;
 use std::sync::Arc;
+
+use crate::{legend::Legend, plot::IntoExpr};
+
+use super::LegendRenderer;
 
 /// Base trait for legend builders - just for common functionality
 /// Each concrete builder implements this for shared methods
@@ -12,7 +14,7 @@ pub trait LegendBuilder: Sized {
     fn build(self) -> Legend;
 
     /// Set visibility - available on all legend builders
-    fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+    fn visible(mut self, visible: impl IntoExpr) -> Self {
         let legend = self.legend_mut().clone();
         *self.legend_mut() = legend.visible(visible);
         self
@@ -33,73 +35,73 @@ impl ColorLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+    pub fn position(mut self, position: impl IntoExpr) -> Self {
         self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+    pub fn orientation(mut self, orientation: impl IntoExpr) -> Self {
         self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+    pub fn order(mut self, order: impl IntoExpr) -> Self {
         self.legend = self.legend.order(order);
         self
     }
 
     // Color-specific methods
-    pub fn gradient_thickness(mut self, thickness: impl crate::plot::IntoExpr) -> Self {
+    pub fn gradient_thickness(mut self, thickness: impl IntoExpr) -> Self {
         self.legend = self.legend.gradient_thickness(thickness);
         self
     }
 
-    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+    pub fn columns(mut self, columns: impl IntoExpr) -> Self {
         self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+    pub fn symbol_size(mut self, size: impl IntoExpr) -> Self {
         self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+    pub fn label_limit(mut self, limit: impl IntoExpr) -> Self {
         self.legend = self.legend.label_limit(limit);
         self
     }
 
-    pub fn format_number(mut self, format: impl crate::plot::IntoExpr) -> Self {
+    pub fn format_number(mut self, format: impl IntoExpr) -> Self {
         self.legend = self.legend.format_number(format);
         self
     }
 
-    pub fn background_fill(mut self, fill: impl crate::plot::IntoExpr) -> Self {
+    pub fn background_fill(mut self, fill: impl IntoExpr) -> Self {
         self.legend = self.legend.background_fill(fill);
         self
     }
 
-    pub fn background_stroke(mut self, stroke: impl crate::plot::IntoExpr) -> Self {
+    pub fn background_stroke(mut self, stroke: impl IntoExpr) -> Self {
         self.legend = self.legend.background_stroke(stroke);
         self
     }
 
-    pub fn background_corner_radius(mut self, radius: impl crate::plot::IntoExpr) -> Self {
+    pub fn background_corner_radius(mut self, radius: impl IntoExpr) -> Self {
         self.legend = self.legend.background_corner_radius(radius);
         self
     }
 
-    pub fn background_padding(mut self, padding: impl crate::plot::IntoExpr) -> Self {
+    pub fn background_padding(mut self, padding: impl IntoExpr) -> Self {
         self.legend = self.legend.background_padding(padding);
         self
     }
@@ -134,48 +136,48 @@ impl SizeLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+    pub fn position(mut self, position: impl IntoExpr) -> Self {
         self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+    pub fn orientation(mut self, orientation: impl IntoExpr) -> Self {
         self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+    pub fn order(mut self, order: impl IntoExpr) -> Self {
         self.legend = self.legend.order(order);
         self
     }
 
     // Size-specific methods
-    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+    pub fn symbol_size(mut self, size: impl IntoExpr) -> Self {
         self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+    pub fn columns(mut self, columns: impl IntoExpr) -> Self {
         self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+    pub fn label_limit(mut self, limit: impl IntoExpr) -> Self {
         self.legend = self.legend.label_limit(limit);
         self
     }
 
-    pub fn format_number(mut self, format: impl crate::plot::IntoExpr) -> Self {
+    pub fn format_number(mut self, format: impl IntoExpr) -> Self {
         self.legend = self.legend.format_number(format);
         self
     }
@@ -210,43 +212,43 @@ impl ShapeLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+    pub fn position(mut self, position: impl IntoExpr) -> Self {
         self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+    pub fn orientation(mut self, orientation: impl IntoExpr) -> Self {
         self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+    pub fn order(mut self, order: impl IntoExpr) -> Self {
         self.legend = self.legend.order(order);
         self
     }
 
     // Shape-specific methods
-    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+    pub fn columns(mut self, columns: impl IntoExpr) -> Self {
         self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+    pub fn symbol_size(mut self, size: impl IntoExpr) -> Self {
         self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+    pub fn label_limit(mut self, limit: impl IntoExpr) -> Self {
         self.legend = self.legend.label_limit(limit);
         self
     }
@@ -281,43 +283,43 @@ impl OpacityLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+    pub fn position(mut self, position: impl IntoExpr) -> Self {
         self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+    pub fn orientation(mut self, orientation: impl IntoExpr) -> Self {
         self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+    pub fn order(mut self, order: impl IntoExpr) -> Self {
         self.legend = self.legend.order(order);
         self
     }
 
     // Opacity-specific methods
-    pub fn gradient_thickness(mut self, thickness: impl crate::plot::IntoExpr) -> Self {
+    pub fn gradient_thickness(mut self, thickness: impl IntoExpr) -> Self {
         self.legend = self.legend.gradient_thickness(thickness);
         self
     }
 
-    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+    pub fn symbol_size(mut self, size: impl IntoExpr) -> Self {
         self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+    pub fn label_limit(mut self, limit: impl IntoExpr) -> Self {
         self.legend = self.legend.label_limit(limit);
         self
     }
@@ -352,43 +354,43 @@ impl AngleLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+    pub fn position(mut self, position: impl IntoExpr) -> Self {
         self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+    pub fn orientation(mut self, orientation: impl IntoExpr) -> Self {
         self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+    pub fn order(mut self, order: impl IntoExpr) -> Self {
         self.legend = self.legend.order(order);
         self
     }
 
     // Angle-specific methods
-    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+    pub fn symbol_size(mut self, size: impl IntoExpr) -> Self {
         self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+    pub fn columns(mut self, columns: impl IntoExpr) -> Self {
         self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+    pub fn label_limit(mut self, limit: impl IntoExpr) -> Self {
         self.legend = self.legend.label_limit(limit);
         self
     }
@@ -423,43 +425,43 @@ impl StrokeWidthLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+    pub fn position(mut self, position: impl IntoExpr) -> Self {
         self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+    pub fn orientation(mut self, orientation: impl IntoExpr) -> Self {
         self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+    pub fn order(mut self, order: impl IntoExpr) -> Self {
         self.legend = self.legend.order(order);
         self
     }
 
     // Stroke width-specific methods
-    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+    pub fn symbol_size(mut self, size: impl IntoExpr) -> Self {
         self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+    pub fn columns(mut self, columns: impl IntoExpr) -> Self {
         self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+    pub fn label_limit(mut self, limit: impl IntoExpr) -> Self {
         self.legend = self.legend.label_limit(limit);
         self
     }
@@ -494,43 +496,43 @@ impl StrokeDashLegendBuilder {
     }
 
     // Common legend methods
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         self.legend = self.legend.title(title);
         self
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         self.legend = self.legend.visible(visible);
         self
     }
 
-    pub fn position(mut self, position: impl crate::plot::IntoExpr) -> Self {
+    pub fn position(mut self, position: impl IntoExpr) -> Self {
         self.legend = self.legend.position(position);
         self
     }
 
-    pub fn orientation(mut self, orientation: impl crate::plot::IntoExpr) -> Self {
+    pub fn orientation(mut self, orientation: impl IntoExpr) -> Self {
         self.legend = self.legend.orientation(orientation);
         self
     }
 
-    pub fn order(mut self, order: impl crate::plot::IntoExpr) -> Self {
+    pub fn order(mut self, order: impl IntoExpr) -> Self {
         self.legend = self.legend.order(order);
         self
     }
 
     // Stroke dash-specific methods
-    pub fn symbol_size(mut self, size: impl crate::plot::IntoExpr) -> Self {
+    pub fn symbol_size(mut self, size: impl IntoExpr) -> Self {
         self.legend = self.legend.symbol_size(size);
         self
     }
 
-    pub fn columns(mut self, columns: impl crate::plot::IntoExpr) -> Self {
+    pub fn columns(mut self, columns: impl IntoExpr) -> Self {
         self.legend = self.legend.columns(columns);
         self
     }
 
-    pub fn label_limit(mut self, limit: impl crate::plot::IntoExpr) -> Self {
+    pub fn label_limit(mut self, limit: impl IntoExpr) -> Self {
         self.legend = self.legend.label_limit(limit);
         self
     }

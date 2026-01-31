@@ -1,3 +1,5 @@
+use avenger_scales::scales::ConfiguredScale;
+
 // Public submodules
 pub mod builder;
 pub mod codec;
@@ -16,11 +18,11 @@ pub mod spec;
 // Re-export the main types
 pub use builder::{ChannelScaleData, ScaleBuilder};
 pub use codec::AvengerChartExtensionCodec;
+pub use defaults::default_range_for_channel;
+pub use domain::{DomainExpr, ResolvedDomain, ScaleDefaultDomain, ScaleDomain};
 pub use domain_extent::{
     DomainBounds, DomainExtent, RadiusPadding, SerializableDataExtents, SerializableDomainValue,
 };
-pub use defaults::default_range_for_channel;
-pub use domain::{DomainExpr, ResolvedDomain, ScaleDefaultDomain, ScaleDomain};
 pub use extensions::{ConfiguredScaleDataFusionExt, ConfiguredScaleLegendExt, DomainValues};
 pub use range::ScaleRange;
 pub use scale::Scale;
@@ -29,8 +31,6 @@ pub use spec::{
     Threshold, Time,
 };
 pub use udf::create_scale_udf;
-
-use avenger_scales::scales::ConfiguredScale;
 
 /// Wrapper that holds both the original Scale<Auto> specification and its ConfiguredScale
 ///

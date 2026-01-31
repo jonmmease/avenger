@@ -1,5 +1,6 @@
 use crate::channel::GenericPositionConfig;
-use crate::polar::axis::PolarAxis;
+
+use super::axis::PolarAxis;
 
 /// Configuration for Polar position channels (r, theta)
 /// These channels support scales and axes

@@ -1,12 +1,39 @@
-use crate::axis::Axis;
-use crate::error::AvengerChartError;
-use crate::maybe::{Maybe, MaybeOptionalExpr};
-use crate::theme::Theme;
-use avenger_scenegraph::marks::mark::SceneMark;
+use std::{any::Any, collections::HashMap, sync::Arc};
+
+use datafusion::{
+    arrow::array::{ArrayRef, Float32Array, Float64Array},
+    arrow::datatypes::DataType as ArrowDataType,
+    common::ScalarValue,
+    prelude::SessionContext,
+};
 use datafusion_proto::protobuf::LogicalExprNode;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use std::any::Any;
+
+use avenger_common::{
+    types::{ColorOrGradient, StrokeCap},
+    value::ScalarOrArray,
+};
+use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::marks::{
+    arc::SceneArcMark, mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark,
+};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+
+use crate::{
+    axis::Axis,
+    error::AvengerChartError,
+    layout::LayoutBounds,
+    maybe::{Maybe, MaybeOptionalExpr},
+    plot::{
+        IntoExpr,
+        compiled::expr_eval::{evaluate_bool_expr, evaluate_string_expr},
+    },
+    serialization::LogicalExprNodeExt,
+    theme::{Theme, ThemeContext},
+    utils::{ScalarValueHelpers, eval_to_scalars, params_to_datafusion},
+};
 
 /// Type of polar axis
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -59,19 +86,16 @@ impl PolarAxis {
     }
 
     /// Extract tick values from an Arrow array as Vec<f64>
-    fn extract_tick_values(ticks: &datafusion::arrow::array::ArrayRef) -> Vec<f64> {
-        use datafusion::arrow::array::{Float32Array, Float64Array};
-        use datafusion::arrow::datatypes::DataType;
-
+    fn extract_tick_values(ticks: &ArrayRef) -> Vec<f64> {
         match ticks.data_type() {
-            DataType::Float64 => ticks
+            ArrowDataType::Float64 => ticks
                 .as_any()
                 .downcast_ref::<Float64Array>()
                 .unwrap()
                 .iter()
                 .flatten()
                 .collect(),
-            DataType::Float32 => ticks
+            ArrowDataType::Float32 => ticks
                 .as_any()
                 .downcast_ref::<Float32Array>()
                 .unwrap()
@@ -85,7 +109,7 @@ impl PolarAxis {
     /// Get theme context for label styling
     fn get_label_theme_values(
         theme: &Theme,
-        axis_ctx: &crate::theme::ThemeContext,
+        axis_ctx: &ThemeContext,
     ) -> (String, f32, f32, [f32; 4]) {
         let ctx = axis_ctx.child("label");
         let font_family = theme
@@ -97,8 +121,7 @@ impl PolarAxis {
         (font_family, font_size, font_weight, color)
     }
 
-    pub fn visible(mut self, visible: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
         let expr = visible.into_expr();
         self.visible = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize visible expr"),
@@ -106,8 +129,7 @@ impl PolarAxis {
         self
     }
 
-    pub fn axis_type(mut self, axis_type: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn axis_type(mut self, axis_type: impl IntoExpr) -> Self {
         let expr = axis_type.into_expr();
         self.axis_type = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize axis_type expr"),
@@ -115,8 +137,7 @@ impl PolarAxis {
         self
     }
 
-    pub fn title(mut self, title: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn title(mut self, title: impl IntoExpr) -> Self {
         let expr = title.into_expr();
         self.title = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
@@ -124,8 +145,7 @@ impl PolarAxis {
         self
     }
 
-    pub fn grid(mut self, grid: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn grid(mut self, grid: impl IntoExpr) -> Self {
         let expr = grid.into_expr();
         self.grid = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize grid expr"),
@@ -133,8 +153,7 @@ impl PolarAxis {
         self
     }
 
-    pub fn tick_count(mut self, count: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn tick_count(mut self, count: impl IntoExpr) -> Self {
         let expr = count.into_expr();
         self.tick_count = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize tick_count expr"),
@@ -142,8 +161,7 @@ impl PolarAxis {
         self
     }
 
-    pub fn format(mut self, format: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn format(mut self, format: impl IntoExpr) -> Self {
         let expr = format.into_expr();
         self.format_number = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize format expr"),
@@ -151,8 +169,7 @@ impl PolarAxis {
         self
     }
 
-    pub fn grid_levels(mut self, levels: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn grid_levels(mut self, levels: impl IntoExpr) -> Self {
         let expr = levels.into_expr();
         self.grid_levels = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize grid_levels expr"),
@@ -160,8 +177,7 @@ impl PolarAxis {
         self
     }
 
-    pub fn start_angle(mut self, angle: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn start_angle(mut self, angle: impl IntoExpr) -> Self {
         let expr = angle.into_expr();
         self.start_angle = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize start_angle expr"),
@@ -169,8 +185,7 @@ impl PolarAxis {
         self
     }
 
-    pub fn direction(mut self, direction: impl crate::plot::IntoExpr) -> Self {
-        use crate::serialization::LogicalExprNodeExt;
+    pub fn direction(mut self, direction: impl IntoExpr) -> Self {
         let expr = direction.into_expr();
         self.direction = Maybe::Set(Some(
             LogicalExprNode::from_expr(expr).expect("Failed to serialize direction expr"),
@@ -214,17 +229,15 @@ impl PolarAxis {
     pub async fn evaluate(
         &self,
         channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-        scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scale: &ConfiguredScale,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        plot_bounds: &crate::layout::LayoutBounds,
+        plot_bounds: &LayoutBounds,
         theme: &Theme,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::plot::compiled::expr_eval::{evaluate_bool_expr, evaluate_string_expr};
-        use crate::serialization::LogicalExprNodeExt;
         // Create context for theme queries with params
         let axis_ctx = theme.axis_context_with_params(Some("polar"), Some(channel), params.clone());
 
@@ -281,21 +294,15 @@ impl PolarAxis {
 
     async fn evaluate_radial_axis(
         &self,
-        scale: &avenger_scales::scales::ConfiguredScale,
+        scale: &ConfiguredScale,
         center_x: f32,
         center_y: f32,
         _max_radius: f32,
         theme: &Theme,
-        axis_ctx: &crate::theme::ThemeContext,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
+        axis_ctx: &ThemeContext,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::plot::compiled::expr_eval::evaluate_bool_expr;
-        use crate::serialization::LogicalExprNodeExt;
-        use avenger_common::types::ColorOrGradient;
-        use avenger_common::value::ScalarOrArray;
-        use avenger_scenegraph::marks::arc::SceneArcMark;
-
         let mut marks = Vec::new();
 
         // Evaluate grid expression (default to false)
@@ -313,11 +320,10 @@ impl PolarAxis {
                 self.tick_count.as_option().and_then(|o| o.as_ref())
             {
                 let tick_count_expr = tick_count_node.to_expr(ctx)?;
-                use crate::utils::ScalarValueHelpers;
-                let scalars = crate::utils::eval_to_scalars(
+                let scalars = eval_to_scalars(
                     vec![tick_count_expr],
                     Some(ctx),
-                    crate::utils::params_to_datafusion(params).as_ref(),
+                    params_to_datafusion(params).as_ref(),
                 )
                 .await
                 .map_err(|e| {
@@ -344,16 +350,11 @@ impl PolarAxis {
 
             let mut radii = Vec::new();
 
-            // Convert ticks to radii through scale transformation
-            use datafusion::arrow::array::Float64Array;
-            use std::sync::Arc;
-
             let tick_values = Self::extract_tick_values(&ticks);
 
             for value in tick_values {
                 // Transform tick value through scale to get radius
-                let tick_array =
-                    Arc::new(Float64Array::from(vec![value])) as datafusion::arrow::array::ArrayRef;
+                let tick_array = Arc::new(Float64Array::from(vec![value])) as ArrayRef;
                 let scaled_values = scale.scale(&tick_array)?;
                 if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float64Array>() {
                     if !scaled_array.is_empty() {
@@ -362,10 +363,9 @@ impl PolarAxis {
                             radii.push(radius);
                         }
                     }
-                } else if let Some(scaled_array) = scaled_values
-                    .as_any()
-                    .downcast_ref::<datafusion::arrow::array::Float32Array>(
-                ) {
+                } else if let Some(scaled_array) =
+                    scaled_values.as_any().downcast_ref::<Float32Array>()
+                {
                     if !scaled_array.is_empty() {
                         let radius = scaled_array.value(0);
                         if radius.is_finite() && radius > 0.0 {
@@ -412,10 +412,6 @@ impl PolarAxis {
         }
 
         // Add radial tick labels (visible check already done at start of render)
-        use avenger_scenegraph::marks::text::SceneTextMark;
-        use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
-        use datafusion::arrow::array::Float64Array;
-        use std::sync::Arc;
 
         // Get tick values from scale - use same as grid
         // Evaluate tick_count expression
@@ -423,11 +419,10 @@ impl PolarAxis {
             self.tick_count.as_option().and_then(|o| o.as_ref())
         {
             let tick_count_expr = tick_count_node.to_expr(ctx)?;
-            use crate::utils::ScalarValueHelpers;
-            let scalars = crate::utils::eval_to_scalars(
+            let scalars = eval_to_scalars(
                 vec![tick_count_expr],
                 Some(ctx),
-                crate::utils::params_to_datafusion(params).as_ref(),
+                params_to_datafusion(params).as_ref(),
             )
             .await
             .map_err(|e| {
@@ -463,21 +458,19 @@ impl PolarAxis {
             }
 
             // Transform tick value through scale to get radius (same as grid circles)
-            let tick_array =
-                Arc::new(Float64Array::from(vec![*value])) as datafusion::arrow::array::ArrayRef;
+            let tick_array = Arc::new(Float64Array::from(vec![*value])) as ArrayRef;
             let scaled_values = scale.scale(&tick_array)?;
 
-            let radius =
-                if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float64Array>() {
-                    scaled_array.value(0) as f32
-                } else if let Some(scaled_array) = scaled_values
-                    .as_any()
-                    .downcast_ref::<datafusion::arrow::array::Float32Array>(
-                ) {
-                    scaled_array.value(0)
-                } else {
-                    continue;
-                };
+            let radius = if let Some(scaled_array) =
+                scaled_values.as_any().downcast_ref::<Float64Array>()
+            {
+                scaled_array.value(0) as f32
+            } else if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float32Array>()
+            {
+                scaled_array.value(0)
+            } else {
+                continue;
+            };
 
             if radius.is_finite() && radius > 0.0 {
                 // Position labels vertically below center (at 90 degrees)
@@ -510,9 +503,7 @@ impl PolarAxis {
                 y: ScalarOrArray::new_array(y_vals),
                 text: ScalarOrArray::new_array(text_vals),
                 font: ScalarOrArray::new_scalar(font_family),
-                font_weight: ScalarOrArray::new_scalar(avenger_text::types::FontWeight::Number(
-                    font_weight,
-                )),
+                font_weight: ScalarOrArray::new_scalar(FontWeight::Number(font_weight)),
                 font_size: ScalarOrArray::new_scalar(font_size),
                 font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                 color: ScalarOrArray::new_scalar(ColorOrGradient::Color(color)),
@@ -523,7 +514,7 @@ impl PolarAxis {
                 indices: None,
                 zindex: Some(0),
             };
-            marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
+            marks.push(SceneMark::Text(Arc::new(text_mark)));
         }
 
         // Note: Axis title rendering removed - placement needs design work
@@ -533,23 +524,16 @@ impl PolarAxis {
 
     async fn evaluate_angular_axis(
         &self,
-        scale: &avenger_scales::scales::ConfiguredScale,
+        scale: &ConfiguredScale,
         center_x: f32,
         center_y: f32,
         radius: f32,
-        scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         theme: &Theme,
-        axis_ctx: &crate::theme::ThemeContext,
-        params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
-        ctx: &datafusion::prelude::SessionContext,
+        axis_ctx: &ThemeContext,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::plot::compiled::expr_eval::evaluate_bool_expr;
-        use crate::serialization::LogicalExprNodeExt;
-        use avenger_common::types::ColorOrGradient;
-        use avenger_common::types::StrokeCap;
-        use avenger_common::value::ScalarOrArray;
-        use avenger_scenegraph::marks::rule::SceneRuleMark;
-
         let mut marks = Vec::new();
 
         // Get the radial scale to determine max radius
@@ -575,11 +559,10 @@ impl PolarAxis {
                 self.tick_count.as_option().and_then(|o| o.as_ref())
             {
                 let tick_count_expr = tick_count_node.to_expr(ctx)?;
-                use crate::utils::ScalarValueHelpers;
-                let scalars = crate::utils::eval_to_scalars(
+                let scalars = eval_to_scalars(
                     vec![tick_count_expr],
                     Some(ctx),
-                    crate::utils::params_to_datafusion(params).as_ref(),
+                    params_to_datafusion(params).as_ref(),
                 )
                 .await
                 .map_err(|e| {
@@ -667,14 +650,11 @@ impl PolarAxis {
         }
 
         // Add angular tick labels (visible check already done at start of render)
-        use avenger_scenegraph::marks::text::SceneTextMark;
-        use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
 
         // Get tick values from scale
         let tick_values: Vec<f32> =
             if let Ok(ticks_array) = scale.ticks(Some(ANGULAR_DEFAULT_TICK_COUNT)) {
                 // Convert arrow array to vec of f32
-                use datafusion::arrow::array::Float32Array;
                 if let Some(arr) = ticks_array.as_any().downcast_ref::<Float32Array>() {
                     (0..arr.len()).map(|i| arr.value(i)).collect()
                 } else {
@@ -684,11 +664,10 @@ impl PolarAxis {
                         self.tick_count.as_option().and_then(|o| o.as_ref())
                     {
                         let tick_count_expr = tick_count_node.to_expr(ctx)?;
-                        use crate::utils::ScalarValueHelpers;
-                        let scalars = crate::utils::eval_to_scalars(
+                        let scalars = eval_to_scalars(
                             vec![tick_count_expr],
                             Some(ctx),
-                            crate::utils::params_to_datafusion(params).as_ref(),
+                            params_to_datafusion(params).as_ref(),
                         )
                         .await
                         .map_err(|e| {
@@ -722,11 +701,10 @@ impl PolarAxis {
                     self.tick_count.as_option().and_then(|o| o.as_ref())
                 {
                     let tick_count_expr = tick_count_node.to_expr(ctx)?;
-                    use crate::utils::ScalarValueHelpers;
-                    let scalars = crate::utils::eval_to_scalars(
+                    let scalars = eval_to_scalars(
                         vec![tick_count_expr],
                         Some(ctx),
-                        crate::utils::params_to_datafusion(params).as_ref(),
+                        params_to_datafusion(params).as_ref(),
                     )
                     .await
                     .map_err(|e| {
@@ -813,9 +791,7 @@ impl PolarAxis {
                 align: ScalarOrArray::new_array(label_aligns),
                 baseline: ScalarOrArray::new_array(label_baselines),
                 font: ScalarOrArray::new_scalar(font_family),
-                font_weight: ScalarOrArray::new_scalar(avenger_text::types::FontWeight::Number(
-                    font_weight,
-                )),
+                font_weight: ScalarOrArray::new_scalar(FontWeight::Number(font_weight)),
                 font_size: ScalarOrArray::new_scalar(font_size),
                 font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                 color: ScalarOrArray::new_scalar(ColorOrGradient::Color(color)),
@@ -824,7 +800,7 @@ impl PolarAxis {
                 indices: None,
                 zindex: Some(0),
             };
-            marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
+            marks.push(SceneMark::Text(Arc::new(text_mark)));
         }
 
         Ok(marks)

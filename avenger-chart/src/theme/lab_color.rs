@@ -13,7 +13,7 @@
 //! - https://drafts.csswg.org/css-color-4/#ok-lch
 
 use crate::color::types::{AbsoluteColor, ColorSpace};
-use crate::theme::{CssRgba, ThemeValue};
+use crate::theme::{AngleUnit, CssRgba, ThemeValue};
 
 /// Parse an oklab() function
 ///
@@ -140,8 +140,6 @@ fn extract_number_or_percentage(value: &ThemeValue, max_value: f32) -> Option<f3
 /// Extract a number or angle from a ThemeValue
 /// Angles are converted to degrees
 fn extract_number_or_angle(value: &ThemeValue) -> Option<f32> {
-    use crate::theme::AngleUnit;
-
     match value {
         ThemeValue::Number(n) => Some(*n as f32),
         ThemeValue::Angle(val, unit) => {

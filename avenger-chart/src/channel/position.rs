@@ -1,7 +1,11 @@
 //! Generic position channel configuration that can be used across coordinate systems
 
-use super::value::ChannelValue;
-use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
+use datafusion::logical_expr::Expr;
+
+use crate::{
+    channel::{config_traits::ScaleSharing, value::ChannelValue},
+    scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec},
+};
 
 /// Trait for all position configuration types
 pub trait PositionConfig: Sized {
@@ -40,7 +44,7 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
     ///
     /// Supports full ScaleSharing enum: Shared, Free, Level(n)
     /// Note: Free and Shared are normalized to Level(0) and Level(255) internally.
-    pub fn with_scale_sharing(self, mode: crate::channel::config_traits::ScaleSharing) -> Self {
+    pub fn with_scale_sharing(self, mode: ScaleSharing) -> Self {
         // Normalize Free/Shared to Level representation for internal consistency
         let normalized = mode.to_normalized();
         let updated = match self.inner {
@@ -82,12 +86,12 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
 
     /// Share this channel's scale across all facets (convenience method)
     pub fn share_scale(self) -> Self {
-        self.with_scale_sharing(crate::channel::config_traits::ScaleSharing::Shared)
+        self.with_scale_sharing(ScaleSharing::Shared)
     }
 
     /// Make this channel's scale independent for each facet (convenience method)
     pub fn free_scale(self) -> Self {
-        self.with_scale_sharing(crate::channel::config_traits::ScaleSharing::Free)
+        self.with_scale_sharing(ScaleSharing::Free)
     }
 
     /// Disable scaling for this channel
@@ -183,10 +187,8 @@ impl<A: Clone + Default + Send + Sync + 'static> From<ChannelValue> for GenericP
     }
 }
 
-impl<A: Clone + Default + Send + Sync + 'static> From<datafusion::logical_expr::Expr>
-    for GenericPositionConfig<A>
-{
-    fn from(expr: datafusion::logical_expr::Expr) -> Self {
+impl<A: Clone + Default + Send + Sync + 'static> From<Expr> for GenericPositionConfig<A> {
+    fn from(expr: Expr) -> Self {
         Self::new(ChannelValue::from(expr))
     }
 }

@@ -1,5 +1,6 @@
 //! Theme value types and color utilities
 
+use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
 
 /// Value types that themes can return
@@ -860,10 +861,8 @@ pub(crate) fn parse_length_string(length_str: &str) -> Option<ThemeValue> {
 /// This converts DataFusion ScalarValue types to f64 for use in calc expressions.
 /// Supports: Int64, UInt64, Float64, Int32, UInt32, Float32
 fn scalar_value_params_to_f64(
-    params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+    params: &indexmap::IndexMap<String, datafusion_common::ScalarValue>,
 ) -> indexmap::IndexMap<String, f64> {
-    use datafusion::common::ScalarValue;
-
     params
         .iter()
         .filter_map(|(key, value)| {
