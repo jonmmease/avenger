@@ -14,7 +14,7 @@ mod scale;
 pub mod spec;
 
 // Re-export the main types
-pub use builder::{ChannelScaleBuilder, ScaleBuilder};
+pub use builder::{ChannelScaleData, ScaleBuilder};
 pub use codec::AvengerChartExtensionCodec;
 pub use domain_extent::{
     DomainBounds, DomainExtent, RadiusPadding, SerializableDataExtents, SerializableDomainValue,

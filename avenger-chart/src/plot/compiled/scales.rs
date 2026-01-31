@@ -160,7 +160,7 @@ pub(crate) async fn build_scale_builder_from_marks(
         HashMap::new();
 
     // Extract non‑positional channel builders from the main builder
-    for (channel_name, channel_builder) in &builder.channel_builders {
+    for (channel_name, channel_builder) in &builder.channel_scale_data {
         if let Some(configured) = build_temp_configured_scale(
             channel_builder,
             channel_name,
@@ -857,7 +857,7 @@ async fn cache_domain_data(
 
 /// Build temporary ConfiguredScale used to construct radius‑aware positional expressions
 async fn build_temp_configured_scale(
-    channel_builder: &crate::scales::ChannelScaleBuilder,
+    channel_builder: &crate::scales::ChannelScaleData,
     channel_name: &str,
     width: f32,
     height: f32,
@@ -865,13 +865,13 @@ async fn build_temp_configured_scale(
     params: &IndexMap<String, datafusion::common::ScalarValue>,
     theme: &crate::theme::Theme,
 ) -> Result<Option<crate::scales::ConfiguredScaleWithSpec>, AvengerChartError> {
-    use crate::scales::{ConfiguredScaleWithSpec, Scale, builder::ChannelScaleBuilder, spec::Auto};
+    use crate::scales::{ConfiguredScaleWithSpec, Scale, builder::ChannelScaleData, spec::Auto};
     use crate::serialization::LogicalExprNodeExt;
 
     // Debug logging removed
 
     match channel_builder {
-        ChannelScaleBuilder::Standard {
+        ChannelScaleData::Standard {
             scale_spec,
             data_extents,
             options,
@@ -911,7 +911,7 @@ async fn build_temp_configured_scale(
             // Wrap in ConfiguredScaleWithSpec
             Ok(Some(ConfiguredScaleWithSpec::new(scale, configured)))
         }
-        ChannelScaleBuilder::ExplicitDomain {
+        ChannelScaleData::ExplicitDomain {
             scale_spec,
             options,
             domain,
@@ -951,7 +951,7 @@ async fn build_temp_configured_scale(
 
             Ok(Some(ConfiguredScaleWithSpec::new(scale, configured)))
         }
-        ChannelScaleBuilder::RadiusAware { .. } => {
+        ChannelScaleData::RadiusAware { .. } => {
             // Radius‑aware scales are not expected here
             Ok(None)
         }

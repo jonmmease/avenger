@@ -38,14 +38,14 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct ScaleBuilder {
     /// Per-channel cached data for scale construction
-    pub(crate) channel_builders: HashMap<String, ChannelScaleBuilder>,
+    pub(crate) channel_scale_data: HashMap<String, ChannelScaleData>,
     /// Data type for each channel (needed for default_channel_range())
     pub(crate) channel_data_types: HashMap<String, datafusion::arrow::datatypes::DataType>,
 }
 
 /// Cached data for a single channel's scale
 #[derive(Debug, Clone)]
-pub enum ChannelScaleBuilder {
+pub enum ChannelScaleData {
     /// Standard scale: cache final data extents
     ///
     /// For scales where domain doesn't depend on plot dimensions,
@@ -106,7 +106,7 @@ impl ScaleBuilder {
     /// Create a new empty scale builder
     pub fn new() -> Self {
         Self {
-            channel_builders: HashMap::new(),
+            channel_scale_data: HashMap::new(),
             channel_data_types: HashMap::new(),
         }
     }
@@ -128,9 +128,9 @@ impl ScaleBuilder {
         data_extents: DataExtents,
         options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     ) {
-        self.channel_builders.insert(
+        self.channel_scale_data.insert(
             channel_name,
-            ChannelScaleBuilder::Standard {
+            ChannelScaleData::Standard {
                 scale_spec,
                 data_extents,
                 options,
@@ -148,9 +148,9 @@ impl ScaleBuilder {
         radius_upper_data: Vec<f64>,
         options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     ) {
-        self.channel_builders.insert(
+        self.channel_scale_data.insert(
             channel_name,
-            ChannelScaleBuilder::RadiusAware {
+            ChannelScaleData::RadiusAware {
                 scale_spec,
                 position_data,
                 radius_lower_data,
@@ -168,9 +168,9 @@ impl ScaleBuilder {
         options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
         domain: crate::scales::ScaleDomain,
     ) {
-        self.channel_builders.insert(
+        self.channel_scale_data.insert(
             channel_name,
-            ChannelScaleBuilder::ExplicitDomain {
+            ChannelScaleData::ExplicitDomain {
                 scale_spec,
                 options,
                 domain,
@@ -179,8 +179,8 @@ impl ScaleBuilder {
     }
 
     /// Get the channel builders
-    pub fn channel_builders(&self) -> &HashMap<String, ChannelScaleBuilder> {
-        &self.channel_builders
+    pub fn channel_builders(&self) -> &HashMap<String, ChannelScaleData> {
+        &self.channel_scale_data
     }
 
     /// Extract data extents for specified channels as DomainExtent
@@ -202,9 +202,9 @@ impl ScaleBuilder {
         let mut result = HashMap::new();
 
         for channel in channels {
-            if let Some(builder) = self.channel_builders.get(*channel) {
+            if let Some(builder) = self.channel_scale_data.get(*channel) {
                 match builder {
-                    ChannelScaleBuilder::Standard { data_extents, .. } => {
+                    ChannelScaleData::Standard { data_extents, .. } => {
                         let extent = match data_extents {
                             DataExtents::Interval(min, max) => DomainExtent::numeric(*min, *max),
                             DataExtents::Temporal(min, max) => DomainExtent::temporal(*min, *max),
@@ -218,7 +218,7 @@ impl ScaleBuilder {
                         };
                         result.insert(channel.to_string(), extent);
                     }
-                    ChannelScaleBuilder::RadiusAware {
+                    ChannelScaleData::RadiusAware {
                         position_data,
                         radius_lower_data,
                         radius_upper_data,
@@ -248,7 +248,7 @@ impl ScaleBuilder {
                             );
                         }
                     }
-                    ChannelScaleBuilder::ExplicitDomain { .. } => {
+                    ChannelScaleData::ExplicitDomain { .. } => {
                         // Explicit domain doesn't have extractable extents
                     }
                 }
@@ -279,25 +279,25 @@ impl ScaleBuilder {
             }
             eprintln!(
                 "  channel_builders available: {:?}",
-                self.channel_builders.keys().collect::<Vec<_>>()
+                self.channel_scale_data.keys().collect::<Vec<_>>()
             );
         }
 
         for (channel, shared_extent) in shared_extents {
-            if let Some(channel_builder) = self.channel_builders.get_mut(channel) {
+            if let Some(channel_builder) = self.channel_scale_data.get_mut(channel) {
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                     let variant = match channel_builder {
-                        ChannelScaleBuilder::Standard { data_extents, .. } => {
+                        ChannelScaleData::Standard { data_extents, .. } => {
                             format!("Standard({:?})", data_extents)
                         }
-                        ChannelScaleBuilder::RadiusAware { .. } => "RadiusAware".to_string(),
-                        ChannelScaleBuilder::ExplicitDomain { .. } => "ExplicitDomain".to_string(),
+                        ChannelScaleData::RadiusAware { .. } => "RadiusAware".to_string(),
+                        ChannelScaleData::ExplicitDomain { .. } => "ExplicitDomain".to_string(),
                     };
                     eprintln!("  Processing channel {}: builder={}", channel, variant);
                 }
 
                 match channel_builder {
-                    ChannelScaleBuilder::Standard { data_extents, .. } => {
+                    ChannelScaleData::Standard { data_extents, .. } => {
                         // Extend the local extents with shared extents
                         match (&mut *data_extents, &shared_extent.bounds) {
                             (
@@ -355,7 +355,7 @@ impl ScaleBuilder {
                             }
                         }
                     }
-                    ChannelScaleBuilder::RadiusAware {
+                    ChannelScaleData::RadiusAware {
                         position_data,
                         radius_lower_data,
                         radius_upper_data,
@@ -409,7 +409,7 @@ impl ScaleBuilder {
                             }
                         }
                     }
-                    ChannelScaleBuilder::ExplicitDomain { .. } => {
+                    ChannelScaleData::ExplicitDomain { .. } => {
                         // Explicit domains should not be modified by shared extents
                     }
                 }
@@ -453,14 +453,14 @@ impl ScaleBuilder {
         let mut result = HashMap::new();
 
         // Iterate channel builders in a deterministic order
-        let mut builder_entries: Vec<(&String, &ChannelScaleBuilder)> =
-            self.channel_builders.iter().collect();
+        let mut builder_entries: Vec<(&String, &ChannelScaleData)> =
+            self.channel_scale_data.iter().collect();
         builder_entries.sort_by(|a, b| a.0.cmp(b.0));
 
         for (channel_name, channel_builder) in builder_entries.into_iter() {
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && channel_name == "y" {
                 match channel_builder {
-                    ChannelScaleBuilder::RadiusAware { position_data, .. } => {
+                    ChannelScaleData::RadiusAware { position_data, .. } => {
                         eprintln!(
                             "build_scales: starting {} with RadiusAware(len={})",
                             channel_name,
@@ -471,7 +471,7 @@ impl ScaleBuilder {
                 }
             }
             match channel_builder {
-                ChannelScaleBuilder::Standard {
+                ChannelScaleData::Standard {
                     scale_spec,
                     data_extents,
                     options,
@@ -595,7 +595,7 @@ impl ScaleBuilder {
                         ConfiguredScaleWithSpec::new(scale, configured),
                     );
                 }
-                ChannelScaleBuilder::RadiusAware {
+                ChannelScaleData::RadiusAware {
                     scale_spec,
                     position_data,
                     radius_lower_data,
@@ -727,7 +727,7 @@ impl ScaleBuilder {
                         ConfiguredScaleWithSpec::new(scale, configured),
                     );
                 }
-                ChannelScaleBuilder::ExplicitDomain {
+                ChannelScaleData::ExplicitDomain {
                     scale_spec,
                     options,
                     domain,
@@ -859,7 +859,7 @@ mod tests {
     #[test]
     fn test_scale_builder_new() {
         let builder = ScaleBuilder::new();
-        assert!(builder.channel_builders.is_empty());
+        assert!(builder.channel_scale_data.is_empty());
     }
 
     #[test]
@@ -873,8 +873,8 @@ mod tests {
 
         builder.add_standard("x".to_string(), scale_spec, data_extents, options);
 
-        assert_eq!(builder.channel_builders.len(), 1);
-        assert!(builder.channel_builders.contains_key("x"));
+        assert_eq!(builder.channel_scale_data.len(), 1);
+        assert!(builder.channel_scale_data.contains_key("x"));
     }
 
     #[test]
@@ -897,8 +897,8 @@ mod tests {
             options,
         );
 
-        assert_eq!(builder.channel_builders.len(), 1);
-        assert!(builder.channel_builders.contains_key("x"));
+        assert_eq!(builder.channel_scale_data.len(), 1);
+        assert!(builder.channel_scale_data.contains_key("x"));
     }
 
     #[test]
