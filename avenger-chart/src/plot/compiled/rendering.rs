@@ -1,33 +1,77 @@
 //! Rendering pipeline for CompiledPlot
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
-use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::dataframe::DataFrame;
-use datafusion::prelude::SessionContext;
+use arrow::array::{Float32Array, Float64Array};
+use avenger_common::types::ColorOrGradient;
+use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::{
+    marks::{
+        group::{Clip, SceneGroup},
+        mark::SceneMark,
+        rect::SceneRectMark,
+    },
+    scene_graph::SceneGraph,
+};
+use datafusion::{
+    arrow::{
+        array::Int32Array,
+        compute::concat_batches,
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    },
+    common::ScalarValue,
+    dataframe::DataFrame,
+    logical_expr::{lit, when, Expr},
+    prelude::SessionContext,
+};
+use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 
-use avenger_scales::scales::ConfiguredScale;
+use crate::{
+    channel::{
+        resolution::resolve_all_channel_refs,
+        value::{strip_trailing_numbers, ChannelValue, ConditionalValue},
+    },
+    coords::{coordinate_overflow_for_guides, CoordMeasurement},
+    error::AvengerChartError,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    guide::OverflowSpaceRequirement,
+    layout::{
+        ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, LayoutBounds,
+        LayoutResult, LayoutSpec, Margins, SizeMode,
+    },
+    legend::LegendPosition,
+    marks::CompiledMark,
+    maybe::Maybe,
+    render::{
+        debug::create_debug_layout_rects, EvaluatedPlot, EvaluationContext, LayoutSolution,
+        RenderContext, RenderState,
+    },
+    scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
+    serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
+    theme::{Theme, ThemeContext},
+    utils::{params_to_datafusion, parse_color_string},
+};
 
-use crate::channel::value::{ChannelValue, ConditionalValue};
-use crate::coords::coordinate_overflow_for_guides;
-use crate::error::AvengerChartError;
-use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
-use crate::marks::CompiledMark;
-use crate::render::{EvaluationContext, RenderContext, RenderState};
-use crate::scales::ConfiguredScaleWithSpec;
-use crate::serialization::{LogicalExprNodeExt, LogicalPlanNodeExt};
-
-use super::CompiledPlot;
-use super::expr_eval::evaluate_f32_expr;
+use super::{
+    expr_eval::{evaluate_bool_expr, evaluate_f32_expr},
+    scale_provider::{DynamicScaleProvider, ScaleProvider},
+    scales::build_scale_builder_from_marks,
+    ComponentsMeasurement, CompiledPlot, PlotComponents,
+};
 
 /// Prepared data for mark evaluation (measure or render pass)
 struct PreparedMarkData {
     /// Array data batch (multiple rows), or None if all channels are scalar
-    data_batch: Option<datafusion::arrow::record_batch::RecordBatch>,
+    data_batch: Option<RecordBatch>,
     /// Scalar data batch (single row) for channels that don't vary per mark
-    scalar_batch: datafusion::arrow::record_batch::RecordBatch,
+    scalar_batch: RecordBatch,
     /// Render state with plot dimensions and scales
     render_state: RenderState,
 }
@@ -42,14 +86,10 @@ impl CompiledPlot {
 
 /// Evaluate a SizeMode to get an EvaluatedSizeMode with concrete f32 values
 async fn evaluate_size_mode(
-    size_mode: &crate::layout::SizeMode,
+    size_mode: &SizeMode,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-) -> Result<crate::layout::EvaluatedSizeMode, AvengerChartError> {
-    use crate::layout::{EvaluatedSizeMode, SizeMode};
-    use crate::serialization::LogicalExprNodeExt;
-    use datafusion_proto::protobuf::LogicalExprNode;
-
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<EvaluatedSizeMode, AvengerChartError> {
     match size_mode {
         SizeMode::Fixed { width, height } => {
             let width_node: LogicalExprNode = width.clone().into();
@@ -81,17 +121,14 @@ async fn evaluate_size_mode(
 
 /// Evaluate Margins to get concrete f32 values (from expression, theme, or default)
 async fn evaluate_margins(
-    margins: &crate::layout::Margins,
+    margins: &Margins,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-    theme: &crate::theme::Theme,
-) -> Result<crate::layout::EvaluatedMargins, AvengerChartError> {
-    use crate::layout::EvaluatedMargins;
-    use crate::serialization::LogicalExprNodeExt;
-
+    params: &IndexMap<String, ScalarValue>,
+    theme: &Theme,
+) -> Result<EvaluatedMargins, AvengerChartError> {
     // Helper to query margin from theme
     let query_margin = |property: &str| -> f32 {
-        let canvas_ctx = crate::theme::ThemeContext::new("canvas", params.clone());
+        let canvas_ctx = ThemeContext::new("canvas", params.clone());
         theme
             .query(&canvas_ctx, property)
             .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
@@ -100,7 +137,7 @@ async fn evaluate_margins(
 
     // Evaluate each margin field, checking expression → theme → default
     let top = match margins.top.as_ref() {
-        crate::maybe::Maybe::Set(Some(node)) => {
+        Maybe::Set(Some(node)) => {
             let expr = node.to_expr(ctx)?;
             evaluate_f32_expr(&expr, ctx, params).await?
         }
@@ -108,7 +145,7 @@ async fn evaluate_margins(
     };
 
     let right = match margins.right.as_ref() {
-        crate::maybe::Maybe::Set(Some(node)) => {
+        Maybe::Set(Some(node)) => {
             let expr = node.to_expr(ctx)?;
             evaluate_f32_expr(&expr, ctx, params).await?
         }
@@ -116,7 +153,7 @@ async fn evaluate_margins(
     };
 
     let bottom = match margins.bottom.as_ref() {
-        crate::maybe::Maybe::Set(Some(node)) => {
+        Maybe::Set(Some(node)) => {
             let expr = node.to_expr(ctx)?;
             evaluate_f32_expr(&expr, ctx, params).await?
         }
@@ -124,7 +161,7 @@ async fn evaluate_margins(
     };
 
     let left = match margins.left.as_ref() {
-        crate::maybe::Maybe::Set(Some(node)) => {
+        Maybe::Set(Some(node)) => {
             let expr = node.to_expr(ctx)?;
             evaluate_f32_expr(&expr, ctx, params).await?
         }
@@ -141,13 +178,11 @@ async fn evaluate_margins(
 
 /// Evaluate a LayoutSpec to get an EvaluatedLayoutSpec with concrete f32 values
 async fn evaluate_layout_spec(
-    layout_spec: &crate::layout::LayoutSpec,
+    layout_spec: &LayoutSpec,
     ctx: &SessionContext,
-    params: &IndexMap<String, datafusion::common::ScalarValue>,
-    theme: &crate::theme::Theme,
-) -> Result<crate::layout::EvaluatedLayoutSpec, AvengerChartError> {
-    use crate::layout::EvaluatedLayoutSpec;
-
+    params: &IndexMap<String, ScalarValue>,
+    theme: &Theme,
+) -> Result<EvaluatedLayoutSpec, AvengerChartError> {
     let canvas = evaluate_size_mode(&layout_spec.canvas, ctx, params).await?;
     let plot_area = evaluate_size_mode(&layout_spec.plot_area, ctx, params).await?;
     let margins = evaluate_margins(&layout_spec.margins, ctx, params, theme).await?;
@@ -167,9 +202,7 @@ impl CompiledPlot {
         channel_value: &ChannelValue,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
-    ) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
-        use crate::channel::value::strip_trailing_numbers;
-
+    ) -> Result<Expr, AvengerChartError> {
         match channel_value {
             ChannelValue::Value { expr } => {
                 // No scaling requested, return expression as-is - convert to Expr
@@ -181,20 +214,15 @@ impl CompiledPlot {
                 ..
             } => {
                 // Build a CASE WHEN expression from the conditions
-                use datafusion::arrow::datatypes::DataType;
-                use datafusion::logical_expr::{lit, when};
-                use datafusion::scalar::ScalarValue;
 
                 // Helper to convert color string literals to the proper ScalarValue format
-                let convert_color_literal =
-                    |expr: &datafusion::logical_expr::Expr| -> datafusion::logical_expr::Expr {
-                        // Check if this is a string literal that might be a color
-                        if let datafusion::logical_expr::Expr::Literal(scalar_value, _) = expr {
-                            if let ScalarValue::Utf8(Some(s)) = scalar_value {
-                                // Use our existing color parsing utility
-                                if let Some(color_or_gradient) = crate::utils::parse_color_string(s)
+                let convert_color_literal = |expr: &Expr| -> Expr {
+                    // Check if this is a string literal that might be a color
+                    if let Expr::Literal(scalar_value, _) = expr {
+                        if let ScalarValue::Utf8(Some(s)) = scalar_value {
+                            // Use our existing color parsing utility
+                            if let Some(color_or_gradient) = parse_color_string(s)
                                 {
-                                    use avenger_common::types::ColorOrGradient;
                                     if let ColorOrGradient::Color(rgba) = color_or_gradient {
                                         // Convert to List ScalarValue with Float32 values
                                         let values: Vec<ScalarValue> = rgba
@@ -224,15 +252,12 @@ impl CompiledPlot {
                 let needs_color_conversion = matches!(channel_name, "fill" | "stroke" | "color");
 
                 // Helper to apply scale to a conditional value
-                let apply_to_conditional = |cond_val: &ConditionalValue| -> Result<
-                    datafusion::logical_expr::Expr,
-                    AvengerChartError,
-                > {
+                let apply_to_conditional =
+                    |cond_val: &ConditionalValue| -> Result<Expr, AvengerChartError> {
                     match cond_val {
                         ConditionalValue::Scaled { expr } => {
                             // Apply scale transformation
                             if let Some(scale) = scales.get(&scale_key) {
-                                use crate::scales::ConfiguredScaleDataFusionExt;
                                 // Convert SerializableExpr to Expr first
                                 expr.to_expr(ctx).and_then(|e| scale.to_expr(e))
                             } else {
@@ -292,7 +317,6 @@ impl CompiledPlot {
 
                 // Optional debugging for size scale behavior
                 // Apply the scale transformation
-                use crate::scales::ConfiguredScaleDataFusionExt;
                 // Convert SerializableExpr to Expr first
                 let expr_df = expr.to_expr(ctx)?;
                 if let Some(band) = band {
@@ -316,7 +340,7 @@ impl CompiledPlot {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_width: f32,
         plot_height: f32,
-        provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
+        provided_plot_df: Option<&DataFrame>,
     ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
         let ctx = &*eval_ctx.session_context;
         let params = &eval_ctx.params;
@@ -325,7 +349,7 @@ impl CompiledPlot {
         let channels = mark.data_context().channels();
 
         // Resolve channel references
-        let channels = crate::channel::resolution::resolve_all_channel_refs(channels, ctx)?;
+        let channels = resolve_all_channel_refs(channels, ctx)?;
 
         // Check if any channel expressions reference columns
         let references_columns = channels.values().any(|channel_value| match channel_value {
@@ -421,7 +445,7 @@ impl CompiledPlot {
         let data_batch = if mark.wants_full_data_batch() {
             // For container marks (facets): preserve ALL columns for nested marks
             // This works whether data comes from provided_plot_df (nested) or self.data (top-level)
-            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let datafusion_params = params_to_datafusion(params);
             let batch = if let Some(param_values) = datafusion_params {
                 (*df)
                     .clone()
@@ -435,11 +459,10 @@ impl CompiledPlot {
             if batch.is_empty() {
                 // Return empty batch WITH SCHEMA for facets (enables key extraction)
                 let arrow_schema = std::sync::Arc::new(df.schema().as_arrow().clone());
-                Some(datafusion::arrow::record_batch::RecordBatch::new_empty(
+                Some(RecordBatch::new_empty(
                     arrow_schema,
                 ))
             } else {
-                use datafusion::arrow::compute::concat_batches;
                 let schema = batch[0].schema();
                 Some(concat_batches(&schema, &batch)?)
             }
@@ -449,7 +472,7 @@ impl CompiledPlot {
             for (name, expr) in &array_channels {
                 select_exprs.push(expr.clone().alias(*name));
             }
-            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let datafusion_params = params_to_datafusion(params);
             let batch = if let Some(param_values) = datafusion_params {
                 (*df)
                     .clone()
@@ -463,7 +486,6 @@ impl CompiledPlot {
             if batch.is_empty() {
                 None
             } else {
-                use datafusion::arrow::compute::concat_batches;
                 let schema = batch[0].schema();
                 let combined = concat_batches(&schema, &batch)?;
                 Some(combined)
@@ -478,7 +500,7 @@ impl CompiledPlot {
             scalar_select_exprs.push(expr.clone().alias(*name));
         }
         let scalar_batch = if !scalar_select_exprs.is_empty() {
-            let datafusion_params = crate::utils::params_to_datafusion(params);
+            let datafusion_params = params_to_datafusion(params);
             let batch = if let Some(param_values) = datafusion_params {
                 (*df)
                     .clone()
@@ -492,14 +514,11 @@ impl CompiledPlot {
             if batch.is_empty() {
                 return Ok(None);
             } else {
-                use datafusion::arrow::compute::concat_batches;
                 let schema = batch[0].schema();
                 concat_batches(&schema, &batch)?
             }
         } else {
-            use datafusion::arrow::array::Int32Array;
-            use datafusion::arrow::datatypes::{DataType, Field, Schema};
-            datafusion::arrow::record_batch::RecordBatch::try_new(
+            RecordBatch::try_new(
                 Arc::new(Schema::new(vec![Field::new(
                     "_dummy",
                     DataType::Int32,
@@ -528,9 +547,9 @@ impl CompiledPlot {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_width: f32,
         plot_height: f32,
-        provided_plot_df: Option<&datafusion::dataframe::DataFrame>,
-        facet_path: &[datafusion::common::ScalarValue],
-        coord_measurement: &dyn crate::coords::CoordMeasurement,
+        provided_plot_df: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let prepared = self
             .prepare_mark_data(
@@ -569,13 +588,13 @@ impl CompiledPlot {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_width: f32,
         plot_height: f32,
-        plot_bounds: &crate::layout::LayoutBounds,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        plot_bounds: &LayoutBounds,
+        params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
         data_override: Option<&DataFrame>,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-        coord_measurement: &dyn crate::coords::CoordMeasurement,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Use the pre-built guide renderer if available
         if let Some(compiled_guide) = &self.compiled_guide {
@@ -590,12 +609,12 @@ impl CompiledPlot {
                 if let Some(y_scale) = configured_scales.get("y") {
                     let domain = y_scale.domain();
                     if let Some(float_arr) =
-                        domain.as_any().downcast_ref::<arrow::array::Float32Array>()
+                        domain.as_any().downcast_ref::<Float32Array>()
                     {
                         let vals: Vec<f32> = float_arr.iter().filter_map(|v| v).collect();
                         eprintln!("create_guide_marks: y scale domain = {:?}", vals);
                     } else if let Some(float_arr) =
-                        domain.as_any().downcast_ref::<arrow::array::Float64Array>()
+                        domain.as_any().downcast_ref::<Float64Array>()
                     {
                         let vals: Vec<f64> = float_arr.iter().filter_map(|v| v).collect();
                         eprintln!("create_guide_marks: y scale domain = {:?}", vals);
@@ -635,16 +654,14 @@ impl CompiledPlot {
     /// based on the provided EvaluatedLayoutSpec.
     pub(super) async fn compute_layout_with_spec(
         &self,
-        layout_spec: &crate::layout::EvaluatedLayoutSpec,
+        layout_spec: &EvaluatedLayoutSpec,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        params: &IndexMap<String, ScalarValue>,
         data_override: Option<&DataFrame>,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-    ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
-        use crate::layout::{ChartLayout, EvaluatedSizeMode};
-
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+    ) -> Result<LayoutSolution, AvengerChartError> {
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
 
@@ -697,7 +714,7 @@ impl CompiledPlot {
                 )
                 .await?
         } else {
-            crate::guide::OverflowSpaceRequirement::default()
+            OverflowSpaceRequirement::default()
         };
 
         // Get legends with theme applied
@@ -736,16 +753,16 @@ impl CompiledPlot {
         // (ChartLayout.compute() sets total_overflow to guide-only; we add legend space here)
         for (channel, measurement) in legend_measurements.iter() {
             match measurement.position {
-                crate::legend::LegendPosition::Left => {
+                LegendPosition::Left => {
                     result.total_overflow.left += measurement.size.width;
                 }
-                crate::legend::LegendPosition::Right => {
+                LegendPosition::Right => {
                     result.total_overflow.right += measurement.size.width;
                 }
-                crate::legend::LegendPosition::Top => {
+                LegendPosition::Top => {
                     result.total_overflow.top += measurement.size.height;
                 }
-                crate::legend::LegendPosition::Bottom => {
+                LegendPosition::Bottom => {
                     result.total_overflow.bottom += measurement.size.height;
                 }
             }
@@ -759,9 +776,9 @@ impl CompiledPlot {
     pub(super) async fn create_legends_with_layout(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        layout: &crate::layout::LayoutResult,
+        layout: &LayoutResult,
         ctx: &SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
+        params: &IndexMap<String, ScalarValue>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Get legends with theme applied (same as used for layout)
         let all_legend_configs = self.get_legends_with_theme(scales, ctx, params);
@@ -809,9 +826,6 @@ impl CompiledPlot {
                 };
 
                 // Check visibility before rendering
-                use crate::plot::compiled::expr_eval::*;
-                use crate::serialization::LogicalExprNodeExt;
-
                 let visible =
                     if let Some(node) = legend.visible.as_option().and_then(|o| o.as_ref()) {
                         let expr = node.to_expr(ctx)?;
@@ -857,10 +871,8 @@ impl CompiledPlot {
     /// - Plot area mode (`is_plot_area_mode=true`): canvas Auto + plot_area Fixed
     /// - Canvas mode (`is_plot_area_mode=false`): canvas specified, compute plot area later
     fn resolve_dimensions_from_spec(
-        layout_spec: &crate::layout::EvaluatedLayoutSpec,
+        layout_spec: &EvaluatedLayoutSpec,
     ) -> (f32, f32, bool) {
-        use crate::layout::EvaluatedSizeMode;
-
         const DEFAULT_WIDTH: f32 = 400.0;
         const DEFAULT_HEIGHT: f32 = 300.0;
 
@@ -901,13 +913,10 @@ impl CompiledPlot {
     /// Determine clip region from guide or default to plot area rect.
     fn get_clip_region(
         &self,
-        scales: &std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_area_width: f32,
         plot_area_height: f32,
-    ) -> avenger_scenegraph::marks::group::Clip {
-        use avenger_scales::scales::ConfiguredScale;
-        use std::collections::HashMap;
-
+    ) -> Clip {
         if let Some(ref guide) = self.compiled_guide {
             let configured_scales: HashMap<String, ConfiguredScale> = scales
                 .iter()
@@ -915,7 +924,7 @@ impl CompiledPlot {
                 .collect();
             guide.get_clip(plot_area_width, plot_area_height, &configured_scales)
         } else {
-            avenger_scenegraph::marks::group::Clip::Rect {
+            Clip::Rect {
                 x: 0.0,
                 y: 0.0,
                 width: plot_area_width,
@@ -938,14 +947,14 @@ impl CompiledPlot {
         is_plot_area_mode: bool,
         width: f32,
         height: f32,
-        layout_spec: &crate::layout::EvaluatedLayoutSpec,
-        scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
-        ctx: &datafusion::prelude::SessionContext,
-        merged_params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+        layout_spec: &EvaluatedLayoutSpec,
+        scale_provider: &dyn ScaleProvider,
+        ctx: &SessionContext,
+        merged_params: &IndexMap<String, ScalarValue>,
         data_override: Option<&DataFrame>,
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        facet_path: &[datafusion::common::ScalarValue],
-    ) -> Result<(f32, f32, (f32, f32), crate::render::LayoutSolution), AvengerChartError>
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+    ) -> Result<(f32, f32, (f32, f32), LayoutSolution), AvengerChartError>
     {
         if is_plot_area_mode {
             // Plot area mode: dimensions specify the plot area size
@@ -1009,14 +1018,14 @@ impl CompiledPlot {
     /// on the returned measurement to update scales with coord-derived values.
     async fn measure_coord_system(
         &self,
-        scales: &std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_area_width: f32,
         plot_area_height: f32,
-        params_with_dims: &crate::render::EvaluationContext,
+        params_with_dims: &EvaluationContext,
         data_override: Option<&DataFrame>,
-        facet_path: &[datafusion::common::ScalarValue],
-        ctx: &datafusion::prelude::SessionContext,
-    ) -> Result<Box<dyn crate::coords::CoordMeasurement>, AvengerChartError> {
+        facet_path: &[ScalarValue],
+        ctx: &SessionContext,
+    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
         // Get data for coord measurement: use data_override if provided (nested facets),
         // otherwise use the plot's own data (top-level).
         let plot_data = if data_override.is_some() {
@@ -1070,11 +1079,11 @@ impl CompiledPlot {
     pub(crate) async fn measure_plot_components(
         &self,
         eval_ctx: &EvaluationContext,
-        layout_spec: &crate::layout::EvaluatedLayoutSpec,
-        scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
+        layout_spec: &EvaluatedLayoutSpec,
+        scale_provider: &dyn ScaleProvider,
         data_override: Option<&DataFrame>,
-        facet_path: &[datafusion::common::ScalarValue],
-    ) -> Result<crate::plot::compiled::ComponentsMeasurement, AvengerChartError> {
+        facet_path: &[ScalarValue],
+    ) -> Result<ComponentsMeasurement, AvengerChartError> {
         let ctx = &*eval_ctx.session_context;
         let facet_tree = &*eval_ctx.facet_tree;
 
@@ -1136,7 +1145,7 @@ impl CompiledPlot {
         // Note: Overflow info is available via layout.overflow (guide only) and
         // layout.total_overflow (guide + legends), computed during layout phase.
 
-        Ok(crate::plot::compiled::ComponentsMeasurement {
+        Ok(ComponentsMeasurement {
             coord_measurement,
             scales: final_scales,
             plot_area_width,
@@ -1176,11 +1185,11 @@ impl CompiledPlot {
     pub async fn build_plot_components(
         &self,
         eval_ctx: &EvaluationContext,
-        measurement: &crate::plot::compiled::ComponentsMeasurement,
+        measurement: &ComponentsMeasurement,
         data_override: Option<&DataFrame>,
         dimensions_are_plot_area: bool,
-        facet_path: &[datafusion::common::ScalarValue],
-    ) -> Result<crate::plot::compiled::PlotComponents, AvengerChartError> {
+        facet_path: &[ScalarValue],
+    ) -> Result<PlotComponents, AvengerChartError> {
         let ctx = &*eval_ctx.session_context;
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -1205,7 +1214,7 @@ impl CompiledPlot {
         let mark_eval_ctx = eval_ctx.with_params(merged_params.clone());
 
         // Render marks using pre-computed measurements from measurement
-        let coord_measurement_ref: &dyn crate::coords::CoordMeasurement =
+        let coord_measurement_ref: &dyn CoordMeasurement =
             measurement.coord_measurement.as_ref();
 
         let mut data_marks = Vec::new();
@@ -1269,7 +1278,7 @@ impl CompiledPlot {
                         )
                         .await?
                 } else {
-                    crate::guide::OverflowSpaceRequirement::default()
+                    OverflowSpaceRequirement::default()
                 };
 
                 if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
@@ -1283,7 +1292,6 @@ impl CompiledPlot {
                 }
 
                 // Rebuild layout unconditionally with the second-pass overflow
-                use crate::layout::ChartLayout;
                 let evaluated_spec2 = evaluate_layout_spec(
                     self.get_layout_spec(),
                     ctx,
@@ -1325,7 +1333,7 @@ impl CompiledPlot {
                 let plot_bounds = layout.plot_area_bounds();
                 // Use original plot area dimensions to stay consistent with evaluated marks
                 // Marks were evaluated with plot_area_width/height from first layout
-                let plot_bounds_struct = crate::layout::LayoutBounds {
+                let plot_bounds_struct = LayoutBounds {
                     x: plot_bounds.x,
                     y: plot_bounds.y,
                     width: plot_area_width,
@@ -1382,7 +1390,7 @@ impl CompiledPlot {
                         "FINAL layout plot width: {}",
                         layout.taffy_layout.plot_area.width
                     );
-                    debug_marks.extend(crate::render::debug::create_debug_layout_rects(
+                    debug_marks.extend(create_debug_layout_rects(
                         &layout_initial.taffy_layout, // Use initial layout that matches mark positioning
                         None,                         // Use default magenta color
                         None,                         // Use default stroke width (1.0)
@@ -1405,7 +1413,7 @@ impl CompiledPlot {
                 // a NEGATIVE value, placing labels ABOVE the subplot origin (in the overflow
                 // region). Data marks render at y = 0 to plot_height.
                 // The subplot's overflow region is at negative y, not positive.
-                let plot_bounds_struct = crate::layout::LayoutBounds {
+                let plot_bounds_struct = LayoutBounds {
                     x: 0.0,
                     y: 0.0,
                     width: plot_area_width,
@@ -1445,7 +1453,6 @@ impl CompiledPlot {
                 let legend_marks: Vec<_> = legend_marks_raw
                     .into_iter()
                     .map(|mark| {
-                        use avenger_scenegraph::marks::mark::SceneMark;
                         match mark {
                             SceneMark::Group(mut group) => {
                                 // Adjust group origin by subtracting plot area offset
@@ -1496,8 +1503,7 @@ impl CompiledPlot {
                     // of params to differentiate subplots without FacetContext
                     let subplot_color_string = {
                         // Use a simple hash based on params count for deterministic coloring
-                        use std::hash::{Hash, Hasher};
-                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        let mut hasher = DefaultHasher::new();
                         merged_params.len().hash(&mut hasher);
                         // Include some param values for more variation
                         for (key, _) in merged_params.iter().take(3) {
@@ -1518,7 +1524,7 @@ impl CompiledPlot {
                         colors[index].to_string()
                     };
 
-                    debug_marks.extend(crate::render::debug::create_debug_layout_rects(
+                    debug_marks.extend(create_debug_layout_rects(
                         &subplot_layout,
                         Some(subplot_color_string),
                         Some(1.0), // Same width as outer lines
@@ -1541,7 +1547,7 @@ impl CompiledPlot {
         // Debug marks are kept separate - they're in absolute canvas coordinates
         // and should not be translated with the data marks group
 
-        Ok(crate::plot::compiled::PlotComponents {
+        Ok(PlotComponents {
             data_marks,
             guide_marks,
             legend_marks,
@@ -1559,12 +1565,9 @@ impl CompiledPlot {
     pub async fn evaluate(
         &self,
         ctx: &SessionContext,
-        params: Option<IndexMap<String, datafusion::common::ScalarValue>>,
-    ) -> Result<crate::render::EvaluatedPlot, AvengerChartError> {
-        use avenger_scenegraph::marks::group::SceneGroup;
-        use avenger_scenegraph::scene_graph::SceneGraph;
-
-        // 1. Merge provided params with defaults
+        params: Option<IndexMap<String, ScalarValue>>,
+    ) -> Result<EvaluatedPlot, AvengerChartError> {
+        // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
             merged.extend(provided);
@@ -1573,18 +1576,17 @@ impl CompiledPlot {
             self.default_params.clone()
         };
 
-        // 1.5. Build evaluated facet spec (pre-pass to discover partition structure)
+        // Build evaluated facet spec (pre-pass to discover partition structure)
         // This queries distinct values for each facet level, respecting scale sharing settings.
         // Used for efficient domain lookups in nested facet coordination.
         let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
 
-        // 2. Evaluate layout spec to get concrete dimensions
+        // Evaluate layout spec to get concrete dimensions
         let evaluated_layout_spec =
             evaluate_layout_spec(&self.layout_spec, ctx, &merged_params, self.get_theme().as_ref())
                 .await?;
 
-        // 3. Build scale provider
-        use crate::plot::compiled::scales::build_scale_builder_from_marks;
+        // Build scale provider
         let scale_builder = build_scale_builder_from_marks(
             &self.marks,
             &self.scale_specs,
@@ -1597,7 +1599,7 @@ impl CompiledPlot {
         )
         .await?;
 
-        let provider = crate::plot::compiled::scale_provider::DynamicScaleProvider {
+        let provider = DynamicScaleProvider {
             builder: &scale_builder,
             plot: self,
         };
@@ -1610,7 +1612,7 @@ impl CompiledPlot {
             facet_tree.clone(),
         );
 
-        // 4. Measure plot components
+        // Measure plot components
         let measurement = self
             .measure_plot_components(
                 &eval_ctx,
@@ -1621,13 +1623,13 @@ impl CompiledPlot {
             )
             .await?;
 
-        // 4b. Coordinate nested facet overflow values globally and re-measure affected subplots
+        // Coordinate nested facet overflow values globally and re-measure affected subplots
         // This ensures all facet labels at the same nesting depth are aligned
         // and subplot measurements have correct dimensions accounting for legend overflow
         let mut measurement = measurement;
         coordinate_overflow_for_guides(&mut measurement, &eval_ctx).await?;
 
-        // 5. Build plot components using measurement
+        // Build plot components using measurement
         let components = self
             .build_plot_components(
                 &eval_ctx,
@@ -1638,7 +1640,7 @@ impl CompiledPlot {
             )
             .await?;
 
-        // 5. Compose scene graph from components
+        // Compose scene graph from components
         let plot_bounds = components.plot_bounds;
         let (final_width, final_height) = components.size;
 
@@ -1655,14 +1657,11 @@ impl CompiledPlot {
 
         // Add background rect if theme specifies one
         let theme = self.get_theme();
-        let canvas_ctx = crate::theme::ThemeContext::new("canvas", eval_ctx.params.clone());
+        let canvas_ctx = ThemeContext::new("canvas", eval_ctx.params.clone());
         if let Some(color) = theme
             .query(&canvas_ctx, "background-color")
             .and_then(|v| v.as_color_array())
         {
-            use avenger_common::types::ColorOrGradient;
-            use avenger_scenegraph::marks::rect::SceneRectMark;
-
             let background_rect = SceneRectMark {
                 x: 0.0.into(),
                 y: 0.0.into(),
@@ -1674,13 +1673,13 @@ impl CompiledPlot {
                 zindex: Some(-100),
                 ..Default::default()
             };
-            all_marks.push(avenger_scenegraph::marks::mark::SceneMark::Rect(
+            all_marks.push(SceneMark::Rect(
                 background_rect,
             ));
         }
 
         // Add marks in proper z-order
-        all_marks.push(avenger_scenegraph::marks::mark::SceneMark::Group(
+        all_marks.push(SceneMark::Group(
             data_marks_group,
         ));
         all_marks.extend(components.guide_marks);
@@ -1700,7 +1699,7 @@ impl CompiledPlot {
 
         // Create scene graph
         let scene_graph = SceneGraph {
-            marks: vec![avenger_scenegraph::marks::mark::SceneMark::Group(
+            marks: vec![SceneMark::Group(
                 root_group,
             )],
             width: final_width,
@@ -1709,9 +1708,9 @@ impl CompiledPlot {
         };
 
         // Build spatial index
-        let rtree = avenger_geometry::rtree::SceneGraphRTree::from_scene_graph(&scene_graph);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
 
-        Ok(crate::render::EvaluatedPlot {
+        Ok(EvaluatedPlot {
             scene_graph,
             rtree: Some(rtree),
         })
