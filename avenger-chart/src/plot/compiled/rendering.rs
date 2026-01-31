@@ -851,53 +851,27 @@ impl CompiledPlot {
         Ok(legend_marks)
     }
 
-    /// Measure plot components without rendering (for layout coordination).
+    /// Extract dimensions and determine layout mode from evaluated layout spec.
     ///
-    /// This method performs all setup and measurement needed for layout coordination:
-    /// - Computes layout to determine plot area dimensions
-    /// - Builds scales with the provided scale_provider
-    /// - Calls coordinate system measure (for facet cell layout)
-    /// - Computes overflow requirements for guide elements
-    ///
-    /// Returns `ComponentsMeasurement` which can be used to:
-    /// - Get overflow for parent layout coordination (facets)
-    /// - Pass to `build_plot_components` for rendering
-    ///
-    /// # Arguments
-    /// * `eval_ctx` - Evaluation context with theme, session, params, and facet tree
-    /// * `layout_spec` - Evaluated layout specification with concrete dimensions
-    /// * `scale_provider` - Provider for building scales (prebuilt for shared scales, or from-data)
-    /// * `data_override` - Optional data override for faceted subplots (filtered data)
-    /// * `facet_path` - Path of values identifying current cell in facet hierarchy (e.g., `["East", "Eng"]`).
-    ///   Used for tree navigation, data filtering, and axis visibility checks.
-    pub(crate) async fn measure_plot_components(
-        &self,
-        eval_ctx: &EvaluationContext,
+    /// Returns (width, height, is_plot_area_mode) where:
+    /// - Plot area mode (`is_plot_area_mode=true`): canvas Auto + plot_area Fixed
+    /// - Canvas mode (`is_plot_area_mode=false`): canvas specified, compute plot area later
+    fn resolve_dimensions_from_spec(
         layout_spec: &crate::layout::EvaluatedLayoutSpec,
-        scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
-        data_override: Option<&DataFrame>,
-        facet_path: &[datafusion::common::ScalarValue],
-    ) -> Result<crate::plot::compiled::ComponentsMeasurement, AvengerChartError> {
-        use avenger_scales::scales::ConfiguredScale;
+    ) -> (f32, f32, bool) {
         use crate::layout::EvaluatedSizeMode;
-        use std::collections::HashMap;
 
-        let ctx = &*eval_ctx.session_context;
-        let facet_tree = &*eval_ctx.facet_tree;
+        const DEFAULT_WIDTH: f32 = 400.0;
+        const DEFAULT_HEIGHT: f32 = 300.0;
 
         // Determine if this is plot area mode (canvas Auto + plot_area Fixed)
         // vs canvas mode (canvas specified, plot_area may or may not be)
-        let dimensions_are_plot_area = matches!(
+        let is_plot_area_mode = matches!(
             (&layout_spec.canvas, &layout_spec.plot_area),
             (EvaluatedSizeMode::Auto, EvaluatedSizeMode::Fixed { .. })
         );
 
-        // Extract dimensions for initial estimates
-        // Priority: canvas > plot_area > defaults
-        const DEFAULT_WIDTH: f32 = 400.0;
-        const DEFAULT_HEIGHT: f32 = 300.0;
-
-        let (width, height) = if dimensions_are_plot_area {
+        let (width, height) = if is_plot_area_mode {
             // Plot area mode: use plot_area dimensions
             match &layout_spec.plot_area {
                 EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
@@ -921,10 +895,77 @@ impl CompiledPlot {
             }
         };
 
+        (width, height, is_plot_area_mode)
+    }
+
+    /// Determine clip region from guide or default to plot area rect.
+    fn get_clip_region(
+        &self,
+        scales: &std::collections::HashMap<String, crate::scales::ConfiguredScaleWithSpec>,
+        plot_area_width: f32,
+        plot_area_height: f32,
+    ) -> avenger_scenegraph::marks::group::Clip {
+        use avenger_scales::scales::ConfiguredScale;
+        use std::collections::HashMap;
+
+        if let Some(ref guide) = self.compiled_guide {
+            let configured_scales: HashMap<String, ConfiguredScale> = scales
+                .iter()
+                .map(|(k, v)| (k.clone(), v.configured().clone()))
+                .collect();
+            guide.get_clip(plot_area_width, plot_area_height, &configured_scales)
+        } else {
+            avenger_scenegraph::marks::group::Clip::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: plot_area_width,
+                height: plot_area_height,
+            }
+        }
+    }
+
+    /// Measure plot components without rendering (for layout coordination).
+    ///
+    /// This method performs all setup and measurement needed for layout coordination:
+    /// - Resolves plot area dimensions from layout_spec (see Layout Modes below)
+    /// - Builds scales with the provided scale_provider
+    /// - Calls coordinate system measure (for facet cell layout)
+    /// - Computes overflow requirements for guide elements
+    ///
+    /// Returns `ComponentsMeasurement` for parent layout coordination and rendering.
+    ///
+    /// # Layout Modes
+    /// The `layout_spec` determines how dimensions are resolved:
+    /// - **Canvas mode** (`canvas: Fixed`, `plot_area: Auto`): Plot area is computed
+    ///   by subtracting legend/title overflow from canvas dimensions
+    /// - **Plot area mode** (`canvas: Auto`, `plot_area: Fixed`): Plot area dimensions
+    ///   are used directly; facet subplots always use this mode
+    ///
+    /// # Arguments
+    /// * `eval_ctx` - Evaluation context with theme, session, params, and facet tree
+    /// * `layout_spec` - Evaluated layout specification determining canvas vs plot area mode
+    /// * `scale_provider` - Provider for building scales (prebuilt for shared scales, or from-data)
+    /// * `data_override` - Optional data override for faceted subplots (filtered data)
+    /// * `facet_path` - Path of values identifying current cell in facet hierarchy (e.g., `["East", "Eng"]`).
+    ///   Used for tree navigation, data filtering, and axis visibility checks.
+    pub(crate) async fn measure_plot_components(
+        &self,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &crate::layout::EvaluatedLayoutSpec,
+        scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
+        data_override: Option<&DataFrame>,
+        facet_path: &[datafusion::common::ScalarValue],
+    ) -> Result<crate::plot::compiled::ComponentsMeasurement, AvengerChartError> {
+        let ctx = &*eval_ctx.session_context;
+        let facet_tree = &*eval_ctx.facet_tree;
+
+        // Phase 1: Extract dimensions from layout spec
+        let (width, height, is_plot_area_mode) = Self::resolve_dimensions_from_spec(layout_spec);
+
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "measure_plot_components: width={:.3} height={:.3} dimensions_are_plot_area={}",
-                width, height, dimensions_are_plot_area
+                "measure_plot_components: width={:.3} height={:.3} is_plot_area_mode={}",
+                width, height, is_plot_area_mode
             );
         }
 
@@ -932,8 +973,8 @@ impl CompiledPlot {
         let params_with_dims = eval_ctx.with_dimension_params(width, height);
         let merged_params = params_with_dims.params.clone();
 
-        // Determine plot area dimensions and build scales
-        let (plot_area_width, plot_area_height, canvas_size, layout) = if dimensions_are_plot_area {
+        // Phase 2: Determine plot area dimensions and build scales
+        let (plot_area_width, plot_area_height, canvas_size, layout) = if is_plot_area_mode {
             // Plot area mode: dimensions specify the plot area size
             let plot_area_width = width;
             let plot_area_height = height;
@@ -1029,22 +1070,8 @@ impl CompiledPlot {
         // consumers (guide, marks) use consistent band positions.
         coord_measurement.apply_scale_adjustments(&mut final_scales);
 
-        // Get clip region from guide (facet guides return Clip::None,
-        // Cartesian guides return Rect clip for the plot area)
-        let clip = if let Some(ref guide) = self.compiled_guide {
-            let configured_scales: HashMap<String, ConfiguredScale> = final_scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.configured().clone()))
-                .collect();
-            guide.get_clip(plot_area_width, plot_area_height, &configured_scales)
-        } else {
-            avenger_scenegraph::marks::group::Clip::Rect {
-                x: 0.0,
-                y: 0.0,
-                width: plot_area_width,
-                height: plot_area_height,
-            }
-        };
+        // Phase 5: Get clip region from guide
+        let clip = self.get_clip_region(&final_scales, plot_area_width, plot_area_height);
 
         // Note: Overflow info is available via layout.overflow (guide only) and
         // layout.total_overflow (guide + legends), computed during layout phase.
