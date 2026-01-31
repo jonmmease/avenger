@@ -629,100 +629,13 @@ impl CompiledPlot {
         }
     }
 
-    /// Compute layout with overflow measurement
-    pub(super) async fn compute_layout(
-        &self,
-        width: f32,
-        height: f32,
-        scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        ctx: &SessionContext,
-        params: &IndexMap<String, datafusion::common::ScalarValue>,
-    ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
-        use crate::layout::ChartLayout;
-
-        // Check for required positional scales before measuring overflow
-        self.validate_positional_scales_exist(scales)?;
-
-        // Measure how much space the guide needs if we have one
-        let overflow = if let Some(compiled_guide) = &self.compiled_guide {
-            let width_estimate = width * Self::INITIAL_PLOT_AREA_RATIO;
-            let height_estimate = height * Self::INITIAL_PLOT_AREA_RATIO;
-
-            let theme = self.get_theme();
-            // Extract ConfiguredScale from ConfiguredScaleWithSpec for guide renderer
-            let configured_scales: HashMap<String, ConfiguredScale> = scales
-                .iter()
-                .map(|(k, v)| (k.clone(), v.configured().clone()))
-                .collect();
-            let empty_facet_tree = crate::facet::evaluated_facet_tree::EvaluatedFacetTree::empty();
-            compiled_guide
-                .measure_overflow(
-                    &configured_scales,
-                    width_estimate,
-                    height_estimate,
-                    theme.as_ref(),
-                    params,
-                    None, // No data override in top-level estimate
-                    ctx,
-                    &empty_facet_tree,
-                    &[], // Empty path for top-level (not in a facet cell)
-                    None, // No coord_measurement yet (first pass)
-                )
-                .await?
-        } else {
-            // No guide renderer - no overflow
-            crate::guide::OverflowSpaceRequirement::default()
-        };
-
-        // Get legends with theme applied
-        let all_legends = self.get_legends_with_theme(scales, ctx, params);
-
-        // Use the helper to merge legend channels
-        let (_channel_groups, legends_map) = self
-            .merge_legend_channels(&all_legends, scales, ctx, params)
-            .await?;
-
-        // Prepare legend measurements
-        let available_size = taffy::Size {
-            width: width * Self::INITIAL_PLOT_AREA_RATIO,
-            height: height * Self::INITIAL_PLOT_AREA_RATIO,
-        };
-        let legend_measurements = self
-            .prepare_legend_measurements(&legends_map, scales, available_size, ctx, params)
-            .await?;
-
-        // Create ChartLayout with overflow directly
-        let layout_spec = self.get_layout_spec();
-
-        // Evaluate the layout spec to get concrete dimensions
-        let theme = self.get_theme();
-        let evaluated_spec = evaluate_layout_spec(layout_spec, ctx, params, theme.as_ref()).await?;
-
-        let mut layout = ChartLayout::new(
-            &overflow,
-            &evaluated_spec,
-            self.get_title(),
-            self.get_subtitle(),
-            self.get_theme().as_ref(),
-            &legend_measurements,
-            ctx,
-            params,
-        )
-        .await?;
-
-        let result = layout.compute(&evaluated_spec)?;
-        Ok(result)
-    }
-
-    /// Compute layout with fixed plot area dimensions
+    /// Compute layout with an evaluated layout specification.
     ///
-    /// This variant is used when dimensions_are_plot_area=true. It creates a temporary
-    /// LayoutSpec with fixed plot area and auto canvas, allowing the layout system to
-    /// compute the total canvas size needed to fit the plot area plus legends.
-    pub(super) async fn compute_layout_with_fixed_plot_area(
+    /// This unified method handles both canvas-mode and plot-area-mode layouts
+    /// based on the provided EvaluatedLayoutSpec.
+    pub(super) async fn compute_layout_with_spec(
         &self,
-        plot_width: f32,
-        plot_height: f32,
+        layout_spec: &crate::layout::EvaluatedLayoutSpec,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         ctx: &SessionContext,
         params: &IndexMap<String, datafusion::common::ScalarValue>,
@@ -730,14 +643,39 @@ impl CompiledPlot {
         facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
     ) -> Result<crate::render::LayoutSolution, AvengerChartError> {
-        use crate::layout::{
-            ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode,
-        };
+        use crate::layout::{ChartLayout, EvaluatedSizeMode};
 
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
 
-        // First, measure the guide overflow (axis tick labels, titles, etc.)
+        // Determine if this is plot-area mode (for overflow estimation dimensions)
+        let is_plot_area_mode = matches!(
+            (&layout_spec.canvas, &layout_spec.plot_area),
+            (EvaluatedSizeMode::Auto, EvaluatedSizeMode::Fixed { .. })
+        );
+
+        // Get dimensions for overflow estimation
+        let (estimate_width, estimate_height) = if is_plot_area_mode {
+            // Plot area mode: use exact plot dimensions
+            match &layout_spec.plot_area {
+                EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
+                _ => (400.0, 300.0), // Fallback
+            }
+        } else {
+            // Canvas mode: estimate plot area as fraction of canvas
+            let (canvas_w, canvas_h) = match &layout_spec.canvas {
+                EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
+                EvaluatedSizeMode::Width(w) => (*w, 300.0),
+                EvaluatedSizeMode::Height(h) => (400.0, *h),
+                EvaluatedSizeMode::Auto => (400.0, 300.0),
+            };
+            (
+                canvas_w * Self::INITIAL_PLOT_AREA_RATIO,
+                canvas_h * Self::INITIAL_PLOT_AREA_RATIO,
+            )
+        };
+
+        // Measure guide overflow (axis tick labels, titles, etc.)
         let overflow = if let Some(compiled_guide) = &self.compiled_guide {
             let theme = self.get_theme();
             let configured_scales: HashMap<String, ConfiguredScale> = scales
@@ -747,8 +685,8 @@ impl CompiledPlot {
             compiled_guide
                 .measure_overflow(
                     &configured_scales,
-                    plot_width,
-                    plot_height,
+                    estimate_width,
+                    estimate_height,
                     theme.as_ref(),
                     params,
                     data_override,
@@ -762,8 +700,6 @@ impl CompiledPlot {
             crate::guide::OverflowSpaceRequirement::default()
         };
 
-        // STUBBED: coordination context-based legend alignment has been removed
-
         // Get legends with theme applied
         let all_legends = self.get_legends_with_theme(scales, ctx, params);
 
@@ -774,32 +710,17 @@ impl CompiledPlot {
 
         // Prepare legend measurements
         let available_size = taffy::Size {
-            width: plot_width,
-            height: plot_height,
+            width: estimate_width,
+            height: estimate_height,
         };
         let legend_measurements = self
             .prepare_legend_measurements(&legends_map, scales, available_size, ctx, params)
             .await?;
 
-        // Create a temporary EvaluatedLayoutSpec with fixed plot area and auto canvas
-        // Margins default to 0 (subplot manages its own spacing)
-        let evaluated_spec = EvaluatedLayoutSpec {
-            canvas: EvaluatedSizeMode::Auto,
-            plot_area: EvaluatedSizeMode::Fixed {
-                width: plot_width,
-                height: plot_height,
-            },
-            margins: EvaluatedMargins {
-                top: 0.0,
-                right: 0.0,
-                bottom: 0.0,
-                left: 0.0,
-            },
-        };
-
+        // Create and compute layout
         let mut layout = ChartLayout::new(
             &overflow,
-            &evaluated_spec,
+            layout_spec,
             self.get_title(),
             self.get_subtitle(),
             self.get_theme().as_ref(),
@@ -809,7 +730,7 @@ impl CompiledPlot {
         )
         .await?;
 
-        let mut result = layout.compute(&evaluated_spec)?;
+        let mut result = layout.compute(layout_spec)?;
 
         // Add legend dimensions to total_overflow so facets can position their labels correctly
         // (ChartLayout.compute() sets total_overflow to guide-only; we add legend space here)
@@ -944,29 +865,61 @@ impl CompiledPlot {
     ///
     /// # Arguments
     /// * `eval_ctx` - Evaluation context with theme, session, params, and facet tree
-    /// * `width` - Canvas width (when dimensions_are_plot_area=false) or plot area width (when true)
-    /// * `height` - Canvas height (when dimensions_are_plot_area=false) or plot area height (when true)
+    /// * `layout_spec` - Evaluated layout specification with concrete dimensions
     /// * `scale_provider` - Provider for building scales (prebuilt for shared scales, or from-data)
     /// * `data_override` - Optional data override for faceted subplots (filtered data)
-    /// * `dimensions_are_plot_area` - If true, width/height are plot area; if false, they are canvas size
     /// * `facet_path` - Path of values identifying current cell in facet hierarchy (e.g., `["East", "Eng"]`).
     ///   Used for tree navigation, data filtering, and axis visibility checks.
-    /// * `facet_tree` - The evaluated facet tree for visibility and domain queries
-    pub async fn measure_plot_components(
+    pub(crate) async fn measure_plot_components(
         &self,
         eval_ctx: &EvaluationContext,
-        width: f32,
-        height: f32,
+        layout_spec: &crate::layout::EvaluatedLayoutSpec,
         scale_provider: &dyn crate::plot::compiled::scale_provider::ScaleProvider,
         data_override: Option<&DataFrame>,
-        dimensions_are_plot_area: bool,
         facet_path: &[datafusion::common::ScalarValue],
-        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     ) -> Result<crate::plot::compiled::ComponentsMeasurement, AvengerChartError> {
         use avenger_scales::scales::ConfiguredScale;
+        use crate::layout::EvaluatedSizeMode;
         use std::collections::HashMap;
 
         let ctx = &*eval_ctx.session_context;
+        let facet_tree = &*eval_ctx.facet_tree;
+
+        // Determine if this is plot area mode (canvas Auto + plot_area Fixed)
+        // vs canvas mode (canvas specified, plot_area may or may not be)
+        let dimensions_are_plot_area = matches!(
+            (&layout_spec.canvas, &layout_spec.plot_area),
+            (EvaluatedSizeMode::Auto, EvaluatedSizeMode::Fixed { .. })
+        );
+
+        // Extract dimensions for initial estimates
+        // Priority: canvas > plot_area > defaults
+        const DEFAULT_WIDTH: f32 = 400.0;
+        const DEFAULT_HEIGHT: f32 = 300.0;
+
+        let (width, height) = if dimensions_are_plot_area {
+            // Plot area mode: use plot_area dimensions
+            match &layout_spec.plot_area {
+                EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
+                _ => (DEFAULT_WIDTH, DEFAULT_HEIGHT),
+            }
+        } else {
+            // Canvas mode: use canvas dimensions (or defaults)
+            match &layout_spec.canvas {
+                EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
+                EvaluatedSizeMode::Width(w) => (*w, DEFAULT_HEIGHT),
+                EvaluatedSizeMode::Height(h) => (DEFAULT_WIDTH, *h),
+                EvaluatedSizeMode::Auto => {
+                    // Canvas auto but not plot_area fixed - use plot_area or defaults
+                    match &layout_spec.plot_area {
+                        EvaluatedSizeMode::Fixed { width, height } => (*width, *height),
+                        EvaluatedSizeMode::Width(w) => (*w, DEFAULT_HEIGHT),
+                        EvaluatedSizeMode::Height(h) => (DEFAULT_WIDTH, *h),
+                        EvaluatedSizeMode::Auto => (DEFAULT_WIDTH, DEFAULT_HEIGHT),
+                    }
+                }
+            }
+        };
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
@@ -975,8 +928,7 @@ impl CompiledPlot {
             );
         }
 
-        // Add canvas dimensions to params for media queries
-        // Note: Caller is responsible for merging default_params before calling
+        // Add dimensions to params for media queries
         let params_with_dims = eval_ctx.with_dimension_params(width, height);
         let merged_params = params_with_dims.params.clone();
 
@@ -991,11 +943,10 @@ impl CompiledPlot {
                 .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
                 .await?;
 
-            // Compute layout with a temporary spec that has fixed plot area
+            // Compute layout with the provided spec (which has fixed plot area)
             let layout = self
-                .compute_layout_with_fixed_plot_area(
-                    plot_area_width,
-                    plot_area_height,
+                .compute_layout_with_spec(
+                    layout_spec,
                     &initial_scales,
                     ctx,
                     &merged_params,
@@ -1015,9 +966,17 @@ impl CompiledPlot {
                 .build_scales(initial_plot_width, initial_plot_height, ctx, &merged_params)
                 .await?;
 
-            // Compute layout with initial scales
+            // Compute layout with the provided spec
             let layout = self
-                .compute_layout(width, height, &initial_scales, ctx, &merged_params)
+                .compute_layout_with_spec(
+                    layout_spec,
+                    &initial_scales,
+                    ctx,
+                    &merged_params,
+                    data_override,
+                    facet_tree,
+                    facet_path,
+                )
                 .await?;
 
             let plot_bounds = layout.plot_area_bounds();
@@ -1515,10 +1474,8 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: Option<IndexMap<String, datafusion::common::ScalarValue>>,
     ) -> Result<crate::render::EvaluatedPlot, AvengerChartError> {
-        use crate::serialization::LogicalExprNodeExt;
         use avenger_scenegraph::marks::group::SceneGroup;
         use avenger_scenegraph::scene_graph::SceneGraph;
-        use datafusion_proto::protobuf::LogicalExprNode;
 
         // 1. Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -1534,34 +1491,10 @@ impl CompiledPlot {
         // Used for efficient domain lookups in nested facet coordination.
         let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
 
-        // 2. Evaluate canvas dimensions from layout spec
-        let (estimated_width, estimated_height) = match &self.layout_spec.canvas {
-            crate::layout::SizeMode::Fixed { width, height } => {
-                let width_node: LogicalExprNode = width.clone().into();
-                let height_node: LogicalExprNode = height.clone().into();
-                let width_expr = width_node.to_expr(ctx)?;
-                let height_expr = height_node.to_expr(ctx)?;
-                let w = evaluate_f32_expr(&width_expr, ctx, &merged_params).await?;
-                let h = evaluate_f32_expr(&height_expr, ctx, &merged_params).await?;
-                (Some(w), Some(h))
-            }
-            crate::layout::SizeMode::Width(width) => {
-                let width_node: LogicalExprNode = width.clone().into();
-                let width_expr = width_node.to_expr(ctx)?;
-                let w = evaluate_f32_expr(&width_expr, ctx, &merged_params).await?;
-                (Some(w), None)
-            }
-            crate::layout::SizeMode::Height(height) => {
-                let height_node: LogicalExprNode = height.clone().into();
-                let height_expr = height_node.to_expr(ctx)?;
-                let h = evaluate_f32_expr(&height_expr, ctx, &merged_params).await?;
-                (None, Some(h))
-            }
-            _ => (None, None), // No dimensions specified
-        };
-
-        let canvas_width = estimated_width.unwrap_or(400.0);
-        let canvas_height = estimated_height.unwrap_or(300.0);
+        // 2. Evaluate layout spec to get concrete dimensions
+        let evaluated_layout_spec =
+            evaluate_layout_spec(&self.layout_spec, ctx, &merged_params, self.get_theme().as_ref())
+                .await?;
 
         // 3. Build scale provider
         use crate::plot::compiled::scales::build_scale_builder_from_marks;
@@ -1594,13 +1527,10 @@ impl CompiledPlot {
         let measurement = self
             .measure_plot_components(
                 &eval_ctx,
-                canvas_width,
-                canvas_height,
+                &evaluated_layout_spec,
                 &provider,
-                None,  // No data override for top-level plots
-                false, // Canvas mode: dimensions are canvas size
-                &[],   // Empty facet path for top-level plots
-                &*facet_tree,
+                None, // No data override for top-level plots
+                &[],  // Empty facet path for top-level plots
             )
             .await?;
 

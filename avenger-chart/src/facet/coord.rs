@@ -5,6 +5,7 @@ use crate::coords::{
 use crate::error::AvengerChartError;
 use crate::facet::guide::{FacetColGuideConfig, FacetRowGuideConfig};
 use crate::facet::marks::facet::CompiledFacetCol;
+use crate::layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode};
 use crate::marks::CompiledMark;
 use crate::plot::compiled::{CompiledPlot, ComponentsMeasurement};
 use crate::render::EvaluationContext;
@@ -215,17 +216,29 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             let mut cell_path: Vec<ScalarValue> = self.parent_path.clone();
             cell_path.push(value.clone());
 
+            // Build layout spec with fixed plot area (subplot dimensions)
+            let subplot_layout_spec = EvaluatedLayoutSpec {
+                canvas: EvaluatedSizeMode::Auto,
+                plot_area: EvaluatedSizeMode::Fixed {
+                    width: self.subplot_width,
+                    height: adjusted_height,
+                },
+                margins: EvaluatedMargins {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
+            };
+
             let measurement = self
                 .compiled_subplot
                 .measure_plot_components(
                     &subplot_eval_ctx,
-                    self.subplot_width,
-                    adjusted_height,
+                    &subplot_layout_spec,
                     &scale_provider,
                     Some(data_override),
-                    true, // dimensions_are_plot_area
                     &cell_path,
-                    &*eval_ctx.facet_tree,
                 )
                 .await?;
 
@@ -631,16 +644,27 @@ impl CoordinateSystemTransform for FacetColumn {
 
             // Measure the subplot with filtered data to get overflow
             // Pass cell_path for visibility-aware overflow measurement (value-based path, not indices)
+            let subplot_layout_spec = EvaluatedLayoutSpec {
+                canvas: EvaluatedSizeMode::Auto,
+                plot_area: EvaluatedSizeMode::Fixed {
+                    width: subplot_width,
+                    height: plot_height,
+                },
+                margins: EvaluatedMargins {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
+            };
+
             let measurement = compiled_subplot
                 .measure_plot_components(
                     &subplot_eval_ctx,
-                    subplot_width,
-                    plot_height,
+                    &subplot_layout_spec,
                     &scale_provider,
                     Some(&filtered_df),
-                    true,       // dimensions_are_plot_area
                     &cell_path, // Pass extended path for nested facets AND visibility
-                    &*eval_ctx.facet_tree,
                 )
                 .await?;
 
@@ -742,16 +766,27 @@ impl CoordinateSystemTransform for FacetColumn {
             let mut cell_path: Vec<ScalarValue> = facet_path.to_vec();
             cell_path.push(value.clone());
 
+            let subplot_layout_spec = EvaluatedLayoutSpec {
+                canvas: EvaluatedSizeMode::Auto,
+                plot_area: EvaluatedSizeMode::Fixed {
+                    width: final_subplot_width,
+                    height: plot_height,
+                },
+                margins: EvaluatedMargins {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
+            };
+
             let measurement = compiled_subplot
                 .measure_plot_components(
                     &subplot_eval_ctx,
-                    final_subplot_width,
-                    plot_height,
+                    &subplot_layout_spec,
                     &scale_provider,
                     Some(filtered_df),
-                    true,
                     &cell_path,
-                    &*eval_ctx.facet_tree,
                 )
                 .await?;
 
