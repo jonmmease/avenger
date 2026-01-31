@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-#[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
-use crate::reqwest_fetcher::ReqwestImageFetcher;
+use image::DynamicImage;
 
 use crate::error::AvengerImageError;
-use image::DynamicImage;
+#[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
+use crate::reqwest_fetcher::ReqwestImageFetcher;
 
 pub trait ImageFetcher {
     fn fetch_image(&self, url: &str) -> Result<DynamicImage, AvengerImageError>;

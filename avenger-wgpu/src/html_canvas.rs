@@ -1,18 +1,20 @@
-use crate::canvas::CanvasDimensionUtils;
-use crate::canvas::{
-    create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
-    make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, MarkRenderer,
-};
-use crate::error::AvengerWgpuError;
-use crate::marks::instanced_mark::InstancedMarkRenderer;
-use crate::marks::multi::MultiMarkRenderer;
+use std::{collections::HashMap, sync::Arc};
+
 use avenger_common::canvas::CanvasDimensions;
-use std::collections::HashMap;
-use std::sync::Arc;
 use web_sys::HtmlCanvasElement;
 use wgpu::{
     Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat, TextureUsages,
     TextureView, TextureViewDescriptor,
+};
+
+use crate::{
+    canvas::{
+        create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
+        make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, CanvasDimensionUtils,
+        MarkRenderer,
+    },
+    error::AvengerWgpuError,
+    marks::{instanced_mark::InstancedMarkRenderer, multi::MultiMarkRenderer},
 };
 
 pub struct HtmlCanvasCanvas<'window> {

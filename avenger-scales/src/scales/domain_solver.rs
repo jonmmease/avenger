@@ -91,8 +91,9 @@ println!("Optimal domain: [{}, {}]", solution.0, solution.1);
 ```
 */
 
-use crate::error::AvengerScaleError;
 use std::fmt;
+
+use crate::error::AvengerScaleError;
 
 /// Solution to the scatter plot domain optimization problem
 #[derive(Debug, Clone, Copy)]

@@ -1,14 +1,20 @@
-use super::mark::SceneMark;
-use avenger_common::lyon::hash_lyon_path;
-use avenger_common::types::{ColorOrGradient, Gradient, PathTransform, StrokeCap, StrokeJoin};
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use std::{
+    hash::{DefaultHasher, Hasher},
+    sync::Arc,
+};
+
+use avenger_common::{
+    lyon::hash_lyon_path,
+    types::{ColorOrGradient, Gradient, PathTransform, StrokeCap, StrokeJoin},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
 use lyon_path::Path;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::hash::{DefaultHasher, Hasher};
-use std::sync::Arc;
+
+use super::mark::SceneMark;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

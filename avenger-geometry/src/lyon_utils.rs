@@ -1,9 +1,10 @@
 use geo::BooleanOps;
-// use geo_booleanop::boolean::BooleanOp;
 use geo_types::{Coord, Geometry, LineString, MultiLineString, MultiPolygon, Point, Polygon};
-use lyon_path::geom::euclid::{Point2D, UnknownUnit};
-use lyon_path::iterator::PathIterator;
-use lyon_path::{LineCap, LineJoin, Path, PathEvent};
+use lyon_path::{
+    geom::euclid::{Point2D, UnknownUnit},
+    iterator::PathIterator,
+    LineCap, LineJoin, Path, PathEvent,
+};
 use lyon_tessellation::{
     geometry_builder::{simple_builder, VertexBuffers},
     StrokeOptions, StrokeTessellator,

@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use arrow::array::{ArrayRef, Float32Array};
 use avenger_scales::scales::{log::LogScale, pow::PowScale, symlog::SymlogScale};
-use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Logarithmic and Power Scale Examples ===\n");

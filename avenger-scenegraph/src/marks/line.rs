@@ -1,5 +1,7 @@
-use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{
+    types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin},
+    value::ScalarOrArray,
+};
 use lyon_algorithms::measure::{PathMeasurements, PathSampler, SampleType};
 use lyon_path::{geom::point, Path};
 use ordered_float::OrderedFloat;

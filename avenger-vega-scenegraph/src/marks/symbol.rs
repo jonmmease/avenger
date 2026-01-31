@@ -1,15 +1,25 @@
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
-use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin, SymbolShape};
-use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::line::SceneLineMark;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use std::sync::Arc;
+
+use avenger_common::{
+    types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin, SymbolShape},
+    value::ScalarOrArray,
+};
+use avenger_scenegraph::marks::{
+    group::{Clip, SceneGroup},
+    line::SceneLineMark,
+    mark::SceneMark,
+    symbol::SceneSymbolMark,
+};
 use lyon_extra::parser::ParseError;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+
+use crate::{
+    error::AvengerVegaError,
+    marks::{
+        mark::{VegaMarkContainer, VegaMarkItem},
+        values::{CssColorOrGradient, StrokeDashSpec},
+    },
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

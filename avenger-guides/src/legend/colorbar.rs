@@ -2,8 +2,10 @@ use avenger_common::types::{ColorOrGradient, Gradient, LinearGradient};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
-use avenger_text::measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer};
-use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec};
+use avenger_text::{
+    measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer},
+    types::{FontStyle, FontWeight, FontWeightNameSpec},
+};
 
 use crate::{
     axis::{

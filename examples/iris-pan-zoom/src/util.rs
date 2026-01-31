@@ -1,33 +1,30 @@
-use arrow::array::{ArrayRef, Float32Builder, StringArray, StringBuilder};
-use avenger_app::app::{AvengerApp, SceneGraphBuilder};
-use avenger_common::types::{ColorOrGradient, SymbolShape};
-use avenger_common::value::ScalarOrArray;
-use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
-use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
-use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
-use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
-use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
-use avenger_scales::scales::linear::LinearScale;
-use avenger_scales::scales::ordinal::OrdinalScale;
-use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_winit_wgpu::WinitWgpuAvengerApp;
-
-use avenger_app::error::AvengerAppError;
-use avenger_eventstream::manager::EventStreamHandler;
-use csv::Reader;
-use rand_distr::Distribution;
 use std::sync::Arc;
 
+use arrow::array::{ArrayRef, Float32Builder, StringArray, StringBuilder};
+use avenger_app::{app::{AvengerApp, SceneGraphBuilder}, error::AvengerAppError};
+use avenger_common::{types::{ColorOrGradient, SymbolShape}, value::ScalarOrArray};
+use avenger_eventstream::{
+    manager::EventStreamHandler,
+    scene::{SceneGraphEvent, SceneGraphEventType},
+    stream::{EventStreamConfig, EventStreamFilter, UpdateStatus},
+    window::{MouseButton, MouseScrollDelta},
+};
+use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_guides::{
+    axis::{numeric::make_numeric_axis_marks, opts::{AxisConfig, AxisOrientation}},
+    legend::symbol::{make_symbol_legend, SymbolLegendConfig},
+};
+use avenger_scales::scales::{linear::LinearScale, ordinal::OrdinalScale, ConfiguredScale};
+use avenger_scenegraph::{
+    marks::{group::{Clip, SceneGroup}, mark::SceneMark, symbol::SceneSymbolMark},
+    scene_graph::SceneGraph,
+};
+use avenger_winit_wgpu::WinitWgpuAvengerApp;
+use csv::Reader;
+use rand_distr::Distribution;
+
 #[cfg(not(target_arch = "wasm32"))]
-use std::fs::File;
-#[cfg(not(target_arch = "wasm32"))]
-use std::io::BufReader;
+use std::{fs::File, io::BufReader};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;

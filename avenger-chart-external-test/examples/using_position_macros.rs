@@ -1,17 +1,14 @@
 //! Example showing how external crates can use position channel macros with axis configuration
 
-use avenger_chart::plot::Plot;
+use avenger_chart::{cartesian::Cartesian, plot::Plot};
 use avenger_chart_external_test::external_coord_system::{Cube, Isometric, IsometricAxis};
 use avenger_chart_external_test::external_mark::HexBin;
-use datafusion::logical_expr::col;
-use datafusion::prelude::*;
+use datafusion::{logical_expr::col, prelude::*};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Using HexBin with Cartesian coordinates and axis configuration
     {
-        use avenger_chart::cartesian::Cartesian;
-
         let ctx = SessionContext::new();
         let df = ctx
             .sql("SELECT x, y, count FROM ...")

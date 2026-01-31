@@ -1,10 +1,13 @@
-use avenger_common::types::{ColorOrGradient, Gradient};
-use avenger_common::value::ScalarOrArray;
+use std::sync::Arc;
+
+use avenger_common::{
+    types::{ColorOrGradient, Gradient},
+    value::ScalarOrArray,
+};
 use itertools::izip;
 use lyon_extra::euclid::Point2D;
 use lyon_path::{builder::BorderRadii, geom::Box2D, Path, Winding};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 use super::mark::SceneMark;
 

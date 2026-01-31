@@ -1,17 +1,20 @@
-use crate::scene::{
-    ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent,
-    SceneFileChangedEvent, SceneGraphEvent, SceneGraphEventType, SceneKeyPressEvent,
-    SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent,
-    SceneMouseUpEvent, SceneMouseWheelEvent,
-};
-use crate::stream::{EventStream, EventStreamConfig, UpdateStatus};
-use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
+use std::{path::PathBuf, sync::Arc};
+
 use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
-use std::path::PathBuf;
-use std::sync::Arc;
+
+use crate::{
+    scene::{
+        ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent,
+        SceneFileChangedEvent, SceneGraphEvent, SceneGraphEventType, SceneKeyPressEvent,
+        SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent,
+        SceneMouseUpEvent, SceneMouseWheelEvent,
+    },
+    stream::{EventStream, EventStreamConfig, UpdateStatus},
+    window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput},
+};
 
 #[async_trait]
 pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {

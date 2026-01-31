@@ -1,10 +1,11 @@
-use lyon_extra::euclid::UnknownUnit;
-use lyon_extra::parser::{ParseError, ParserOptions, Source};
-use lyon_path::geom::euclid::Point2D;
-use lyon_path::Path;
-use lyon_path::PathEvent;
-use ordered_float::OrderedFloat;
 use std::hash::{Hash, Hasher};
+
+use lyon_extra::{
+    euclid::UnknownUnit,
+    parser::{ParseError, ParserOptions, Source},
+};
+use lyon_path::{geom::euclid::Point2D, Path, PathEvent};
+use ordered_float::OrderedFloat;
 
 use crate::value::{ScalarOrArray, ScalarOrArrayValue};
 

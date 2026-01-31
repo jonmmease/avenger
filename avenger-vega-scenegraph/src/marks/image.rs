@@ -1,14 +1,17 @@
 use std::sync::Arc;
 
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-
-use avenger_common::types::{ImageAlign, ImageBaseline};
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{
+    types::{ImageAlign, ImageBaseline},
+    value::ScalarOrArray,
+};
 use avenger_image::{make_image_fetcher, RgbaImage};
-use avenger_scenegraph::marks::image::SceneImageMark;
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::{image::SceneImageMark, mark::SceneMark};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    error::AvengerVegaError,
+    marks::mark::{VegaMarkContainer, VegaMarkItem},
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

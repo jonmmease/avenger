@@ -2,6 +2,8 @@ pub mod colorbar;
 pub mod line;
 pub mod symbol;
 
+use std::collections::HashSet;
+
 use crate::error::AvengerGuidesError;
 
 fn compute_encoding_length(lengths: &[usize]) -> Result<usize, AvengerGuidesError> {
@@ -9,7 +11,7 @@ fn compute_encoding_length(lengths: &[usize]) -> Result<usize, AvengerGuidesErro
         .iter()
         .cloned()
         .filter(|&len| len > 1)
-        .collect::<std::collections::HashSet<_>>();
+        .collect::<HashSet<_>>();
 
     let len = if lengths.len() > 1 {
         return Err(AvengerGuidesError::InvalidLegendLength(lengths));

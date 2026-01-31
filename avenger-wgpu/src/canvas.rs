@@ -1,9 +1,16 @@
-use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::LinearScaleAdjustment;
-use image::imageops::crop_imm;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
+use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
+use avenger_scenegraph::{
+    marks::{
+        arc::SceneArcMark, area::SceneAreaMark, group::Clip, group::SceneGroup,
+        image::SceneImageMark, line::SceneLineMark, mark::SceneMark, path::ScenePathMark,
+        rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark,
+        trail::SceneTrailMark,
+    },
+    scene_graph::SceneGraph,
+};
+use image::imageops::crop_imm;
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, LoadOp, MapMode, Operations,
@@ -13,27 +20,17 @@ use wgpu::{
     TextureDescriptor, TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages,
     TextureView, TextureViewDescriptor, Trace,
 };
-use winit::dpi::Size;
-use winit::event::WindowEvent;
-use winit::window::Window;
+use winit::{dpi::Size, event::WindowEvent, window::Window};
 
-use crate::error::AvengerWgpuError;
-use crate::marks::instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer};
-use crate::marks::multi::MultiMarkRenderer;
-use crate::marks::symbol::SymbolShader;
-use crate::marks::text::TextAtlasBuilderTrait;
-use crate::zindex_layers::compute_zindex_layers;
-use avenger_scenegraph::marks::arc::SceneArcMark;
-use avenger_scenegraph::marks::area::SceneAreaMark;
-use avenger_scenegraph::marks::group::Clip;
-use avenger_scenegraph::marks::image::SceneImageMark;
-use avenger_scenegraph::marks::line::SceneLineMark;
-use avenger_scenegraph::marks::path::ScenePathMark;
-use avenger_scenegraph::marks::trail::SceneTrailMark;
-use avenger_scenegraph::{
-    marks::group::SceneGroup, marks::mark::SceneMark, marks::rect::SceneRectMark,
-    marks::rule::SceneRuleMark, marks::symbol::SceneSymbolMark, marks::text::SceneTextMark,
-    scene_graph::SceneGraph,
+use crate::{
+    error::AvengerWgpuError,
+    marks::{
+        instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
+        multi::MultiMarkRenderer,
+        symbol::SymbolShader,
+        text::TextAtlasBuilderTrait,
+    },
+    zindex_layers::compute_zindex_layers,
 };
 
 pub enum MarkRenderer {

@@ -1,6 +1,8 @@
-use super::FontResolver;
-use crate::measurement::cosmic::{FONT_SYSTEM, GENERIC_FAMILIES};
 use std::collections::HashSet;
+
+use crate::measurement::cosmic::{FONT_SYSTEM, GENERIC_FAMILIES};
+
+use super::FontResolver;
 
 pub struct CosmicFontResolver;
 

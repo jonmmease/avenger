@@ -1,20 +1,20 @@
 //! Integration test to verify external marks can be defined and used
 
-use avenger_chart::channel::ChannelDescriptor;
-use avenger_chart::coords::CoordinateSystemTransform;
-use avenger_chart::error::AvengerChartError;
-use avenger_chart::render::RenderContext;
+use std::marker::PhantomData;
+
 use avenger_chart::{
     cartesian::Cartesian,
-    coords::CoordinateSystem,
-    define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
+    channel::ChannelDescriptor,
+    coords::{CoordinateSystem, CoordinateSystemTransform},
+    define_common_mark_channels, define_position_channels,
+    error::AvengerChartError,
+    impl_mark_base, impl_mark_trait_common,
     marks::{CompiledMark, DataContext, Mark, MarkState},
+    render::RenderContext,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::scalar::ScalarValue;
+use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
 use serde::{Deserialize, Serialize};
-use std::marker::PhantomData;
 
 /// A custom hexbin mark defined in an external crate
 pub struct HexBin<C: CoordinateSystem> {

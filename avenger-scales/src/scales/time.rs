@@ -13,8 +13,10 @@ use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 use lazy_static::lazy_static;
 
-use crate::error::AvengerScaleError;
-use crate::formatter::{DateFormatter, TimestampFormatter, TimestamptzFormatter};
+use crate::{
+    error::AvengerScaleError,
+    formatter::{DateFormatter, TimestampFormatter, TimestamptzFormatter},
+};
 
 use super::{
     ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,

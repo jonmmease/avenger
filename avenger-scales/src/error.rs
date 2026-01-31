@@ -1,7 +1,8 @@
-use crate::scalar::Scalar;
-use crate::scales::domain_solver::DomainError;
 use arrow::error::ArrowError;
 use avenger_image::error::AvengerImageError;
+
+use crate::scalar::Scalar;
+use crate::scales::domain_solver::DomainError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AvengerScaleError {

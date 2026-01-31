@@ -1,45 +1,44 @@
-use crate::canvas::TextBuildCtor;
-use crate::error::AvengerWgpuError;
+use std::ops::{Mul, Range};
 
-use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
-use crate::marks::image::ImageAtlasBuilder;
-use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::{ColorOrGradient, PathTransform, StrokeCap, StrokeJoin};
-use avenger_scenegraph::marks::area::SceneAreaMark;
-use avenger_scenegraph::marks::image::SceneImageMark;
-use avenger_scenegraph::marks::line::SceneLineMark;
-use avenger_scenegraph::marks::path::ScenePathMark;
-use avenger_scenegraph::marks::rect::SceneRectMark;
-use avenger_scenegraph::marks::rule::SceneRuleMark;
-use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scenegraph::marks::trail::SceneTrailMark;
+use avenger_common::{
+    canvas::CanvasDimensions,
+    types::{ColorOrGradient, PathTransform, StrokeCap, StrokeJoin},
+};
+use avenger_scenegraph::marks::{
+    arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
+    line::SceneLineMark, path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
+    symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+};
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
 use itertools::izip;
-use lyon::algorithms::aabb::bounding_box;
-use lyon::geom::euclid::{Point2D, Vector2D};
-use lyon::geom::{Angle, Box2D};
-use lyon::lyon_tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, LineCap,
-    LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
-    VertexBuffers,
+use lyon::{
+    algorithms::aabb::bounding_box,
+    geom::{
+        euclid::{Point2D, Vector2D},
+        Angle, Box2D,
+    },
+    lyon_tessellation::{
+        BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, LineCap,
+        LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
+        VertexBuffers,
+    },
+    path::{builder::BorderRadii, Winding},
 };
-use lyon::path::builder::BorderRadii;
-use lyon::path::Winding;
-use std::ops::{Mul, Range};
-
-use wgpu::util::DeviceExt;
 use wgpu::{
-    BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView,
-    VertexBufferLayout,
+    util::DeviceExt, BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue,
+    TextureFormat, TextureView, VertexBufferLayout,
 };
 
-// Import rayon prelude as required by par_izip.
-use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
-
-use avenger_scenegraph::marks::arc::SceneArcMark;
-use avenger_scenegraph::marks::group::Clip;
-use avenger_scenegraph::marks::text::SceneTextMark;
+use crate::{
+    canvas::TextBuildCtor,
+    error::AvengerWgpuError,
+    marks::{
+        gradient::{to_color_or_gradient_coord, GradientAtlasBuilder},
+        image::ImageAtlasBuilder,
+        text::{TextAtlasBuilderTrait, TextInstance},
+    },
+};
 
 #[cfg(feature = "rayon")]
 use {crate::par_izip, rayon::prelude::*};

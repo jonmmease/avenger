@@ -1,11 +1,12 @@
-use avenger_common::time::Instant;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
-use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};
-use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
-use avenger_eventstream::window::WindowEvent;
+use avenger_common::time::Instant;
+use avenger_eventstream::{
+    manager::{EventStreamHandler, EventStreamManager},
+    stream::{EventStreamConfig, UpdateStatus},
+    window::WindowEvent,
+};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
 

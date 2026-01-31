@@ -1,10 +1,14 @@
-use crate::manager::EventStreamHandler;
-use crate::scene::{SceneGraphEvent, SceneGraphEventType};
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use avenger_common::time::{Duration, Instant};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
-use std::sync::Arc;
+
+use crate::{
+    manager::EventStreamHandler,
+    scene::{SceneGraphEvent, SceneGraphEventType},
+};
 
 #[derive(Clone, Default)]
 pub struct DebounceConfig {

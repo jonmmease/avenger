@@ -1,14 +1,16 @@
-use crate::{
-    error::AvengerScaleError,
-    scales::{ScaleConfig, ScaleImpl},
-};
+use std::{fmt::Debug, sync::Arc};
+
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, ListArray},
     buffer::OffsetBuffer,
     datatypes::{DataType, Field, Float32Type},
 };
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
-use std::{fmt::Debug, sync::Arc};
+
+use crate::{
+    error::AvengerScaleError,
+    scales::{ScaleConfig, ScaleImpl},
+};
 
 pub struct ColorInterpolatorConfig {
     pub colors: Vec<[f32; 4]>,

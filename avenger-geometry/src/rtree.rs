@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::marks::MarkGeometryUtils;
 use avenger_scenegraph::{marks::mark::MarkInstance, scene_graph::SceneGraph};
 use geo::{BoundingRect, Distance, Euclidean};
 use geo_svg::{Color, CombineToSVG};
@@ -13,6 +12,8 @@ use rstar::{
     },
     Envelope, PointDistance, RTree, RTreeObject, AABB,
 };
+
+use crate::marks::MarkGeometryUtils;
 
 /// A geometry with an associated instance ID for storage in the R-tree
 #[derive(Debug, Clone)]

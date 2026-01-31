@@ -1,12 +1,16 @@
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMark, VegaMarkContainer, VegaMarkItem};
 use avenger_common::types::Gradient;
-use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::{
+    group::{Clip, SceneGroup},
+    mark::SceneMark,
+};
 use lyon_extra::euclid::{Box2D, Point2D};
-use lyon_path::builder::BorderRadii;
-use lyon_path::Winding;
+use lyon_path::{builder::BorderRadii, Winding};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    error::AvengerVegaError,
+    marks::mark::{VegaMark, VegaMarkContainer, VegaMarkItem},
+};
 
 use super::values::CssColorOrGradient;
 

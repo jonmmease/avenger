@@ -1,6 +1,8 @@
 //! Integration tests for custom scale implementation
 //! These tests demonstrate what imports are needed when using custom scales from external crates
 
+use std::sync::Arc;
+
 use avenger_chart::{
     cartesian::Cartesian,
     marks::symbol::Symbol,
@@ -8,8 +10,11 @@ use avenger_chart::{
     scales::{Auto, Scale},
 };
 use avenger_chart_external_test::external_scale::{SmoothLog, SmoothLogExt, SmoothLogScale};
-use datafusion::logical_expr::lit;
-use std::sync::Arc;
+use avenger_scales::scales::{ScaleConfig, ScaleContext, ScaleImpl};
+use datafusion::{
+    arrow::array::{Array, ArrayRef, Float32Array},
+    logical_expr::lit,
+};
 
 #[test]
 fn test_custom_scale_with_typed_methods() {
@@ -54,9 +59,6 @@ fn test_custom_scale_in_plot() {
 
 #[test]
 fn test_scale_transformation() {
-    use avenger_scales::scales::{ScaleConfig, ScaleContext, ScaleImpl};
-    use datafusion::arrow::array::{Array, ArrayRef, Float32Array};
-
     let scale_impl = SmoothLogScale::with_smoothing(1.0);
 
     // Create test data

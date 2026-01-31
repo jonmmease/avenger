@@ -1,5 +1,7 @@
-use avenger_common::types::{ColorOrGradient, Gradient};
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{
+    types::{ColorOrGradient, Gradient},
+    value::ScalarOrArray,
+};
 use itertools::izip;
 use lyon_path::{geom::point, Path};
 use serde::{Deserialize, Serialize};

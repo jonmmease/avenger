@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
-use avenger_common::types::{ImageAlign, ImageBaseline};
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{
+    types::{ImageAlign, ImageBaseline},
+    value::ScalarOrArray,
+};
 use avenger_image::RgbaImage;
 use itertools::izip;
 use lyon_path::Path;

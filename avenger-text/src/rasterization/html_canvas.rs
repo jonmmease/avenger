@@ -1,19 +1,24 @@
-use crate::error::AvengerTextError;
-use crate::measurement::html_canvas::GLYPH_CACHE;
-
-use std::collections::HashMap;
-
-use crate::measurement::html_canvas::create_font_string;
-use crate::measurement::TextBounds;
-use crate::rasterization::{
-    GlyphBBox, GlyphData, PhysicalGlyphPosition, TextRasterizationBuffer, TextRasterizationConfig,
-    TextRasterizer,
+use std::{
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+    marker::PhantomData,
 };
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::marker::PhantomData;
+
 use unicode_segmentation::UnicodeSegmentation;
 use wasm_bindgen::JsCast;
 use web_sys::{OffscreenCanvas, OffscreenCanvasRenderingContext2d};
+
+use crate::{
+    error::AvengerTextError,
+    measurement::{
+        html_canvas::{create_font_string, GLYPH_CACHE},
+        TextBounds,
+    },
+    rasterization::{
+        GlyphBBox, GlyphData, PhysicalGlyphPosition, TextRasterizationBuffer,
+        TextRasterizationConfig, TextRasterizer,
+    },
+};
 
 #[derive(Clone, Debug)]
 pub struct HtmlCanvasTextRasterizer<CacheValue>

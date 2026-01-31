@@ -5,15 +5,13 @@ use lyon_path::geom::Point;
 
 use crate::{
     error::AvengerTextError,
-    measurement::cosmic::{make_cosmic_text_buffer, measure_text_buffer},
+    measurement::cosmic::{make_cosmic_text_buffer, measure_text_buffer, FONT_SYSTEM, SWASH_CACHE},
     rasterization::PhysicalGlyphPosition,
 };
 
 use super::{
     GlyphBBox, GlyphData, TextRasterizationBuffer, TextRasterizationConfig, TextRasterizer,
 };
-
-use crate::measurement::cosmic::{FONT_SYSTEM, SWASH_CACHE};
 
 type CosmicCacheKey = (cosmic_text::CacheKey, [u8; 4]);
 

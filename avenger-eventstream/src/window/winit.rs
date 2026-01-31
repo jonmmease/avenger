@@ -1,4 +1,3 @@
-use super::*;
 use ::winit::{
     event::{
         ElementState as WinitElementState, MouseButton as WinitMouseButton,
@@ -7,6 +6,8 @@ use ::winit::{
     },
     keyboard::{Key as WinitKey, NamedKey as WinitNamedKey},
 };
+
+use super::*;
 
 impl WindowEvent {
     /// Convert a winit WindowEvent into an Avenger WindowEvent

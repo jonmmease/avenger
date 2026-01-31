@@ -1,14 +1,11 @@
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
-use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_geometry::rtree::EnvelopeUtils;
+use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
-
 use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
 use rstar::AABB;
 
 use crate::error::AvengerGuidesError;
-
 use super::opts::{AxisConfig, AxisOrientation};
 
 const TICK_LENGTH: f32 = 5.0;

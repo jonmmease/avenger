@@ -1,14 +1,17 @@
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::MissingNullOrValue;
-use avenger_common::types::ColorOrGradient;
-use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::text::SceneTextMark;
+use std::{f32::consts::PI, sync::Arc};
+
+use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use serde::{Deserialize, Serialize};
-use std::f32::consts::PI;
-use std::sync::Arc;
+
+use crate::{
+    error::AvengerVegaError,
+    marks::{
+        mark::{VegaMarkContainer, VegaMarkItem},
+        values::MissingNullOrValue,
+    },
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

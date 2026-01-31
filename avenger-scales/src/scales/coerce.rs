@@ -1,22 +1,15 @@
-use crate::color::parse_color_string;
-use crate::error::AvengerScaleError;
-use crate::formatter::Formatters;
-use crate::scalar::Scalar;
-use crate::scales::ordinal::OrdinalScale;
-use arrow::array::{Array, AsArray, Float32Array, ListArray, StringArray, StructArray};
-use arrow::compute::is_not_null;
-use arrow::compute::kernels::zip::zip;
-use arrow::datatypes::{Float32Type, UInt32Type, UInt8Type};
+use std::{fmt::Debug, str::FromStr, sync::Arc};
+
 use arrow::{
-    array::ArrayRef,
-    compute::kernels::cast,
-    datatypes::{DataType, Field},
-};
-use avenger_common::types::{
-    AreaOrientation, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin, SymbolShape,
+    array::{Array, ArrayRef, AsArray, Float32Array, ListArray, StringArray, StructArray},
+    compute::{is_not_null, kernels::cast, kernels::zip::zip},
+    datatypes::{DataType, Field, Float32Type, UInt32Type, UInt8Type},
 };
 use avenger_common::{
-    types::ColorOrGradient,
+    types::{
+        AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, PathTransform, StrokeCap,
+        StrokeJoin, SymbolShape,
+    },
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_image::{make_image_fetcher, RgbaImage};
@@ -24,11 +17,13 @@ use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
 use paste::paste;
-use std::fmt::Debug;
-use std::str::FromStr;
-use std::sync::Arc;
 use strum::VariantNames;
 use svgtypes::Transform;
+
+use crate::{
+    color::parse_color_string, error::AvengerScaleError, formatter::Formatters, scalar::Scalar,
+    scales::ordinal::OrdinalScale,
+};
 
 pub trait ColorCoercer: Debug + Send + Sync + 'static {
     fn coerce(

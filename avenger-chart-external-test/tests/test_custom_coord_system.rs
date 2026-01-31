@@ -1,8 +1,8 @@
-use avenger_chart::coords::CoordinateSystem;
-use avenger_chart::marks::Mark;
-use avenger_chart::plot::Plot;
-use avenger_chart_external_test::external_coord_system::{Cube, Isometric};
 use std::collections::HashMap;
+
+use avenger_chart::{coords::CoordinateSystem, marks::Mark, plot::Plot};
+use avenger_chart_external_test::external_coord_system::{Cube, Isometric};
+use avenger_common::value::ScalarOrArray;
 
 #[test]
 fn test_external_coord_system_can_be_created() {
@@ -30,8 +30,6 @@ fn test_external_coord_system_can_be_created() {
 
 #[test]
 fn test_external_coord_system_transform() {
-    use avenger_common::value::ScalarOrArray;
-
     // Create a custom coordinate system
     let iso = Isometric::new();
     let transform = iso.create_transform();

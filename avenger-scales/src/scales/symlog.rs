@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::scalar::Scalar;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array},
     compute::{kernels::cast, unary},
@@ -9,7 +8,7 @@ use arrow::{
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use lazy_static::lazy_static;
 
-use crate::{array, error::AvengerScaleError};
+use crate::{array, error::AvengerScaleError, scalar::Scalar};
 
 use super::{
     linear::{LinearScale, NormalizationConfig},

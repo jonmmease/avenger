@@ -2,12 +2,11 @@ use avenger_common::{
     canvas::CanvasDimensions,
     types::{AreaOrientation, SymbolShape},
 };
-use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_scenegraph::marks::{
-    area::SceneAreaMark, symbol::SceneSymbolMark, text::SceneTextMark,
+use avenger_geometry::{marks::MarkGeometryUtils, rtree::SceneGraphRTree};
+use avenger_scenegraph::{
+    marks::{area::SceneAreaMark, symbol::SceneSymbolMark, text::SceneTextMark},
+    scene_graph::SceneGraph,
 };
-use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_text::rasterization::cosmic::CosmicTextRasterizer;
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;

@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use arrow::array::{Array, ArrayRef, StringArray};
 use avenger_scales::scales::{band::BandScale, ordinal::OrdinalScale, point::PointScale};
-use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Categorical Scale Examples ===\n");

@@ -9,7 +9,6 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use lazy_static::lazy_static;
 
 use crate::{color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar};
-
 use super::{
     ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
     RangeKind, ScaleConfig, ScaleContext, ScaleImpl,

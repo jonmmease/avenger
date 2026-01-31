@@ -1,5 +1,7 @@
-use avenger_common::types::{AreaOrientation, ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{
+    types::{AreaOrientation, ColorOrGradient, Gradient, StrokeCap, StrokeJoin},
+    value::ScalarOrArray,
+};
 use itertools::izip;
 use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};
 use ordered_float::OrderedFloat;

@@ -1,8 +1,8 @@
-use crate::{
-    impl_hash_for_scalar_or_array,
-    lyon::{hash_lyon_path, parse_svg_path},
-    value::{ScalarOrArray, ScalarOrArrayValue},
+use std::{
+    borrow::Cow,
+    hash::{DefaultHasher, Hash, Hasher},
 };
+
 use lyon_extra::{
     euclid::{Box2D, Point2D, Scale, Transform2D, UnknownUnit},
     parser::ParseError,
@@ -10,11 +10,13 @@ use lyon_extra::{
 use lyon_path::{geom::Point, Winding};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::{
-    borrow::Cow,
-    hash::{DefaultHasher, Hash, Hasher},
-};
 use strum::VariantNames;
+
+use crate::{
+    impl_hash_for_scalar_or_array,
+    lyon::{hash_lyon_path, parse_svg_path},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
 #[serde(rename_all = "snake_case")]

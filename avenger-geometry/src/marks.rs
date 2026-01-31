@@ -1,24 +1,27 @@
-use crate::lyon_utils::IntoGeoType;
-use crate::GeometryInstance;
-use avenger_scenegraph::marks::area::SceneAreaMark;
-use avenger_scenegraph::marks::group::SceneGroup;
-use avenger_scenegraph::marks::image::SceneImageMark;
-use avenger_scenegraph::marks::line::SceneLineMark;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::path::ScenePathMark;
-use avenger_scenegraph::marks::rect::SceneRectMark;
-use avenger_scenegraph::marks::rule::SceneRuleMark;
-use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scenegraph::marks::text::SceneTextMark;
-use avenger_scenegraph::marks::trail::SceneTrailMark;
-use avenger_scenegraph::marks::{arc::SceneArcMark, mark::MarkInstance};
+use std::iter::once;
+
+use avenger_scenegraph::marks::{
+    arc::SceneArcMark,
+    area::SceneAreaMark,
+    group::SceneGroup,
+    image::SceneImageMark,
+    line::SceneLineMark,
+    mark::{MarkInstance, SceneMark},
+    path::ScenePathMark,
+    rect::SceneRectMark,
+    rule::SceneRuleMark,
+    symbol::SceneSymbolMark,
+    text::SceneTextMark,
+    trail::SceneTrailMark,
+};
 use avenger_text::measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer};
 use geo::{Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, Rect};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
 use rstar::{Envelope, RTreeObject, AABB};
-use std::iter::once;
+
+use crate::{lyon_utils::IntoGeoType, GeometryInstance};
 
 pub trait MarkGeometryUtils {
     fn geometry_iter(

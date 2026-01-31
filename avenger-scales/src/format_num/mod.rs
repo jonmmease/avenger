@@ -128,8 +128,9 @@
 //! A current limitation is that the number to be formatted should implement the `Into<f64>`
 //! trait. While this covers a broad range of use cases, for big numbers (>u64::MAX) some
 //! precision will be lost.
-use regex::{Captures, Regex};
 use std::cmp::max;
+
+use regex::{Captures, Regex};
 
 const PREFIXES: [&str; 17] = [
     "y", "z", "a", "f", "p", "n", "µ", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",

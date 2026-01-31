@@ -1,16 +1,19 @@
-use super::mark::SceneMark;
-use avenger_common::types::{
-    ColorOrGradient, Gradient, LinearScaleAdjustment, PathTransform, SymbolShape,
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
 };
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+
+use avenger_common::{
+    types::{ColorOrGradient, Gradient, LinearScaleAdjustment, PathTransform, SymbolShape},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
-use lyon_path::geom::Angle;
-use lyon_path::Path;
+use lyon_path::{geom::Angle, Path};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+
+use super::mark::SceneMark;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

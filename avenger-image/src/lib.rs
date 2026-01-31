@@ -10,11 +10,11 @@ pub mod svg;
 use std::sync::Arc;
 
 use base64::{prelude::BASE64_STANDARD, Engine};
-use error::AvengerImageError;
-pub use fetcher::make_image_fetcher;
-
-use fetcher::ImageFetcher;
 use serde::{Deserialize, Serialize};
+
+use error::AvengerImageError;
+use fetcher::ImageFetcher;
+pub use fetcher::make_image_fetcher;
 
 #[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]
 pub struct RgbaImage {

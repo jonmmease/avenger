@@ -3,10 +3,19 @@
 //! rather than a trait. This file is kept for reference but is disabled.
 
 #![allow(dead_code, unused_imports)]
+
+use std::any::Any;
+
 use avenger_chart::{
     cartesian::{AxisPosition, CartesianAxis},
+    error::AvengerChartError,
+    render::Padding,
 };
-use std::any::Any;
+use avenger_guides::axis::{
+    numeric::make_numeric_axis_marks,
+    opts::{AxisConfig, AxisOrientation},
+};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 
 /// A logarithmic axis with custom formatting options
 #[derive(Clone, Debug)]
@@ -61,10 +70,6 @@ impl AxisBase for LogarithmicAxis {
         self
     }
 }
-
-use avenger_chart::error::AvengerChartError;
-use avenger_chart::render::Padding;
-use avenger_scenegraph::marks::mark::SceneMark;
 
 impl CartesianAxis for LogarithmicAxis {
     // === Getters ===
@@ -142,19 +147,13 @@ impl CartesianAxis for LogarithmicAxis {
     ) -> Result<SceneMark, AvengerChartError> {
         // For this example, we'll delegate to the same rendering logic as DefaultCartesianAxis
         // In a real implementation, this could have custom rendering for logarithmic scales
-        use avenger_guides::axis::{
-            numeric::make_numeric_axis_marks,
-            opts::{AxisConfig, AxisOrientation},
-        };
 
         // Skip if invisible
         if !self.visible {
-            return Ok(SceneMark::Group(
-                avenger_scenegraph::marks::group::SceneGroup {
-                    marks: vec![],
-                    ..Default::default()
-                },
-            ));
+            return Ok(SceneMark::Group(SceneGroup {
+                marks: vec![],
+                ..Default::default()
+            }));
         }
 
         // Determine axis position
@@ -381,19 +380,12 @@ impl CartesianAxis for TemperatureAxis {
         plot_height: f32,
         padding: &Padding,
     ) -> Result<SceneMark, AvengerChartError> {
-        use avenger_guides::axis::{
-            numeric::make_numeric_axis_marks,
-            opts::{AxisConfig, AxisOrientation},
-        };
-
         // Skip if invisible
         if !self.visible {
-            return Ok(SceneMark::Group(
-                avenger_scenegraph::marks::group::SceneGroup {
-                    marks: vec![],
-                    ..Default::default()
-                },
-            ));
+            return Ok(SceneMark::Group(SceneGroup {
+                marks: vec![],
+                ..Default::default()
+            }));
         }
 
         let position = self.position.unwrap_or(match channel {

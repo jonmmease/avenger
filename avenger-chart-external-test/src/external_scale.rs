@@ -6,14 +6,17 @@
 //! 3. Implement methods directly on Scale<CustomType>
 //! 4. Use the scale in plots with full type safety
 
+use std::sync::Arc;
+
 use avenger_chart::scales::{Scale, ScaleSpec};
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{DomainKind, InferDomainFromDataMethod, RangeKind, ScaleConfig, ScaleImpl},
 };
-use datafusion::arrow::array::{Array, ArrayRef, Float32Array};
-use datafusion::logical_expr::lit;
-use std::sync::Arc;
+use datafusion::{
+    arrow::array::{Array, ArrayRef, Float32Array},
+    logical_expr::lit,
+};
 
 /// A custom logarithmic scale with configurable smoothing
 /// This demonstrates that external crates can define new scale types

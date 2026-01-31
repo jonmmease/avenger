@@ -1,10 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    hash::{Hash, Hasher},
+    sync::{Arc, Mutex},
+};
 
 use avenger_image::RgbaImage;
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

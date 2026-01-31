@@ -1,17 +1,12 @@
 use std::sync::Arc;
 
-use crate::marks::arc::SceneArcMark;
-use crate::marks::area::SceneAreaMark;
-use crate::marks::group::SceneGroup;
-use crate::marks::image::SceneImageMark;
-use crate::marks::line::SceneLineMark;
-use crate::marks::path::ScenePathMark;
-use crate::marks::rect::SceneRectMark;
-use crate::marks::rule::SceneRuleMark;
-use crate::marks::symbol::SceneSymbolMark;
-use crate::marks::text::SceneTextMark;
-use crate::marks::trail::SceneTrailMark;
 use serde::{Deserialize, Serialize};
+
+use crate::marks::{
+    arc::SceneArcMark, area::SceneAreaMark, group::SceneGroup, image::SceneImageMark,
+    line::SceneLineMark, path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
+    symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+};
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 pub enum SceneMark {

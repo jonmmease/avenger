@@ -1,9 +1,11 @@
-use avenger_common::types::LinearScaleAdjustment;
-use avenger_scenegraph::marks::group::Clip;
 use std::ops::Range;
 
-use wgpu::util::DeviceExt;
-use wgpu::{CommandBuffer, Device, Extent3d, TexelCopyBufferLayout, TextureFormat, TextureView};
+use avenger_common::types::LinearScaleAdjustment;
+use avenger_scenegraph::marks::group::Clip;
+use wgpu::{
+    util::DeviceExt, CommandBuffer, Device, Extent3d, TexelCopyBufferLayout, TextureFormat,
+    TextureView,
+};
 
 #[derive(Clone)]
 pub struct InstancedMarkBatch {

@@ -1,5 +1,6 @@
-use super::FontResolver;
 use std::collections::HashSet;
+
+use super::FontResolver;
 
 pub struct WasmFontResolver;
 

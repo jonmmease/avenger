@@ -1,13 +1,14 @@
-use cosmic_text::{fontdb::Database, Attrs, Buffer, Family, FontSystem, Metrics, SwashCache};
 use std::{
     collections::{HashMap, HashSet},
     sync::Mutex,
 };
 
-use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
+use cosmic_text::{fontdb::Database, Attrs, Buffer, Family, FontSystem, Metrics, SwashCache};
+use lazy_static::lazy_static;
+
 use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
 
-use lazy_static::lazy_static;
+use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
 
 lazy_static! {
     pub static ref FONT_SYSTEM: Mutex<FontSystem> = Mutex::new(build_font_system());

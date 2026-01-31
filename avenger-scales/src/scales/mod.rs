@@ -17,18 +17,9 @@ pub mod time;
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use crate::{color_interpolator::ColorInterpolator, error::AvengerScaleError, scalar::Scalar};
-use crate::{color_interpolator::ColorInterpolatorConfig, formatter::Formatters};
-use crate::{
-    color_interpolator::SrgbaColorInterpolator,
-    scales::coerce::{ColorCoercer, CssColorCoercer},
-};
-use arrow::array::Array;
-use arrow::{
-    array::{ArrayRef, AsArray, Float32Array},
-    compute::cast,
-    datatypes::{DataType, Float32Type},
-};
+use arrow::array::{Array, ArrayRef, AsArray, Float32Array};
+use arrow::compute::cast;
+use arrow::datatypes::{DataType, Float32Type};
 use avenger_common::{
     types::{
         AreaOrientation, ColorOrGradient, GradientStop, ImageAlign, ImageBaseline,
@@ -38,7 +29,14 @@ use avenger_common::{
 };
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
+
+use crate::{
+    color_interpolator::{ColorInterpolator, ColorInterpolatorConfig, SrgbaColorInterpolator},
+    error::AvengerScaleError,
+    formatter::Formatters,
+    scalar::Scalar,
+    scales::coerce::{CastNumericCoercer, Coercer, ColorCoercer, CssColorCoercer, NumericCoercer},
+};
 
 /// Validation constraint for a scale option.
 ///

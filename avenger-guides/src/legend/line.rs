@@ -1,13 +1,20 @@
 use std::sync::Arc;
 
-use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
-use avenger_common::types::{StrokeCap, StrokeJoin};
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_common::{
+    types::{ColorOrGradient, StrokeCap, StrokeJoin},
+    value::ScalarOrArray,
+};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
-use avenger_scenegraph::marks::line::SceneLineMark;
-use avenger_scenegraph::marks::rect::SceneRectMark;
-use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, text::SceneTextMark};
+use avenger_scenegraph::marks::{
+    group::SceneGroup,
+    line::SceneLineMark,
+    mark::SceneMark,
+    rect::SceneRectMark,
+    text::SceneTextMark,
+};
 use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
+
+use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 
 /// Symbol legends
 #[derive(Debug)]

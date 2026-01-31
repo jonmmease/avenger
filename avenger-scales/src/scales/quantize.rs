@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
-use crate::scalar::Scalar;
-use arrow::{
-    array::{ArrayRef, AsArray, DictionaryArray, Float32Array, Int16Array},
-    datatypes::Float32Type,
-};
+use arrow::array::{ArrayRef, AsArray, DictionaryArray, Float32Array, Int16Array};
+use arrow::datatypes::Float32Type;
 use lazy_static::lazy_static;
 
-use crate::error::AvengerScaleError;
+use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::{
     linear::{LinearScale, NormalizationConfig},

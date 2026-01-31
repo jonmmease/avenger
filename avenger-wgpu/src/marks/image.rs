@@ -1,7 +1,8 @@
-use crate::error::AvengerWgpuError;
 use etagere::Size;
 use image::DynamicImage;
 use wgpu::Extent3d;
+
+use crate::error::AvengerWgpuError;
 
 pub struct ImageAtlasBuilder {
     extent: Extent3d,

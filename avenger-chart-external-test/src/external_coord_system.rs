@@ -1,25 +1,27 @@
 //! Integration test to verify external coordinate systems can be defined and used
 
-use avenger_chart::channel::ChannelDescriptor;
-use avenger_chart::coords::CoordinateSystemTransform;
-use avenger_chart::render::RenderContext;
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+
+use async_trait::async_trait;
 use avenger_chart::{
-    coords::{CoordinateSystem, OverflowSpaceRequirement, PlotGeometry, PointGeometry},
+    channel::ChannelDescriptor,
+    coords::{
+        CoordinateSystem, CoordinateSystemTransform, OverflowSpaceRequirement, PlotGeometry,
+        PointGeometry,
+    },
     define_common_mark_channels, define_position_channels,
     error::AvengerChartError,
     guide::CoordinateGuide,
     impl_mark_base, impl_mark_trait_common,
     marks::{ChannelValue, CompiledMark, DataContext, Mark, MarkState},
+    render::RenderContext,
     scales::{Auto, Scale},
 };
-use avenger_common::value::ScalarOrArray;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::scalar::ScalarValue;
+use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::marker::PhantomData;
 
 /// A custom 3D isometric coordinate system defined in an external crate
 /// This maps 3D coordinates (x, y, z) to 2D screen space using isometric projection
@@ -338,8 +340,6 @@ impl CoordinateSystemTransform for IsometricTransform {
         _plot_width: f32,
         _plot_height: f32,
     ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
-        use avenger_common::value::ScalarOrArrayValue;
-
         // Get the position channel values
         let x = position_channels
             .get("iso_x")

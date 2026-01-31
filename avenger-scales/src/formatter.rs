@@ -1,16 +1,16 @@
-use crate::error::AvengerScaleError;
-use crate::format_num::NumberFormat;
-use arrow::array::ArrayRef;
-use arrow::array::{timezone::Tz as ArrowTz, AsArray};
-use arrow::datatypes::Float32Type;
+use std::{fmt::Debug, str::FromStr, sync::Arc};
+
 use arrow::{
+    array::{timezone::Tz as ArrowTz, ArrayRef, AsArray},
     compute::kernels::cast,
-    datatypes::{DataType, Date32Type, TimeUnit, TimestampMillisecondType},
+    datatypes::{DataType, Date32Type, Float32Type, TimeUnit, TimestampMillisecondType},
 };
 use avenger_common::value::ScalarOrArray;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
-use std::{fmt::Debug, str::FromStr, sync::Arc};
+
+use crate::error::AvengerScaleError;
+use crate::format_num::NumberFormat;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DefaultFormatter {

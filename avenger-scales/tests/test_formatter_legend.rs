@@ -1,8 +1,9 @@
+use std::sync::Arc;
+
 use arrow::array::StringArray;
 use avenger_scales::scales::{
     quantile::QuantileScale, quantize::QuantizeScale, threshold::ThresholdScale,
 };
-use std::sync::Arc;
 
 #[test]
 fn test_threshold_legend_with_formatter() {

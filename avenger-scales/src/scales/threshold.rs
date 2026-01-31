@@ -7,13 +7,12 @@ use arrow::{
 };
 use lazy_static::lazy_static;
 
-use crate::error::AvengerScaleError;
+use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::{
     ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition,
     RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
-use crate::scalar::Scalar;
 
 /// Threshold scale that maps continuous numeric input values to discrete range values
 /// based on a set of threshold boundaries.
@@ -78,8 +77,6 @@ impl ScaleImpl for ThresholdScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        use arrow::datatypes::DataType;
-
         let thresholds = validate_extract_thresholds(&config.domain)?;
 
         // Validate the range has the correct number of elements

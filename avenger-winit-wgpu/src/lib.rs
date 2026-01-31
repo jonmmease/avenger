@@ -1,16 +1,14 @@
 use avenger_app::app::AvengerApp;
-use avenger_common::canvas::CanvasDimensions;
-use avenger_common::time::Instant;
+use avenger_common::{canvas::CanvasDimensions, time::Instant};
 use avenger_eventstream::window::WindowEvent as AvengerWindowEvent;
-use avenger_wgpu::canvas::{Canvas, WindowCanvas};
-use avenger_wgpu::error::AvengerWgpuError;
-
-use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::keyboard;
-use winit::keyboard::NamedKey;
-use winit::window::{WindowAttributes, WindowId};
+use avenger_wgpu::{canvas::{Canvas, WindowCanvas}, error::AvengerWgpuError};
+use winit::{
+    application::ApplicationHandler,
+    event::{ElementState, KeyEvent, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop},
+    keyboard::{self, NamedKey},
+    window::{WindowAttributes, WindowId},
+};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;

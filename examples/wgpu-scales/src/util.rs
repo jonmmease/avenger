@@ -1,32 +1,28 @@
-use arrow::array::{ArrayRef, Float32Array, StringArray};
-use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::ColorOrGradient;
-use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::band::make_band_axis_marks;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
-use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
-use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::mark::{MarkInstance, SceneMark};
-use avenger_scenegraph::marks::rect::SceneRectMark;
-use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_wgpu::canvas::{Canvas, WindowCanvas};
-use avenger_wgpu::error::AvengerWgpuError;
-use std::sync::Arc;
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
-use avenger_scales::scales::band::BandScale;
-use avenger_scales::scales::linear::LinearScale;
-use std::cell::RefCell;
-use std::rc::Rc;
+use arrow::array::{ArrayRef, Float32Array, StringArray};
+use avenger_common::{canvas::CanvasDimensions, types::ColorOrGradient};
+use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_guides::{
+    axis::{band::make_band_axis_marks, numeric::make_numeric_axis_marks, opts::{AxisConfig, AxisOrientation}},
+    legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation},
+};
+use avenger_scales::scales::{band::BandScale, linear::LinearScale};
+use avenger_scenegraph::{
+    marks::{group::{Clip, SceneGroup}, mark::{MarkInstance, SceneMark}, rect::SceneRectMark},
+    scene_graph::SceneGraph,
+};
+use avenger_wgpu::{canvas::{Canvas, WindowCanvas}, error::AvengerWgpuError};
+use winit::{
+    application::ApplicationHandler,
+    event::{ElementState, KeyEvent, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop},
+    keyboard::{self, NamedKey},
+    window::{WindowAttributes, WindowId},
+};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::keyboard;
-use winit::keyboard::NamedKey;
-use winit::window::{WindowAttributes, WindowId};
 
 struct App {
     canvas_shared: Rc<RefCell<Option<WindowCanvas<'static>>>>,

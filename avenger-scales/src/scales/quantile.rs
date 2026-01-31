@@ -2,21 +2,17 @@ use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
     array::{ArrayRef, AsArray, DictionaryArray, Float32Array, Int16Array},
-    compute::{
-        kernels::{cast, sort},
-        SortOptions,
-    },
+    compute::{kernels::{cast, sort}, SortOptions},
     datatypes::{DataType, Float32Type},
 };
 use lazy_static::lazy_static;
 
-use crate::error::AvengerScaleError;
+use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::{
     ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition,
     RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
-use crate::scalar::Scalar;
 
 /// Quantile scale that maps continuous numeric input values to discrete range values
 /// using quantile boundaries computed from the domain.

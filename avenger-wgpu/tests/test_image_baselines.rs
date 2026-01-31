@@ -1,5 +1,4 @@
-use std::path::Path;
-use std::sync::Once;
+use std::{path::Path, sync::Once};
 
 use avenger_text::measurement::cosmic::register_font_directory;
 

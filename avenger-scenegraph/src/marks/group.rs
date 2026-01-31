@@ -1,15 +1,18 @@
 use std::hash::{DefaultHasher, Hasher};
 
-use crate::marks::mark::SceneMark;
-use crate::marks::path::ScenePathMark;
-use avenger_common::lyon::hash_lyon_path;
-use avenger_common::types::{ColorOrGradient, Gradient, PathTransform};
-use avenger_common::value::ScalarOrArray;
-use lyon_path::geom::euclid::Point2D;
-use lyon_path::geom::Box2D;
-use lyon_path::Winding;
+use avenger_common::{
+    lyon::hash_lyon_path,
+    types::{ColorOrGradient, Gradient, PathTransform},
+    value::ScalarOrArray,
+};
+use lyon_path::{
+    geom::{euclid::Point2D, Box2D},
+    Winding,
+};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
+
+use crate::marks::{mark::SceneMark, path::ScenePathMark};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Clip {

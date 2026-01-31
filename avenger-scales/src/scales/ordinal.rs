@@ -1,23 +1,23 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::{
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition,
-    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
-};
-use crate::error::AvengerScaleError;
-use lazy_static::lazy_static;
-
-use crate::scalar::Scalar;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, UInt32Array},
-    compute::kernels::cast,
+    compute::kernels::{cast, take},
     datatypes::{DataType, UInt32Type},
 };
 use avenger_common::{
     types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
+use lazy_static::lazy_static;
 use serde::de::DeserializeOwned;
+
+use crate::{error::AvengerScaleError, scalar::Scalar};
+
+use super::{
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
+};
 
 /// Macro to generate scale_to_X trait methods for ordinal enum scaling
 #[macro_export]
@@ -108,7 +108,6 @@ impl ScaleImpl for OrdinalScale {
         let indices_array = dict_array.values(); // These are the range indices
 
         // Use take to get the actual range values in the correct order
-        use arrow::compute::kernels::take;
         let range_values = take::take(&config.range, &indices_array, None)?;
 
         // Replace the dictionary values with the actual range values

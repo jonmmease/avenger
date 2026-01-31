@@ -1,5 +1,12 @@
-use avenger_common::types::{ColorOrGradient, Gradient, PathTransform};
-use avenger_common::value::ScalarOrArray;
+use std::{
+    ops::{Mul, Neg},
+    sync::Arc,
+};
+
+use avenger_common::{
+    types::{ColorOrGradient, Gradient, PathTransform},
+    value::ScalarOrArray,
+};
 use itertools::izip;
 use lyon_path::{
     geom::{euclid::Vector2D, Angle, Point, Vector},
@@ -7,8 +14,6 @@ use lyon_path::{
     Path,
 };
 use serde::{Deserialize, Serialize};
-use std::ops::{Mul, Neg};
-use std::sync::Arc;
 
 use super::mark::SceneMark;
 

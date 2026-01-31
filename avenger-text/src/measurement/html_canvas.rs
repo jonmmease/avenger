@@ -1,11 +1,15 @@
-use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
-use crate::rasterization::GlyphData;
-use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
+use std::{collections::HashMap, sync::Mutex};
+
 use lazy_static::lazy_static;
-use std::collections::HashMap;
-use std::sync::Mutex;
 use wasm_bindgen::JsCast;
 use web_sys::{OffscreenCanvas, OffscreenCanvasRenderingContext2d};
+
+use crate::{
+    rasterization::GlyphData,
+    types::{FontStyle, FontWeight, FontWeightNameSpec},
+};
+
+use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
 
 lazy_static! {
     // TODO: use LRU cache

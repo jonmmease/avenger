@@ -1,9 +1,11 @@
-use crate::error::AvengerVegaError;
+use std::borrow::Cow;
+
 use avenger_common::types::{
     ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::borrow::Cow;
+
+use crate::error::AvengerVegaError;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]

@@ -1,15 +1,18 @@
-use crate::error::AvengerWgpuError;
-use crate::marks::multi::{MultiVertex, TEXT_TEXTURE_CODE, TEXT_TEXTURE_NEAREST_CODE};
-use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::PathTransform;
-use avenger_text::rasterization::{GlyphBBox, TextRasterizationConfig, TextRasterizer};
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use std::{collections::HashMap, hash::Hash, sync::Arc};
+
+use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
+use avenger_text::{
+    rasterization::{GlyphBBox, TextRasterizationConfig, TextRasterizer},
+    types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+};
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::DynamicImage;
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::sync::Arc;
 use wgpu::Extent3d;
+
+use crate::{
+    error::AvengerWgpuError,
+    marks::multi::{MultiVertex, TEXT_TEXTURE_CODE, TEXT_TEXTURE_NEAREST_CODE},
+};
 
 #[derive(Clone)]
 pub struct GlyphBBoxAndAtlasCoords {
