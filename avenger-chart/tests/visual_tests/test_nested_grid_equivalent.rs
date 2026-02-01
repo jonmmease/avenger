@@ -3758,6 +3758,74 @@ fn test_four_level_col_col_col_col() {
     });
 }
 
+/// Test 4-level column nesting with Level(2) y scale sharing
+/// Y scale shares within cells that have the same grandparent (2 levels up)
+#[test]
+fn test_four_level_col_col_col_col_y_level2() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_data().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(1800, 500)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
+                                            .subplot(
+                                                Plot::<FacetColumn>::new().mark(
+                                                    Facet::new()
+                                                        .col_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(2),
+                                                                        )
+                                                                    })
+                                                                    .size(40.0)
+                                                                    .fill("#9b59b6"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col>col>col nesting with y Level(2)");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_col_col_col_col_y_level2",
+        )
+        .await;
+    });
+}
+
 /// Test 2-level column nesting: Col > Col > Cartesian
 /// Simplified version for debugging overflow allocation
 #[test]
