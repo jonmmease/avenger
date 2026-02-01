@@ -9,9 +9,17 @@ use serde_with::{FromInto, serde_as};
 pub use crate::guide::OverflowSpaceRequirement;
 
 use crate::{
-    error::AvengerChartError, facet::band_positions::BandPosition, guide::CoordinateGuide,
-    marks::CompiledMark, plot::compiled::ComponentsMeasurement, render::EvaluationContext,
-    scales::ConfiguredScaleWithSpec, serialization::SerializableScalar,
+    error::AvengerChartError,
+    facet::{
+        band_positions::BandPosition,
+        coord::{compute_ancestor_key, union_domain_extents},
+    },
+    guide::CoordinateGuide,
+    marks::CompiledMark,
+    plot::compiled::ComponentsMeasurement,
+    render::EvaluationContext,
+    scales::{domain_extent::DomainExtent, ConfiguredScaleWithSpec},
+    serialization::SerializableScalar,
 };
 
 /// Coordinated overflow values aggregated across ALL facets at the same nesting level.
@@ -149,6 +157,30 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     ) -> Result<(), AvengerChartError> {
         Ok(())
     }
+
+    /// Collect cell domain extents for level-aware domain coordination.
+    ///
+    /// Facet implementations should iterate over their cells and push
+    /// `CellDomainInfo` entries for each (cell, channel) pair that has
+    /// domain extents to coordinate.
+    ///
+    /// Default implementation: no-op for non-facet coordinate systems.
+    fn collect_cell_domain_extents(&self, _collector: &mut Vec<CellDomainInfo>) {
+        // Default: no-op
+    }
+
+    /// Distribute unified domain extents back to cells.
+    ///
+    /// Facet implementations should look up coordinated extents for each
+    /// (cell, channel) pair and store them for use during rendering.
+    ///
+    /// Default implementation: no-op for non-facet coordinate systems.
+    fn distribute_cell_domain_extents(
+        &mut self,
+        _unified: &HashMap<(String, Vec<ScalarValue>), DomainExtent>,
+    ) {
+        // Default: no-op
+    }
 }
 
 /// Empty measurement for coordinate systems that don't need measurement data.
@@ -252,11 +284,148 @@ fn distribute_overflow_by_level(
 
 /// Coordinate overflow values across all facets and re-measure affected subplots.
 ///
+// =============================================================================
+// Domain Extent Coordination
+//
+// These functions coordinate domain extents across cells in the measurement tree
+// to implement level-aware scale sharing for radius-aware domains.
+// =============================================================================
+
+/// Cell domain extent info collected during Pass 1.
+///
+/// Contains all the information needed to group and aggregate domain extents
+/// across cells at the appropriate sharing level.
+#[derive(Clone)]
+pub struct CellDomainInfo {
+    /// Full path to this cell (parent_path + cell_value)
+    pub full_cell_path: Vec<ScalarValue>,
+    /// Channel name (e.g., "x", "y")
+    pub channel: String,
+    /// Scale sharing level for this channel (0=Free, N=Level(N), 255=Shared)
+    pub sharing_level: u8,
+    /// Facet depth (1-based) for sharing comparison
+    pub facet_depth: u8,
+    /// The domain extent
+    pub extent: DomainExtent,
+}
+
+/// Pass 1: Collect all cell domain extents from the entire measurement tree.
+///
+/// Recursively traverses the measurement tree and collects domain extent
+/// information from all facet nodes via the trait method.
+fn collect_cell_domain_extents_recursive(
+    measurement: &ComponentsMeasurement,
+    collector: &mut Vec<CellDomainInfo>,
+) {
+    // Collect from this measurement via trait method
+    measurement
+        .coord_measurement
+        .collect_cell_domain_extents(collector);
+
+    // Recurse into children
+    for child in measurement.coord_measurement.child_measurements() {
+        collect_cell_domain_extents_recursive(child, collector);
+    }
+}
+
+/// Aggregate domain extents by (channel, ancestor_key).
+///
+/// Groups collected extents by their ancestor key (based on sharing level)
+/// and unions extents within each group.
+fn aggregate_domain_extents(
+    infos: &[CellDomainInfo],
+) -> HashMap<(String, Vec<ScalarValue>), DomainExtent> {
+    let mut groups: HashMap<(String, Vec<ScalarValue>), Vec<&DomainExtent>> = HashMap::new();
+
+    for info in infos {
+        let ancestor_key = compute_ancestor_key(
+            &info.full_cell_path,
+            info.sharing_level,
+            info.facet_depth,
+        );
+        groups
+            .entry((info.channel.clone(), ancestor_key))
+            .or_default()
+            .push(&info.extent);
+    }
+
+    // Union extents within each group
+    groups
+        .into_iter()
+        .map(|(key, extents)| {
+            let unified = extents
+                .into_iter()
+                .fold(None, |acc: Option<DomainExtent>, extent| match acc {
+                    None => Some(extent.clone()),
+                    Some(acc) => Some(union_domain_extents(&acc, extent)),
+                })
+                .unwrap();
+            (key, unified)
+        })
+        .collect()
+}
+
+/// Pass 2: Distribute unified domain extents back to all cells.
+///
+/// Recursively traverses the measurement tree and distributes coordinated
+/// domain extents to all facet nodes via the trait method.
+fn distribute_cell_domain_extents_recursive(
+    measurement: &mut ComponentsMeasurement,
+    unified: &HashMap<(String, Vec<ScalarValue>), DomainExtent>,
+) {
+    // Distribute to this measurement via trait method
+    measurement
+        .coord_measurement
+        .distribute_cell_domain_extents(unified);
+
+    // Recurse into children
+    for child in measurement.coord_measurement.child_measurements_mut() {
+        distribute_cell_domain_extents_recursive(child, unified);
+    }
+}
+
+/// Coordinate domain extents across all cells in the measurement tree.
+///
+/// This implements the two-pass coordination pattern:
+/// 1. Collect all cell domain extents from the entire tree
+/// 2. Group by (channel, ancestor_key) and union extents within each group
+/// 3. Distribute unified extents back to all cells
+fn coordinate_cell_domain_extents(measurement: &mut ComponentsMeasurement) {
+    // Pass 1: Collect all cell domain extents
+    let mut all_extents = Vec::new();
+    collect_cell_domain_extents_recursive(measurement, &mut all_extents);
+
+    if all_extents.is_empty() {
+        return;
+    }
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "coordinate_cell_domain_extents: collected {} domain extents",
+            all_extents.len()
+        );
+    }
+
+    // Aggregation: Group by (channel, ancestor_key) and union
+    let unified = aggregate_domain_extents(&all_extents);
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "coordinate_cell_domain_extents: unified into {} groups",
+            unified.len()
+        );
+    }
+
+    // Pass 2: Distribute back to all cells
+    distribute_cell_domain_extents_recursive(measurement, &unified);
+}
+
 /// This is the main entry point for overflow coordination. It:
 /// 1. Collects overflow values by nesting depth
 /// 2. Computes max overflow at each depth level
 /// 3. Distributes coordinated values to all facets
-/// 4. Re-measures any subplots affected by legend overflow
+/// 4. Coordinates domain extents for level-aware scale sharing
+/// 5. Re-measures any subplots affected by legend overflow
 ///
 /// This ensures measurements are correct before `build_plot_components` is called.
 pub async fn coordinate_overflow_for_guides(
@@ -266,7 +435,10 @@ pub async fn coordinate_overflow_for_guides(
     // Step 1: Distribute coordinated overflow values
     distribute_coordinated_overflow(measurement);
 
-    // Step 2: Apply coordinated overflow by re-measuring affected subplots
+    // Step 2: Coordinate domain extents across all cells for level-aware scale sharing
+    coordinate_cell_domain_extents(measurement);
+
+    // Step 3: Apply coordinated overflow by re-measuring affected subplots
     apply_coordinated_overflow_recursive(measurement, eval_ctx).await?;
 
     Ok(())
