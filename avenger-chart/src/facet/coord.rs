@@ -17,9 +17,13 @@ use crate::{
     },
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     marks::CompiledMark,
-    plot::compiled::{CompiledPlot, ComponentsMeasurement, scale_provider::PrebuiltScaleProvider},
+    plot::compiled::{
+        CompiledPlot, ComponentsMeasurement,
+        scale_provider::DynamicScaleProvider,
+        scales::build_scale_builder_from_marks,
+    },
     render::EvaluationContext,
-    scales::ConfiguredScaleWithSpec,
+    scales::{ConfiguredScaleWithSpec, ScaleBuilder},
 };
 
 /// Measurement data for FacetColumn coordinate system.
@@ -37,9 +41,9 @@ pub struct FacetColCoordMeasurement {
     pub outer_right: f32,
     /// Filtered DataFrames for each cell
     pub data_overrides: Vec<DataFrame>,
-    /// Pre-built shared scales for subplots (domains from full data).
-    /// Ranges may need updating for final subplot dimensions.
-    pub shared_scales: HashMap<String, ConfiguredScaleWithSpec>,
+    /// ScaleBuilder for shared scales (caches data extents for rebuilding with updated dimensions).
+    /// Used with DynamicScaleProvider to correctly compute radius-aware domains.
+    pub shared_scale_builder: ScaleBuilder,
     /// Parent facet path (for nested facets). This is the path to reach this facet level.
     /// When constructing cell paths for nested subplots, prepend this to the cell value.
     pub parent_path: Vec<ScalarValue>,
@@ -198,9 +202,11 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             );
         }
 
-        // Re-measure each subplot with the corrected height
-        let scale_provider = PrebuiltScaleProvider {
-            scales: self.shared_scales.clone(),
+        // Re-measure each subplot with the corrected height.
+        // Use DynamicScaleProvider to rebuild scales with correct dimensions.
+        let scale_provider = DynamicScaleProvider {
+            builder: &self.shared_scale_builder,
+            plot: &self.compiled_subplot,
         };
 
         // Create subplot EvaluationContext with merged params
@@ -582,7 +588,7 @@ impl CoordinateSystemTransform for FacetColumn {
                 outer_left: 0.0,
                 outer_right: 0.0,
                 data_overrides: Vec::new(),
-                shared_scales: HashMap::new(),
+                shared_scale_builder: ScaleBuilder::default(),
                 parent_path: facet_path.to_vec(),
                 subplot_measurements: Vec::new(),
                 coordinated_overflow: CoordinatedOverflow::default(),
@@ -596,21 +602,25 @@ impl CoordinateSystemTransform for FacetColumn {
             AvengerChartError::InternalError("FacetColumn measure requires data".into())
         })?;
 
-        // Build shared scales from the FULL data (for shared domain computation)
-        let shared_scales = compiled_subplot
-            .build_scales_for_dataframe(
-                data_df,
-                subplot_width,
-                plot_height,
-                &eval_ctx.session_context,
-                &eval_ctx.params,
-            )
-            .await?;
+        // Build ScaleBuilder from FULL data (caches data extents for shared domain computation).
+        // This allows scales to be rebuilt with correct dimensions at each measurement pass.
+        let shared_scale_builder = build_scale_builder_from_marks(
+            &compiled_subplot.marks,
+            &compiled_subplot.scale_specs,
+            &compiled_subplot.coord_transform,
+            &compiled_subplot.data,
+            Some(data_df.clone()),
+            &eval_ctx.session_context,
+            &eval_ctx.params,
+            compiled_subplot.get_theme().as_ref(),
+        )
+        .await?;
 
-        // Use PrebuiltScaleProvider to pass shared scales (with pre-computed domains)
-        // to subplots. This preserves the exact ConfiguredScale and only updates ranges.
-        let scale_provider = PrebuiltScaleProvider {
-            scales: shared_scales.clone(),
+        // Use DynamicScaleProvider to rebuild scales with dimensions from layout_spec.
+        // This ensures radius-aware domains are computed correctly for each measurement pass.
+        let scale_provider = DynamicScaleProvider {
+            builder: &shared_scale_builder,
+            plot: &compiled_subplot,
         };
 
         // Create subplot EvaluationContext with merged params
@@ -810,7 +820,7 @@ impl CoordinateSystemTransform for FacetColumn {
             outer_left,
             outer_right,
             data_overrides,
-            shared_scales,
+            shared_scale_builder,
             parent_path: facet_path.to_vec(),
             subplot_measurements,
             coordinated_overflow: CoordinatedOverflow::default(),
