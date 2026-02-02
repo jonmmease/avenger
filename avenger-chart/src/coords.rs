@@ -158,6 +158,17 @@ pub trait CoordMeasurement: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Get the scale sharing level for a channel.
+    ///
+    /// Returns the sharing level (0=Free, N=Level(N), 255=Shared) for the given channel.
+    /// This is used for axis visibility decisions in faceted charts.
+    ///
+    /// Default implementation: returns 255 (Shared), which preserves the original
+    /// "edge-only" visibility behavior where labels only show on the outermost cells.
+    fn channel_sharing_level(&self, _channel: &str) -> u8 {
+        255 // Shared: default to current behavior
+    }
+
     /// Collect cell domain extents for level-aware domain coordination.
     ///
     /// Facet implementations should iterate over their cells and push

@@ -51,6 +51,10 @@ type SharedDomainCache = HashMap<String, Vec<ScalarValue>>;
 pub struct EvaluatedFacetTree {
     /// Tree of partition values (handles non-shared domains)
     root: Option<PartitionNode>,
+    /// Channel sharing levels extracted from innermost marks.
+    /// Maps channel name (e.g., "x", "y") to sharing level (0=Free, N=Level(N), 255=Shared).
+    /// Used for axis visibility decisions when CoordMeasurement is not available.
+    channel_sharing_levels: HashMap<String, u8>,
 }
 
 /// A node in the partition tree.
@@ -113,18 +117,90 @@ impl AxisVisibility {
     }
 }
 
+/// Check if a cell is the first within its sharing group.
+///
+/// Uses suffix-based grouping: for Level(N) sharing with depth D,
+/// check if position_indices[D-N..] are all zero.
+fn is_first_in_sharing_group(
+    position_indices: &[usize],
+    sharing_level: u8,
+    facet_depth: u8,
+) -> bool {
+    // Level(0) = Free: every cell is first in its own group
+    if sharing_level == 0 {
+        return true;
+    }
+
+    // Level(255) or sharing >= depth = Shared: only truly first cell
+    if sharing_level >= facet_depth {
+        return position_indices.iter().all(|&i| i == 0);
+    }
+
+    // Level(N) with N < facet_depth: check suffix
+    let group_boundary = (facet_depth - sharing_level) as usize;
+    position_indices[group_boundary..].iter().all(|&i| i == 0)
+}
+
+/// Check if a cell is the last within its sharing group.
+///
+/// Uses suffix-based grouping: for Level(N) sharing with depth D,
+/// check if position_indices[D-N..] are all at their maximum values.
+fn is_last_in_sharing_group(
+    position_indices: &[usize],
+    level_counts: &[usize],
+    sharing_level: u8,
+    facet_depth: u8,
+) -> bool {
+    // Level(0) = Free: every cell is last in its own group
+    if sharing_level == 0 {
+        return true;
+    }
+
+    // Level(255) or sharing >= depth = Shared: only truly last cell
+    if sharing_level >= facet_depth {
+        return position_indices
+            .iter()
+            .zip(level_counts.iter())
+            .all(|(&pos, &count)| pos == count.saturating_sub(1));
+    }
+
+    // Level(N) with N < facet_depth: check suffix
+    let group_boundary = (facet_depth - sharing_level) as usize;
+    position_indices[group_boundary..]
+        .iter()
+        .zip(level_counts[group_boundary..].iter())
+        .all(|(&pos, &count)| pos == count.saturating_sub(1))
+}
+
 impl EvaluatedFacetTree {
     /// Create a new EvaluatedFacetSpec with the given partition tree.
     ///
     /// Note: All configuration (scale sharing levels, axis positions) is passed
     /// as parameters to query methods like `subplot_visibility`.
     pub fn new(root: Option<PartitionNode>) -> Self {
-        Self { root }
+        Self {
+            root,
+            channel_sharing_levels: HashMap::new(),
+        }
+    }
+
+    /// Create a new EvaluatedFacetSpec with partition tree and channel sharing levels.
+    pub fn new_with_sharing_levels(
+        root: Option<PartitionNode>,
+        channel_sharing_levels: HashMap<String, u8>,
+    ) -> Self {
+        Self {
+            root,
+            channel_sharing_levels,
+        }
     }
 
     /// Create an empty spec (no faceting).
     pub fn empty() -> Self {
-        Self { root: None }
+        Self {
+            root: None,
+            channel_sharing_levels: HashMap::new(),
+        }
     }
 
     /// Get the partition tree root, if any.
@@ -182,7 +258,10 @@ impl EvaluatedFacetTree {
         // Start at depth 1 (outermost facet level)
         let root = build_partition_tree(&plot.marks, &df, ctx, None, 1, &mut domain_cache).await?;
 
-        Ok(Self { root })
+        // Extract channel sharing levels from the innermost marks
+        let channel_sharing_levels = extract_channel_sharing_levels(&plot.marks);
+
+        Ok(Self::new_with_sharing_levels(root, channel_sharing_levels))
     }
 
     // ========================================================================
@@ -447,6 +526,18 @@ impl EvaluatedFacetTree {
         self.depth() >= 2
     }
 
+    /// Get the sharing level for a channel.
+    ///
+    /// Returns the sharing level stored during tree construction, or 255 (Shared)
+    /// if the channel was not found. This is used for axis visibility decisions
+    /// when the innermost subplot doesn't have access to CoordMeasurement.
+    pub fn channel_sharing_level(&self, channel: &str) -> u8 {
+        self.channel_sharing_levels
+            .get(channel)
+            .copied()
+            .unwrap_or(255)
+    }
+
     /// Get level counts (domain count at each nesting level).
     ///
     /// Returns vec where index is nesting level and value is domain count.
@@ -531,18 +622,24 @@ impl EvaluatedFacetTree {
     /// a value path to indices first. Use this when you have the cell's value
     /// path (e.g., `["East", "Eng"]`) rather than indices.
     ///
+    /// # Arguments
+    /// * `path` - Sequence of values identifying the cell (e.g., `["East", "Eng"]`)
+    /// * `axis_position` - Which edge the axis is on (Top/Bottom/Left/Right)
+    /// * `sharing_level` - Channel's sharing level: 0=Free, N=Level(N), 255=Shared
+    ///
     /// Returns `AxisVisibility::visible()` if the path is invalid or empty.
     pub fn axis_visibility_for_path(
         &self,
         path: &[ScalarValue],
         axis_position: AxisPosition,
+        sharing_level: u8,
     ) -> AxisVisibility {
         if path.is_empty() {
             return AxisVisibility::visible();
         }
 
         match self.indices_from_path(path) {
-            Some(indices) => self.axis_visibility(&indices, axis_position),
+            Some(indices) => self.axis_visibility(&indices, axis_position, sharing_level),
             None => AxisVisibility::visible(), // Invalid path, default to visible
         }
     }
@@ -584,13 +681,14 @@ impl EvaluatedFacetTree {
 
     /// Determine axis visibility for a cell at given position in the facet grid.
     ///
-    /// This implements edge-only visibility: axes show labels/titles only on cells
-    /// at the appropriate edge of the grid based on axis position and facet direction.
+    /// This implements sharing-level-aware visibility: axes show labels/titles only on cells
+    /// that are first (or last) within their sharing group, based on axis position and facet direction.
     ///
     /// # Arguments
     /// * `position_indices` - Cell position indices at each nesting level (e.g., `[2]` for 3rd column,
     ///   `[1, 0]` for nested facets)
     /// * `axis_position` - Which edge the axis is on (Top/Bottom/Left/Right)
+    /// * `sharing_level` - Channel's sharing level: 0=Free, N=Level(N), 255=Shared
     ///
     /// # Returns
     /// `AxisVisibility` indicating whether labels and title should be shown.
@@ -598,18 +696,26 @@ impl EvaluatedFacetTree {
     /// # Visibility Rules
     ///
     /// For **Column facets** (horizontal layout):
-    /// - Y axis (Left): show only on first column (index 0)
-    /// - Y axis (Right): show only on last column
+    /// - Y axis (Left): show only on first cell within sharing group
+    /// - Y axis (Right): show only on last cell within sharing group
     /// - X axis: always show (not affected by column layout)
     ///
     /// For **Row facets** (vertical layout):
-    /// - X axis (Bottom): show only on last row
-    /// - X axis (Top): show only on first row (index 0)
+    /// - X axis (Bottom): show only on last cell within sharing group
+    /// - X axis (Top): show only on first cell within sharing group
     /// - Y axis: always show (not affected by row layout)
+    ///
+    /// # Sharing Groups
+    ///
+    /// With `Level(N)` sharing and `facet_depth = D`:
+    /// - Group is defined by the first `(D - N)` levels (the "prefix")
+    /// - Cell is "first in group" if suffix `position_indices[D-N..]` are all 0
+    /// - Cell is "last in group" if suffix are all at max
     pub fn axis_visibility(
         &self,
         position_indices: &[usize],
         axis_position: AxisPosition,
+        sharing_level: u8,
     ) -> AxisVisibility {
         // If no facets, always show
         let Some(root) = &self.root else {
@@ -622,25 +728,40 @@ impl EvaluatedFacetTree {
             return AxisVisibility::visible();
         }
 
+        let facet_depth = position_indices.len() as u8;
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "axis_visibility: position={:?}, axis={:?}, sharing_level={}, facet_depth={}, counts={:?}",
+                position_indices, axis_position, sharing_level, facet_depth, counts
+            );
+        }
+
         // Walk through each level checking visibility
         let mut current_node = Some(root);
 
-        for (level, &pos_idx) in position_indices.iter().enumerate() {
+        for (_level, &_pos_idx) in position_indices.iter().enumerate() {
             let Some(node) = current_node else {
                 break;
             };
 
-            let count = counts.get(level).copied().unwrap_or(1);
-
-            // Check if this level affects the axis visibility
+            // Check if this level's facet direction affects the axis
             let should_hide = match (node.direction, axis_position) {
                 // Column facet affects Y axes
-                (FacetDirection::Column, AxisPosition::Left) => pos_idx != 0,
-                (FacetDirection::Column, AxisPosition::Right) => pos_idx != count.saturating_sub(1),
+                (FacetDirection::Column, AxisPosition::Left) => {
+                    !is_first_in_sharing_group(position_indices, sharing_level, facet_depth)
+                }
+                (FacetDirection::Column, AxisPosition::Right) => {
+                    !is_last_in_sharing_group(position_indices, &counts, sharing_level, facet_depth)
+                }
 
                 // Row facet affects X axes
-                (FacetDirection::Row, AxisPosition::Bottom) => pos_idx != count.saturating_sub(1),
-                (FacetDirection::Row, AxisPosition::Top) => pos_idx != 0,
+                (FacetDirection::Row, AxisPosition::Bottom) => {
+                    !is_last_in_sharing_group(position_indices, &counts, sharing_level, facet_depth)
+                }
+                (FacetDirection::Row, AxisPosition::Top) => {
+                    !is_first_in_sharing_group(position_indices, sharing_level, facet_depth)
+                }
 
                 // Other combinations: no effect
                 _ => false,
@@ -653,7 +774,7 @@ impl EvaluatedFacetTree {
             // Move to next level
             current_node = match &node.content {
                 PartitionContent::Branch { children } => {
-                    children.get_index(pos_idx).map(|(_, child)| child.as_ref())
+                    children.get_index(_pos_idx).map(|(_, child)| child.as_ref())
                 }
                 PartitionContent::Leaf { .. } => None,
             };
@@ -731,6 +852,48 @@ impl PartitionNode {
 // ============================================================================
 // Helper functions for building the partition tree
 // ============================================================================
+
+/// Extract channel sharing levels from compiled marks by recursing through facet subplots.
+///
+/// This walks the mark tree to find the innermost (non-facet) marks and extracts
+/// their channel sharing levels. Returns a map from channel name to sharing level.
+fn extract_channel_sharing_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<String, u8> {
+    let mut result = HashMap::new();
+
+    for mark in marks {
+        let mark_type = mark.mark_type();
+
+        // Check if this is a facet mark with a subplot
+        if mark_type == "facet_row" {
+            if let Some(facet_row) = mark.as_any().downcast_ref::<CompiledFacetRow>() {
+                // Recurse into subplot to find innermost marks
+                let inner = extract_channel_sharing_levels(&facet_row.compiled_subplot.marks);
+                result.extend(inner);
+            }
+        } else if mark_type == "facet_col" {
+            if let Some(facet_col) = mark.as_any().downcast_ref::<CompiledFacetCol>() {
+                // Recurse into subplot to find innermost marks
+                let inner = extract_channel_sharing_levels(&facet_col.compiled_subplot.marks);
+                result.extend(inner);
+            }
+        } else {
+            // Non-facet mark - extract channel sharing levels
+            let data_context = mark.data_context();
+            for (channel, channel_value) in data_context.channels() {
+                if let Some(sharing) = channel_value.get_share_mode() {
+                    let level = match sharing {
+                        ScaleSharing::Free => 0,
+                        ScaleSharing::Level(n) => n,
+                        ScaleSharing::Shared => 255,
+                    };
+                    result.insert(channel.clone(), level);
+                }
+            }
+        }
+    }
+
+    result
+}
 
 /// Get a DataFrame from plot-level data or first mark with data.
 fn get_dataframe_from_plot(plot: &CompiledPlot, ctx: &SessionContext) -> Option<DataFrame> {

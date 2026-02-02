@@ -195,6 +195,7 @@ impl CartesianAxis {
         ctx: &datafusion::prelude::SessionContext,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[datafusion::common::ScalarValue],
+        sharing_level: u8,
     ) -> Result<SceneMark, AvengerChartError> {
         // Evaluate visible expression (default to true if not set)
         let visible = if let Some(visible_node) = self.visible.as_option().and_then(|o| o.as_ref())
@@ -300,11 +301,11 @@ impl CartesianAxis {
                 true
             };
 
-        // Query facet-aware visibility based on cell path and axis position
+        // Query facet-aware visibility based on cell path, axis position, and sharing level
         let facet_visibility = if facet_path.is_empty() {
             AxisVisibility::visible()
         } else {
-            facet_tree.axis_visibility_for_path(facet_path, position)
+            facet_tree.axis_visibility_for_path(facet_path, position, sharing_level)
         };
 
         // Combine user-specified show_title with facet visibility

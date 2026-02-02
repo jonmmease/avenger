@@ -3866,3 +3866,214 @@ fn test_two_level_col_col() {
             .await;
     });
 }
+
+/// Test 4-level column nesting with Level(2) y scale sharing and Y-axis on RIGHT
+/// Y axis should appear on the LAST cell of each sharing group (rightmost)
+#[test]
+fn test_four_level_col_col_col_col_y_level2_right() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_data().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(1800, 500)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
+                                            .subplot(
+                                                Plot::<FacetColumn>::new().mark(
+                                                    Facet::new()
+                                                        .col_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(2),
+                                                                        )
+                                                                        .axis(|a| {
+                                                                            a.position(
+                                                                                AxisPosition::Right,
+                                                                            )
+                                                                        })
+                                                                    })
+                                                                    .size(40.0)
+                                                                    .fill("#9b59b6"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col>col>col nesting with y Level(2) right axis");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_col_col_col_col_y_level2_right",
+        )
+        .await;
+    });
+}
+
+/// Test 4-level column nesting with Free (Level(0)) y scale sharing
+/// Each cell has its own independent y scale
+/// Y axis should appear on EVERY cell
+#[test]
+fn test_four_level_col_col_col_col_y_free() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_data().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(1800, 500)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
+                                            .subplot(
+                                                Plot::<FacetColumn>::new().mark(
+                                                    Facet::new()
+                                                        .col_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Free,
+                                                                        )
+                                                                    })
+                                                                    .size(40.0)
+                                                                    .fill("#9b59b6"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col>col>col nesting with y Free");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_col_col_col_col_y_free",
+        )
+        .await;
+    });
+}
+
+/// Test 4-level column nesting with Level(1) y scale sharing
+/// Y scale shares within cells that have the same parent (1 level up)
+/// Y axis should appear every 2 cells (at the start of each Level(1) sharing group)
+#[test]
+fn test_four_level_col_col_col_col_y_level1() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_data().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(1800, 500)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| c.facet(|f| f.title("Team")))
+                                            .subplot(
+                                                Plot::<FacetColumn>::new().mark(
+                                                    Facet::new()
+                                                        .col_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(1),
+                                                                        )
+                                                                    })
+                                                                    .size(40.0)
+                                                                    .fill("#9b59b6"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col>col>col nesting with y Level(1)");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_col_col_col_col_y_level1",
+        )
+        .await;
+    });
+}

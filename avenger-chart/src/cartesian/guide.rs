@@ -385,6 +385,10 @@ impl CompiledGuide for CartesianGuide {
         // Render each axis
         for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
+                // Get sharing level for this channel from the facet tree.
+                // The facet tree stores sharing levels extracted from innermost marks,
+                // which is needed because innermost Cartesian subplots use EmptyCoordMeasurement.
+                let sharing_level = facet_tree.channel_sharing_level(channel);
                 let axis_mark = axis
                     .evaluate(
                         channel,
@@ -397,6 +401,7 @@ impl CompiledGuide for CartesianGuide {
                         ctx,
                         facet_tree,
                         facet_path,
+                        sharing_level,
                     )
                     .await?;
                 marks.push(axis_mark);

@@ -382,6 +382,37 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             }
         }
     }
+
+    fn channel_sharing_level(&self, channel: &str) -> u8 {
+        // Look up sharing level from the first cell's domain extents
+        // All cells should have the same sharing level for a given channel
+        if let Some(first_cell_extents) = self.cell_domain_extents.first() {
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "FacetCol channel_sharing_level: channel={}, available={:?}",
+                    channel,
+                    first_cell_extents.keys().collect::<Vec<_>>()
+                );
+            }
+            if let Some(annotated) = first_cell_extents.get(channel) {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "FacetCol channel_sharing_level: channel={} -> {}",
+                        channel, annotated.sharing_level
+                    );
+                }
+                return annotated.sharing_level;
+            }
+        }
+        // Default to Shared (255) for backward compatibility
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "FacetCol channel_sharing_level: channel={} -> 255 (default)",
+                channel
+            );
+        }
+        255
+    }
 }
 
 /// Compute padding_inner_px from the MAX of all adjacent overflow combinations.
