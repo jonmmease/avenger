@@ -108,6 +108,29 @@ impl CoordMeasurement for FacetColCoordMeasurement {
 
     fn local_overflow(&self) -> Option<CoordinatedOverflow> {
         // Compute local overflow from children's overflow (guide-only and total)
+        // For left/right: first child's left becomes parent's left, last child's right becomes parent's right
+        // For top/bottom: take the max across all children
+        let first_guide_left = self
+            .subplot_measurements
+            .first()
+            .map(|m| m.layout.overflow.left)
+            .unwrap_or(0.0);
+        let last_guide_right = self
+            .subplot_measurements
+            .last()
+            .map(|m| m.layout.overflow.right)
+            .unwrap_or(0.0);
+        let first_total_left = self
+            .subplot_measurements
+            .first()
+            .map(|m| m.layout.total_overflow.left)
+            .unwrap_or(0.0);
+        let last_total_right = self
+            .subplot_measurements
+            .last()
+            .map(|m| m.layout.total_overflow.right)
+            .unwrap_or(0.0);
+
         let guide = OverflowSpaceRequirement {
             top: self
                 .subplot_measurements
@@ -119,8 +142,8 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 .iter()
                 .map(|m| m.layout.overflow.bottom)
                 .fold(0.0f32, f32::max),
-            left: 0.0,
-            right: 0.0,
+            left: first_guide_left,
+            right: last_guide_right,
         };
 
         let total = OverflowSpaceRequirement {
@@ -134,8 +157,8 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 .iter()
                 .map(|m| m.layout.total_overflow.bottom)
                 .fold(0.0f32, f32::max),
-            left: 0.0,
-            right: 0.0,
+            left: first_total_left,
+            right: last_total_right,
         };
 
         Some(CoordinatedOverflow { guide, total })
@@ -147,6 +170,14 @@ impl CoordMeasurement for FacetColCoordMeasurement {
 
     fn set_coordinated_overflow(&mut self, overflow: CoordinatedOverflow) {
         self.coordinated_overflow = overflow;
+    }
+
+    fn padding_inner_px(&self) -> Option<f32> {
+        if self.padding_inner_px > 0.0 {
+            Some(self.padding_inner_px)
+        } else {
+            None
+        }
     }
 
     fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
@@ -913,6 +944,8 @@ impl CoordinateSystemTransform for FacetColumn {
         let mut data_overrides = Vec::with_capacity(cell_values.len());
         let mut cell_overflows = Vec::with_capacity(cell_values.len());
         let mut cell_domain_extents = Vec::with_capacity(cell_values.len());
+        // Track max child padding for nested FacetCol propagation
+        let mut max_child_padding: f32 = 0.0;
 
         for (idx, value) in cell_values.iter().enumerate() {
             // Build the full path for this cell (parent path + current value)
@@ -963,6 +996,12 @@ impl CoordinateSystemTransform for FacetColumn {
             // Get both guide-only overflow and total overflow (guide + legend)
             let guide_overflow = measurement.layout.overflow.clone();
             let total_overflow = measurement.layout.total_overflow.clone();
+
+            // Collect child's padding_inner_px for nested FacetCol propagation
+            // This ensures parent FacetCol uses at least as much gap as nested FacetCol children
+            if let Some(child_padding) = measurement.coord_measurement.padding_inner_px() {
+                max_child_padding = max_child_padding.max(child_padding);
+            }
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
@@ -1016,12 +1055,14 @@ impl CoordinateSystemTransform for FacetColumn {
 
         // Compute padding_inner_px from adjacent total overflow combinations
         // This ensures gaps between cells accommodate both axes and legends
+        // Also take max with child FacetCol padding to maintain consistent spacing in nested structures
         let padding_inner_px = compute_padding_from_overflows(
             &cell_overflows
                 .iter()
                 .map(|(_, total)| total.clone())
                 .collect::<Vec<_>>(),
-        );
+        )
+        .max(max_child_padding);
 
         // Compute outer edge legend-only overflows for scale range adjustment.
         // We only adjust for LEGEND overflow, not guide overflow, because:

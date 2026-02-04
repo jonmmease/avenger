@@ -128,6 +128,17 @@ pub trait CoordMeasurement: Send + Sync + 'static {
         // Default: no-op
     }
 
+    /// Returns the padding_inner_px if this is a facet coord with internal spacing.
+    ///
+    /// Used for propagating child facet padding to parent facets of the same orientation.
+    /// When a parent FacetColumn contains nested FacetColumn children, the parent should
+    /// use at least as much gap spacing as its children to maintain visual consistency.
+    ///
+    /// Default implementation: None (for non-facet coordinate systems)
+    fn padding_inner_px(&self) -> Option<f32> {
+        None
+    }
+
     /// Update child measurement dimensions after second-pass layout.
     ///
     /// When the outer layout's second pass computes a different plot_area size

@@ -443,7 +443,37 @@ impl FacetColGuide {
             .collect();
 
         if let Some(guide) = &subplot.compiled_guide {
-            guide
+            // For correct visibility-aware measurement in nested facets, we need to check
+            // both first and last cells' paths. The first cell's left overflow becomes the
+            // parent's left overflow, and the last cell's right overflow becomes the
+            // parent's right overflow.
+            let band_positions: Vec<_> =
+                BandPositionIterator::from_configured_scale(column_scale)?.collect();
+
+            if band_positions.is_empty() {
+                return guide
+                    .measure_overflow(
+                        &configured_scales,
+                        subplot_width,
+                        plot_height,
+                        theme,
+                        params,
+                        Some(data),
+                        ctx,
+                        facet_tree,
+                        facet_path,
+                        None,
+                    )
+                    .await;
+            }
+
+            // Measure first cell for correct left overflow (Y-axis on left)
+            let first_path = {
+                let mut path = facet_path.to_vec();
+                path.push(band_positions.first().unwrap().value.clone());
+                path
+            };
+            let first_overflow = guide
                 .measure_overflow(
                     &configured_scales,
                     subplot_width,
@@ -453,10 +483,44 @@ impl FacetColGuide {
                     Some(data),
                     ctx,
                     facet_tree,
-                    facet_path,
-                    None, // Subplot doesn't have coord_measurement during fallback
+                    &first_path,
+                    None,
                 )
-                .await
+                .await?;
+
+            // If only one cell, first and last are the same
+            if band_positions.len() == 1 {
+                return Ok(first_overflow);
+            }
+
+            // Measure last cell for correct right overflow (Y-axis on right, if any)
+            let last_path = {
+                let mut path = facet_path.to_vec();
+                path.push(band_positions.last().unwrap().value.clone());
+                path
+            };
+            let last_overflow = guide
+                .measure_overflow(
+                    &configured_scales,
+                    subplot_width,
+                    plot_height,
+                    theme,
+                    params,
+                    Some(data),
+                    ctx,
+                    facet_tree,
+                    &last_path,
+                    None,
+                )
+                .await?;
+
+            // Combine: first's left, last's right, max of top/bottom
+            Ok(OverflowSpaceRequirement {
+                left: first_overflow.left,
+                right: last_overflow.right,
+                top: first_overflow.top.max(last_overflow.top),
+                bottom: first_overflow.bottom.max(last_overflow.bottom),
+            })
         } else {
             Ok(OverflowSpaceRequirement::default())
         }
