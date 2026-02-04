@@ -739,6 +739,8 @@ impl EvaluatedFacetTree {
 
         // Walk through each level checking visibility
         let mut current_node = Some(root);
+        let mut hide_labels = false;
+        let mut hide_title = false;
 
         for (_level, &_pos_idx) in position_indices.iter().enumerate() {
             let Some(node) = current_node else {
@@ -746,7 +748,8 @@ impl EvaluatedFacetTree {
             };
 
             // Check if this level's facet direction affects the axis
-            let should_hide = match (node.direction, axis_position) {
+            // Labels use sharing-group-aware visibility
+            let should_hide_labels = match (node.direction, axis_position) {
                 // Column facet affects Y axes
                 (FacetDirection::Column, AxisPosition::Left) => {
                     !is_first_in_sharing_group(position_indices, sharing_level, facet_depth)
@@ -767,8 +770,34 @@ impl EvaluatedFacetTree {
                 _ => false,
             };
 
-            if should_hide {
-                return AxisVisibility::hidden();
+            // Titles use "globally first/last" visibility (sharing_level = 255 = Shared)
+            // This ensures titles only appear on the outermost edge cells
+            let should_hide_title = match (node.direction, axis_position) {
+                // Column facet affects Y axes
+                (FacetDirection::Column, AxisPosition::Left) => {
+                    !is_first_in_sharing_group(position_indices, 255, facet_depth)
+                }
+                (FacetDirection::Column, AxisPosition::Right) => {
+                    !is_last_in_sharing_group(position_indices, &counts, 255, facet_depth)
+                }
+
+                // Row facet affects X axes
+                (FacetDirection::Row, AxisPosition::Bottom) => {
+                    !is_last_in_sharing_group(position_indices, &counts, 255, facet_depth)
+                }
+                (FacetDirection::Row, AxisPosition::Top) => {
+                    !is_first_in_sharing_group(position_indices, 255, facet_depth)
+                }
+
+                // Other combinations: no effect
+                _ => false,
+            };
+
+            if should_hide_labels {
+                hide_labels = true;
+            }
+            if should_hide_title {
+                hide_title = true;
             }
 
             // Move to next level
@@ -780,7 +809,10 @@ impl EvaluatedFacetTree {
             };
         }
 
-        AxisVisibility::visible()
+        AxisVisibility {
+            show_labels: !hide_labels,
+            show_title: !hide_title,
+        }
     }
 }
 
