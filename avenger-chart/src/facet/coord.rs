@@ -926,12 +926,26 @@ impl CoordinateSystemTransform for FacetColumn {
         )
         .await?;
 
-        // Use DynamicScaleProvider to rebuild scales with dimensions from layout_spec.
-        // This ensures radius-aware domains are computed correctly for each measurement pass.
-        let scale_provider = DynamicScaleProvider {
+        // Create shared scale_provider for cases where sharing >= nested_depth.
+        // For sharing < nested_depth, we build per-cell scale providers inside the loop.
+        let shared_scale_provider = DynamicScaleProvider {
             builder: &shared_scale_builder,
             plot: &compiled_subplot,
         };
+
+        // Check if nested FacetCol needs per-cell scale building.
+        // Only build per-cell scales if the nested FacetCol has an EXPLICIT scale sharing
+        // configuration (via free_scale()) that is Free or Level(N) with N < nested_depth.
+        // Default (None) means use shared provider like before.
+        let nested_depth = (facet_path.len() + 2) as u8; // +1 for current, +1 for nested
+        let needs_per_cell_scales = compiled_subplot
+            .marks
+            .iter()
+            .filter(|m| m.mark_type() == "facet_col")
+            .find_map(|m| m.as_any().downcast_ref::<CompiledFacetCol>())
+            .and_then(|nested_facet| nested_facet.facet_scale_sharing)
+            .map(|sharing| sharing.to_level() < nested_depth)
+            .unwrap_or(false);
 
         // Create subplot EvaluationContext with merged params
         let subplot_eval_ctx = {
@@ -983,15 +997,47 @@ impl CoordinateSystemTransform for FacetColumn {
                 },
             };
 
-            let measurement = compiled_subplot
-                .measure_plot_components(
-                    &subplot_eval_ctx,
-                    &subplot_layout_spec,
-                    &scale_provider,
-                    Some(&filtered_df),
-                    &cell_path, // Pass extended path for nested facets AND visibility
+            // Build scale provider for this cell.
+            // When sharing < nested_depth, build per-cell to get filtered domains.
+            // When sharing >= nested_depth (including Shared/Level(255)), use shared provider.
+            let measurement = if needs_per_cell_scales {
+                let cell_scale_builder = build_scale_builder_from_marks(
+                    &compiled_subplot.marks,
+                    &compiled_subplot.scale_specs,
+                    &compiled_subplot.coord_transform,
+                    &compiled_subplot.data,
+                    Some(filtered_df.clone()),
+                    &eval_ctx.session_context,
+                    &eval_ctx.params,
+                    compiled_subplot.get_theme().as_ref(),
                 )
                 .await?;
+
+                let cell_scale_provider = DynamicScaleProvider {
+                    builder: &cell_scale_builder,
+                    plot: &compiled_subplot,
+                };
+
+                compiled_subplot
+                    .measure_plot_components(
+                        &subplot_eval_ctx,
+                        &subplot_layout_spec,
+                        &cell_scale_provider,
+                        Some(&filtered_df),
+                        &cell_path,
+                    )
+                    .await?
+            } else {
+                compiled_subplot
+                    .measure_plot_components(
+                        &subplot_eval_ctx,
+                        &subplot_layout_spec,
+                        &shared_scale_provider,
+                        Some(&filtered_df),
+                        &cell_path,
+                    )
+                    .await?
+            };
 
             // Get both guide-only overflow and total overflow (guide + legend)
             let guide_overflow = measurement.layout.overflow.clone();
@@ -1144,15 +1190,45 @@ impl CoordinateSystemTransform for FacetColumn {
                 },
             };
 
-            let measurement = compiled_subplot
-                .measure_plot_components(
-                    &subplot_eval_ctx,
-                    &subplot_layout_spec,
-                    &scale_provider,
-                    Some(filtered_df),
-                    &cell_path,
+            // Build scale provider for this cell (same logic as Pass 1).
+            let measurement = if needs_per_cell_scales {
+                let cell_scale_builder = build_scale_builder_from_marks(
+                    &compiled_subplot.marks,
+                    &compiled_subplot.scale_specs,
+                    &compiled_subplot.coord_transform,
+                    &compiled_subplot.data,
+                    Some(filtered_df.clone()),
+                    &eval_ctx.session_context,
+                    &eval_ctx.params,
+                    compiled_subplot.get_theme().as_ref(),
                 )
                 .await?;
+
+                let cell_scale_provider = DynamicScaleProvider {
+                    builder: &cell_scale_builder,
+                    plot: &compiled_subplot,
+                };
+
+                compiled_subplot
+                    .measure_plot_components(
+                        &subplot_eval_ctx,
+                        &subplot_layout_spec,
+                        &cell_scale_provider,
+                        Some(filtered_df),
+                        &cell_path,
+                    )
+                    .await?
+            } else {
+                compiled_subplot
+                    .measure_plot_components(
+                        &subplot_eval_ctx,
+                        &subplot_layout_spec,
+                        &shared_scale_provider,
+                        Some(filtered_df),
+                        &cell_path,
+                    )
+                    .await?
+            };
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
