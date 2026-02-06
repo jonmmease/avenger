@@ -2767,6 +2767,95 @@ async fn hierarchical_4level_data() -> datafusion::dataframe::DataFrame {
     ctx.read_batch(batch).expect("create dataframe")
 }
 
+/// Creates hierarchical data with ASYMMETRIC teams per department.
+///
+/// Structure: Division > Department > Team > Subteam > Values
+/// Key difference from hierarchical_5level_data: Each department has DIFFERENT teams,
+/// so Level(N) sharing effects are clearly visible.
+///
+/// Data distribution:
+/// - Eng/Frontend: Teams Alpha, Beta
+/// - Eng/Backend: Teams Gamma, Delta  (different from Frontend!)
+/// - Ops/Support: Teams Echo, Foxtrot
+/// - Ops/DevOps: Teams Golf, Hotel
+///
+/// With Level(1) on Dept, all depts under Eng should show Alpha, Beta, Gamma, Delta.
+/// With Free on Dept, each dept shows only its own teams.
+async fn hierarchical_5level_asymmetric_data() -> datafusion::dataframe::DataFrame {
+    let ctx = SessionContext::new();
+
+    // Create data with asymmetric team distribution
+    // Each dept has different teams to make sharing effects visible
+    let batch = datafusion::arrow::array::RecordBatch::try_from_iter(vec![
+        (
+            "division",
+            std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                // Eng: 16 rows (8 Frontend + 8 Backend)
+                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", // Frontend
+                "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", "Eng", // Backend
+                // Ops: 16 rows (8 Support + 8 DevOps)
+                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", // Support
+                "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", "Ops", // DevOps
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "department",
+            std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                // Eng departments
+                "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend",
+                "Frontend", "Frontend", "Backend", "Backend", "Backend", "Backend", "Backend",
+                "Backend", "Backend", "Backend", // Ops departments
+                "Support", "Support", "Support", "Support", "Support", "Support", "Support",
+                "Support", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps",
+                "DevOps",
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "team",
+            std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                // Eng/Frontend teams: Alpha, Beta (different from Backend!)
+                "Alpha", "Alpha", "Alpha", "Alpha", "Beta", "Beta", "Beta", "Beta",
+                // Eng/Backend teams: Gamma, Delta (different from Frontend!)
+                "Gamma", "Gamma", "Gamma", "Gamma", "Delta", "Delta", "Delta", "Delta",
+                // Ops/Support teams: Echo, Foxtrot
+                "Echo", "Echo", "Echo", "Echo", "Foxtrot", "Foxtrot", "Foxtrot", "Foxtrot",
+                // Ops/DevOps teams: Golf, Hotel
+                "Golf", "Golf", "Golf", "Golf", "Hotel", "Hotel", "Hotel", "Hotel",
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "subteam",
+            std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
+                // Each team has 2 subteams (X, Y), 2 points each
+                "X", "X", "Y", "Y", "X", "X", "Y", "Y", // Frontend
+                "X", "X", "Y", "Y", "X", "X", "Y", "Y", // Backend
+                "X", "X", "Y", "Y", "X", "X", "Y", "Y", // Support
+                "X", "X", "Y", "Y", "X", "X", "Y", "Y", // DevOps
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "x_val",
+            std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+                1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+        (
+            "y_val",
+            std::sync::Arc::new(datafusion::arrow::array::Float64Array::from(vec![
+                // Eng values (higher): 70-130 range
+                90.0, 95.0, 85.0, 90.0, 100.0, 105.0, 95.0, 100.0, 110.0, 115.0, 105.0, 110.0,
+                120.0, 125.0, 115.0, 120.0, // Ops values (lower): 30-70 range
+                40.0, 45.0, 35.0, 40.0, 50.0, 55.0, 45.0, 50.0, 55.0, 60.0, 50.0, 55.0, 65.0,
+                70.0, 60.0, 65.0,
+            ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
+        ),
+    ])
+    .expect("create record batch");
+
+    ctx.read_batch(batch).expect("create dataframe")
+}
+
 /// Creates hierarchical data with 5 levels for deep same-type facet nesting tests.
 ///
 /// Structure: Division > Department > Team > Subteam > Values
@@ -4498,3 +4587,240 @@ fn test_four_level_col_col_row_row_dept_free() {
         .await;
     });
 }
+
+/// Test 4-level column nesting with Free TEAM scale sharing using ASYMMETRIC data
+/// This is the baseline for comparison with Level(1) test.
+///
+/// Uses asymmetric data where different depts have different teams:
+/// - Eng/Frontend: Alpha, Beta (only these shown under Frontend)
+/// - Eng/Backend: Gamma, Delta (only these shown under Backend)
+/// With Free on Team facet, each dept shows only its own teams.
+#[test]
+fn test_four_level_col_col_col_col_team_free_asymmetric() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_asymmetric_data().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(1800, 500)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| c.facet(|f| f.title("Dept")))
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| {
+                                                c.facet(|f| f.title("Team").free_scale())
+                                            })
+                                            .subplot(
+                                                Plot::<FacetColumn>::new().mark(
+                                                    Facet::new()
+                                                        .col_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .size(40.0)
+                                                                    .fill("#9b59b6"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col>col>col nesting with free team (asymmetric data)");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_col_col_col_col_team_free_asymmetric",
+        )
+        .await;
+    });
+}
+
+/// Test 4-level column nesting with Free Dept scale AND Level(2) Team scale sharing
+/// - Dept column has free_scale() so each Division shows only its own departments
+/// - Team column has Level(2) sharing: 2 >= (3-1)=2 → global enumeration.
+///   All depts show all 8 teams from across all divisions.
+///
+/// This tests the combination: per-Division dept values AND global team enumeration
+#[test]
+fn test_four_level_col_col_col_col_dept_free_team_level2() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_asymmetric_data().await;
+
+        // Level(2) on Team is global: all 8 teams shown in every dept
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(4000, 500)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| {
+                                    c.facet(|f| f.title("Dept").free_scale())
+                                })
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| {
+                                                c.facet(|f| {
+                                                    f.title("Team")
+                                                        .with_scale_sharing(ScaleSharing::Level(2))
+                                                })
+                                            })
+                                            .subplot(
+                                                Plot::<FacetColumn>::new().mark(
+                                                    Facet::new()
+                                                        .col_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .size(40.0)
+                                                                    .fill("#9b59b6"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col>col>col nesting with Dept free + Team Level(2)");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_col_col_col_col_dept_free_team_level2",
+        )
+        .await;
+    });
+}
+
+/// Test 4-level column nesting with Dept free scaling and Team Level(1) sharing
+/// - Dept is `free_scale()` so each Division shows its own Depts
+/// - Team column uses Level(1) sharing: ancestors_to_keep = (3-1) - 1 = 1, enumerates
+///   from Division level. All depts under the same Division show the union of 4 teams.
+///
+/// This tests per-Division team sharing: Eng depts see Alpha+Beta+Delta+Gamma,
+/// Ops depts see Echo+Foxtrot+Golf+Hotel.
+#[test]
+fn test_four_level_col_col_col_col_dept_free_team_level1() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = hierarchical_5level_asymmetric_data().await;
+
+        // Level(1) on Team enumerates 4 teams per Division (Division-level sharing)
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(3600, 500)
+            .mark(
+                Facet::new()
+                    .col_with(col("division"), |c| c.facet(|f| f.title("Division")))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new()
+                                .col_with(col("department"), |c| {
+                                    c.facet(|f| f.title("Dept").free_scale())
+                                })
+                                .subplot(
+                                    Plot::<FacetColumn>::new().mark(
+                                        Facet::new()
+                                            .col_with(col("team"), |c| {
+                                                c.facet(|f| {
+                                                    f.title("Team")
+                                                        .with_scale_sharing(ScaleSharing::Level(1))
+                                                })
+                                            })
+                                            .subplot(
+                                                Plot::<FacetColumn>::new().mark(
+                                                    Facet::new()
+                                                        .col_with(col("subteam"), |c| {
+                                                            c.facet(|f| f.title("Sub"))
+                                                        })
+                                                        .subplot(
+                                                            Plot::<Cartesian>::new().mark(
+                                                                Symbol::new()
+                                                                    .x_with(col("x_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .y_with(col("y_val"), |c| {
+                                                                        c.with_scale_sharing(
+                                                                            ScaleSharing::Level(4),
+                                                                        )
+                                                                    })
+                                                                    .size(40.0)
+                                                                    .fill("#3498db"),
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile col>col>col>col nesting with Dept free + Team Level(1)");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid",
+            "four_level_col_col_col_col_dept_free_team_level1",
+        )
+        .await;
+    });
+}
+

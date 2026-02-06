@@ -268,44 +268,41 @@ impl EvaluatedFacetTree {
     // Query methods
     // ========================================================================
 
-    /// Get filter predicate for a cell at the given path, respecting sharing level.
+    /// Build filter predicate for a path through the facet tree.
+    ///
+    /// This is the core predicate-building method. It walks the tree and builds
+    /// an AND expression for each level in the path.
     ///
     /// # Arguments
-    /// * `path` - Sequence of values identifying the cell, from outermost to innermost level.
-    ///            Each value corresponds to one level of the partition tree.
-    /// * `sharing_level` - Channel's sharing level:
-    ///   - 0 (Free): include all levels in the filter
-    ///   - 1+ (Level(N)): include only levels deeper than (depth - N)
-    ///   - 255 (Shared): return None (use full data)
+    /// * `path` - Sequence of values identifying position in the tree, from outermost
+    ///            to the desired depth. Can be a full cell path or a partial ancestor path.
     ///
     /// # Returns
-    /// - `Some(Expr)` with the filter predicate for the specified cell and sharing level
-    /// - `None` if the path is invalid, or if sharing_level is Shared (255)
+    /// - `Some(Expr)` with filter like `field1 = value1 AND field2 = value2 AND ...`
+    /// - `None` if path is empty or invalid
     ///
     /// # Example
-    /// For a 3-level hierarchy (Region > Department > Team) with path ["East", "Eng", "A"]:
-    /// - sharing_level=0 (Free): `region="East" AND dept="Eng" AND team="A"`
-    /// - sharing_level=1 (Level(1)): `region="East" AND dept="Eng"` (skip last 1 level)
-    /// - sharing_level=2 (Level(2)): `region="East"` (skip last 2 levels)
-    /// - sharing_level=3+ (Level(3+) or Shared): `None` (use full data)
-    pub fn cell_predicate(&self, path: &[ScalarValue], sharing_level: u8) -> Option<Expr> {
-        // Shared (255) means use full data - no filter needed
-        if sharing_level == 255 {
+    /// For path `["Eng", "Backend"]` in a Division > Dept > Team hierarchy:
+    /// Returns: `division = "Eng" AND department = "Backend"`
+    pub fn path_predicate(&self, path: &[ScalarValue]) -> Option<Expr> {
+        if path.is_empty() {
             return None;
         }
 
-        let Some(root) = &self.root else {
-            return None;
-        };
+        let root = self.root.as_ref()?;
 
-        // Collect (field_expr, value) pairs by walking the tree
-        let mut filters: Vec<(Expr, ScalarValue)> = Vec::new();
+        // Walk down the tree, collecting filter expressions for each level
         let mut current_node = root;
+        let mut result: Option<Expr> = None;
 
         for (level_idx, value) in path.iter().enumerate() {
             // Get the field expression for this level
             let field_expr = current_node.field_expr.clone()?;
-            filters.push((field_expr, value.clone()));
+            let eq_expr = field_expr.eq(lit(value.clone()));
+            result = Some(match result {
+                Some(existing) => existing.and(eq_expr),
+                None => eq_expr,
+            });
 
             // Navigate to next level if not at the end of path
             if level_idx + 1 < path.len() {
@@ -313,33 +310,43 @@ impl EvaluatedFacetTree {
             }
         }
 
-        if filters.is_empty() {
-            return None;
-        }
-
-        // Determine how many levels to include based on sharing_level
-        // partition_depth = max(0, depth - sharing_level)
-        // We include the first partition_depth levels
-        let total_depth = filters.len();
-        let levels_to_skip = sharing_level as usize;
-        let levels_to_include = total_depth.saturating_sub(levels_to_skip);
-
-        if levels_to_include == 0 {
-            // Sharing level encompasses all levels - use full data
-            return None;
-        }
-
-        // Build AND expression from the first `levels_to_include` filters
-        let mut result: Option<Expr> = None;
-        for (field_expr, value) in filters.into_iter().take(levels_to_include) {
-            let eq_expr = field_expr.eq(lit(value));
-            result = Some(match result {
-                Some(existing) => existing.and(eq_expr),
-                None => eq_expr,
-            });
-        }
-
         result
+    }
+
+    /// Get filter predicate for a cell at the given path, respecting sharing level.
+    ///
+    /// Delegates to `path_predicate` after truncating the path based on sharing level.
+    ///
+    /// # Arguments
+    /// * `path` - Full cell path from outermost to innermost level.
+    /// * `sharing_level` - How many levels to exclude from the filter:
+    ///   - 0 (Free): include all levels
+    ///   - N (Level(N)): exclude last N levels
+    ///   - 255 (Shared): return None (use full data)
+    ///
+    /// # Returns
+    /// - `Some(Expr)` with filter predicate for the truncated path
+    /// - `None` if path is invalid, empty after truncation, or sharing_level is 255
+    ///
+    /// # Example
+    /// For path ["East", "Eng", "A"] (Region > Department > Team):
+    /// - sharing_level=0: `region="East" AND dept="Eng" AND team="A"`
+    /// - sharing_level=1: `region="East" AND dept="Eng"` (skip last 1)
+    /// - sharing_level=2: `region="East"` (skip last 2)
+    /// - sharing_level=3+: `None` (use full data)
+    pub fn cell_predicate(&self, path: &[ScalarValue], sharing_level: u8) -> Option<Expr> {
+        // Shared (255) means use full data - no filter needed
+        if sharing_level == 255 {
+            return None;
+        }
+
+        // Compute how many levels to include
+        let levels_to_include = path.len().saturating_sub(sharing_level as usize);
+        if levels_to_include == 0 {
+            return None;
+        }
+
+        self.path_predicate(&path[..levels_to_include])
     }
 
     /// Navigate to a partition node at a given path.

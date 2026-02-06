@@ -163,15 +163,25 @@ impl CompiledGuide for FacetColGuide {
             .await?
         };
 
-        // Get column scale for labels
-        let column_scale = scales
-            .get("column")
-            .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
-
-        // Measure facet label slab space requirement
-        // Get labels from column scale domain
-        let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
-        let labels: Vec<String> = band_iter.map(|bp| format_scalar_value(&bp.value)).collect();
+        // Get labels for measurement.
+        // Priority: Use cell_values from coord_measurement (has Level(N)-aware enumeration)
+        // Fallback: Use column scale domain (first pass before coord_measurement exists)
+        let labels: Vec<String> = if let Some(fcm) =
+            coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetColCoordMeasurement>())
+        {
+            // Second pass: use Level(N)-aware cell_values from coord measurement
+            fcm.cell_values
+                .iter()
+                .map(|v| format_scalar_value(v))
+                .collect()
+        } else {
+            // First pass: fall back to scale domain
+            let column_scale = scales
+                .get("column")
+                .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
+            let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
+            band_iter.map(|bp| format_scalar_value(&bp.value)).collect()
+        };
 
         // Add facet guide space for all nesting levels
         // Each level measures and renders its own labels
@@ -276,18 +286,36 @@ impl CompiledGuide for FacetColGuide {
             .get("column")
             .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
 
-        // Get band positions and labels from column scale
-        let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
-        let band_positions: Vec<_> = band_iter.collect();
+        // Get band positions and labels from coord_measurement's cell_values (Level(N)-aware)
+        // or fall back to scale domain
+        let (band_positions, labels): (Vec<_>, Vec<String>) = if let Some(fcm) =
+            coord_measurement
+                .as_any()
+                .downcast_ref::<FacetColCoordMeasurement>()
+        {
+            // Use cell_values from coord measurement (Level(N)-aware enumeration)
+            let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
+            let positions: Vec<_> = band_iter.collect();
+            let labels: Vec<String> = fcm
+                .cell_values
+                .iter()
+                .map(|v| format_scalar_value(v))
+                .collect();
+            (positions, labels)
+        } else {
+            // Fall back to scale domain
+            let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
+            let positions: Vec<_> = band_iter.collect();
+            let labels: Vec<String> = positions
+                .iter()
+                .map(|bp| format_scalar_value(&bp.value))
+                .collect();
+            (positions, labels)
+        };
 
         if band_positions.is_empty() {
             return Ok(vec![]);
         }
-
-        let labels: Vec<String> = band_positions
-            .iter()
-            .map(|bp| format_scalar_value(&bp.value))
-            .collect();
 
         // Determine position - "bottom" places labels below, default "top" places above
         let place_at_bottom = self.position.as_deref() == Some("bottom");

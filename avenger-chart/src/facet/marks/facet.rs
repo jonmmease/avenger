@@ -552,6 +552,32 @@ impl CompiledMark for CompiledFacetCol {
             .enumerate()
         {
             let position = cell_positions[idx];
+            let is_empty_cell = facet_measurement
+                .empty_cells
+                .get(idx)
+                .copied()
+                .unwrap_or(false);
+
+            // For empty cells (created by Level(N) sharing for uniform layout),
+            // render an empty group at the correct position to preserve layout.
+            // Don't call build_plot_components which would trigger guide rendering
+            // with potentially invalid scale domains (causing NaN/Inf errors).
+            if is_empty_cell {
+                let empty_group = SceneGroup {
+                    name: format!("facet_col_{}_empty", idx),
+                    origin: [position, 0.0],
+                    clip: avenger_scenegraph::marks::group::Clip::None,
+                    marks: Vec::new(),
+                    gradients: Vec::new(),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_offset: None,
+                    zindex: None,
+                };
+                scene_marks.push(SceneMark::Group(empty_group));
+                continue;
+            }
 
             // Build full cell path from parent_path + current cell value
             let mut cell_path: Vec<ScalarValue> = facet_measurement.parent_path.clone();
