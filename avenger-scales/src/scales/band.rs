@@ -148,6 +148,7 @@ impl ScaleImpl for BandScale {
                     "clip_padding_upper",
                     OptionConstraint::NonNegativeFloat
                 ),
+                OptionDefinition::optional("band_n", OptionConstraint::PositiveInteger),
             ];
         }
 
@@ -236,6 +237,13 @@ impl ScaleImpl for BandScale {
             return Ok(Arc::new(Float32Array::from(Vec::<f32>::new())));
         }
 
+        // Clamp indices to domain length when band_n > domain.len()
+        let domain_len = config.domain.len();
+        let b = b.min(domain_len.saturating_sub(1));
+        if a >= domain_len || a > b {
+            return Ok(Arc::new(Float32Array::from(Vec::<f32>::new())));
+        }
+
         let indices = Arc::new(UInt32Array::from(
             (a..=b).map(|i| i as u32).collect::<Vec<_>>(),
         )) as ArrayRef;
@@ -245,8 +253,22 @@ impl ScaleImpl for BandScale {
     }
 }
 
+/// Returns the effective band count for layout calculations.
+///
+/// When `band_n` option is set, uses it instead of `domain.len()`. This allows
+/// coordinating band layout sizing across facet branches with different cell counts.
+/// The value is clamped to be >= `domain.len()` to ensure all domain values have positions.
+fn effective_band_n(config: &ScaleConfig) -> usize {
+    let domain_len = config.domain.len();
+    if domain_len == 0 {
+        return 0;
+    }
+    let band_n = config.option_i32("band_n", domain_len as i32) as usize;
+    band_n.max(domain_len)
+}
+
 fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleError> {
-    let n = config.domain.len();
+    let n = effective_band_n(config);
 
     if n == 0 {
         return Err(AvengerScaleError::EmptyDomain);
@@ -364,7 +386,7 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
 /// Calculated from range, domain size, and padding settings.
 /// Returns 0 for empty domains.
 pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
-    let n = config.domain.len();
+    let n = effective_band_n(config);
     if n == 0 {
         return Ok(0.0);
     }
@@ -430,7 +452,7 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
 /// The step size is calculated based on the range, domain size, and padding settings.
 /// Returns 0 if the domain is empty.
 pub fn step(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
-    let n = config.domain.len();
+    let n = effective_band_n(config);
     if n == 0 {
         return Ok(0.0);
     }
@@ -507,7 +529,7 @@ fn compute_effective_padding(
     config: &ScaleConfig,
     range_size: f32,
 ) -> Result<(f32, f32), AvengerScaleError> {
-    let n = config.domain.len();
+    let n = effective_band_n(config);
 
     // Get base normalized padding values
     let base_padding_inner = config.option_f32("padding_inner", 0.0);

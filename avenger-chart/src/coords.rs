@@ -180,6 +180,27 @@ pub trait CoordMeasurement: Send + Sync + 'static {
         255 // Shared: default to current behavior
     }
 
+    /// Get local layout parameters for coordinated sizing.
+    ///
+    /// Returns layout parameters (padding, outer offsets, cell count) that
+    /// should be coordinated across all facets at the same nesting depth.
+    ///
+    /// Default implementation: None (for non-facet coordinate systems).
+    fn local_layout(&self) -> Option<CoordinatedLayout> {
+        None
+    }
+
+    /// Set coordinated layout parameters during distribution pass.
+    ///
+    /// After layout parameters have been aggregated across all facets at the
+    /// same depth, this distributes the max values back so all branches use
+    /// consistent sizing.
+    ///
+    /// Default implementation: no-op for non-facet coordinate systems.
+    fn set_coordinated_layout(&mut self, _layout: CoordinatedLayout) {
+        // Default: no-op
+    }
+
     /// Collect cell domain extents for level-aware domain coordination.
     ///
     /// Facet implementations should iterate over their cells and push
@@ -202,6 +223,27 @@ pub trait CoordMeasurement: Send + Sync + 'static {
         _unified: &HashMap<(String, Vec<ScalarValue>), DomainExtent>,
     ) {
         // Default: no-op
+    }
+}
+
+/// Layout parameters coordinated across all FacetCol nodes at the same depth.
+///
+/// Ensures subplot widths and gaps are consistent across all branches at each
+/// nesting depth, even when branches have different overflow patterns or cell counts.
+#[derive(Default, Clone, Debug)]
+pub struct CoordinatedLayout {
+    pub padding_inner_px: f32,
+    pub outer_left: f32,
+    pub outer_right: f32,
+    pub n: usize,
+}
+
+impl CoordinatedLayout {
+    pub fn merge(&mut self, other: &CoordinatedLayout) {
+        self.padding_inner_px = self.padding_inner_px.max(other.padding_inner_px);
+        self.outer_left = self.outer_left.max(other.outer_left);
+        self.outer_right = self.outer_right.max(other.outer_right);
+        self.n = self.n.max(other.n);
     }
 }
 
@@ -304,8 +346,84 @@ fn distribute_overflow_by_level(
     }
 }
 
-/// Coordinate overflow values across all facets and re-measure affected subplots.
+// =============================================================================
+// Layout Coordination
+//
+// These functions coordinate layout parameters (padding, outer offsets, cell count)
+// across all FacetCol nodes at the same nesting depth, ensuring consistent subplot
+// widths and gaps across all branches.
+// =============================================================================
+
+/// Distribute coordinated layout values across all facets at each nesting level.
 ///
+/// Uses the same collect-aggregate-distribute pattern as overflow coordination:
+/// 1. Collect layout values by depth (via trait method)
+/// 2. Compute max at each depth
+/// 3. Distribute max values back to all facets at each depth
+fn distribute_coordinated_layout(measurement: &mut ComponentsMeasurement) {
+    // Pass 1: Collect all layout values by nesting depth
+    let mut layout_by_level: HashMap<usize, Vec<CoordinatedLayout>> = HashMap::new();
+    collect_layout_by_level(measurement, 0, &mut layout_by_level);
+
+    if layout_by_level.is_empty() {
+        return;
+    }
+
+    // Aggregation: Compute global max for each level
+    let max_by_level: HashMap<usize, CoordinatedLayout> = layout_by_level
+        .into_iter()
+        .map(|(depth, values)| {
+            let mut merged = CoordinatedLayout::default();
+            for v in &values {
+                merged.merge(v);
+            }
+            (depth, merged)
+        })
+        .collect();
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "distribute_coordinated_layout: max_by_level={:?}",
+            max_by_level
+        );
+    }
+
+    // Pass 2: Distribute max values to all facets at each level
+    distribute_layout_by_level(measurement, 0, &max_by_level);
+}
+
+/// Pass 1: Collect layout values from all facets, keyed by nesting depth.
+fn collect_layout_by_level(
+    measurement: &ComponentsMeasurement,
+    depth: usize,
+    registry: &mut HashMap<usize, Vec<CoordinatedLayout>>,
+) {
+    if let Some(local) = measurement.coord_measurement.local_layout() {
+        registry.entry(depth).or_default().push(local);
+    }
+
+    for child in measurement.coord_measurement.child_measurements() {
+        collect_layout_by_level(child, depth + 1, registry);
+    }
+}
+
+/// Pass 2: Distribute coordinated max layout values to all facets at each level.
+fn distribute_layout_by_level(
+    measurement: &mut ComponentsMeasurement,
+    depth: usize,
+    max_by_level: &HashMap<usize, CoordinatedLayout>,
+) {
+    if let Some(max_layout) = max_by_level.get(&depth) {
+        measurement
+            .coord_measurement
+            .set_coordinated_layout(max_layout.clone());
+    }
+
+    for child in measurement.coord_measurement.child_measurements_mut() {
+        distribute_layout_by_level(child, depth + 1, max_by_level);
+    }
+}
+
 // =============================================================================
 // Domain Extent Coordination
 //
@@ -446,8 +564,9 @@ fn coordinate_cell_domain_extents(measurement: &mut ComponentsMeasurement) {
 /// 1. Collects overflow values by nesting depth
 /// 2. Computes max overflow at each depth level
 /// 3. Distributes coordinated values to all facets
-/// 4. Coordinates domain extents for level-aware scale sharing
-/// 5. Re-measures any subplots affected by legend overflow
+/// 4. Coordinates layout parameters (padding, cell count) by depth
+/// 5. Coordinates domain extents for level-aware scale sharing
+/// 6. Re-measures any subplots affected by legend overflow or layout coordination
 ///
 /// This ensures measurements are correct before `build_plot_components` is called.
 pub async fn coordinate_overflow_for_guides(
@@ -457,11 +576,21 @@ pub async fn coordinate_overflow_for_guides(
     // Step 1: Distribute coordinated overflow values
     distribute_coordinated_overflow(measurement);
 
-    // Step 2: Coordinate domain extents across all cells for level-aware scale sharing
+    // Step 2: Distribute coordinated layout parameters (padding, outer, cell count)
+    distribute_coordinated_layout(measurement);
+
+    // Step 3: Coordinate domain extents across all cells for level-aware scale sharing
     coordinate_cell_domain_extents(measurement);
 
-    // Step 3: Apply coordinated overflow by re-measuring affected subplots
+    // Step 4: Apply coordinated overflow by re-measuring affected subplots
     apply_coordinated_overflow_recursive(measurement, eval_ctx).await?;
+
+    // Step 5: Re-distribute coordinated state to newly created child measurements.
+    // When a parent FacetCol re-measures in Step 4, it replaces its subplot_measurements
+    // with fresh measurements that have default (non-coordinated) values. Re-distributing
+    // ensures nested FacetCol nodes retain their coordination for rendering.
+    distribute_coordinated_overflow(measurement);
+    distribute_coordinated_layout(measurement);
 
     Ok(())
 }

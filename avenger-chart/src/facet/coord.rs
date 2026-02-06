@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::ScalarOrArray;
-use avenger_scales::scales::{ScaleImpl, band::bandwidth};
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl, band::bandwidth};
 use datafusion::{
     common::ScalarValue, dataframe::DataFrame, logical_expr::lit,
     scalar::ScalarValue as DfScalarValue,
@@ -14,8 +14,8 @@ use crate::{
     channel::config_traits::ScaleSharing,
     coords::{
         CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
-        CoordinatedOverflow, OverflowSpaceRequirement, PaddingSpec, PlotGeometry, SubplotGeometry,
-        SubplotRect,
+        CoordinatedLayout, CoordinatedOverflow, OverflowSpaceRequirement, PaddingSpec,
+        PlotGeometry, SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
     facet::{
@@ -95,6 +95,13 @@ pub struct FacetColCoordMeasurement {
     /// Empty cells are created to maintain uniform layout but contain no data.
     /// Indexed by cell index; true means the cell is empty.
     pub empty_cells: Vec<bool>,
+    /// Column scale (as ConfiguredScale) BEFORE Pass 2 adjustments.
+    /// Used to recompute subplot width when coordinated layout differs from local.
+    pub original_column_scale: ConfiguredScale,
+    /// Local layout values (pre-coordination).
+    pub local_layout: CoordinatedLayout,
+    /// Coordinated layout values (post-coordination). None before coordination.
+    pub coordinated_layout: Option<CoordinatedLayout>,
 }
 
 #[async_trait::async_trait]
@@ -181,6 +188,14 @@ impl CoordMeasurement for FacetColCoordMeasurement {
         self.coordinated_overflow = overflow;
     }
 
+    fn local_layout(&self) -> Option<CoordinatedLayout> {
+        Some(self.local_layout.clone())
+    }
+
+    fn set_coordinated_layout(&mut self, layout: CoordinatedLayout) {
+        self.coordinated_layout = Some(layout);
+    }
+
     fn padding_inner_px(&self) -> Option<f32> {
         if self.padding_inner_px > 0.0 {
             Some(self.padding_inner_px)
@@ -215,21 +230,41 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 }
             }
 
-            // Apply padding_inner_px for cell spacing
-            if self.padding_inner_px > 0.0 {
-                updated_config =
-                    updated_config.with_option("padding_inner_px", self.padding_inner_px);
-            }
-
-            // Reduce scale range to account for outer legend space
-            if self.outer_left > 0.0 || self.outer_right > 0.0 {
-                if let Ok((range_start, range_end)) = updated_config.config.numeric_interval_range()
-                {
-                    // Keep start unchanged, reduce end by both outer edges
-                    // This shrinks the available width for cells while keeping them
-                    // starting at position 0 within the plot area
-                    let new_end = range_end - self.outer_left - self.outer_right;
-                    updated_config = updated_config.with_range_interval((range_start, new_end));
+            // Use coordinated values if available, otherwise use local values.
+            //
+            // NOTE: We do NOT set band_n on the column scale here. The band_n option
+            // is only used during measurement (apply_coordinated_overflow) to compute
+            // the correct subplot_width. For rendering, the column scale should position
+            // its actual domain cells evenly across the full allocated width. The parent
+            // FacetCol already allocated the correct width using band_n, so the child's
+            // cells should fill that width naturally. Setting band_n here would compress
+            // cells into a fraction of the width, breaking guide bracket alignment.
+            if let Some(layout) = &self.coordinated_layout {
+                if layout.padding_inner_px > 0.0 {
+                    updated_config =
+                        updated_config.with_option("padding_inner_px", layout.padding_inner_px);
+                }
+                if layout.outer_left > 0.0 || layout.outer_right > 0.0 {
+                    if let Ok((range_start, range_end)) =
+                        updated_config.config.numeric_interval_range()
+                    {
+                        let new_end = range_end - layout.outer_left - layout.outer_right;
+                        updated_config = updated_config.with_range_interval((range_start, new_end));
+                    }
+                }
+            } else {
+                // No coordination — use local values (existing behavior)
+                if self.padding_inner_px > 0.0 {
+                    updated_config =
+                        updated_config.with_option("padding_inner_px", self.padding_inner_px);
+                }
+                if self.outer_left > 0.0 || self.outer_right > 0.0 {
+                    if let Ok((range_start, range_end)) =
+                        updated_config.config.numeric_interval_range()
+                    {
+                        let new_end = range_end - self.outer_left - self.outer_right;
+                        updated_config = updated_config.with_range_interval((range_start, new_end));
+                    }
                 }
             }
 
@@ -272,7 +307,66 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             .iter()
             .any(|extents| !extents.is_empty());
 
-        // Only re-measure if there's legend overflow OR coordinated domain extents
+        // Check if coordinated layout differs from local layout
+        let has_coordinated_layout =
+            self.coordinated_layout
+                .as_ref()
+                .map_or(false, |coordinated| {
+                    coordinated.n != self.local_layout.n
+                        || (coordinated.padding_inner_px - self.local_layout.padding_inner_px)
+                            .abs()
+                            > 0.01
+                        || (coordinated.outer_left - self.local_layout.outer_left).abs() > 0.01
+                        || (coordinated.outer_right - self.local_layout.outer_right).abs() > 0.01
+                });
+
+        // If coordinated layout changed, recompute subplot_width using band_n.
+        // This only updates the width/padding fields — it does NOT trigger re-measurement.
+        // Re-measurement would rebuild scales from scratch, changing y-domains.
+        if has_coordinated_layout {
+            let layout = self.coordinated_layout.as_ref().unwrap();
+            let mut scale = self.original_column_scale.clone();
+
+            // Set band_n for coordinated cell count
+            scale = scale.with_option("band_n", layout.n as i32);
+
+            // Apply coordinated padding_inner_px
+            scale = scale.with_option("padding_inner_px", layout.padding_inner_px);
+
+            // Apply coordinated outer_left + outer_right to range
+            if layout.outer_left > 0.0 || layout.outer_right > 0.0 {
+                if let Ok((range_start, range_end)) = scale.config.numeric_interval_range() {
+                    let new_end = range_end - layout.outer_left - layout.outer_right;
+                    scale = scale.with_range_interval((range_start, new_end));
+                }
+            }
+
+            // Recompute subplot_width from coordinated scale
+            let new_subplot_width = bandwidth(&scale.config).map_err(|e| {
+                AvengerChartError::InternalError(format!(
+                    "Failed to get coordinated bandwidth: {}",
+                    e
+                ))
+            })?;
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "FacetCol apply_coordinated_overflow: layout coordination: width {:.1} -> {:.1}, n {} -> {}, padding {:.1} -> {:.1}",
+                    self.subplot_width, new_subplot_width,
+                    self.local_layout.n, layout.n,
+                    self.local_layout.padding_inner_px, layout.padding_inner_px
+                );
+            }
+
+            self.subplot_width = new_subplot_width;
+            self.padding_inner_px = layout.padding_inner_px;
+            self.outer_left = layout.outer_left;
+            self.outer_right = layout.outer_right;
+        }
+
+        // Only do full re-measurement for legend overflow or coordinated domain extents.
+        // Layout coordination (above) only adjusts subplot_width without re-measuring,
+        // because re-measurement rebuilds scales from scratch and can change y-domains.
         if !has_legend_overflow && !has_coordinated_extents {
             return Ok(());
         }
@@ -375,8 +469,8 @@ impl CoordMeasurement for FacetColCoordMeasurement {
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
-                    "FacetCol apply_coordinated_overflow: re-measured cell[{}]={:?} at height={:.1} empty={}",
-                    idx, value, adjusted_height, is_empty
+                    "FacetCol apply_coordinated_overflow: re-measured cell[{}]={:?} at width={:.1} height={:.1} empty={}",
+                    idx, value, self.subplot_width, adjusted_height, is_empty
                 );
             }
 
@@ -1108,6 +1202,9 @@ impl CoordinateSystemTransform for FacetColumn {
                     cell_domain_extents: Vec::new(),
                     coordinated_domain_extents: Vec::new(),
                     empty_cells: Vec::new(),
+                    original_column_scale: column_scale.configured().clone(),
+                    local_layout: CoordinatedLayout::default(),
+                    coordinated_layout: None,
                 }));
             }
         };
@@ -1191,6 +1288,9 @@ impl CoordinateSystemTransform for FacetColumn {
                 cell_domain_extents: Vec::new(),
                 coordinated_domain_extents: Vec::new(),
                 empty_cells: Vec::new(),
+                original_column_scale: column_scale.configured().clone(),
+                local_layout: CoordinatedLayout::default(),
+                coordinated_layout: None,
             }));
         }
 
@@ -1556,6 +1656,15 @@ impl CoordinateSystemTransform for FacetColumn {
             );
         }
 
+        // Capture local layout and original column scale BEFORE Pass 2 adjustments
+        let local_layout = CoordinatedLayout {
+            padding_inner_px,
+            outer_left,
+            outer_right,
+            n: cell_values.len(),
+        };
+        let original_column_scale = column_scale.configured().clone();
+
         // === PASS 2: Rebuild column scale with padding_inner_px, range adjustment, AND domain ===
         // This ensures measurements are computed with the final subplot width that accounts for:
         // 1. Inner padding between cells (padding_inner_px)
@@ -1755,6 +1864,9 @@ impl CoordinateSystemTransform for FacetColumn {
             cell_domain_extents,
             coordinated_domain_extents: Vec::new(),
             empty_cells,
+            original_column_scale,
+            local_layout,
+            coordinated_layout: None,
         }))
     }
 
