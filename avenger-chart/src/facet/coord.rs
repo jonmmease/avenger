@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use crate::facet::scalar_cmp::scalar_total_cmp;
 
 use crate::{
-    channel::config_traits::ScaleSharing,
     coords::{
         CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
         CoordinatedLayout, CoordinatedOverflow, OverflowSpaceRequirement, PaddingSpec,
@@ -646,25 +645,6 @@ pub(crate) fn aggregate_facet_col_overflow(
     };
 
     Some((guide, total))
-}
-
-/// Extract sharing level for a channel from compiled marks.
-///
-/// Looks up the channel in the mark's data context and returns its sharing level.
-/// Returns 0 (Free) if the channel is not found or has no sharing mode set.
-fn get_channel_sharing_level(marks: &[Arc<dyn CompiledMark>], channel: &str) -> u8 {
-    for mark in marks {
-        if let Some(channel_value) = mark.data_context().channels().get(channel) {
-            if let Some(sharing) = channel_value.get_share_mode() {
-                return match sharing {
-                    ScaleSharing::Free => 0,
-                    ScaleSharing::Level(n) => n,
-                    ScaleSharing::Shared => 255,
-                };
-            }
-        }
-    }
-    0 // Default to Free
 }
 
 /// Compute ancestor key for grouping domain extents.
@@ -1722,12 +1702,14 @@ impl CoordinateSystemTransform for FacetColumn {
                 let raw_extents =
                     cell_scale_builder.extract_domain_extents(&["x", "y", "x2", "y2"]);
 
-                // Annotate extents with sharing levels from the compiled marks
+                // Annotate extents with sharing levels from the evaluated facet tree.
+                // Missing channels default to Free (0) for domain coordination.
                 raw_extents
                     .into_iter()
                     .map(|(channel, extent)| {
-                        let sharing_level =
-                            get_channel_sharing_level(&compiled_subplot.marks, &channel);
+                        let sharing_level = eval_ctx.facet_tree.channel_sharing_level_or(
+                            &channel, 0, // Free
+                        );
                         (
                             channel,
                             ChannelDomainExtent {

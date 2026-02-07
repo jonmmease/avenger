@@ -376,14 +376,17 @@ impl<'a> FacetMarkRef<'a> {
 
 /// Downcast a compiled mark into a typed facet mark reference.
 pub fn facet_mark_ref(mark: &dyn CompiledMark) -> Option<FacetMarkRef<'_>> {
-    mark.as_any()
-        .downcast_ref::<CompiledFacetCol>()
-        .map(FacetMarkRef::Col)
-        .or_else(|| {
-            mark.as_any()
-                .downcast_ref::<CompiledFacetRow>()
-                .map(FacetMarkRef::Row)
-        })
+    match mark.mark_type() {
+        "facet_col" => mark
+            .as_any()
+            .downcast_ref::<CompiledFacetCol>()
+            .map(FacetMarkRef::Col),
+        "facet_row" => mark
+            .as_any()
+            .downcast_ref::<CompiledFacetRow>()
+            .map(FacetMarkRef::Row),
+        _ => None,
+    }
 }
 
 #[async_trait::async_trait]

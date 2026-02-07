@@ -554,10 +554,15 @@ impl EvaluatedFacetTree {
     /// if the channel was not found. This is used for axis visibility decisions
     /// when the innermost subplot doesn't have access to CoordMeasurement.
     pub fn channel_sharing_level(&self, channel: &str) -> u8 {
+        self.channel_sharing_level_or(channel, 255)
+    }
+
+    /// Get the sharing level for a channel, using a caller-provided default.
+    pub fn channel_sharing_level_or(&self, channel: &str, default: u8) -> u8 {
         self.channel_sharing_levels
             .get(channel)
             .copied()
-            .unwrap_or(255)
+            .unwrap_or(default)
     }
 
     /// Get level counts (domain count at each nesting level).
@@ -924,12 +929,7 @@ fn extract_channel_sharing_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<St
             let data_context = mark.data_context();
             for (channel, channel_value) in data_context.channels() {
                 if let Some(sharing) = channel_value.get_share_mode() {
-                    let level = match sharing {
-                        ScaleSharing::Free => 0,
-                        ScaleSharing::Level(n) => n,
-                        ScaleSharing::Shared => 255,
-                    };
-                    result.insert(channel.clone(), level);
+                    result.insert(channel.clone(), sharing.to_level());
                 }
             }
         }
