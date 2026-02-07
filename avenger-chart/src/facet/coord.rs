@@ -122,62 +122,8 @@ impl CoordMeasurement for FacetColCoordMeasurement {
     }
 
     fn local_overflow(&self) -> Option<CoordinatedOverflow> {
-        // Compute local overflow from children's overflow (guide-only and total)
-        // For left/right: use first/last non-empty child when available so empty
-        // Level(N) placeholders do not absorb outer-edge overflow.
-        // For top/bottom: take the max across all children
-        let (first_idx, last_idx) =
-            effective_edge_indices(&self.empty_cells, self.subplot_measurements.len())?;
-        let first_guide_left = self
-            .subplot_measurements
-            .get(first_idx)
-            .map(|m| m.layout.overflow.left)
-            .unwrap_or(0.0);
-        let last_guide_right = self
-            .subplot_measurements
-            .get(last_idx)
-            .map(|m| m.layout.overflow.right)
-            .unwrap_or(0.0);
-        let first_total_left = self
-            .subplot_measurements
-            .get(first_idx)
-            .map(|m| m.layout.total_overflow.left)
-            .unwrap_or(0.0);
-        let last_total_right = self
-            .subplot_measurements
-            .get(last_idx)
-            .map(|m| m.layout.total_overflow.right)
-            .unwrap_or(0.0);
-
-        let guide = OverflowSpaceRequirement {
-            top: self
-                .subplot_measurements
-                .iter()
-                .map(|m| m.layout.overflow.top)
-                .fold(0.0f32, f32::max),
-            bottom: self
-                .subplot_measurements
-                .iter()
-                .map(|m| m.layout.overflow.bottom)
-                .fold(0.0f32, f32::max),
-            left: first_guide_left,
-            right: last_guide_right,
-        };
-
-        let total = OverflowSpaceRequirement {
-            top: self
-                .subplot_measurements
-                .iter()
-                .map(|m| m.layout.total_overflow.top)
-                .fold(0.0f32, f32::max),
-            bottom: self
-                .subplot_measurements
-                .iter()
-                .map(|m| m.layout.total_overflow.bottom)
-                .fold(0.0f32, f32::max),
-            left: first_total_left,
-            right: last_total_right,
-        };
+        let (guide, total) =
+            aggregate_facet_col_overflow(&self.subplot_measurements, &self.empty_cells)?;
 
         Some(CoordinatedOverflow { guide, total })
     }
@@ -643,6 +589,63 @@ fn effective_edge_indices(empty_cells: &[bool], count: usize) -> Option<(usize, 
         (Some(first), Some(last)) => Some((first, last)),
         _ => Some((0, count - 1)),
     }
+}
+
+/// Aggregate guide and total overflow across FacetCol subplot measurements.
+///
+/// Uses a canonical edge policy:
+/// - top/bottom: max across all cells
+/// - left/right: first/last effective edge cells (prefer non-empty placeholders)
+pub(crate) fn aggregate_facet_col_overflow(
+    subplot_measurements: &[ComponentsMeasurement],
+    empty_cells: &[bool],
+) -> Option<(OverflowSpaceRequirement, OverflowSpaceRequirement)> {
+    let (first_idx, last_idx) = effective_edge_indices(empty_cells, subplot_measurements.len())?;
+
+    let first_guide_left = subplot_measurements
+        .get(first_idx)
+        .map(|m| m.layout.overflow.left)
+        .unwrap_or(0.0);
+    let last_guide_right = subplot_measurements
+        .get(last_idx)
+        .map(|m| m.layout.overflow.right)
+        .unwrap_or(0.0);
+    let first_total_left = subplot_measurements
+        .get(first_idx)
+        .map(|m| m.layout.total_overflow.left)
+        .unwrap_or(0.0);
+    let last_total_right = subplot_measurements
+        .get(last_idx)
+        .map(|m| m.layout.total_overflow.right)
+        .unwrap_or(0.0);
+
+    let guide = OverflowSpaceRequirement {
+        top: subplot_measurements
+            .iter()
+            .map(|m| m.layout.overflow.top)
+            .fold(0.0f32, f32::max),
+        bottom: subplot_measurements
+            .iter()
+            .map(|m| m.layout.overflow.bottom)
+            .fold(0.0f32, f32::max),
+        left: first_guide_left,
+        right: last_guide_right,
+    };
+
+    let total = OverflowSpaceRequirement {
+        top: subplot_measurements
+            .iter()
+            .map(|m| m.layout.total_overflow.top)
+            .fold(0.0f32, f32::max),
+        bottom: subplot_measurements
+            .iter()
+            .map(|m| m.layout.total_overflow.bottom)
+            .fold(0.0f32, f32::max),
+        left: first_total_left,
+        right: last_total_right,
+    };
+
+    Some((guide, total))
 }
 
 /// Extract sharing level for a channel from compiled marks.

@@ -6,7 +6,7 @@
 use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
-use crate::facet::coord::FacetColCoordMeasurement;
+use crate::facet::coord::{FacetColCoordMeasurement, aggregate_facet_col_overflow};
 use crate::facet::guide_utils::{
     FacetLabelMeasurementConfig, FacetLabelRenderConfig, measure_facet_label_slab,
     render_facet_label_slab,
@@ -137,17 +137,11 @@ impl CompiledGuide for FacetColGuide {
             coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetColCoordMeasurement>())
         {
             // Fast path: use pre-computed overflow from coord_measurement
-            // Use total_overflow to include legend space in outer layout calculation
-            fcm.subplot_measurements
-                .iter()
-                .fold(OverflowSpaceRequirement::default(), |acc, m| {
-                    OverflowSpaceRequirement {
-                        top: acc.top.max(m.layout.total_overflow.top),
-                        bottom: acc.bottom.max(m.layout.total_overflow.bottom),
-                        left: acc.left.max(m.layout.total_overflow.left),
-                        right: acc.right.max(m.layout.total_overflow.right),
-                    }
-                })
+            // Use total_overflow to include legend space in outer layout calculation,
+            // with the same edge policy used by FacetColCoordMeasurement::local_overflow.
+            aggregate_facet_col_overflow(&fcm.subplot_measurements, &fcm.empty_cells)
+                .map(|(_, total)| total)
+                .unwrap_or_default()
         } else {
             // Slow path: compute subplot overflow (first pass, before coord_measurement exists)
             self.compute_subplot_overflow(
