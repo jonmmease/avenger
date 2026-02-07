@@ -2,7 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
     array::{ArrayRef, AsArray, DictionaryArray, Float32Array, Int16Array},
-    compute::{kernels::{cast, sort}, SortOptions},
+    compute::{
+        kernels::{cast, sort},
+        SortOptions,
+    },
     datatypes::{DataType, Float32Type},
 };
 use lazy_static::lazy_static;

@@ -1,9 +1,9 @@
 use image::DynamicImage;
 use reqwest::blocking::{Client, ClientBuilder};
 
-use crate::{error::AvengerImageError, fetcher::ImageFetcher};
 #[cfg(feature = "svg")]
 use crate::svg::svg_to_png;
+use crate::{error::AvengerImageError, fetcher::ImageFetcher};
 
 pub struct ReqwestImageFetcher {
     client: Client,

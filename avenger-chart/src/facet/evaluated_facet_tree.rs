@@ -809,9 +809,9 @@ impl EvaluatedFacetTree {
 
             // Move to next level
             current_node = match &node.content {
-                PartitionContent::Branch { children } => {
-                    children.get_index(_pos_idx).map(|(_, child)| child.as_ref())
-                }
+                PartitionContent::Branch { children } => children
+                    .get_index(_pos_idx)
+                    .map(|(_, child)| child.as_ref()),
                 PartitionContent::Leaf { .. } => None,
             };
         }

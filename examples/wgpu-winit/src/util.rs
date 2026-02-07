@@ -3,7 +3,10 @@ use std::{cell::RefCell, rc::Rc};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
-use avenger_wgpu::{canvas::{Canvas, WindowCanvas}, error::AvengerWgpuError};
+use avenger_wgpu::{
+    canvas::{Canvas, WindowCanvas},
+    error::AvengerWgpuError,
+};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, WindowEvent},

@@ -391,7 +391,6 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
         return Ok(0.0);
     }
 
-
     let (range_start, range_stop) = config.numeric_interval_range()?;
 
     let (start, stop) = if range_stop < range_start {

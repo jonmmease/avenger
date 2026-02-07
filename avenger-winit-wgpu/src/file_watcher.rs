@@ -3,7 +3,9 @@ use std::{collections::HashSet, fs, path::PathBuf, time::Duration};
 use avenger_app::error::AvengerAppError;
 use avenger_eventstream::window::{WindowEvent, WindowFileChangedEvent};
 use log::error;
-use notify::{event::ModifyKind, Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{
+    event::ModifyKind, Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use winit::event_loop::EventLoopProxy;
 
 /// FileWatcher manages file system monitoring and sends events to the EventLoop when files change

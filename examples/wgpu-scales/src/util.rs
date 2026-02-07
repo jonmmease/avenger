@@ -4,15 +4,26 @@ use arrow::array::{ArrayRef, Float32Array, StringArray};
 use avenger_common::{canvas::CanvasDimensions, types::ColorOrGradient};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::{
-    axis::{band::make_band_axis_marks, numeric::make_numeric_axis_marks, opts::{AxisConfig, AxisOrientation}},
+    axis::{
+        band::make_band_axis_marks,
+        numeric::make_numeric_axis_marks,
+        opts::{AxisConfig, AxisOrientation},
+    },
     legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation},
 };
 use avenger_scales::scales::{band::BandScale, linear::LinearScale};
 use avenger_scenegraph::{
-    marks::{group::{Clip, SceneGroup}, mark::{MarkInstance, SceneMark}, rect::SceneRectMark},
+    marks::{
+        group::{Clip, SceneGroup},
+        mark::{MarkInstance, SceneMark},
+        rect::SceneRectMark,
+    },
     scene_graph::SceneGraph,
 };
-use avenger_wgpu::{canvas::{Canvas, WindowCanvas}, error::AvengerWgpuError};
+use avenger_wgpu::{
+    canvas::{Canvas, WindowCanvas},
+    error::AvengerWgpuError,
+};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, WindowEvent},

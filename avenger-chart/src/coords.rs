@@ -18,7 +18,7 @@ use crate::{
     marks::CompiledMark,
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
-    scales::{domain_extent::DomainExtent, ConfiguredScaleWithSpec},
+    scales::{ConfiguredScaleWithSpec, domain_extent::DomainExtent},
     serialization::SerializableScalar,
 };
 
@@ -501,11 +501,8 @@ fn aggregate_domain_extents(
     let mut groups: HashMap<(String, Vec<ScalarValue>), Vec<&DomainExtent>> = HashMap::new();
 
     for info in infos {
-        let ancestor_key = compute_ancestor_key(
-            &info.full_cell_path,
-            info.sharing_level,
-            info.facet_depth,
-        );
+        let ancestor_key =
+            compute_ancestor_key(&info.full_cell_path, info.sharing_level, info.facet_depth);
         groups
             .entry((info.channel.clone(), ancestor_key))
             .or_default()
@@ -702,10 +699,8 @@ fn reapply_scale_adjustments_recursive(measurement: &mut ComponentsMeasurement) 
                         .configured()
                         .clone()
                         .with_range_interval((0.0, width));
-                    *column_scale = ConfiguredScaleWithSpec::new(
-                        column_scale.spec().clone(),
-                        updated_config,
-                    );
+                    *column_scale =
+                        ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
                 }
             }
         }

@@ -1,7 +1,10 @@
 use avenger_app::app::AvengerApp;
 use avenger_common::{canvas::CanvasDimensions, time::Instant};
 use avenger_eventstream::window::WindowEvent as AvengerWindowEvent;
-use avenger_wgpu::{canvas::{Canvas, WindowCanvas}, error::AvengerWgpuError};
+use avenger_wgpu::{
+    canvas::{Canvas, WindowCanvas},
+    error::AvengerWgpuError,
+};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, WindowEvent},

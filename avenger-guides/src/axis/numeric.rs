@@ -6,8 +6,8 @@ use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::Sc
 use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
 use rstar::AABB;
 
-use crate::error::AvengerGuidesError;
 use super::opts::{AxisConfig, AxisOrientation};
+use crate::error::AvengerGuidesError;
 
 const TEXT_MARGIN: f32 = 3.0;
 const TITLE_MARGIN: f32 = 2.0;

@@ -6,10 +6,7 @@ use avenger_common::{
 };
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::{
-    group::SceneGroup,
-    mark::SceneMark,
-    rect::SceneRectMark,
-    symbol::SceneSymbolMark,
+    group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,
     text::SceneTextMark,
 };
 use avenger_text::{

@@ -2802,9 +2802,9 @@ async fn hierarchical_5level_asymmetric_data() -> datafusion::dataframe::DataFra
             "department",
             std::sync::Arc::new(datafusion::arrow::array::StringArray::from(vec![
                 // Eng departments
-                "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend",
-                "Frontend", "Frontend", "Backend", "Backend", "Backend", "Backend", "Backend",
-                "Backend", "Backend", "Backend", // Ops departments
+                "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend", "Frontend",
+                "Frontend", "Backend", "Backend", "Backend", "Backend", "Backend", "Backend",
+                "Backend", "Backend", // Ops departments
                 "Support", "Support", "Support", "Support", "Support", "Support", "Support",
                 "Support", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps", "DevOps",
                 "DevOps",
@@ -2846,8 +2846,8 @@ async fn hierarchical_5level_asymmetric_data() -> datafusion::dataframe::DataFra
                 // Eng values (higher): 70-130 range
                 90.0, 95.0, 85.0, 90.0, 100.0, 105.0, 95.0, 100.0, 110.0, 115.0, 105.0, 110.0,
                 120.0, 125.0, 115.0, 120.0, // Ops values (lower): 30-70 range
-                40.0, 45.0, 35.0, 40.0, 50.0, 55.0, 45.0, 50.0, 55.0, 60.0, 50.0, 55.0, 65.0,
-                70.0, 60.0, 65.0,
+                40.0, 45.0, 35.0, 40.0, 50.0, 55.0, 45.0, 50.0, 55.0, 60.0, 50.0, 55.0, 65.0, 70.0,
+                60.0, 65.0,
             ])) as std::sync::Arc<dyn datafusion::arrow::array::Array>,
         ),
     ])
@@ -4823,4 +4823,3 @@ fn test_four_level_col_col_col_col_dept_free_team_level1() {
         .await;
     });
 }
-
