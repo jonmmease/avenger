@@ -898,10 +898,14 @@ async fn measure_facet_cell(
                         .await
                 }
                 Some(sharing_level) if sharing_level < nested_depth => {
-                    let ancestor_key_len =
-                        (nested_depth as usize).saturating_sub(sharing_level as usize);
-                    let ancestor_key: Vec<ScalarValue> =
-                        cell.path.iter().take(ancestor_key_len).cloned().collect();
+                    // Nested sharing is defined one level deeper than `cell.path`,
+                    // so convert Level(N) at nested depth to a truncation on the
+                    // current cell path by removing `N - 1` components.
+                    let ancestor_key = compute_ancestor_key(
+                        &cell.path,
+                        sharing_level.saturating_sub(1),
+                        cell.path.len() as u8,
+                    );
 
                     let cached_builder =
                         scale_builder_cache.get(&ancestor_key).ok_or_else(|| {
@@ -1010,7 +1014,6 @@ async fn build_facet_col_measure_plan(
                 build_ancestor_group_scale_builders(
                     &cell_values,
                     sharing_level,
-                    nested_depth,
                     facet_path,
                     facet_tree,
                     data_df,
@@ -1222,7 +1225,6 @@ async fn run_facet_col_measure_pass2(
 async fn build_ancestor_group_scale_builders(
     cell_values: &[ScalarValue],
     sharing_level: u8,
-    facet_depth: u8,
     parent_path: &[ScalarValue],
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     data_df: &DataFrame,
@@ -1231,18 +1233,19 @@ async fn build_ancestor_group_scale_builders(
 ) -> Result<HashMap<Vec<ScalarValue>, ScaleBuilder>, AvengerChartError> {
     let mut cache = HashMap::new();
 
-    // Group cells by ancestor key.
-    // ancestor_key_len = facet_depth - sharing_level
-    let ancestor_key_len = (facet_depth as usize).saturating_sub(sharing_level as usize);
-
     let mut groups: HashMap<Vec<ScalarValue>, Vec<ScalarValue>> = HashMap::new();
     for value in cell_values {
         let mut full_path = parent_path.to_vec();
         full_path.push(value.clone());
 
-        // Compute ancestor key by taking the first ancestor_key_len components
-        let ancestor_key: Vec<ScalarValue> =
-            full_path.iter().take(ancestor_key_len).cloned().collect();
+        // Nested sharing is defined one level deeper than `full_path`, so convert
+        // Level(N) at nested depth to truncation on current cell path by removing
+        // `N - 1` components.
+        let ancestor_key = compute_ancestor_key(
+            &full_path,
+            sharing_level.saturating_sub(1),
+            full_path.len() as u8,
+        );
 
         groups.entry(ancestor_key).or_default().push(value.clone());
     }
@@ -2025,6 +2028,46 @@ mod tests {
         let empty_cells = vec![false, false, false];
         let padding = compute_padding_from_overflows(&overflows, &empty_cells);
         assert_eq!(padding, 12.0);
+    }
+
+    #[test]
+    fn compute_ancestor_key_level0_keeps_full_path() {
+        let path = vec![
+            ScalarValue::Utf8(Some("A".to_string())),
+            ScalarValue::Utf8(Some("B".to_string())),
+            ScalarValue::Utf8(Some("C".to_string())),
+        ];
+        let key = compute_ancestor_key(&path, 0, path.len() as u8);
+        assert_eq!(key, path);
+    }
+
+    #[test]
+    fn compute_ancestor_key_level2_removes_last_two() {
+        let path = vec![
+            ScalarValue::Utf8(Some("A".to_string())),
+            ScalarValue::Utf8(Some("B".to_string())),
+            ScalarValue::Utf8(Some("C".to_string())),
+            ScalarValue::Utf8(Some("D".to_string())),
+        ];
+        let key = compute_ancestor_key(&path, 2, path.len() as u8);
+        assert_eq!(
+            key,
+            vec![
+                ScalarValue::Utf8(Some("A".to_string())),
+                ScalarValue::Utf8(Some("B".to_string())),
+            ]
+        );
+    }
+
+    #[test]
+    fn compute_ancestor_key_level_ge_depth_is_global() {
+        let path = vec![
+            ScalarValue::Utf8(Some("A".to_string())),
+            ScalarValue::Utf8(Some("B".to_string())),
+            ScalarValue::Utf8(Some("C".to_string())),
+        ];
+        let key = compute_ancestor_key(&path, path.len() as u8, path.len() as u8);
+        assert!(key.is_empty());
     }
 
     #[test]
