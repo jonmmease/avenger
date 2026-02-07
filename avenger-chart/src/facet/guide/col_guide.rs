@@ -288,8 +288,7 @@ impl CompiledGuide for FacetColGuide {
 
         // Get band positions and labels from coord_measurement's cell_values (Level(N)-aware)
         // or fall back to scale domain
-        let (band_positions, labels): (Vec<_>, Vec<String>) = if let Some(fcm) =
-            coord_measurement
+        let (band_positions, labels): (Vec<_>, Vec<String>) = if let Some(fcm) = coord_measurement
                 .as_any()
                 .downcast_ref::<FacetColCoordMeasurement>()
         {
