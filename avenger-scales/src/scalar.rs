@@ -35,10 +35,12 @@ impl PartialEq for Scalar {
                 (Ok(a), Ok(b)) => a == b,
                 _ => false,
             },
-            DataType::Utf8 => match (self.as_string(), other.as_string()) {
-                (Ok(a), Ok(b)) => a == b,
-                _ => false,
-            },
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                match (self.as_string(), other.as_string()) {
+                    (Ok(a), Ok(b)) => a == b,
+                    _ => false,
+                }
+            }
             _ => {
                 // For other types, compare the raw arrays
                 format!("{:?}", self.0) == format!("{:?}", other.0)
@@ -72,7 +74,7 @@ impl std::hash::Hash for Scalar {
                     value.to_bits().hash(state);
                 }
             }
-            DataType::Utf8 => {
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
                 if let Ok(value) = self.as_string() {
                     value.hash(state);
                 }
@@ -263,16 +265,14 @@ impl Scalar {
         }
 
         match self.0.data_type() {
-            DataType::Utf8 => {
-                let array = self
-                    .0
-                    .as_any()
-                    .downcast_ref::<StringArray>()
-                    .ok_or_else(|| {
-                        AvengerScaleError::InternalError(
-                            "Failed to downcast to StringArray".to_string(),
-                        )
-                    })?;
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                // Normalize all string-like Arrow types to Utf8 for extraction.
+                let casted = cast::cast(&self.0, &DataType::Utf8).map_err(|e| {
+                    AvengerScaleError::InternalError(format!(
+                        "Failed to cast string-like scalar to Utf8: {e}"
+                    ))
+                })?;
+                let array = casted.as_string::<i32>();
                 Ok(array.value(0).to_string())
             }
             _ => Err(AvengerScaleError::InternalError(format!(
@@ -370,18 +370,8 @@ impl Scalar {
 
         // Try as string color
         match self.0.data_type() {
-            DataType::Utf8 => {
-                let array = self
-                    .0
-                    .as_any()
-                    .downcast_ref::<StringArray>()
-                    .ok_or_else(|| {
-                        AvengerScaleError::InternalError(
-                            "Failed to downcast to StringArray".to_string(),
-                        )
-                    })?;
-
-                let color_str = array.value(0);
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                let color_str = self.as_string()?;
                 match color_str.parse::<Color>() {
                     Ok(color) => Ok([
                         color.r as f32 / 255.0,
@@ -491,6 +481,17 @@ impl Scalar {
                     })?;
                 Ok(Self::from_string(arr.value(index)))
             }
+            DataType::LargeUtf8 | DataType::Utf8View => {
+                // Normalize non-Utf8 string storage to Utf8 for scalar extraction.
+                let one_value = array.slice(index, 1);
+                let casted = cast::cast(&one_value, &DataType::Utf8).map_err(|e| {
+                    AvengerScaleError::InternalError(format!(
+                        "Failed to cast string-like array to Utf8: {e}"
+                    ))
+                })?;
+                let arr = casted.as_string::<i32>();
+                Ok(Self::from_string(arr.value(0)))
+            }
             _ => Err(AvengerScaleError::InternalError(format!(
                 "Unsupported data type: {:?}",
                 array.data_type()
@@ -584,5 +585,25 @@ impl From<&str> for Scalar {
 impl From<String> for Scalar {
     fn from(value: String) -> Self {
         Self::from_string(&value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow::array::StringArray;
+
+    #[test]
+    fn scalar_try_from_utf8_view() -> Result<(), AvengerScaleError> {
+        let utf8 = Arc::new(StringArray::from(vec!["a", "b", "c"])) as ArrayRef;
+        let utf8_view = cast::cast(&utf8, &DataType::Utf8View).map_err(|e| {
+            AvengerScaleError::InternalError(format!("Failed to cast to Utf8View: {e}"))
+        })?;
+
+        let scalar = Scalar::try_from_array(utf8_view.as_ref(), 1)?;
+        assert_eq!(scalar.as_string()?, "b");
+        assert_eq!(scalar.data_type(), &DataType::Utf8);
+
+        Ok(())
     }
 }

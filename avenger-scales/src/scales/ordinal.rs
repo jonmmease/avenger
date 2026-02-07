@@ -218,26 +218,29 @@ fn range_dict_array_for_values(
     range_length: usize,
     values: &ArrayRef,
 ) -> Result<ArrayRef, AvengerScaleError> {
-    // If values is already a dictionary array, we need to handle it specially
-    let values_to_process = if let DataType::Dictionary(_, value_type) = values.data_type() {
-        // If domain type matches the dictionary's value type, cast the dictionary values
-        if domain.data_type() == value_type.as_ref() {
-            cast(values, domain.data_type())?
-        } else {
-            return Err(AvengerScaleError::ScaleOperationNotSupported(
-                "dictionary value type does not match domain type".to_string(),
-            ));
+    // Dictionary packing does not support Utf8View/LargeUtf8 value types in all
+    // Arrow kernels. Normalize string-like domains to Utf8 first.
+    let normalized_domain = match domain.data_type() {
+        DataType::LargeUtf8 | DataType::Utf8View => {
+            cast(domain, &DataType::Utf8)?
         }
-    } else if values.data_type() != domain.data_type() {
+        _ => domain.clone(),
+    };
+
+    // If values is already a dictionary array, we need to handle it specially
+    let values_to_process = if let DataType::Dictionary(_, _value_type) = values.data_type() {
+        // Normalize dictionary values to the normalized domain type.
+        cast(values, normalized_domain.data_type())?
+    } else if values.data_type() != normalized_domain.data_type() {
         // Try to cast values to match domain type
         // This is especially important for numeric values with string domains
-        match cast(values, domain.data_type()) {
+        match cast(values, normalized_domain.data_type()) {
             Ok(casted) => casted,
             Err(_) => {
                 return Err(AvengerScaleError::ScaleOperationNotSupported(format!(
                     "Cannot cast values of type {:?} to domain type {:?}",
                     values.data_type(),
-                    domain.data_type()
+                    normalized_domain.data_type()
                 )));
             }
         }
@@ -246,14 +249,14 @@ fn range_dict_array_for_values(
     };
 
     // Convert domain and range to vectors of Scalars
-    let domain_values = (0..domain.len())
-        .map(|i| Scalar::try_from_array(domain.as_ref(), i).unwrap())
+    let domain_values = (0..normalized_domain.len())
+        .map(|i| Scalar::try_from_array(normalized_domain.as_ref(), i).unwrap())
         .collect::<Vec<_>>();
 
     // Cast values to dictionary array
     let dict_type = DataType::Dictionary(
         Box::new(DataType::Int16),
-        Box::new(domain.data_type().clone()),
+        Box::new(normalized_domain.data_type().clone()),
     );
     let dict_array = cast(&values_to_process, &dict_type)?;
 
@@ -572,6 +575,33 @@ mod tests {
         assert!(result[3].is_nan()); // "d" (not in domain) -> NaN
         assert!(result[4].is_nan()); // null -> NaN
         assert_eq!(result[5], 30.0); // "c" -> 30.0
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_with_utf8_view_domain() -> Result<(), AvengerScaleError> {
+        // Build Utf8View domain/values (Arrow string view storage)
+        let utf8_domain = Arc::new(StringArray::from(vec!["a", "b", "c"])) as ArrayRef;
+        let domain = cast(&utf8_domain, &DataType::Utf8View)?;
+        let range = Arc::new(Float32Array::from(vec![1.0, 2.0, 3.0])) as ArrayRef;
+
+        let scale = OrdinalScale;
+        let config = ScaleConfig {
+            domain,
+            range,
+            options: HashMap::new(),
+            context: ScaleContext::default(),
+        };
+
+        let utf8_values = Arc::new(StringArray::from(vec!["b", "a", "d"])) as ArrayRef;
+        let values = cast(&utf8_values, &DataType::Utf8View)?;
+
+        let result = scale.scale_to_numeric(&config, &values)?;
+        let result = result.as_vec(values.len(), None);
+        assert_eq!(result[0], 2.0);
+        assert_eq!(result[1], 1.0);
+        assert!(result[2].is_nan());
 
         Ok(())
     }
