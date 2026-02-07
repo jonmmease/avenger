@@ -4,13 +4,10 @@
 
 pub mod band_positions;
 pub mod coord;
-pub mod coordination_strategy;
 pub mod dimension_config;
 pub mod evaluated_facet_tree;
 pub mod guide;
-pub mod guide_measurement;
 pub mod guide_utils;
 pub mod keys;
 pub mod marks;
 pub mod scalar_cmp;
-pub mod scale_helpers;
