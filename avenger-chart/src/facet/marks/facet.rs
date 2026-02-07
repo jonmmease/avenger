@@ -521,7 +521,7 @@ impl CompiledMark for CompiledFacetCol {
                 )
             })?;
 
-        if facet_measurement.cell_values.is_empty() {
+        if facet_measurement.cells.is_empty() {
             return Ok(Vec::new());
         }
 
@@ -532,12 +532,11 @@ impl CompiledMark for CompiledFacetCol {
             .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
 
         // Compute positions from the scale
-        let domain_array = ScalarValue::iter_to_array(
-            facet_measurement.cell_values.iter().cloned(),
-        )
-        .map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to create domain array: {}", e))
-        })?;
+        let cell_values: Vec<ScalarValue> = facet_measurement.cell_values().cloned().collect();
+        let domain_array =
+            ScalarValue::iter_to_array(cell_values.iter().cloned()).map_err(|e| {
+                AvengerChartError::InternalError(format!("Failed to create domain array: {}", e))
+            })?;
 
         let configured = column_scale.configured();
         let positions = configured
@@ -546,7 +545,7 @@ impl CompiledMark for CompiledFacetCol {
             .map_err(|e| {
                 AvengerChartError::InternalError(format!("Failed to scale positions: {}", e))
             })?;
-        let cell_positions: Vec<f32> = positions.as_vec(facet_measurement.cell_values.len(), None);
+        let cell_positions: Vec<f32> = positions.as_vec(cell_values.len(), None);
 
         // Get subplot width from scale (used for debug logging)
         let subplot_width = bandwidth(&configured.config).map_err(|e| {
@@ -560,23 +559,14 @@ impl CompiledMark for CompiledFacetCol {
             context.eval.with_params(params)
         };
 
-        let mut scene_marks = Vec::with_capacity(facet_measurement.cell_values.len());
+        let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
 
         // Render each subplot using pre-computed measurements from coord.measure()
         // Note: Measurements have already been adjusted for legend overflow by
         // coordinate_overflow_for_guides() before build_plot_components() is called.
-        for (idx, (data_override, measurement)) in facet_measurement
-            .data_overrides
-            .iter()
-            .zip(facet_measurement.subplot_measurements.iter())
-            .enumerate()
-        {
+        for (idx, cell) in facet_measurement.cells.iter().enumerate() {
             let position = cell_positions[idx];
-            let is_empty_cell = facet_measurement
-                .empty_cells
-                .get(idx)
-                .copied()
-                .unwrap_or(false);
+            let is_empty_cell = cell.plan.is_empty;
 
             // For empty cells (created by Level(N) sharing for uniform layout),
             // render an empty group at the correct position to preserve layout.
@@ -599,19 +589,15 @@ impl CompiledMark for CompiledFacetCol {
                 continue;
             }
 
-            // Build full cell path from parent_path + current cell value
-            let mut cell_path: Vec<ScalarValue> = facet_measurement.parent_path.clone();
-            cell_path.push(facet_measurement.cell_values[idx].clone());
-
             // Build plot components using pre-computed measurement
             let components = self
                 .compiled_subplot
                 .build_plot_components(
                     &subplot_eval_ctx,
-                    measurement,
-                    Some(data_override),
+                    &cell.measurement,
+                    Some(&cell.plan.filtered_df),
                     true, // dimensions_are_plot_area
-                    &cell_path,
+                    &cell.plan.full_path,
                 )
                 .await?;
 

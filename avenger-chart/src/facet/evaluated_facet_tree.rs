@@ -332,159 +332,6 @@ impl EvaluatedFacetTree {
             .map_or(false, |parent| parent.values().any(|v| v == target_value))
     }
 
-    /// Get the domain values of a nested (inner) facet given the outer path.
-    ///
-    /// This navigates to the node at `outer_path`, then returns the domain values
-    /// of its child partition (the inner facet). Useful for getting the inner
-    /// facet's domain without re-querying.
-    ///
-    /// # Arguments
-    /// * `outer_path` - Path to the outer facet node (empty for root level)
-    ///
-    /// # Returns
-    /// The domain values of the inner facet, or None if there's no inner facet.
-    pub fn inner_domain_at_path(&self, outer_path: &[ScalarValue]) -> Option<Vec<ScalarValue>> {
-        let outer_node = if outer_path.is_empty() {
-            self.root.as_ref()?
-        } else {
-            self.node_at_path(outer_path)?
-        };
-
-        // For a branch node, all children should have the same structure
-        // Get the first child to access the inner domain
-        match &outer_node.content {
-            PartitionContent::Leaf { .. } => None, // No inner facet
-            PartitionContent::Branch { children } => {
-                // The inner domain values are the values of the first child node
-                // (for shared domains, all children have the same domain)
-                children
-                    .values()
-                    .next()
-                    .map(|child| child.values().cloned().collect())
-            }
-        }
-    }
-
-    /// Compute the maximum inner cell count across all outer values.
-    ///
-    /// This is used for uniform Free scaling - when the inner facet uses Free
-    /// scaling mode, we need to know the maximum number of inner cells across
-    /// all outer cells to ensure uniform sizing.
-    ///
-    /// # Arguments
-    /// * `outer_path` - Path to the outer facet node (empty for root level)
-    ///
-    /// # Returns
-    /// The maximum number of inner cells across all outer values, or None if
-    /// there's no inner facet or the path is invalid.
-    pub fn max_inner_cell_count(&self, outer_path: &[ScalarValue]) -> Option<usize> {
-        let outer_node = if outer_path.is_empty() {
-            self.root.as_ref()?
-        } else {
-            self.node_at_path(outer_path)?
-        };
-
-        match &outer_node.content {
-            PartitionContent::Leaf { .. } => None,
-            PartitionContent::Branch { children } => {
-                let max_count = children
-                    .values()
-                    .map(|child| child.domain_count())
-                    .max()
-                    .unwrap_or(1);
-                Some(max_count.max(1)) // Floor at 1 to prevent divide-by-zero
-            }
-        }
-    }
-
-    /// Get all inner domain values for each outer cell (for Free scaling).
-    ///
-    /// Returns a map from outer value to the inner domain for that cell.
-    /// Useful when inner domains vary per outer cell (Free scaling).
-    ///
-    /// # Arguments
-    /// * `outer_path` - Path to the outer facet node (empty for root level)
-    ///
-    /// # Returns
-    /// Map of outer value -> inner domain values, or None if invalid.
-    pub fn inner_domains_per_cell(
-        &self,
-        outer_path: &[ScalarValue],
-    ) -> Option<IndexMap<ScalarValue, Vec<ScalarValue>>> {
-        let outer_node = if outer_path.is_empty() {
-            self.root.as_ref()?
-        } else {
-            self.node_at_path(outer_path)?
-        };
-
-        match &outer_node.content {
-            PartitionContent::Leaf { .. } => None,
-            PartitionContent::Branch { children } => {
-                let result: IndexMap<ScalarValue, Vec<ScalarValue>> = children
-                    .iter()
-                    .map(|(outer_val, child)| {
-                        let inner_vals: Vec<ScalarValue> = child.values().cloned().collect();
-                        (outer_val.clone(), inner_vals)
-                    })
-                    .collect();
-                Some(result)
-            }
-        }
-    }
-
-    /// Get the union of all inner domain values across all outer cells.
-    ///
-    /// This returns the sorted set of all distinct inner domain values, which is
-    /// equivalent to querying `DISTINCT inner_field` from the full dataset.
-    /// Used for inner facet domain computation in `detect_nested_facet_and_compute_coordination`.
-    ///
-    /// # Arguments
-    /// * `outer_path` - Path to the outer facet node (empty for root level)
-    ///
-    /// # Returns
-    /// Sorted vector of all distinct inner domain values, or None if invalid.
-    pub fn inner_domain_union(&self, outer_path: &[ScalarValue]) -> Option<Vec<ScalarValue>> {
-        let outer_node = if outer_path.is_empty() {
-            self.root.as_ref()?
-        } else {
-            self.node_at_path(outer_path)?
-        };
-
-        match &outer_node.content {
-            PartitionContent::Leaf { .. } => None,
-            PartitionContent::Branch { children } => {
-                // Collect all unique values across all children
-                let mut all_values: Vec<ScalarValue> = children
-                    .values()
-                    .flat_map(|child| child.values().cloned())
-                    .collect();
-
-                // Sort and deduplicate
-                all_values.sort_by(scalar_total_cmp);
-                all_values.dedup();
-
-                Some(all_values)
-            }
-        }
-    }
-
-    /// Get the outer domain values (values at the current node level).
-    ///
-    /// # Arguments
-    /// * `path` - Path to the node (empty for root level)
-    ///
-    /// # Returns
-    /// Vector of domain values at this level, or None if path is invalid.
-    pub fn domain_values_at(&self, path: &[ScalarValue]) -> Option<Vec<ScalarValue>> {
-        let node = if path.is_empty() {
-            self.root.as_ref()?
-        } else {
-            self.node_at_path(path)?
-        };
-
-        Some(node.values().cloned().collect())
-    }
-
     /// Enumerate facet cell values for a facet at `facet_path` using Level(N) sharing semantics.
     ///
     /// `facet_path` is the path to the parent groups of the current facet level
@@ -542,16 +389,6 @@ impl EvaluatedFacetTree {
             all_values.dedup();
             all_values
         }
-    }
-
-    /// Check if this spec has any facet structure (non-empty).
-    pub fn has_facets(&self) -> bool {
-        self.root.is_some()
-    }
-
-    /// Check if the spec has a nested facet (depth >= 2).
-    pub fn has_nested_facets(&self) -> bool {
-        self.depth() >= 2
     }
 
     /// Get the sharing level for a channel.
@@ -677,41 +514,6 @@ impl EvaluatedFacetTree {
         }
     }
 
-    /// Convert position indices to actual domain values by traversing tree.
-    ///
-    /// Uses IndexMap::get_index() to recover domain values from indices.
-    /// This enables converting position_path (index-based) to actual ScalarValues
-    /// for tree queries like inner_domain_union().
-    pub fn path_values_from_indices(&self, indices: &[usize]) -> Vec<ScalarValue> {
-        let mut values = Vec::with_capacity(indices.len());
-        let mut current_node = self.root.as_ref();
-
-        for &idx in indices {
-            match current_node {
-                Some(node) => match &node.content {
-                    PartitionContent::Leaf {
-                        values: domain_values,
-                    } => {
-                        if let Some(val) = domain_values.get(idx) {
-                            values.push(val.clone());
-                        }
-                        break; // Leaf node, can't go deeper
-                    }
-                    PartitionContent::Branch { children } => {
-                        if let Some((key, child)) = children.get_index(idx) {
-                            values.push(key.clone());
-                            current_node = Some(child.as_ref());
-                        } else {
-                            break; // Index out of bounds
-                        }
-                    }
-                },
-                None => break,
-            }
-        }
-        values
-    }
-
     /// Determine axis visibility for a cell at given position in the facet grid.
     ///
     /// This implements sharing-level-aware visibility: axes show labels/titles only on cells
@@ -819,6 +621,39 @@ impl EvaluatedFacetTree {
             show_labels: !hide_labels,
             show_title: !hide_title,
         }
+    }
+}
+
+#[cfg(test)]
+impl EvaluatedFacetTree {
+    fn path_values_from_indices(&self, indices: &[usize]) -> Vec<ScalarValue> {
+        let mut values = Vec::with_capacity(indices.len());
+        let mut current_node = self.root.as_ref();
+
+        for &idx in indices {
+            match current_node {
+                Some(node) => match &node.content {
+                    PartitionContent::Leaf {
+                        values: domain_values,
+                    } => {
+                        if let Some(val) = domain_values.get(idx) {
+                            values.push(val.clone());
+                        }
+                        break;
+                    }
+                    PartitionContent::Branch { children } => {
+                        if let Some((key, child)) = children.get_index(idx) {
+                            values.push(key.clone());
+                            current_node = Some(child.as_ref());
+                        } else {
+                            break;
+                        }
+                    }
+                },
+                None => break,
+            }
+        }
+        values
     }
 }
 

@@ -8,9 +8,12 @@ use std::{collections::HashMap, future::Future, pin::Pin};
 use datafusion::common::ScalarValue;
 
 use crate::{
-    coords::{CellDomainInfo, CoordMeasurement, CoordinatedLayout, CoordinatedOverflow},
+    coords::{CellDomainInfo, CoordinatedLayout, CoordinatedOverflow},
     error::AvengerChartError,
-    facet::{coord::union_domain_extents, sharing_policy},
+    facet::{
+        coord::{FacetColCoordMeasurement, union_domain_extents},
+        sharing_policy,
+    },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
     scales::{ConfiguredScaleWithSpec, domain_extent::DomainExtent},
@@ -52,11 +55,14 @@ impl CoordinationGroupKey {
 
 /// Resolve the coordination key for a node, falling back to depth-only grouping.
 pub fn key_for_measurement(
-    measurement: &dyn CoordMeasurement,
+    measurement: &ComponentsMeasurement,
     depth: usize,
 ) -> CoordinationGroupKey {
     measurement
-        .coordination_group_key(depth)
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetColCoordMeasurement>()
+        .map(|facet_col| facet_col.coordination_group_key_for_depth(depth))
         .unwrap_or_else(|| CoordinationGroupKey::fallback(depth))
 }
 
@@ -112,13 +118,24 @@ fn collect_overflow_by_key(
     depth: usize,
     registry: &mut HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>>,
 ) {
-    if let Some(local) = measurement.coord_measurement.local_overflow() {
-        let key = key_for_measurement(measurement.coord_measurement.as_ref(), depth);
+    if let Some(local) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetColCoordMeasurement>()
+        .and_then(FacetColCoordMeasurement::local_overflow_value)
+    {
+        let key = key_for_measurement(measurement, depth);
         registry.entry(key).or_default().push(local);
     }
 
-    for child in measurement.coord_measurement.child_measurements() {
-        collect_overflow_by_key(child, depth + 1, registry);
+    if let Some(facet_col) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetColCoordMeasurement>()
+    {
+        for child in facet_col.child_measurements_iter() {
+            collect_overflow_by_key(child, depth + 1, registry);
+        }
     }
 }
 
@@ -127,15 +144,25 @@ fn distribute_overflow_by_key(
     depth: usize,
     max_by_key: &HashMap<CoordinationGroupKey, CoordinatedOverflow>,
 ) {
-    let key = key_for_measurement(measurement.coord_measurement.as_ref(), depth);
-    if let Some(max_overflow) = max_by_key.get(&key) {
-        measurement
+    let key = key_for_measurement(measurement, depth);
+    if let Some(max_overflow) = max_by_key.get(&key).cloned() {
+        if let Some(facet_col) = measurement
             .coord_measurement
-            .set_coordinated_overflow(max_overflow.clone());
+            .as_any_mut()
+            .downcast_mut::<FacetColCoordMeasurement>()
+        {
+            facet_col.set_coordinated_overflow_value(max_overflow);
+        }
     }
 
-    for child in measurement.coord_measurement.child_measurements_mut() {
-        distribute_overflow_by_key(child, depth + 1, max_by_key);
+    if let Some(facet_col) = measurement
+        .coord_measurement
+        .as_any_mut()
+        .downcast_mut::<FacetColCoordMeasurement>()
+    {
+        for child in facet_col.child_measurements_iter_mut() {
+            distribute_overflow_by_key(child, depth + 1, max_by_key);
+        }
     }
 }
 
@@ -170,13 +197,20 @@ fn collect_layout_by_key(
     depth: usize,
     registry: &mut HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>>,
 ) {
-    if let Some(local) = measurement.coord_measurement.local_layout() {
-        let key = key_for_measurement(measurement.coord_measurement.as_ref(), depth);
-        registry.entry(key).or_default().push(local);
-    }
+    if let Some(facet_col) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetColCoordMeasurement>()
+    {
+        let key = key_for_measurement(measurement, depth);
+        registry
+            .entry(key)
+            .or_default()
+            .push(facet_col.local_layout_value());
 
-    for child in measurement.coord_measurement.child_measurements() {
-        collect_layout_by_key(child, depth + 1, registry);
+        for child in facet_col.child_measurements_iter() {
+            collect_layout_by_key(child, depth + 1, registry);
+        }
     }
 }
 
@@ -185,15 +219,25 @@ fn distribute_layout_by_key(
     depth: usize,
     max_by_key: &HashMap<CoordinationGroupKey, CoordinatedLayout>,
 ) {
-    let key = key_for_measurement(measurement.coord_measurement.as_ref(), depth);
-    if let Some(max_layout) = max_by_key.get(&key) {
-        measurement
+    let key = key_for_measurement(measurement, depth);
+    if let Some(max_layout) = max_by_key.get(&key).cloned() {
+        if let Some(facet_col) = measurement
             .coord_measurement
-            .set_coordinated_layout(max_layout.clone());
+            .as_any_mut()
+            .downcast_mut::<FacetColCoordMeasurement>()
+        {
+            facet_col.set_coordinated_layout_value(max_layout);
+        }
     }
 
-    for child in measurement.coord_measurement.child_measurements_mut() {
-        distribute_layout_by_key(child, depth + 1, max_by_key);
+    if let Some(facet_col) = measurement
+        .coord_measurement
+        .as_any_mut()
+        .downcast_mut::<FacetColCoordMeasurement>()
+    {
+        for child in facet_col.child_measurements_iter_mut() {
+            distribute_layout_by_key(child, depth + 1, max_by_key);
+        }
     }
 }
 
@@ -201,12 +245,16 @@ fn collect_cell_domain_extents_recursive(
     measurement: &ComponentsMeasurement,
     collector: &mut Vec<CellDomainInfo>,
 ) {
-    measurement
+    if let Some(facet_col) = measurement
         .coord_measurement
-        .collect_cell_domain_extents(collector);
+        .as_any()
+        .downcast_ref::<FacetColCoordMeasurement>()
+    {
+        facet_col.collect_cell_domain_infos(collector);
 
-    for child in measurement.coord_measurement.child_measurements() {
-        collect_cell_domain_extents_recursive(child, collector);
+        for child in facet_col.child_measurements_iter() {
+            collect_cell_domain_extents_recursive(child, collector);
+        }
     }
 }
 
@@ -246,12 +294,16 @@ fn distribute_cell_domain_extents_recursive(
     measurement: &mut ComponentsMeasurement,
     unified: &HashMap<(String, Vec<ScalarValue>), DomainExtent>,
 ) {
-    measurement
+    if let Some(facet_col) = measurement
         .coord_measurement
-        .distribute_cell_domain_extents(unified);
+        .as_any_mut()
+        .downcast_mut::<FacetColCoordMeasurement>()
+    {
+        facet_col.distribute_coordinated_domain_extents(unified);
 
-    for child in measurement.coord_measurement.child_measurements_mut() {
-        distribute_cell_domain_extents_recursive(child, unified);
+        for child in facet_col.child_measurements_iter_mut() {
+            distribute_cell_domain_extents_recursive(child, unified);
+        }
     }
 }
 
@@ -287,18 +339,26 @@ fn apply_coordinated_overflow_recursive<'a>(
     eval_ctx: &'a EvaluationContext,
 ) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
-        measurement
+        if let Some(facet_col) = measurement
             .coord_measurement
-            .apply_coordinated_overflow(eval_ctx)
-            .await?;
+            .as_any_mut()
+            .downcast_mut::<FacetColCoordMeasurement>()
+        {
+            facet_col.apply_coordinated_overflow(eval_ctx).await?;
+            let parent_width = facet_col.coordinated_subplot_width_value();
 
-        let parent_width = measurement.coord_measurement.coordinated_subplot_width();
-
-        for child in measurement.coord_measurement.child_measurements_mut() {
-            if let Some(width) = parent_width {
-                child.coord_measurement.set_parent_bandwidth(width);
+            for child in facet_col.child_measurements_iter_mut() {
+                if let Some(width) = parent_width {
+                    if let Some(child_facet_col) = child
+                        .coord_measurement
+                        .as_any_mut()
+                        .downcast_mut::<FacetColCoordMeasurement>()
+                    {
+                        child_facet_col.set_parent_bandwidth_value(width);
+                    }
+                }
+                apply_coordinated_overflow_recursive(child, eval_ctx).await?;
             }
-            apply_coordinated_overflow_recursive(child, eval_ctx).await?;
         }
 
         Ok(())
@@ -310,29 +370,37 @@ fn reapply_scale_adjustments_recursive(measurement: &mut ComponentsMeasurement) 
         .coord_measurement
         .apply_scale_adjustments(&mut measurement.scales);
 
-    let parent_width = measurement.coord_measurement.coordinated_subplot_width();
+    if let Some(facet_col) = measurement
+        .coord_measurement
+        .as_any_mut()
+        .downcast_mut::<FacetColCoordMeasurement>()
+    {
+        let parent_width = facet_col.coordinated_subplot_width_value();
 
-    for child in measurement.coord_measurement.child_measurements_mut() {
-        if let Some(width) = parent_width {
-            if (child.plot_area_width - width).abs() > 0.01 {
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "coordinate_facet_measurement_tree: child plot_area_width {:.1} -> {:.1}",
-                        child.plot_area_width, width
-                    );
-                }
-                child.plot_area_width = width;
+        for child in facet_col.child_measurements_iter_mut() {
+            if let Some(width) = parent_width {
+                if (child.plot_area_width - width).abs() > 0.01 {
+                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "coordinate_facet_measurement_tree: child plot_area_width {:.1} -> {:.1}",
+                            child.plot_area_width, width
+                        );
+                    }
+                    child.plot_area_width = width;
 
-                if let Some(column_scale) = child.scales.get_mut("column") {
-                    let updated_config = column_scale
-                        .configured()
-                        .clone()
-                        .with_range_interval((0.0, width));
-                    *column_scale =
-                        ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
+                    if let Some(column_scale) = child.scales.get_mut("column") {
+                        let updated_config = column_scale
+                            .configured()
+                            .clone()
+                            .with_range_interval((0.0, width));
+                        *column_scale = ConfiguredScaleWithSpec::new(
+                            column_scale.spec().clone(),
+                            updated_config,
+                        );
+                    }
                 }
             }
+            reapply_scale_adjustments_recursive(child);
         }
-        reapply_scale_adjustments_recursive(child);
     }
 }

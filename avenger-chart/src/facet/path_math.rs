@@ -70,6 +70,32 @@ pub fn sharing_group_boundary(facet_depth: u8, sharing_level: u8) -> usize {
     (facet_depth as usize).saturating_sub(sharing_level as usize)
 }
 
+/// Compute ancestor key for nested facet measurement sharing.
+///
+/// Nested sharing level is defined one level deeper than the current cell path.
+/// For a current path at depth `D`, nested facet depth is `D + 1`, and Level(N)
+/// at nested depth translates to removing `N - 1` components from current path.
+pub fn nested_measurement_ancestor_key(
+    current_cell_path: &[ScalarValue],
+    nested_sharing_level: u8,
+    nested_depth: u8,
+) -> Vec<ScalarValue> {
+    debug_assert_eq!(
+        nested_depth as usize,
+        current_cell_path.len() + 1,
+        "nested_depth ({}) must equal current_cell_path.len()+1 ({})",
+        nested_depth,
+        current_cell_path.len() + 1
+    );
+
+    let translated_level = nested_sharing_level.saturating_sub(1);
+    ancestor_key(
+        current_cell_path,
+        translated_level,
+        current_cell_path.len() as u8,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +151,33 @@ mod tests {
         assert_eq!(sharing_group_boundary(4, 2), 2);
         assert_eq!(sharing_group_boundary(4, 4), 0);
         assert_eq!(sharing_group_boundary(4, 255), 0);
+    }
+
+    #[test]
+    fn nested_measurement_ancestor_translates_level0_to_full_path() {
+        let path = vec![s("Div"), s("Dept"), s("Team")];
+        let key = nested_measurement_ancestor_key(&path, 0, 4);
+        assert_eq!(key, path);
+    }
+
+    #[test]
+    fn nested_measurement_ancestor_translates_level1_to_full_path() {
+        let path = vec![s("Div"), s("Dept"), s("Team")];
+        let key = nested_measurement_ancestor_key(&path, 1, 4);
+        assert_eq!(key, path);
+    }
+
+    #[test]
+    fn nested_measurement_ancestor_translates_level2_to_drop_one() {
+        let path = vec![s("Div"), s("Dept"), s("Team")];
+        let key = nested_measurement_ancestor_key(&path, 2, 4);
+        assert_eq!(key, vec![s("Div"), s("Dept")]);
+    }
+
+    #[test]
+    fn nested_measurement_ancestor_shared_like_levels_map_to_global() {
+        let path = vec![s("Div"), s("Dept"), s("Team")];
+        assert!(nested_measurement_ancestor_key(&path, 4, 4).is_empty());
+        assert!(nested_measurement_ancestor_key(&path, 255, 4).is_empty());
     }
 }

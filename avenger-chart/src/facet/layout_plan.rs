@@ -3,6 +3,8 @@
 //! This module is shared by facet coordinate measurement and facet guides to
 //! keep cell planning and overflow edge/gap semantics consistent.
 
+use std::borrow::Borrow;
+
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
 use crate::{coords::OverflowSpaceRequirement, plot::compiled::ComponentsMeasurement};
@@ -27,6 +29,11 @@ pub(crate) struct FacetBandPlan {
     pub n: usize,
 }
 
+#[inline]
+pub(crate) fn is_renderable_slot(is_empty: bool) -> bool {
+    !is_empty
+}
+
 /// Compute `padding_inner_px` from the max of adjacent overflow combinations.
 ///
 /// Pairs containing empty placeholder cells are skipped so hidden slots do not
@@ -43,7 +50,7 @@ pub(crate) fn compute_padding_from_overflows(
     for i in 0..overflows.len() - 1 {
         let left_is_empty = empty_cells.get(i).copied().unwrap_or(false);
         let right_is_empty = empty_cells.get(i + 1).copied().unwrap_or(false);
-        if left_is_empty || right_is_empty {
+        if !is_renderable_slot(left_is_empty) || !is_renderable_slot(right_is_empty) {
             continue;
         }
         let combined = overflows[i].right + overflows[i + 1].left;
@@ -60,10 +67,11 @@ pub(crate) fn effective_edge_indices(empty_cells: &[bool], count: usize) -> Opti
         return None;
     }
 
-    let first_non_empty = (0..count).find(|&idx| !empty_cells.get(idx).copied().unwrap_or(false));
+    let first_non_empty =
+        (0..count).find(|&idx| is_renderable_slot(empty_cells.get(idx).copied().unwrap_or(false)));
     let last_non_empty = (0..count)
         .rev()
-        .find(|&idx| !empty_cells.get(idx).copied().unwrap_or(false));
+        .find(|&idx| is_renderable_slot(empty_cells.get(idx).copied().unwrap_or(false)));
 
     match (first_non_empty, last_non_empty) {
         (Some(first), Some(last)) => Some((first, last)),
@@ -71,42 +79,52 @@ pub(crate) fn effective_edge_indices(empty_cells: &[bool], count: usize) -> Opti
     }
 }
 
+pub(crate) fn effective_edge_indices_from_exists(
+    exists_in_tree: &[bool],
+) -> Option<(usize, usize)> {
+    let empty_cells: Vec<bool> = exists_in_tree.iter().map(|exists| !*exists).collect();
+    effective_edge_indices(&empty_cells, exists_in_tree.len())
+}
+
 /// Aggregate guide and total overflow across FacetCol subplot measurements.
 ///
 /// Canonical policy:
 /// - top/bottom: max across all cells
 /// - left/right: first/last effective edge cells (preferring non-empty)
-pub(crate) fn aggregate_facet_col_overflow(
-    subplot_measurements: &[ComponentsMeasurement],
+pub(crate) fn aggregate_facet_col_overflow<T>(
+    subplot_measurements: &[T],
     empty_cells: &[bool],
-) -> Option<(OverflowSpaceRequirement, OverflowSpaceRequirement)> {
+) -> Option<(OverflowSpaceRequirement, OverflowSpaceRequirement)>
+where
+    T: Borrow<ComponentsMeasurement>,
+{
     let (first_idx, last_idx) = effective_edge_indices(empty_cells, subplot_measurements.len())?;
 
     let first_guide_left = subplot_measurements
         .get(first_idx)
-        .map(|m| m.layout.overflow.left)
+        .map(|m| m.borrow().layout.overflow.left)
         .unwrap_or(0.0);
     let last_guide_right = subplot_measurements
         .get(last_idx)
-        .map(|m| m.layout.overflow.right)
+        .map(|m| m.borrow().layout.overflow.right)
         .unwrap_or(0.0);
     let first_total_left = subplot_measurements
         .get(first_idx)
-        .map(|m| m.layout.total_overflow.left)
+        .map(|m| m.borrow().layout.total_overflow.left)
         .unwrap_or(0.0);
     let last_total_right = subplot_measurements
         .get(last_idx)
-        .map(|m| m.layout.total_overflow.right)
+        .map(|m| m.borrow().layout.total_overflow.right)
         .unwrap_or(0.0);
 
     let guide = OverflowSpaceRequirement {
         top: subplot_measurements
             .iter()
-            .map(|m| m.layout.overflow.top)
+            .map(|m| m.borrow().layout.overflow.top)
             .fold(0.0f32, f32::max),
         bottom: subplot_measurements
             .iter()
-            .map(|m| m.layout.overflow.bottom)
+            .map(|m| m.borrow().layout.overflow.bottom)
             .fold(0.0f32, f32::max),
         left: first_guide_left,
         right: last_guide_right,
@@ -115,11 +133,11 @@ pub(crate) fn aggregate_facet_col_overflow(
     let total = OverflowSpaceRequirement {
         top: subplot_measurements
             .iter()
-            .map(|m| m.layout.total_overflow.top)
+            .map(|m| m.borrow().layout.total_overflow.top)
             .fold(0.0f32, f32::max),
         bottom: subplot_measurements
             .iter()
-            .map(|m| m.layout.total_overflow.bottom)
+            .map(|m| m.borrow().layout.total_overflow.bottom)
             .fold(0.0f32, f32::max),
         left: first_total_left,
         right: last_total_right,
@@ -246,5 +264,11 @@ mod tests {
     #[test]
     fn effective_edge_indices_none_for_no_cells() {
         assert_eq!(effective_edge_indices(&[], 0), None);
+    }
+
+    #[test]
+    fn effective_edge_indices_from_exists_maps_to_empty_mask() {
+        let exists = vec![false, false, true, true];
+        assert_eq!(effective_edge_indices_from_exists(&exists), Some((2, 3)));
     }
 }

@@ -11,7 +11,7 @@ use crate::facet::guide_utils::{
     FacetLabelMeasurementConfig, FacetLabelRenderConfig, measure_facet_label_slab,
     render_facet_label_slab,
 };
-use crate::facet::layout_plan::aggregate_facet_col_overflow;
+use crate::facet::layout_plan::effective_edge_indices_from_exists;
 use crate::facet::marks::facet::CompiledFacetCol;
 use crate::guide::{CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
@@ -140,8 +140,8 @@ impl CompiledGuide for FacetColGuide {
             // Fast path: use pre-computed overflow from coord_measurement
             // Use total_overflow to include legend space in outer layout calculation,
             // with the same edge policy used by FacetColCoordMeasurement::local_overflow.
-            aggregate_facet_col_overflow(&fcm.subplot_measurements, &fcm.empty_cells)
-                .map(|(_, total)| total)
+            fcm.local_overflow_value()
+                .map(|overflow| overflow.total)
                 .unwrap_or_default()
         } else {
             // Slow path: compute subplot overflow (first pass, before coord_measurement exists)
@@ -165,10 +165,7 @@ impl CompiledGuide for FacetColGuide {
             coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetColCoordMeasurement>())
         {
             // Second pass: use Level(N)-aware cell_values from coord measurement
-            fcm.cell_values
-                .iter()
-                .map(|v| format_scalar_value(v))
-                .collect()
+            fcm.cell_values().map(format_scalar_value).collect()
         } else {
             // First pass: fall back to scale domain
             let column_scale = scales
@@ -290,11 +287,7 @@ impl CompiledGuide for FacetColGuide {
             // Use cell_values from coord measurement (Level(N)-aware enumeration)
             let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
             let positions: Vec<_> = band_iter.collect();
-            let labels: Vec<String> = fcm
-                .cell_values
-                .iter()
-                .map(|v| format_scalar_value(v))
-                .collect();
+            let labels: Vec<String> = fcm.cell_values().map(format_scalar_value).collect();
             (positions, labels)
         } else {
             // Fall back to scale domain
@@ -489,21 +482,16 @@ impl FacetColGuide {
                     .await;
             }
 
-            let mut first_existing_idx: Option<usize> = None;
-            let mut last_existing_idx: Option<usize> = None;
-            for (idx, band_position) in band_positions.iter().enumerate() {
-                let mut path = facet_path.to_vec();
-                path.push(band_position.value.clone());
-                if facet_tree.cell_exists(&path) {
-                    if first_existing_idx.is_none() {
-                        first_existing_idx = Some(idx);
-                    }
-                    last_existing_idx = Some(idx);
-                }
-            }
-
-            let first_idx = first_existing_idx.unwrap_or(0);
-            let last_idx = last_existing_idx.unwrap_or(band_positions.len() - 1);
+            let exists_in_tree: Vec<bool> = band_positions
+                .iter()
+                .map(|band_position| {
+                    let mut path = facet_path.to_vec();
+                    path.push(band_position.value.clone());
+                    facet_tree.cell_exists(&path)
+                })
+                .collect();
+            let (first_idx, last_idx) = effective_edge_indices_from_exists(&exists_in_tree)
+                .unwrap_or((0, band_positions.len() - 1));
 
             // Measure first cell for correct left overflow (Y-axis on left)
             let first_path = {

@@ -10,7 +10,7 @@ pub use crate::guide::OverflowSpaceRequirement;
 
 use crate::{
     error::AvengerChartError,
-    facet::{band_positions::BandPosition, coordination::CoordinationGroupKey},
+    facet::band_positions::BandPosition,
     guide::CoordinateGuide,
     marks::CompiledMark,
     plot::compiled::ComponentsMeasurement,
@@ -63,16 +63,7 @@ impl CoordinatedOverflow {
 /// concrete type. This pattern (same as `PlotGeometry`) preserves object safety
 /// while allowing coordinate systems to use their specific measurement types.
 ///
-/// # Coordination Support
-///
-/// The trait also provides methods for cross-facet coordination of overflow values.
-/// This enables facet labels at the same nesting depth to be horizontally aligned
-/// regardless of their individual subplot overflow requirements.
-///
-/// Default implementations return `None` or empty slices, making coordination opt-in
-/// for coordinate systems that support it (facets) while being a no-op for those
-/// that don't (Cartesian, Polar, etc.).
-#[async_trait::async_trait]
+/// Coordinate measurement interface shared by all coordinate systems.
 pub trait CoordMeasurement: Send + Sync + 'static {
     /// Downcast support for accessing concrete measurement types
     fn as_any(&self) -> &dyn Any;
@@ -80,35 +71,10 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     /// Mutable downcast support for coordination phase
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    /// Get child measurements for traversal.
-    /// Returns empty slice for non-facet coords.
-    fn child_measurements(&self) -> &[ComponentsMeasurement] {
-        &[]
-    }
-
-    /// Get mutable child measurements for coordination.
-    fn child_measurements_mut(&mut self) -> &mut [ComponentsMeasurement] {
-        &mut []
-    }
-
-    /// Get local overflow to contribute to guide alignment by nesting depth.
-    /// Returns None for non-coordinatable measurements (e.g., EmptyCoordMeasurement).
-    ///
-    /// Implementations should compute this from their children's overflow values.
-    fn local_overflow(&self) -> Option<CoordinatedOverflow> {
-        None
-    }
-
     /// Get coordinated overflow after coordination phase.
     /// Returns None for non-coordinatable measurements.
     fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
         None
-    }
-
-    /// Set coordinated overflow during distribution pass.
-    /// Default: no-op for non-coordinatable measurements.
-    fn set_coordinated_overflow(&mut self, _overflow: CoordinatedOverflow) {
-        // Default: no-op
     }
 
     /// Apply scale adjustments derived from coordinate measurement.
@@ -123,136 +89,6 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     /// Default implementation: no-op (for coordinate systems that don't need scale updates)
     fn apply_scale_adjustments(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
         // Default: no-op
-    }
-
-    /// Returns the padding_inner_px if this is a facet coord with internal spacing.
-    ///
-    /// Used for propagating child facet padding to parent facets of the same orientation.
-    /// When a parent FacetColumn contains nested FacetColumn children, the parent should
-    /// use at least as much gap spacing as its children to maintain visual consistency.
-    ///
-    /// Default implementation: None (for non-facet coordinate systems)
-    fn padding_inner_px(&self) -> Option<f32> {
-        None
-    }
-
-    /// Update child measurement dimensions after second-pass layout.
-    ///
-    /// When the outer layout's second pass computes a different plot_area size
-    /// (due to legend overflow), this method updates child subplot measurements
-    /// to use the correct dimensions.
-    ///
-    /// # Arguments
-    /// * `new_height` - The correct plot_area height from second-pass layout
-    ///
-    /// Default implementation: no-op (for non-facet coordinate systems)
-    fn update_child_dimensions(&mut self, _new_height: f32) {
-        // Default: no-op
-    }
-
-    /// Re-measure children after coordinated overflow is set.
-    ///
-    /// When legend overflow causes subplot height to change, this method
-    /// re-measures child subplots with the corrected dimensions. This ensures
-    /// that measurements passed to `build_plot_components` are accurate.
-    ///
-    /// Called by `coordinate_overflow_for_guides` after distributing coordinated values.
-    ///
-    /// Default implementation: no-op for non-facet coordinate systems.
-    async fn apply_coordinated_overflow(
-        &mut self,
-        _eval_ctx: &EvaluationContext,
-    ) -> Result<(), AvengerChartError> {
-        Ok(())
-    }
-
-    /// Get the scale sharing level for a channel.
-    ///
-    /// Returns the sharing level (0=Free, N=Level(N), 255=Shared) for the given channel.
-    /// This is used for axis visibility decisions in faceted charts.
-    ///
-    /// Default implementation: returns 255 (Shared), which preserves the original
-    /// "edge-only" visibility behavior where labels only show on the outermost cells.
-    fn channel_sharing_level(&self, _channel: &str) -> u8 {
-        255 // Shared: default to current behavior
-    }
-
-    /// Get local layout parameters for coordinated sizing.
-    ///
-    /// Returns layout parameters (padding, outer offsets, cell count) that
-    /// should be coordinated across all facets at the same nesting depth.
-    ///
-    /// Default implementation: None (for non-facet coordinate systems).
-    fn local_layout(&self) -> Option<CoordinatedLayout> {
-        None
-    }
-
-    /// Set coordinated layout parameters during distribution pass.
-    ///
-    /// After layout parameters have been aggregated across all facets at the
-    /// same depth, this distributes the max values back so all branches use
-    /// consistent sizing.
-    ///
-    /// Default implementation: no-op for non-facet coordinate systems.
-    fn set_coordinated_layout(&mut self, _layout: CoordinatedLayout) {
-        // Default: no-op
-    }
-
-    /// Collect cell domain extents for level-aware domain coordination.
-    ///
-    /// Facet implementations should iterate over their cells and push
-    /// `CellDomainInfo` entries for each (cell, channel) pair that has
-    /// domain extents to coordinate.
-    ///
-    /// Default implementation: no-op for non-facet coordinate systems.
-    fn collect_cell_domain_extents(&self, _collector: &mut Vec<CellDomainInfo>) {
-        // Default: no-op
-    }
-
-    /// Distribute unified domain extents back to cells.
-    ///
-    /// Facet implementations should look up coordinated extents for each
-    /// (cell, channel) pair and store them for use during rendering.
-    ///
-    /// Default implementation: no-op for non-facet coordinate systems.
-    fn distribute_cell_domain_extents(
-        &mut self,
-        _unified: &HashMap<(String, Vec<ScalarValue>), DomainExtent>,
-    ) {
-        // Default: no-op
-    }
-
-    /// Get the coordinated subplot width for propagation to children.
-    ///
-    /// After coordination adjusts this node's subplot width, this returns
-    /// the coordinated width so it can be propagated to child FacetCol nodes.
-    /// Children use this to update their `original_column_scale` range.
-    ///
-    /// Default implementation: None (for non-facet coordinate systems).
-    fn coordinated_subplot_width(&self) -> Option<f32> {
-        None
-    }
-
-    /// Set the parent's coordinated bandwidth on this node.
-    ///
-    /// When the parent FacetCol's coordination produces a different subplot width
-    /// than what this node's `original_column_scale` was measured with, this method
-    /// updates the scale range so that subsequent bandwidth computations are consistent
-    /// across all branches at the same depth.
-    ///
-    /// Default implementation: no-op for non-facet coordinate systems.
-    fn set_parent_bandwidth(&mut self, _bandwidth: f32) {
-        // Default: no-op
-    }
-
-    /// Coordination grouping key for this node.
-    ///
-    /// Facet measurements should return a stable key containing depth/axis/field
-    /// identity so cross-branch coordination is explicit and deterministic.
-    ///
-    /// Default implementation: `None`, which uses a depth-only fallback key.
-    fn coordination_group_key(&self, _depth: usize) -> Option<CoordinationGroupKey> {
-        None
     }
 }
 
@@ -283,7 +119,6 @@ impl CoordinatedLayout {
 #[derive(Debug, Clone, Default)]
 pub struct EmptyCoordMeasurement;
 
-#[async_trait::async_trait]
 impl CoordMeasurement for EmptyCoordMeasurement {
     fn as_any(&self) -> &dyn Any {
         self
