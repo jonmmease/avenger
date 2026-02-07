@@ -289,8 +289,8 @@ impl CompiledGuide for FacetColGuide {
         // Get band positions and labels from coord_measurement's cell_values (Level(N)-aware)
         // or fall back to scale domain
         let (band_positions, labels): (Vec<_>, Vec<String>) = if let Some(fcm) = coord_measurement
-                .as_any()
-                .downcast_ref::<FacetColCoordMeasurement>()
+            .as_any()
+            .downcast_ref::<FacetColCoordMeasurement>()
         {
             // Use cell_values from coord measurement (Level(N)-aware enumeration)
             let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
@@ -494,10 +494,39 @@ impl FacetColGuide {
                     .await;
             }
 
+            // Use first/last existing cells when Level(N) enumeration introduces
+            // empty placeholders. This keeps edge overflow aligned with real data.
+            let cell_path_exists = |path: &[datafusion::common::ScalarValue]| -> bool {
+                if path.is_empty() {
+                    return facet_tree.root().is_some();
+                }
+                let parent_path = &path[..path.len() - 1];
+                let target_value = &path[path.len() - 1];
+                facet_tree
+                    .node_at_path(parent_path)
+                    .map_or(false, |parent| parent.values().any(|v| v == target_value))
+            };
+
+            let mut first_existing_idx: Option<usize> = None;
+            let mut last_existing_idx: Option<usize> = None;
+            for (idx, band_position) in band_positions.iter().enumerate() {
+                let mut path = facet_path.to_vec();
+                path.push(band_position.value.clone());
+                if cell_path_exists(&path) {
+                    if first_existing_idx.is_none() {
+                        first_existing_idx = Some(idx);
+                    }
+                    last_existing_idx = Some(idx);
+                }
+            }
+
+            let first_idx = first_existing_idx.unwrap_or(0);
+            let last_idx = last_existing_idx.unwrap_or(band_positions.len() - 1);
+
             // Measure first cell for correct left overflow (Y-axis on left)
             let first_path = {
                 let mut path = facet_path.to_vec();
-                path.push(band_positions.first().unwrap().value.clone());
+                path.push(band_positions[first_idx].value.clone());
                 path
             };
             let first_overflow = guide
@@ -516,14 +545,14 @@ impl FacetColGuide {
                 .await?;
 
             // If only one cell, first and last are the same
-            if band_positions.len() == 1 {
+            if first_idx == last_idx {
                 return Ok(first_overflow);
             }
 
             // Measure last cell for correct right overflow (Y-axis on right, if any)
             let last_path = {
                 let mut path = facet_path.to_vec();
-                path.push(band_positions.last().unwrap().value.clone());
+                path.push(band_positions[last_idx].value.clone());
                 path
             };
             let last_overflow = guide

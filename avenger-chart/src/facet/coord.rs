@@ -25,14 +25,13 @@ use crate::{
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     marks::CompiledMark,
     plot::compiled::{
-        CompiledPlot, ComponentsMeasurement,
-        scale_provider::DynamicScaleProvider,
+        CompiledPlot, ComponentsMeasurement, scale_provider::DynamicScaleProvider,
         scales::build_scale_builder_from_marks,
     },
     render::EvaluationContext,
     scales::{
-        domain_extent::{DomainBounds, DomainExtent, RadiusPadding},
         ConfiguredScaleWithSpec, ScaleBuilder,
+        domain_extent::{DomainBounds, DomainExtent, RadiusPadding},
     },
 };
 
@@ -124,26 +123,29 @@ impl CoordMeasurement for FacetColCoordMeasurement {
 
     fn local_overflow(&self) -> Option<CoordinatedOverflow> {
         // Compute local overflow from children's overflow (guide-only and total)
-        // For left/right: first child's left becomes parent's left, last child's right becomes parent's right
+        // For left/right: use first/last non-empty child when available so empty
+        // Level(N) placeholders do not absorb outer-edge overflow.
         // For top/bottom: take the max across all children
+        let (first_idx, last_idx) =
+            effective_edge_indices(&self.empty_cells, self.subplot_measurements.len())?;
         let first_guide_left = self
             .subplot_measurements
-            .first()
+            .get(first_idx)
             .map(|m| m.layout.overflow.left)
             .unwrap_or(0.0);
         let last_guide_right = self
             .subplot_measurements
-            .last()
+            .get(last_idx)
             .map(|m| m.layout.overflow.right)
             .unwrap_or(0.0);
         let first_total_left = self
             .subplot_measurements
-            .first()
+            .get(first_idx)
             .map(|m| m.layout.total_overflow.left)
             .unwrap_or(0.0);
         let last_total_right = self
             .subplot_measurements
-            .last()
+            .get(last_idx)
             .map(|m| m.layout.total_overflow.right)
             .unwrap_or(0.0);
 
@@ -219,6 +221,10 @@ impl CoordMeasurement for FacetColCoordMeasurement {
         // not the Level(N)-aware enumerated values.
         if let Some(column_scale) = scales.get_mut("column") {
             let mut updated_config = column_scale.configured().clone();
+            let has_empty_cells = self.empty_cells.iter().copied().any(|empty| empty);
+            let has_adjacent_non_empty =
+                self.empty_cells.windows(2).any(|pair| !pair[0] && !pair[1]);
+            let needs_zero_padding_override = has_empty_cells && !has_adjacent_non_empty;
 
             // Override domain with Level(N)-aware cell_values from facet tree.
             // This ensures the scale domain matches the enumerated cells (including empty ones).
@@ -240,7 +246,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             // cells should fill that width naturally. Setting band_n here would compress
             // cells into a fraction of the width, breaking guide bracket alignment.
             if let Some(layout) = &self.coordinated_layout {
-                if layout.padding_inner_px > 0.0 {
+                if layout.padding_inner_px > 0.0 || needs_zero_padding_override {
                     updated_config =
                         updated_config.with_option("padding_inner_px", layout.padding_inner_px);
                 }
@@ -254,7 +260,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 }
             } else {
                 // No coordination — use local values (existing behavior)
-                if self.padding_inner_px > 0.0 {
+                if self.padding_inner_px > 0.0 || needs_zero_padding_override {
                     updated_config =
                         updated_config.with_option("padding_inner_px", self.padding_inner_px);
                 }
@@ -313,8 +319,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 .as_ref()
                 .map_or(false, |coordinated| {
                     coordinated.n != self.local_layout.n
-                        || (coordinated.padding_inner_px - self.local_layout.padding_inner_px)
-                            .abs()
+                        || (coordinated.padding_inner_px - self.local_layout.padding_inner_px).abs()
                             > 0.01
                         || (coordinated.outer_left - self.local_layout.outer_left).abs() > 0.01
                         || (coordinated.outer_right - self.local_layout.outer_right).abs() > 0.01
@@ -352,9 +357,12 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
                     "FacetCol apply_coordinated_overflow: layout coordination: width {:.1} -> {:.1}, n {} -> {}, padding {:.1} -> {:.1}",
-                    self.subplot_width, new_subplot_width,
-                    self.local_layout.n, layout.n,
-                    self.local_layout.padding_inner_px, layout.padding_inner_px
+                    self.subplot_width,
+                    new_subplot_width,
+                    self.local_layout.n,
+                    layout.n,
+                    self.local_layout.padding_inner_px,
+                    layout.padding_inner_px
                 );
             }
 
@@ -387,7 +395,11 @@ impl CoordMeasurement for FacetColCoordMeasurement {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "FacetCol apply_coordinated_overflow: height {:.1} -> {:.1} (legend_top={:.1}, legend_bottom={:.1}, has_coordinated_extents={})",
-                original_height, adjusted_height, legend_top, legend_bottom, has_coordinated_extents
+                original_height,
+                adjusted_height,
+                legend_top,
+                legend_bottom,
+                has_coordinated_extents
             );
         }
 
@@ -421,7 +433,8 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                         eprintln!(
                             "FacetCol apply_coordinated_overflow: cell[{}] applying {} coordinated domain extents",
-                            idx, cell_extents.len()
+                            idx,
+                            cell_extents.len()
                         );
                     }
                 }
@@ -450,11 +463,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
 
             // Pass None for empty cells to match Pass 1/Pass 2 behavior
             let is_empty = self.empty_cells.get(idx).copied().unwrap_or(false);
-            let data_arg = if is_empty {
-                None
-            } else {
-                Some(data_override)
-            };
+            let data_arg = if is_empty { None } else { Some(data_override) };
 
             let measurement = self
                 .compiled_subplot
@@ -607,18 +616,47 @@ impl CoordMeasurement for FacetColCoordMeasurement {
 /// - cell[i].right overflow (typically tick-only for interior, full for last)
 /// - cell[i+1].left overflow (typically full for first, tick-only for interior)
 ///
-/// We compute the MAX across all pairs to ensure uniform spacing.
-fn compute_padding_from_overflows(overflows: &[OverflowSpaceRequirement]) -> f32 {
+/// Pairs containing empty Level(N) placeholder cells are skipped so overflow from
+/// hidden/non-rendered slots does not inflate internal gaps.
+fn compute_padding_from_overflows(
+    overflows: &[OverflowSpaceRequirement],
+    empty_cells: &[bool],
+) -> f32 {
     if overflows.len() < 2 {
         return 0.0;
     }
 
     let mut max_padding = 0.0f32;
     for i in 0..overflows.len() - 1 {
+        let left_is_empty = empty_cells.get(i).copied().unwrap_or(false);
+        let right_is_empty = empty_cells.get(i + 1).copied().unwrap_or(false);
+        if left_is_empty || right_is_empty {
+            continue;
+        }
         let combined = overflows[i].right + overflows[i + 1].left;
         max_padding = max_padding.max(combined);
     }
     max_padding
+}
+
+/// Compute the effective first/last cell indices for outer-edge overflow routing.
+///
+/// Prefer first/last non-empty cells. If all cells are empty, fall back to the
+/// raw first/last indices to preserve deterministic behavior.
+fn effective_edge_indices(empty_cells: &[bool], count: usize) -> Option<(usize, usize)> {
+    if count == 0 {
+        return None;
+    }
+
+    let first_non_empty = (0..count).find(|&idx| !empty_cells.get(idx).copied().unwrap_or(false));
+    let last_non_empty = (0..count)
+        .rev()
+        .find(|&idx| !empty_cells.get(idx).copied().unwrap_or(false));
+
+    match (first_non_empty, last_non_empty) {
+        (Some(first), Some(last)) => Some((first, last)),
+        _ => Some((0, count - 1)),
+    }
 }
 
 /// Extract sharing level for a channel from compiled marks.
@@ -807,11 +845,8 @@ async fn build_ancestor_group_scale_builders(
         full_path.push(value.clone());
 
         // Compute ancestor key by taking the first ancestor_key_len components
-        let ancestor_key: Vec<ScalarValue> = full_path
-            .iter()
-            .take(ancestor_key_len)
-            .cloned()
-            .collect();
+        let ancestor_key: Vec<ScalarValue> =
+            full_path.iter().take(ancestor_key_len).cloned().collect();
 
         groups.entry(ancestor_key).or_default().push(value.clone());
     }
@@ -1261,11 +1296,8 @@ impl CoordinateSystemTransform for FacetColumn {
             current_node.values().cloned().collect()
         } else {
             // Level(N > 0): traverse facet tree to enumerate values from ancestor level
-            let enumeration_path = compute_enumeration_ancestor_path(
-                facet_path,
-                current_sharing_level,
-                facet_depth,
-            );
+            let enumeration_path =
+                compute_enumeration_ancestor_path(facet_path, current_sharing_level, facet_depth);
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
@@ -1411,6 +1443,7 @@ impl CoordinateSystemTransform for FacetColumn {
         let mut data_overrides = Vec::with_capacity(cell_values.len());
         let mut cell_overflows = Vec::with_capacity(cell_values.len());
         let mut cell_domain_extents = Vec::with_capacity(cell_values.len());
+        let mut pass1_empty_cells = Vec::with_capacity(cell_values.len());
         // Track max child padding for nested FacetCol propagation
         let mut max_child_padding: f32 = 0.0;
 
@@ -1458,6 +1491,7 @@ impl CoordinateSystemTransform for FacetColumn {
                     idx, value
                 );
             }
+            pass1_empty_cells.push(!path_exists);
 
             // Measure the subplot with filtered data to get overflow
             // Pass cell_path for visibility-aware overflow measurement (value-based path, not indices)
@@ -1526,49 +1560,50 @@ impl CoordinateSystemTransform for FacetColumn {
                             )
                             .await?
                     }
-                Some(sharing_level) if sharing_level < nested_depth => {
-                    // Intermediate level: look up from cache
-                    let ancestor_key_len =
-                        (nested_depth as usize).saturating_sub(sharing_level as usize);
-                    let ancestor_key: Vec<ScalarValue> =
-                        cell_path.iter().take(ancestor_key_len).cloned().collect();
+                    Some(sharing_level) if sharing_level < nested_depth => {
+                        // Intermediate level: look up from cache
+                        let ancestor_key_len =
+                            (nested_depth as usize).saturating_sub(sharing_level as usize);
+                        let ancestor_key: Vec<ScalarValue> =
+                            cell_path.iter().take(ancestor_key_len).cloned().collect();
 
-                    let cached_builder = scale_builder_cache.get(&ancestor_key).ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Missing cached scale builder for ancestor key {:?}",
-                            ancestor_key
-                        ))
-                    })?;
-
-                    let cached_scale_provider = DynamicScaleProvider {
-                        builder: cached_builder,
-                        plot: &compiled_subplot,
-                    };
-
-                    // For intermediate sharing, pass ancestor-group-filtered data to the
-                    // nested subplot so it can build scales from all data in the sharing group.
-                    let ancestor_filtered_df =
-                        if let Some(pred) = facet_tree.path_predicate(&ancestor_key) {
-                            data_df.clone().filter(pred).map_err(|e| {
+                        let cached_builder =
+                            scale_builder_cache.get(&ancestor_key).ok_or_else(|| {
                                 AvengerChartError::InternalError(format!(
-                                    "Failed to filter data for ancestor key {:?}: {}",
-                                    ancestor_key, e
+                                    "Missing cached scale builder for ancestor key {:?}",
+                                    ancestor_key
                                 ))
-                            })?
-                        } else {
-                            data_df.clone()
+                            })?;
+
+                        let cached_scale_provider = DynamicScaleProvider {
+                            builder: cached_builder,
+                            plot: &compiled_subplot,
                         };
 
-                    compiled_subplot
-                        .measure_plot_components(
-                            &subplot_eval_ctx,
-                            &subplot_layout_spec,
-                            &cached_scale_provider,
-                            Some(&ancestor_filtered_df),
-                            &cell_path,
-                        )
-                        .await?
-                }
+                        // For intermediate sharing, pass ancestor-group-filtered data to the
+                        // nested subplot so it can build scales from all data in the sharing group.
+                        let ancestor_filtered_df =
+                            if let Some(pred) = facet_tree.path_predicate(&ancestor_key) {
+                                data_df.clone().filter(pred).map_err(|e| {
+                                    AvengerChartError::InternalError(format!(
+                                        "Failed to filter data for ancestor key {:?}: {}",
+                                        ancestor_key, e
+                                    ))
+                                })?
+                            } else {
+                                data_df.clone()
+                            };
+
+                        compiled_subplot
+                            .measure_plot_components(
+                                &subplot_eval_ctx,
+                                &subplot_layout_spec,
+                                &cached_scale_provider,
+                                Some(&ancestor_filtered_df),
+                                &cell_path,
+                            )
+                            .await?
+                    }
                     _ => {
                         // Shared or None: use shared scale provider
                         compiled_subplot
@@ -1636,7 +1671,13 @@ impl CoordinateSystemTransform for FacetColumn {
                     .map(|(channel, extent)| {
                         let sharing_level =
                             get_channel_sharing_level(&compiled_subplot.marks, &channel);
-                        (channel, ChannelDomainExtent { extent, sharing_level })
+                        (
+                            channel,
+                            ChannelDomainExtent {
+                                extent,
+                                sharing_level,
+                            },
+                        )
                     })
                     .collect()
             } else {
@@ -1659,6 +1700,7 @@ impl CoordinateSystemTransform for FacetColumn {
                 .iter()
                 .map(|(_, total)| total.clone())
                 .collect::<Vec<_>>(),
+            &pass1_empty_cells,
         )
         .max(max_child_padding);
 
@@ -1666,22 +1708,26 @@ impl CoordinateSystemTransform for FacetColumn {
         // We only adjust for LEGEND overflow, not guide overflow, because:
         // - Guide overflow (axes, tick labels) is already handled by each subplot's internal layout
         // - Legend overflow extends beyond the subplot, requiring the facet to allocate extra space
+        let (first_edge_idx, last_edge_idx) =
+            effective_edge_indices(&pass1_empty_cells, cell_overflows.len()).unwrap_or((0, 0));
         let outer_left = cell_overflows
-            .first()
+            .get(first_edge_idx)
             .map(|(guide, total)| (total.left - guide.left).max(0.0))
             .unwrap_or(0.0);
         let outer_right = cell_overflows
-            .last()
+            .get(last_edge_idx)
             .map(|(guide, total)| (total.right - guide.right).max(0.0))
             .unwrap_or(0.0);
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FacetCol coord measure: padding_inner_px={:.1}, outer_left={:.1}, outer_right={:.1} from {} cells",
+                "FacetCol coord measure: padding_inner_px={:.1}, outer_left={:.1}, outer_right={:.1} from {} cells (edge_idx={}..={})",
                 padding_inner_px,
                 outer_left,
                 outer_right,
-                cell_values.len()
+                cell_values.len(),
+                first_edge_idx,
+                last_edge_idx
             );
         }
 
@@ -1809,48 +1855,49 @@ impl CoordinateSystemTransform for FacetColumn {
                             )
                             .await?
                     }
-                Some(sharing_level) if sharing_level < nested_depth => {
-                    // Intermediate level: look up from cache
-                    let ancestor_key_len =
-                        (nested_depth as usize).saturating_sub(sharing_level as usize);
-                    let ancestor_key: Vec<ScalarValue> =
-                        cell_path.iter().take(ancestor_key_len).cloned().collect();
+                    Some(sharing_level) if sharing_level < nested_depth => {
+                        // Intermediate level: look up from cache
+                        let ancestor_key_len =
+                            (nested_depth as usize).saturating_sub(sharing_level as usize);
+                        let ancestor_key: Vec<ScalarValue> =
+                            cell_path.iter().take(ancestor_key_len).cloned().collect();
 
-                    let cached_builder = scale_builder_cache.get(&ancestor_key).ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Missing cached scale builder for ancestor key {:?}",
-                            ancestor_key
-                        ))
-                    })?;
-
-                    let cached_scale_provider = DynamicScaleProvider {
-                        builder: cached_builder,
-                        plot: &compiled_subplot,
-                    };
-
-                    // For intermediate sharing, pass ancestor-group-filtered data
-                    let ancestor_filtered_df =
-                        if let Some(pred) = facet_tree.path_predicate(&ancestor_key) {
-                            data_df.clone().filter(pred).map_err(|e| {
+                        let cached_builder =
+                            scale_builder_cache.get(&ancestor_key).ok_or_else(|| {
                                 AvengerChartError::InternalError(format!(
-                                    "Failed to filter data for ancestor key {:?}: {}",
-                                    ancestor_key, e
+                                    "Missing cached scale builder for ancestor key {:?}",
+                                    ancestor_key
                                 ))
-                            })?
-                        } else {
-                            data_df.clone()
+                            })?;
+
+                        let cached_scale_provider = DynamicScaleProvider {
+                            builder: cached_builder,
+                            plot: &compiled_subplot,
                         };
 
-                    compiled_subplot
-                        .measure_plot_components(
-                            &subplot_eval_ctx,
-                            &subplot_layout_spec,
-                            &cached_scale_provider,
-                            Some(&ancestor_filtered_df),
-                            &cell_path,
-                        )
-                        .await?
-                }
+                        // For intermediate sharing, pass ancestor-group-filtered data
+                        let ancestor_filtered_df =
+                            if let Some(pred) = facet_tree.path_predicate(&ancestor_key) {
+                                data_df.clone().filter(pred).map_err(|e| {
+                                    AvengerChartError::InternalError(format!(
+                                        "Failed to filter data for ancestor key {:?}: {}",
+                                        ancestor_key, e
+                                    ))
+                                })?
+                            } else {
+                                data_df.clone()
+                            };
+
+                        compiled_subplot
+                            .measure_plot_components(
+                                &subplot_eval_ctx,
+                                &subplot_layout_spec,
+                                &cached_scale_provider,
+                                Some(&ancestor_filtered_df),
+                                &cell_path,
+                            )
+                            .await?
+                    }
                     _ => {
                         // Shared or None: use shared scale provider
                         compiled_subplot
@@ -1995,5 +2042,70 @@ mod tests {
         };
         assert_eq!(coord.padding_px, Some(5.0));
         assert!(coord.overflow_by_facet.is_some());
+    }
+
+    #[test]
+    fn compute_padding_skips_pairs_with_empty_cells() {
+        let overflows = vec![
+            OverflowSpaceRequirement {
+                right: 0.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                right: 0.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                left: 41.0,
+                right: 0.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                left: 0.0,
+                ..Default::default()
+            },
+        ];
+        let empty_cells = vec![true, true, false, false];
+        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
+        assert_eq!(padding, 0.0);
+    }
+
+    #[test]
+    fn compute_padding_uses_max_when_cells_non_empty() {
+        let overflows = vec![
+            OverflowSpaceRequirement {
+                right: 7.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                left: 5.0,
+                right: 3.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                left: 2.0,
+                ..Default::default()
+            },
+        ];
+        let empty_cells = vec![false, false, false];
+        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
+        assert_eq!(padding, 12.0);
+    }
+
+    #[test]
+    fn effective_edge_indices_prefers_non_empty_cells() {
+        let empty_cells = vec![true, true, false, false];
+        assert_eq!(effective_edge_indices(&empty_cells, 4), Some((2, 3)));
+    }
+
+    #[test]
+    fn effective_edge_indices_falls_back_when_all_empty() {
+        let empty_cells = vec![true, true, true];
+        assert_eq!(effective_edge_indices(&empty_cells, 3), Some((0, 2)));
+    }
+
+    #[test]
+    fn effective_edge_indices_none_for_no_cells() {
+        assert_eq!(effective_edge_indices(&[], 0), None);
     }
 }
