@@ -221,9 +221,7 @@ fn range_dict_array_for_values(
     // Dictionary packing does not support Utf8View/LargeUtf8 value types in all
     // Arrow kernels. Normalize string-like domains to Utf8 first.
     let normalized_domain = match domain.data_type() {
-        DataType::LargeUtf8 | DataType::Utf8View => {
-            cast(domain, &DataType::Utf8)?
-        }
+        DataType::LargeUtf8 | DataType::Utf8View => cast(domain, &DataType::Utf8)?,
         _ => domain.clone(),
     };
 
