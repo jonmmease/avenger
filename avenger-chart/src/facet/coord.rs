@@ -1190,7 +1190,7 @@ impl CoordinateSystem for FacetRow {
     }
 }
 
-fn compute_band_layout(positions: &[f32], extent: f32, padding_px: Option<f32>) -> (Vec<f32>, f32) {
+fn compute_band_layout(positions: &[f32], extent: f32) -> (Vec<f32>, f32) {
     if positions.is_empty() {
         return (Vec::new(), 0.0);
     }
@@ -1198,39 +1198,48 @@ fn compute_band_layout(positions: &[f32], extent: f32, padding_px: Option<f32>) 
     let mut sorted = positions.to_vec();
     sorted.sort_by(|a, b| a.total_cmp(b));
 
-    let mut base_bandwidth = if sorted.len() > 1 {
-        sorted
-            .windows(2)
-            .filter_map(|pair| {
-                let gap = (pair[1] - pair[0]).abs();
-                if gap.is_finite() && gap > 0.0 {
-                    Some(gap)
-                } else {
-                    None
-                }
-            })
-            .fold(f32::INFINITY, f32::min)
+    // Spacing is owned by the band scale configuration (padding_inner[_px]).
+    // Derive cell bandwidth directly from the positioned starts and total extent.
+    let inferred_bandwidth = if sorted.len() > 1 {
+        let first = sorted.first().copied().unwrap_or(0.0);
+        let last = sorted.last().copied().unwrap_or(first);
+        (extent - (last - first)).max(0.0)
     } else {
-        extent
+        extent.max(0.0)
     };
 
-    if !base_bandwidth.is_finite() || base_bandwidth <= 0.0 {
-        base_bandwidth = extent;
-    }
+    // Fallback to min adjacent distance if inference is invalid.
+    let fallback_bandwidth = sorted
+        .windows(2)
+        .filter_map(|pair| {
+            let gap = (pair[1] - pair[0]).abs();
+            if gap.is_finite() && gap > 0.0 {
+                Some(gap)
+            } else {
+                None
+            }
+        })
+        .fold(f32::INFINITY, f32::min);
 
-    let effective_bandwidth = (base_bandwidth - padding_px.unwrap_or(0.0)).max(0.0);
+    let bandwidth = if inferred_bandwidth.is_finite() && inferred_bandwidth > 0.0 {
+        inferred_bandwidth
+    } else if fallback_bandwidth.is_finite() && fallback_bandwidth > 0.0 {
+        fallback_bandwidth
+    } else {
+        extent.max(0.0)
+    };
 
     if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
         eprintln!(
-            "compute_band_layout: positions={:?} base_bandwidth={:.3} padding_px={:?} effective_bandwidth={:.3}",
-            positions, base_bandwidth, padding_px, effective_bandwidth
+            "compute_band_layout: positions={:?} inferred_bandwidth={:.3} fallback_bandwidth={:.3} bandwidth={:.3}",
+            positions, inferred_bandwidth, fallback_bandwidth, bandwidth
         );
     }
 
     // Input positions are already starts (not centers), so use them directly
     let starts: Vec<f32> = positions.to_vec();
 
-    (starts, effective_bandwidth)
+    (starts, bandwidth)
 }
 
 #[async_trait::async_trait]
@@ -1247,11 +1256,13 @@ impl CoordinateSystemTransform for FacetRow {
     fn with_measured_padding(&self, spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
         match spec {
             PaddingSpec::Single {
-                padding_px,
+                padding_px: _,
                 overflow,
             } => {
                 let mut updated = self.clone();
-                updated.padding_px = Some(*padding_px);
+                // Band spacing is controlled directly by scale padding options.
+                // Keep transform-time padding disabled to avoid double-accounting.
+                updated.padding_px = None;
                 updated.overflow_by_facet = Some(overflow.clone());
                 Box::new(updated)
             }
@@ -1275,7 +1286,7 @@ impl CoordinateSystemTransform for FacetRow {
         }
 
         let centers = row_positions.as_vec(count, None);
-        let (starts, bandwidth) = compute_band_layout(&centers, plot_height, self.padding_px);
+        let (starts, bandwidth) = compute_band_layout(&centers, plot_height);
 
         if starts.is_empty() {
             return Ok(Box::new(SubplotGeometry::default()));
@@ -1385,11 +1396,13 @@ impl CoordinateSystemTransform for FacetColumn {
     fn with_measured_padding(&self, spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
         match spec {
             PaddingSpec::Single {
-                padding_px,
+                padding_px: _,
                 overflow,
             } => {
                 let mut updated = self.clone();
-                updated.padding_px = Some(*padding_px);
+                // Band spacing is controlled directly by scale padding options.
+                // Keep transform-time padding disabled to avoid double-accounting.
+                updated.padding_px = None;
                 updated.overflow_by_facet = Some(overflow.clone());
                 Box::new(updated)
             }
@@ -1922,7 +1935,7 @@ impl CoordinateSystemTransform for FacetColumn {
         }
 
         let centers = column_positions.as_vec(count, None);
-        let (starts, bandwidth) = compute_band_layout(&centers, plot_width, self.padding_px);
+        let (starts, bandwidth) = compute_band_layout(&centers, plot_width);
 
         if starts.is_empty() {
             return Ok(Box::new(SubplotGeometry::default()));
@@ -2064,5 +2077,20 @@ mod tests {
     #[test]
     fn effective_edge_indices_none_for_no_cells() {
         assert_eq!(effective_edge_indices(&[], 0), None);
+    }
+
+    #[test]
+    fn compute_band_layout_derives_bandwidth_from_scale_positions() {
+        let positions = vec![0.0, 100.0, 200.0];
+        let (starts, bandwidth) = compute_band_layout(&positions, 260.0);
+        assert_eq!(starts, positions);
+        assert!((bandwidth - 60.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn compute_band_layout_falls_back_when_inference_invalid() {
+        let positions = vec![10.0, 20.0, 30.0];
+        let (_starts, bandwidth) = compute_band_layout(&positions, 0.0);
+        assert!((bandwidth - 10.0).abs() < 0.01);
     }
 }
