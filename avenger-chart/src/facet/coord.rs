@@ -8,8 +8,6 @@ use datafusion::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::facet::scalar_cmp::scalar_total_cmp;
-
 use crate::{
     coords::{
         CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
@@ -686,83 +684,6 @@ pub fn compute_ancestor_key(
         let levels_to_remove = sharing_level as usize;
         let keep_count = full_cell_path.len().saturating_sub(levels_to_remove);
         full_cell_path.iter().take(keep_count).cloned().collect()
-    }
-}
-
-/// Compute the ancestor path for cell value enumeration based on sharing level.
-///
-/// This operates on `facet_path` (parent path, length = depth - 1), NOT on
-/// `full_cell_path` (includes cell value, length = depth). The formula is:
-///   `ancestors_to_keep = (facet_depth - 1) - sharing_level`
-///
-/// This intentionally differs from `compute_ancestor_key` (which uses
-/// `facet_depth - sharing_level` on `full_cell_path`) because cell enumeration
-/// starts from the parent group level, not the individual cell level.
-///
-/// For Team at depth 3 (facet_path = [Division, Dept]):
-/// - Level(0)/Free: keep 2 → [Division, Dept] → teams under this dept
-/// - Level(1): keep 1 → [Division] → all teams under this division
-/// - Level(2): 2 >= (3-1)=2 → global → all teams across all divisions
-///
-/// # Arguments
-/// * `facet_path` - Current path to parent facets (length = depth - 1)
-/// * `sharing_level` - The sharing level (0 = Free, N = Level(N), 255 = Shared)
-/// * `facet_depth` - 1-based depth of current facet (= facet_path.len() + 1)
-///
-/// # Returns
-/// The ancestor path to use for enumerating cell values.
-fn compute_enumeration_ancestor_path(
-    facet_path: &[ScalarValue],
-    sharing_level: u8,
-    facet_depth: u8,
-) -> Vec<ScalarValue> {
-    if sharing_level == 0 {
-        // Level(0)/Free: use full parent path (current subtree)
-        facet_path.to_vec()
-    } else if sharing_level as usize >= (facet_depth as usize).saturating_sub(1) {
-        // Level(N) >= depth-1: use root (global)
-        vec![]
-    } else {
-        // Level(N) where 0 < N < depth-1: truncate path
-        let ancestors_to_keep = (facet_depth as usize)
-            .saturating_sub(1)
-            .saturating_sub(sharing_level as usize);
-        facet_path.iter().take(ancestors_to_keep).cloned().collect()
-    }
-}
-
-/// Collect all values at a specific depth below the starting node in the facet tree.
-///
-/// This recursively traverses the tree from the starting node, descending `levels_to_descend`
-/// levels, and collects all values at that depth. Used for Level(N > 0) sharing to enumerate
-/// all values that should appear as cells.
-///
-/// # Arguments
-/// * `node` - Starting node in the facet tree
-/// * `levels_to_descend` - Number of levels to go down (0 = use values from this node)
-///
-/// # Returns
-/// Sorted vector of all distinct values at the target depth.
-fn collect_values_at_depth(
-    node: &crate::facet::evaluated_facet_tree::PartitionNode,
-    levels_to_descend: usize,
-) -> Vec<ScalarValue> {
-    if levels_to_descend == 0 {
-        // We're at the target depth - return values from this node
-        node.values().cloned().collect()
-    } else {
-        // Need to go deeper - recursively collect from all children
-        let mut all_values: Vec<ScalarValue> = Vec::new();
-        for value in node.values() {
-            if let Some(child) = node.child(value) {
-                let child_values = collect_values_at_depth(child, levels_to_descend - 1);
-                all_values.extend(child_values);
-            }
-        }
-        // Remove duplicates and sort
-        all_values.sort_by(scalar_total_cmp);
-        all_values.dedup();
-        all_values
     }
 }
 
@@ -1481,44 +1402,10 @@ impl CoordinateSystemTransform for FacetColumn {
             .facet_scale_sharing
             .map(|s| s.to_level())
             .unwrap_or(255);
-        let facet_depth = facet_path.len() as u8 + 1;
 
-        // Get cell values based on sharing level:
-        // - Level(0)/Free: get values from current subtree (existing behavior)
-        // - Level(N > 0): get values from ancestor level using facet tree (may include empty cells)
-        let cell_values: Vec<ScalarValue> = if current_sharing_level == 0 {
-            // Level(0)/Free: current behavior from tree
-            current_node.values().cloned().collect()
-        } else {
-            // Level(N > 0): traverse facet tree to enumerate values from ancestor level
-            let enumeration_path =
-                compute_enumeration_ancestor_path(facet_path, current_sharing_level, facet_depth);
-
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "FacetCol: sharing_level={} facet_depth={} enumeration_path={:?}",
-                    current_sharing_level, facet_depth, enumeration_path
-                );
-            }
-
-            // Navigate to ancestor node in facet tree
-            let ancestor_node = if enumeration_path.is_empty() {
-                facet_tree.root()
-            } else {
-                facet_tree.node_at_path(&enumeration_path)
-            };
-
-            if let Some(ancestor) = ancestor_node {
-                // Calculate how many levels to descend from ancestor to reach target field
-                // enumeration_path.len() is the depth of ancestor, facet_path.len() is depth of parent
-                // We need to descend (facet_path.len() - enumeration_path.len()) levels
-                let levels_to_descend = facet_path.len() - enumeration_path.len();
-                collect_values_at_depth(ancestor, levels_to_descend)
-            } else {
-                // Ancestor doesn't exist - fall back to current node values
-                current_node.values().cloned().collect()
-            }
-        };
+        let cell_values = facet_tree
+            .enumerate_values_for_facet(facet_path, current_sharing_level)
+            .unwrap_or_else(|| current_node.values().cloned().collect());
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(

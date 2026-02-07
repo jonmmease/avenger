@@ -538,6 +538,82 @@ impl EvaluatedFacetTree {
         Some(node.values().cloned().collect())
     }
 
+    /// Enumerate facet cell values for a facet at `facet_path` using Level(N) sharing semantics.
+    ///
+    /// `facet_path` is the path to the parent groups of the current facet level
+    /// (its length is `facet_depth - 1`).
+    ///
+    /// Returns `None` when `facet_path` does not exist in the tree.
+    pub fn enumerate_values_for_facet(
+        &self,
+        facet_path: &[ScalarValue],
+        sharing_level: u8,
+    ) -> Option<Vec<ScalarValue>> {
+        let current_node = if facet_path.is_empty() {
+            self.root.as_ref()?
+        } else {
+            self.node_at_path(facet_path)?
+        };
+
+        if sharing_level == 0 {
+            // Level(0)/Free: values from the current subtree.
+            return Some(current_node.values().cloned().collect());
+        }
+
+        let facet_depth = facet_path.len() as u8 + 1;
+        let enumeration_path =
+            Self::compute_enumeration_ancestor_path(facet_path, sharing_level, facet_depth);
+
+        let ancestor_node = if enumeration_path.is_empty() {
+            self.root.as_ref()
+        } else {
+            self.node_at_path(&enumeration_path)
+        };
+
+        if let Some(ancestor) = ancestor_node {
+            // Descend from the chosen ancestor to the current facet's field level.
+            let levels_to_descend = facet_path.len().saturating_sub(enumeration_path.len());
+            Some(Self::collect_values_at_depth(ancestor, levels_to_descend))
+        } else {
+            // Missing ancestor path: fall back to local subtree values.
+            Some(current_node.values().cloned().collect())
+        }
+    }
+
+    fn compute_enumeration_ancestor_path(
+        facet_path: &[ScalarValue],
+        sharing_level: u8,
+        facet_depth: u8,
+    ) -> Vec<ScalarValue> {
+        if sharing_level == 0 {
+            facet_path.to_vec()
+        } else if sharing_level as usize >= (facet_depth as usize).saturating_sub(1) {
+            vec![]
+        } else {
+            let ancestors_to_keep = (facet_depth as usize)
+                .saturating_sub(1)
+                .saturating_sub(sharing_level as usize);
+            facet_path.iter().take(ancestors_to_keep).cloned().collect()
+        }
+    }
+
+    fn collect_values_at_depth(node: &PartitionNode, levels_to_descend: usize) -> Vec<ScalarValue> {
+        if levels_to_descend == 0 {
+            node.values().cloned().collect()
+        } else {
+            let mut all_values: Vec<ScalarValue> = Vec::new();
+            for value in node.values() {
+                if let Some(child) = node.child(value) {
+                    let child_values = Self::collect_values_at_depth(child, levels_to_descend - 1);
+                    all_values.extend(child_values);
+                }
+            }
+            all_values.sort_by(scalar_total_cmp);
+            all_values.dedup();
+            all_values
+        }
+    }
+
     /// Check if this spec has any facet structure (non-empty).
     pub fn has_facets(&self) -> bool {
         self.root.is_some()
@@ -1318,6 +1394,122 @@ mod tests {
         assert!(tree.cell_exists(&[scalar("Eng"), scalar("A")]));
         assert!(!tree.cell_exists(&[scalar("Ops")]));
         assert!(!tree.cell_exists(&[scalar("Eng"), scalar("Z")]));
+    }
+
+    fn build_enumeration_test_tree() -> EvaluatedFacetTree {
+        // Region (Col) > Department (Row) > Team (Row)
+        //
+        // East:
+        //   Eng -> A, B
+        //   Ops -> B, C
+        // West:
+        //   Eng -> C, D
+        //   Ops -> D, E
+        //
+        // Values intentionally overlap to validate dedup in Level(N) enumeration.
+        let team_leaf_eng_east = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "team".to_string(),
+            None,
+            vec![scalar("A"), scalar("B")],
+        );
+        let team_leaf_ops_east = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "team".to_string(),
+            None,
+            vec![scalar("B"), scalar("C")],
+        );
+        let team_leaf_eng_west = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "team".to_string(),
+            None,
+            vec![scalar("C"), scalar("D")],
+        );
+        let team_leaf_ops_west = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "team".to_string(),
+            None,
+            vec![scalar("D"), scalar("E")],
+        );
+
+        let mut dept_children_east = IndexMap::new();
+        dept_children_east.insert(scalar("Eng"), Box::new(team_leaf_eng_east));
+        dept_children_east.insert(scalar("Ops"), Box::new(team_leaf_ops_east));
+        let dept_node_east = PartitionNode::branch(
+            FacetDirection::Row,
+            0,
+            "dept".to_string(),
+            None,
+            dept_children_east,
+        );
+
+        let mut dept_children_west = IndexMap::new();
+        dept_children_west.insert(scalar("Eng"), Box::new(team_leaf_eng_west));
+        dept_children_west.insert(scalar("Ops"), Box::new(team_leaf_ops_west));
+        let dept_node_west = PartitionNode::branch(
+            FacetDirection::Row,
+            0,
+            "dept".to_string(),
+            None,
+            dept_children_west,
+        );
+
+        let mut region_children = IndexMap::new();
+        region_children.insert(scalar("East"), Box::new(dept_node_east));
+        region_children.insert(scalar("West"), Box::new(dept_node_west));
+        let region_node = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "region".to_string(),
+            None,
+            region_children,
+        );
+
+        EvaluatedFacetTree::new(Some(region_node))
+    }
+
+    #[test]
+    fn test_enumerate_values_for_facet_level0() {
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("East"), scalar("Eng")];
+        let values = tree.enumerate_values_for_facet(&path, 0).unwrap();
+        assert_eq!(values, vec![scalar("A"), scalar("B")]);
+    }
+
+    #[test]
+    fn test_enumerate_values_for_facet_level1() {
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("East"), scalar("Eng")];
+        let values = tree.enumerate_values_for_facet(&path, 1).unwrap();
+        assert_eq!(values, vec![scalar("A"), scalar("B"), scalar("C")]);
+    }
+
+    #[test]
+    fn test_enumerate_values_for_facet_global() {
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("East"), scalar("Eng")];
+        let values = tree.enumerate_values_for_facet(&path, 255).unwrap();
+        assert_eq!(
+            values,
+            vec![
+                scalar("A"),
+                scalar("B"),
+                scalar("C"),
+                scalar("D"),
+                scalar("E"),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_enumerate_values_for_facet_invalid_path() {
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("North"), scalar("Eng")];
+        assert!(tree.enumerate_values_for_facet(&path, 0).is_none());
     }
 
     #[test]
