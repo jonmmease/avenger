@@ -224,6 +224,29 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     ) {
         // Default: no-op
     }
+
+    /// Get the coordinated subplot width for propagation to children.
+    ///
+    /// After coordination adjusts this node's subplot width, this returns
+    /// the coordinated width so it can be propagated to child FacetCol nodes.
+    /// Children use this to update their `original_column_scale` range.
+    ///
+    /// Default implementation: None (for non-facet coordinate systems).
+    fn coordinated_subplot_width(&self) -> Option<f32> {
+        None
+    }
+
+    /// Set the parent's coordinated bandwidth on this node.
+    ///
+    /// When the parent FacetCol's coordination produces a different subplot width
+    /// than what this node's `original_column_scale` was measured with, this method
+    /// updates the scale range so that subsequent bandwidth computations are consistent
+    /// across all branches at the same depth.
+    ///
+    /// Default implementation: no-op for non-facet coordinate systems.
+    fn set_parent_bandwidth(&mut self, _bandwidth: f32) {
+        // Default: no-op
+    }
 }
 
 /// Layout parameters coordinated across all FacetCol nodes at the same depth.
@@ -592,10 +615,25 @@ pub async fn coordinate_overflow_for_guides(
     distribute_coordinated_overflow(measurement);
     distribute_coordinated_layout(measurement);
 
+    // Step 6: Re-apply scale adjustments to all measurements in the tree.
+    // The scales stored in each ComponentsMeasurement were built during measurement
+    // (Steps 1-4) with local (pre-coordination) values. Now that coordination is
+    // complete (Step 5 distributed final values), we need to update the stored scales
+    // to use coordinated padding_inner_px and outer_left/outer_right values.
+    // Without this, the rendering path would use stale scale configurations.
+    reapply_scale_adjustments_recursive(measurement);
+
     Ok(())
 }
 
 /// Recursively apply coordinated overflow to all measurements in the tree.
+///
+/// After applying coordination to each node, propagates the coordinated subplot
+/// width to child nodes so they use the coordinated parent bandwidth (instead of
+/// the measurement-phase bandwidth) when computing their own coordinated widths.
+/// This fixes the cascading coordination problem where children of different parent
+/// branches would compute different subplot widths despite identical coordination
+/// parameters.
 fn apply_coordinated_overflow_recursive<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
@@ -607,13 +645,72 @@ fn apply_coordinated_overflow_recursive<'a>(
             .apply_coordinated_overflow(eval_ctx)
             .await?;
 
-        // Recurse into children
+        // Propagate coordinated subplot width to children.
+        // After coordination, this node's subplot_width reflects the coordinated value.
+        // Children need this as their original_column_scale range so they compute
+        // consistent widths regardless of which branch they belong to.
+        let parent_width = measurement.coord_measurement.coordinated_subplot_width();
+
+        // Recurse into children, propagating parent width first
         for child in measurement.coord_measurement.child_measurements_mut() {
+            if let Some(width) = parent_width {
+                child.coord_measurement.set_parent_bandwidth(width);
+            }
             apply_coordinated_overflow_recursive(child, eval_ctx).await?;
         }
 
         Ok(())
     })
+}
+
+/// Re-apply scale adjustments and propagate coordinated widths recursively.
+///
+/// After coordination completes, two things need updating in the rendering path:
+///
+/// 1. **Scale adjustments**: Scales stored in ComponentsMeasurement were built during
+///    measurement with local (pre-coordination) values. Re-applying adjustments updates
+///    them with coordinated padding_inner_px, outer_left/outer_right, etc.
+///
+/// 2. **Width propagation**: Each child's `plot_area_width` and column scale range need
+///    to match the parent's coordinated `subplot_width`. Without this, children of different
+///    parent branches would render at different widths despite identical coordination.
+fn reapply_scale_adjustments_recursive(measurement: &mut ComponentsMeasurement) {
+    // Re-apply scale adjustments from coord_measurement to stored scales
+    measurement
+        .coord_measurement
+        .apply_scale_adjustments(&mut measurement.scales);
+
+    // Get parent's coordinated subplot width before mutable borrow of children
+    let parent_width = measurement.coord_measurement.coordinated_subplot_width();
+
+    // Recurse into children, propagating coordinated parent width
+    for child in measurement.coord_measurement.child_measurements_mut() {
+        if let Some(width) = parent_width {
+            // Update child's plot_area_width to match coordinated parent bandwidth
+            if (child.plot_area_width - width).abs() > 0.01 {
+                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "reapply_scale: updating child plot_area_width {:.1} -> {:.1}",
+                        child.plot_area_width, width
+                    );
+                }
+                child.plot_area_width = width;
+
+                // Update column scale range to match the coordinated parent width
+                if let Some(column_scale) = child.scales.get_mut("column") {
+                    let updated_config = column_scale
+                        .configured()
+                        .clone()
+                        .with_range_interval((0.0, width));
+                    *column_scale = ConfiguredScaleWithSpec::new(
+                        column_scale.spec().clone(),
+                        updated_config,
+                    );
+                }
+            }
+        }
+        reapply_scale_adjustments_recursive(child);
+    }
 }
 
 #[typetag::serde(tag = "type")]

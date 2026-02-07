@@ -570,6 +570,35 @@ impl CoordMeasurement for FacetColCoordMeasurement {
         }
         255
     }
+
+    fn coordinated_subplot_width(&self) -> Option<f32> {
+        // Return the coordinated subplot width if coordination has been applied.
+        // After apply_coordinated_overflow, self.subplot_width reflects the coordinated value.
+        if self.subplot_width > 0.0 {
+            Some(self.subplot_width)
+        } else {
+            None
+        }
+    }
+
+    fn set_parent_bandwidth(&mut self, bandwidth: f32) {
+        // Update original_column_scale range to use the coordinated parent bandwidth.
+        // This ensures all FacetCol nodes at the same depth compute the same subplot
+        // width from bandwidth(), regardless of which branch they belong to.
+        if bandwidth > 0.0 {
+            self.original_column_scale = self
+                .original_column_scale
+                .clone()
+                .with_range_interval((0.0, bandwidth));
+
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "FacetCol set_parent_bandwidth: updated original_column_scale range to (0, {:.1})",
+                    bandwidth
+                );
+            }
+        }
+    }
 }
 
 /// Compute padding_inner_px from the MAX of all adjacent overflow combinations.
