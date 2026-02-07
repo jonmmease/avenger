@@ -16,8 +16,14 @@ use crate::{
     },
     error::AvengerChartError,
     facet::{
+        coordination::{CoordinationGroupKey, FacetAxis},
         guide::{FacetColGuideConfig, FacetRowGuideConfig},
+        layout_plan::{
+            FacetBandPlan, FacetCellPlan, aggregate_facet_col_overflow,
+            compute_padding_from_overflows, effective_edge_indices,
+        },
         marks::facet::{FacetMarkRef, facet_mark_ref},
+        sharing_policy,
     },
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     marks::CompiledMark,
@@ -65,6 +71,9 @@ pub struct FacetColCoordMeasurement {
     /// Parent facet path (for nested facets). This is the path to reach this facet level.
     /// When constructing cell paths for nested subplots, prepend this to the cell value.
     pub parent_path: Vec<ScalarValue>,
+    /// Stable field identity for coordination grouping at this facet level.
+    /// This is typically the facet column field name.
+    pub coordination_field_identity: String,
     /// Pre-computed subplot measurements (computed with final subplot width after padding_inner_px).
     /// These are used directly by render_from_data to avoid re-measuring.
     pub subplot_measurements: Vec<ComponentsMeasurement>,
@@ -365,10 +374,10 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             let mut cell_path: Vec<ScalarValue> = self.parent_path.clone();
             cell_path.push(value.clone());
             let is_empty = self.empty_cells.get(idx).copied().unwrap_or(false);
-            let cell = FacetCell {
+            let cell = FacetCellPlan {
                 value: value.clone(),
-                path: cell_path,
-                exists: !is_empty,
+                full_path: cell_path,
+                exists_in_tree: !is_empty,
                 is_empty,
                 filtered_df: data_override.clone(),
             };
@@ -537,112 +546,14 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             }
         }
     }
-}
 
-/// Compute padding_inner_px from the MAX of all adjacent overflow combinations.
-///
-/// For a FacetCol layout, the gap between cell[i] and cell[i+1] must accommodate:
-/// - cell[i].right overflow (typically tick-only for interior, full for last)
-/// - cell[i+1].left overflow (typically full for first, tick-only for interior)
-///
-/// Pairs containing empty Level(N) placeholder cells are skipped so overflow from
-/// hidden/non-rendered slots does not inflate internal gaps.
-fn compute_padding_from_overflows(
-    overflows: &[OverflowSpaceRequirement],
-    empty_cells: &[bool],
-) -> f32 {
-    if overflows.len() < 2 {
-        return 0.0;
+    fn coordination_group_key(&self, depth: usize) -> Option<CoordinationGroupKey> {
+        Some(CoordinationGroupKey::new(
+            depth,
+            FacetAxis::Column,
+            self.coordination_field_identity.clone(),
+        ))
     }
-
-    let mut max_padding = 0.0f32;
-    for i in 0..overflows.len() - 1 {
-        let left_is_empty = empty_cells.get(i).copied().unwrap_or(false);
-        let right_is_empty = empty_cells.get(i + 1).copied().unwrap_or(false);
-        if left_is_empty || right_is_empty {
-            continue;
-        }
-        let combined = overflows[i].right + overflows[i + 1].left;
-        max_padding = max_padding.max(combined);
-    }
-    max_padding
-}
-
-/// Compute the effective first/last cell indices for outer-edge overflow routing.
-///
-/// Prefer first/last non-empty cells. If all cells are empty, fall back to the
-/// raw first/last indices to preserve deterministic behavior.
-fn effective_edge_indices(empty_cells: &[bool], count: usize) -> Option<(usize, usize)> {
-    if count == 0 {
-        return None;
-    }
-
-    let first_non_empty = (0..count).find(|&idx| !empty_cells.get(idx).copied().unwrap_or(false));
-    let last_non_empty = (0..count)
-        .rev()
-        .find(|&idx| !empty_cells.get(idx).copied().unwrap_or(false));
-
-    match (first_non_empty, last_non_empty) {
-        (Some(first), Some(last)) => Some((first, last)),
-        _ => Some((0, count - 1)),
-    }
-}
-
-/// Aggregate guide and total overflow across FacetCol subplot measurements.
-///
-/// Uses a canonical edge policy:
-/// - top/bottom: max across all cells
-/// - left/right: first/last effective edge cells (prefer non-empty placeholders)
-pub(crate) fn aggregate_facet_col_overflow(
-    subplot_measurements: &[ComponentsMeasurement],
-    empty_cells: &[bool],
-) -> Option<(OverflowSpaceRequirement, OverflowSpaceRequirement)> {
-    let (first_idx, last_idx) = effective_edge_indices(empty_cells, subplot_measurements.len())?;
-
-    let first_guide_left = subplot_measurements
-        .get(first_idx)
-        .map(|m| m.layout.overflow.left)
-        .unwrap_or(0.0);
-    let last_guide_right = subplot_measurements
-        .get(last_idx)
-        .map(|m| m.layout.overflow.right)
-        .unwrap_or(0.0);
-    let first_total_left = subplot_measurements
-        .get(first_idx)
-        .map(|m| m.layout.total_overflow.left)
-        .unwrap_or(0.0);
-    let last_total_right = subplot_measurements
-        .get(last_idx)
-        .map(|m| m.layout.total_overflow.right)
-        .unwrap_or(0.0);
-
-    let guide = OverflowSpaceRequirement {
-        top: subplot_measurements
-            .iter()
-            .map(|m| m.layout.overflow.top)
-            .fold(0.0f32, f32::max),
-        bottom: subplot_measurements
-            .iter()
-            .map(|m| m.layout.overflow.bottom)
-            .fold(0.0f32, f32::max),
-        left: first_guide_left,
-        right: last_guide_right,
-    };
-
-    let total = OverflowSpaceRequirement {
-        top: subplot_measurements
-            .iter()
-            .map(|m| m.layout.total_overflow.top)
-            .fold(0.0f32, f32::max),
-        bottom: subplot_measurements
-            .iter()
-            .map(|m| m.layout.total_overflow.bottom)
-            .fold(0.0f32, f32::max),
-        left: first_total_left,
-        right: last_total_right,
-    };
-
-    Some((guide, total))
 }
 
 /// Compute ancestor key for grouping domain extents.
@@ -667,37 +578,7 @@ pub fn compute_ancestor_key(
     sharing_level: u8,
     facet_depth: u8,
 ) -> Vec<ScalarValue> {
-    // Debug assertion: facet_depth should equal full_cell_path.len()
-    debug_assert_eq!(
-        facet_depth as usize,
-        full_cell_path.len(),
-        "facet_depth ({}) must equal full_cell_path.len() ({})",
-        facet_depth,
-        full_cell_path.len()
-    );
-
-    if sharing_level >= facet_depth {
-        // Global sharing at this level
-        vec![]
-    } else {
-        // Remove last `sharing_level` components
-        let levels_to_remove = sharing_level as usize;
-        let keep_count = full_cell_path.len().saturating_sub(levels_to_remove);
-        full_cell_path.iter().take(keep_count).cloned().collect()
-    }
-}
-
-/// Per-cell facet context reused across measurement passes.
-///
-/// This centralizes path/existence/data filtering semantics so Pass 1 and Pass 2
-/// operate over the same cell definition.
-#[derive(Clone)]
-struct FacetCell {
-    value: ScalarValue,
-    path: Vec<ScalarValue>,
-    exists: bool,
-    is_empty: bool,
-    filtered_df: DataFrame,
+    sharing_policy::domain_group_key(full_cell_path, sharing_level, facet_depth)
 }
 
 /// Scale selection strategy for measuring a facet cell.
@@ -719,7 +600,7 @@ enum FacetCellMeasurementMode<'a> {
 /// Planning data prepared once before running FacetCol measurement passes.
 struct FacetColMeasurePlan {
     cell_values: Vec<ScalarValue>,
-    cells: Vec<FacetCell>,
+    cells: Vec<FacetCellPlan>,
     nested_col_sharing: Option<u8>,
     nested_depth: u8,
     scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
@@ -770,6 +651,7 @@ fn empty_facet_col_measurement(
         original_column_scale: column_scale.configured().clone(),
         local_layout: CoordinatedLayout::default(),
         coordinated_layout: None,
+        coordination_field_identity: "column".to_string(),
     })
 }
 
@@ -779,7 +661,7 @@ fn build_facet_cell(
     facet_path: &[ScalarValue],
     value: &ScalarValue,
     data_df: &DataFrame,
-) -> Result<FacetCell, AvengerChartError> {
+) -> Result<FacetCellPlan, AvengerChartError> {
     let mut path = facet_path.to_vec();
     path.push(value.clone());
 
@@ -807,10 +689,10 @@ fn build_facet_cell(
         data_df.clone()
     };
 
-    Ok(FacetCell {
+    Ok(FacetCellPlan {
         value: value.clone(),
-        path,
-        exists,
+        full_path: path,
+        exists_in_tree: exists,
         is_empty,
         filtered_df,
     })
@@ -835,7 +717,7 @@ fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
 /// This is the shared measurement engine used by pass 1, pass 2, and coordinated
 /// re-measurement to keep cell measurement behavior consistent.
 async fn measure_facet_cell(
-    cell: &FacetCell,
+    cell: &FacetCellPlan,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
     subplot_layout_spec: &EvaluatedLayoutSpec,
@@ -863,7 +745,7 @@ async fn measure_facet_cell(
                         subplot_layout_spec,
                         &shared_scale_provider,
                         None,
-                        &cell.path,
+                        &cell.full_path,
                     )
                     .await;
             }
@@ -893,18 +775,18 @@ async fn measure_facet_cell(
                             subplot_layout_spec,
                             &cell_scale_provider,
                             Some(&cell.filtered_df),
-                            &cell.path,
+                            &cell.full_path,
                         )
                         .await
                 }
                 Some(sharing_level) if sharing_level < nested_depth => {
-                    // Nested sharing is defined one level deeper than `cell.path`,
+                    // Nested sharing is defined one level deeper than `cell.full_path`,
                     // so convert Level(N) at nested depth to a truncation on the
                     // current cell path by removing `N - 1` components.
                     let ancestor_key = compute_ancestor_key(
-                        &cell.path,
+                        &cell.full_path,
                         sharing_level.saturating_sub(1),
-                        cell.path.len() as u8,
+                        cell.full_path.len() as u8,
                     );
 
                     let cached_builder =
@@ -938,7 +820,7 @@ async fn measure_facet_cell(
                             subplot_layout_spec,
                             &cached_scale_provider,
                             Some(&ancestor_filtered_df),
-                            &cell.path,
+                            &cell.full_path,
                         )
                         .await
                 }
@@ -949,7 +831,7 @@ async fn measure_facet_cell(
                             subplot_layout_spec,
                             &shared_scale_provider,
                             Some(&cell.filtered_df),
-                            &cell.path,
+                            &cell.full_path,
                         )
                         .await
                 }
@@ -971,7 +853,7 @@ async fn measure_facet_cell(
                     subplot_layout_spec,
                     &scale_provider,
                     data_arg,
-                    &cell.path,
+                    &cell.full_path,
                 )
                 .await
         }
@@ -1037,7 +919,7 @@ async fn build_facet_col_measure_plan(
     }
 
     // Build canonical per-cell contexts once and reuse across pass 1/pass 2.
-    let cells: Vec<FacetCell> = cell_values
+    let cells: Vec<FacetCellPlan> = cell_values
         .iter()
         .map(|value| build_facet_cell(facet_tree, facet_path, value, data_df))
         .collect::<Result<_, _>>()?;
@@ -1053,7 +935,7 @@ async fn build_facet_col_measure_plan(
 }
 
 async fn run_facet_col_measure_pass1(
-    cells: &[FacetCell],
+    cells: &[FacetCellPlan],
     subplot_width: f32,
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
@@ -1118,7 +1000,7 @@ async fn run_facet_col_measure_pass1(
 
         // Extract per-cell domain extents for level-aware coordination.
         // Skip for empty cells (no data to extract domains from).
-        let annotated_extents: HashMap<String, ChannelDomainExtent> = if cell.exists {
+        let annotated_extents: HashMap<String, ChannelDomainExtent> = if cell.exists_in_tree {
             let cell_scale_builder = build_scale_builder_from_marks(
                 &compiled_subplot.marks,
                 &compiled_subplot.scale_specs,
@@ -1165,7 +1047,7 @@ async fn run_facet_col_measure_pass1(
 }
 
 async fn run_facet_col_measure_pass2(
-    cells: &[FacetCell],
+    cells: &[FacetCellPlan],
     data_overrides: &[DataFrame],
     subplot_width: f32,
     plot_height: f32,
@@ -1177,10 +1059,10 @@ async fn run_facet_col_measure_pass2(
     let mut empty_cells = Vec::with_capacity(cells.len());
 
     for (idx, (cell, filtered_df)) in cells.iter().zip(data_overrides.iter()).enumerate() {
-        let pass2_cell = FacetCell {
+        let pass2_cell = FacetCellPlan {
             value: cell.value.clone(),
-            path: cell.path.clone(),
-            exists: cell.exists,
+            full_path: cell.full_path.clone(),
+            exists_in_tree: cell.exists_in_tree,
             is_empty: cell.is_empty,
             filtered_df: filtered_df.clone(),
         };
@@ -1205,7 +1087,7 @@ async fn run_facet_col_measure_pass2(
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
                 "FacetCol coord measure pass 2: cell[{}]={:?} measured at width={:.1} path_exists={}",
-                idx, cell.value, subplot_width, cell.exists
+                idx, cell.value, subplot_width, cell.exists_in_tree
             );
         }
 
@@ -1672,6 +1554,7 @@ impl CoordinateSystemTransform for FacetColumn {
                 ));
             }
         };
+        let coordination_field_identity = current_node.field.clone();
 
         // Now we can require data (path exists, so this is not an empty cell context)
         let data_df = data.ok_or_else(|| {
@@ -1796,13 +1679,7 @@ impl CoordinateSystemTransform for FacetColumn {
             );
         }
 
-        // Capture local layout and original column scale BEFORE Pass 2 adjustments
-        let local_layout = CoordinatedLayout {
-            padding_inner_px,
-            outer_left,
-            outer_right,
-            n: cell_values.len(),
-        };
+        // Capture original column scale BEFORE Pass 2 adjustments
         let original_column_scale = column_scale.configured().clone();
 
         // === PASS 2: Rebuild column scale with padding_inner_px, range adjustment, AND domain ===
@@ -1851,8 +1728,22 @@ impl CoordinateSystemTransform for FacetColumn {
             );
         }
 
+        let band_plan = FacetBandPlan {
+            cells,
+            padding_inner_px,
+            outer_left,
+            outer_right,
+            n: cell_values.len(),
+        };
+        let local_layout = CoordinatedLayout {
+            padding_inner_px: band_plan.padding_inner_px,
+            outer_left: band_plan.outer_left,
+            outer_right: band_plan.outer_right,
+            n: band_plan.n,
+        };
+
         let (subplot_measurements, empty_cells) = run_facet_col_measure_pass2(
-            &cells,
+            &band_plan.cells,
             &data_overrides,
             final_subplot_width,
             plot_height,
@@ -1864,9 +1755,9 @@ impl CoordinateSystemTransform for FacetColumn {
 
         Ok(Box::new(FacetColCoordMeasurement {
             cell_values,
-            padding_inner_px,
-            outer_left,
-            outer_right,
+            padding_inner_px: band_plan.padding_inner_px,
+            outer_left: band_plan.outer_left,
+            outer_right: band_plan.outer_right,
             data_overrides,
             shared_scale_builder,
             parent_path: facet_path.to_vec(),
@@ -1881,6 +1772,7 @@ impl CoordinateSystemTransform for FacetColumn {
             original_column_scale,
             local_layout,
             coordinated_layout: None,
+            coordination_field_identity,
         }))
     }
 
@@ -1980,111 +1872,6 @@ mod tests {
         };
         assert_eq!(coord.padding_px, Some(5.0));
         assert!(coord.overflow_by_facet.is_some());
-    }
-
-    #[test]
-    fn compute_padding_skips_pairs_with_empty_cells() {
-        let overflows = vec![
-            OverflowSpaceRequirement {
-                right: 0.0,
-                ..Default::default()
-            },
-            OverflowSpaceRequirement {
-                right: 0.0,
-                ..Default::default()
-            },
-            OverflowSpaceRequirement {
-                left: 41.0,
-                right: 0.0,
-                ..Default::default()
-            },
-            OverflowSpaceRequirement {
-                left: 0.0,
-                ..Default::default()
-            },
-        ];
-        let empty_cells = vec![true, true, false, false];
-        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
-        assert_eq!(padding, 0.0);
-    }
-
-    #[test]
-    fn compute_padding_uses_max_when_cells_non_empty() {
-        let overflows = vec![
-            OverflowSpaceRequirement {
-                right: 7.0,
-                ..Default::default()
-            },
-            OverflowSpaceRequirement {
-                left: 5.0,
-                right: 3.0,
-                ..Default::default()
-            },
-            OverflowSpaceRequirement {
-                left: 2.0,
-                ..Default::default()
-            },
-        ];
-        let empty_cells = vec![false, false, false];
-        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
-        assert_eq!(padding, 12.0);
-    }
-
-    #[test]
-    fn compute_ancestor_key_level0_keeps_full_path() {
-        let path = vec![
-            ScalarValue::Utf8(Some("A".to_string())),
-            ScalarValue::Utf8(Some("B".to_string())),
-            ScalarValue::Utf8(Some("C".to_string())),
-        ];
-        let key = compute_ancestor_key(&path, 0, path.len() as u8);
-        assert_eq!(key, path);
-    }
-
-    #[test]
-    fn compute_ancestor_key_level2_removes_last_two() {
-        let path = vec![
-            ScalarValue::Utf8(Some("A".to_string())),
-            ScalarValue::Utf8(Some("B".to_string())),
-            ScalarValue::Utf8(Some("C".to_string())),
-            ScalarValue::Utf8(Some("D".to_string())),
-        ];
-        let key = compute_ancestor_key(&path, 2, path.len() as u8);
-        assert_eq!(
-            key,
-            vec![
-                ScalarValue::Utf8(Some("A".to_string())),
-                ScalarValue::Utf8(Some("B".to_string())),
-            ]
-        );
-    }
-
-    #[test]
-    fn compute_ancestor_key_level_ge_depth_is_global() {
-        let path = vec![
-            ScalarValue::Utf8(Some("A".to_string())),
-            ScalarValue::Utf8(Some("B".to_string())),
-            ScalarValue::Utf8(Some("C".to_string())),
-        ];
-        let key = compute_ancestor_key(&path, path.len() as u8, path.len() as u8);
-        assert!(key.is_empty());
-    }
-
-    #[test]
-    fn effective_edge_indices_prefers_non_empty_cells() {
-        let empty_cells = vec![true, true, false, false];
-        assert_eq!(effective_edge_indices(&empty_cells, 4), Some((2, 3)));
-    }
-
-    #[test]
-    fn effective_edge_indices_falls_back_when_all_empty() {
-        let empty_cells = vec![true, true, true];
-        assert_eq!(effective_edge_indices(&empty_cells, 3), Some((0, 2)));
-    }
-
-    #[test]
-    fn effective_edge_indices_none_for_no_cells() {
-        assert_eq!(effective_edge_indices(&[], 0), None);
     }
 
     #[test]

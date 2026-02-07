@@ -6,11 +6,12 @@
 use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
-use crate::facet::coord::{FacetColCoordMeasurement, aggregate_facet_col_overflow};
+use crate::facet::coord::FacetColCoordMeasurement;
 use crate::facet::guide_utils::{
     FacetLabelMeasurementConfig, FacetLabelRenderConfig, measure_facet_label_slab,
     render_facet_label_slab,
 };
+use crate::facet::layout_plan::aggregate_facet_col_overflow;
 use crate::facet::marks::facet::CompiledFacetCol;
 use crate::guide::{CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;

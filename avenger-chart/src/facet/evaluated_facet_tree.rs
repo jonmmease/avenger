@@ -25,7 +25,9 @@ use crate::{
     facet::{
         keys::FacetKeyExtractor,
         marks::facet::{FacetMarkRef, facet_mark_ref},
+        path_math,
         scalar_cmp::scalar_total_cmp,
+        sharing_policy,
     },
     guide::FacetDirection,
     marks::{ChannelValue, CompiledMark},
@@ -115,61 +117,6 @@ impl AxisVisibility {
             show_title: false,
         }
     }
-}
-
-/// Check if a cell is the first within its sharing group.
-///
-/// Uses suffix-based grouping: for Level(N) sharing with depth D,
-/// check if position_indices[D-N..] are all zero.
-fn is_first_in_sharing_group(
-    position_indices: &[usize],
-    sharing_level: u8,
-    facet_depth: u8,
-) -> bool {
-    // Level(0) = Free: every cell is first in its own group
-    if sharing_level == 0 {
-        return true;
-    }
-
-    // Level(255) or sharing >= depth = Shared: only truly first cell
-    if sharing_level >= facet_depth {
-        return position_indices.iter().all(|&i| i == 0);
-    }
-
-    // Level(N) with N < facet_depth: check suffix
-    let group_boundary = (facet_depth - sharing_level) as usize;
-    position_indices[group_boundary..].iter().all(|&i| i == 0)
-}
-
-/// Check if a cell is the last within its sharing group.
-///
-/// Uses suffix-based grouping: for Level(N) sharing with depth D,
-/// check if position_indices[D-N..] are all at their maximum values.
-fn is_last_in_sharing_group(
-    position_indices: &[usize],
-    level_counts: &[usize],
-    sharing_level: u8,
-    facet_depth: u8,
-) -> bool {
-    // Level(0) = Free: every cell is last in its own group
-    if sharing_level == 0 {
-        return true;
-    }
-
-    // Level(255) or sharing >= depth = Shared: only truly last cell
-    if sharing_level >= facet_depth {
-        return position_indices
-            .iter()
-            .zip(level_counts.iter())
-            .all(|(&pos, &count)| pos == count.saturating_sub(1));
-    }
-
-    // Level(N) with N < facet_depth: check suffix
-    let group_boundary = (facet_depth - sharing_level) as usize;
-    position_indices[group_boundary..]
-        .iter()
-        .zip(level_counts[group_boundary..].iter())
-        .all(|(&pos, &count)| pos == count.saturating_sub(1))
 }
 
 impl EvaluatedFacetTree {
@@ -562,7 +509,7 @@ impl EvaluatedFacetTree {
 
         let facet_depth = facet_path.len() as u8 + 1;
         let enumeration_path =
-            Self::compute_enumeration_ancestor_path(facet_path, sharing_level, facet_depth);
+            path_math::enumeration_ancestor_path(facet_path, sharing_level, facet_depth);
 
         let ancestor_node = if enumeration_path.is_empty() {
             self.root.as_ref()
@@ -577,23 +524,6 @@ impl EvaluatedFacetTree {
         } else {
             // Missing ancestor path: fall back to local subtree values.
             Some(current_node.values().cloned().collect())
-        }
-    }
-
-    fn compute_enumeration_ancestor_path(
-        facet_path: &[ScalarValue],
-        sharing_level: u8,
-        facet_depth: u8,
-    ) -> Vec<ScalarValue> {
-        if sharing_level == 0 {
-            facet_path.to_vec()
-        } else if sharing_level as usize >= (facet_depth as usize).saturating_sub(1) {
-            vec![]
-        } else {
-            let ancestors_to_keep = (facet_depth as usize)
-                .saturating_sub(1)
-                .saturating_sub(sharing_level as usize);
-            facet_path.iter().take(ancestors_to_keep).cloned().collect()
         }
     }
 
@@ -850,51 +780,24 @@ impl EvaluatedFacetTree {
                 break;
             };
 
-            // Check if this level's facet direction affects the axis
-            // Labels use sharing-group-aware visibility
-            let should_hide_labels = match (node.direction, axis_position) {
-                // Column facet affects Y axes
-                (FacetDirection::Column, AxisPosition::Left) => {
-                    !is_first_in_sharing_group(position_indices, sharing_level, facet_depth)
-                }
-                (FacetDirection::Column, AxisPosition::Right) => {
-                    !is_last_in_sharing_group(position_indices, &counts, sharing_level, facet_depth)
-                }
+            // Labels and titles use the same sharing policy module to avoid drift
+            // between visibility and domain coordination semantics.
+            let should_hide_labels = !sharing_policy::show_axis_labels(
+                position_indices,
+                &counts,
+                facet_depth,
+                sharing_level,
+                node.direction,
+                axis_position,
+            );
 
-                // Row facet affects X axes
-                (FacetDirection::Row, AxisPosition::Bottom) => {
-                    !is_last_in_sharing_group(position_indices, &counts, sharing_level, facet_depth)
-                }
-                (FacetDirection::Row, AxisPosition::Top) => {
-                    !is_first_in_sharing_group(position_indices, sharing_level, facet_depth)
-                }
-
-                // Other combinations: no effect
-                _ => false,
-            };
-
-            // Titles use "globally first/last" visibility (sharing_level = 255 = Shared)
-            // This ensures titles only appear on the outermost edge cells
-            let should_hide_title = match (node.direction, axis_position) {
-                // Column facet affects Y axes
-                (FacetDirection::Column, AxisPosition::Left) => {
-                    !is_first_in_sharing_group(position_indices, 255, facet_depth)
-                }
-                (FacetDirection::Column, AxisPosition::Right) => {
-                    !is_last_in_sharing_group(position_indices, &counts, 255, facet_depth)
-                }
-
-                // Row facet affects X axes
-                (FacetDirection::Row, AxisPosition::Bottom) => {
-                    !is_last_in_sharing_group(position_indices, &counts, 255, facet_depth)
-                }
-                (FacetDirection::Row, AxisPosition::Top) => {
-                    !is_first_in_sharing_group(position_indices, 255, facet_depth)
-                }
-
-                // Other combinations: no effect
-                _ => false,
-            };
+            let should_hide_title = !sharing_policy::show_axis_title(
+                position_indices,
+                &counts,
+                facet_depth,
+                node.direction,
+                axis_position,
+            );
 
             if should_hide_labels {
                 hide_labels = true;

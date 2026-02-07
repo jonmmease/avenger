@@ -1,0 +1,140 @@
+//! Unified sharing policy helpers for faceting.
+//!
+//! This module centralizes sharing-level behavior used by both:
+//! - domain coordination grouping keys, and
+//! - axis visibility decisions.
+
+use datafusion::common::ScalarValue;
+
+use crate::{cartesian::axis::AxisPosition, facet::path_math, guide::FacetDirection};
+
+/// Compute the canonical domain-group key for a cell path.
+///
+/// Delegates to shared path math so domain coordination and visibility grouping
+/// remain consistent.
+pub(crate) fn domain_group_key(
+    full_cell_path: &[ScalarValue],
+    sharing_level: u8,
+    facet_depth: u8,
+) -> Vec<ScalarValue> {
+    path_math::ancestor_key(full_cell_path, sharing_level, facet_depth)
+}
+
+/// Determine whether axis labels should be visible for a facet cell.
+pub(crate) fn show_axis_labels(
+    position_indices: &[usize],
+    level_counts: &[usize],
+    facet_depth: u8,
+    sharing_level: u8,
+    direction: FacetDirection,
+    axis_position: AxisPosition,
+) -> bool {
+    match (direction, axis_position) {
+        (FacetDirection::Column, AxisPosition::Left) => {
+            is_first_in_sharing_group(position_indices, sharing_level, facet_depth)
+        }
+        (FacetDirection::Column, AxisPosition::Right) => {
+            is_last_in_sharing_group(position_indices, level_counts, sharing_level, facet_depth)
+        }
+        (FacetDirection::Row, AxisPosition::Bottom) => {
+            is_last_in_sharing_group(position_indices, level_counts, sharing_level, facet_depth)
+        }
+        (FacetDirection::Row, AxisPosition::Top) => {
+            is_first_in_sharing_group(position_indices, sharing_level, facet_depth)
+        }
+        _ => true,
+    }
+}
+
+/// Determine whether axis titles should be visible for a facet cell.
+///
+/// Titles follow global edge visibility (Shared semantics).
+pub(crate) fn show_axis_title(
+    position_indices: &[usize],
+    level_counts: &[usize],
+    facet_depth: u8,
+    direction: FacetDirection,
+    axis_position: AxisPosition,
+) -> bool {
+    let shared_level = 255;
+    match (direction, axis_position) {
+        (FacetDirection::Column, AxisPosition::Left) => {
+            is_first_in_sharing_group(position_indices, shared_level, facet_depth)
+        }
+        (FacetDirection::Column, AxisPosition::Right) => {
+            is_last_in_sharing_group(position_indices, level_counts, shared_level, facet_depth)
+        }
+        (FacetDirection::Row, AxisPosition::Bottom) => {
+            is_last_in_sharing_group(position_indices, level_counts, shared_level, facet_depth)
+        }
+        (FacetDirection::Row, AxisPosition::Top) => {
+            is_first_in_sharing_group(position_indices, shared_level, facet_depth)
+        }
+        _ => true,
+    }
+}
+
+fn is_first_in_sharing_group(
+    position_indices: &[usize],
+    sharing_level: u8,
+    facet_depth: u8,
+) -> bool {
+    let group_boundary = path_math::sharing_group_boundary(facet_depth, sharing_level);
+    position_indices[group_boundary..].iter().all(|&i| i == 0)
+}
+
+fn is_last_in_sharing_group(
+    position_indices: &[usize],
+    level_counts: &[usize],
+    sharing_level: u8,
+    facet_depth: u8,
+) -> bool {
+    let group_boundary = path_math::sharing_group_boundary(facet_depth, sharing_level);
+    position_indices[group_boundary..]
+        .iter()
+        .zip(level_counts[group_boundary..].iter())
+        .all(|(&pos, &count)| pos == count.saturating_sub(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(v: &str) -> ScalarValue {
+        ScalarValue::Utf8(Some(v.to_string()))
+    }
+
+    #[test]
+    fn domain_group_key_matches_ancestor_semantics() {
+        let path = vec![s("A"), s("B"), s("C"), s("D")];
+        assert_eq!(domain_group_key(&path, 0, 4), path);
+        assert_eq!(domain_group_key(&path, 1, 4), vec![s("A"), s("B"), s("C")]);
+        assert_eq!(domain_group_key(&path, 2, 4), vec![s("A"), s("B")]);
+        assert!(domain_group_key(&path, 4, 4).is_empty());
+    }
+
+    #[test]
+    fn labels_visibility_obeys_level_grouping_for_column_left() {
+        let counts = vec![2, 4, 2, 2];
+        let facet_depth = 4;
+
+        // Level(1): groups are based on prefix of length 3, so suffix is just the
+        // last index. [0,0,1,0] is first in its group while [0,0,1,1] is not.
+        assert!(show_axis_labels(
+            &[0, 0, 1, 0],
+            &counts,
+            facet_depth,
+            1,
+            FacetDirection::Column,
+            AxisPosition::Left
+        ));
+        assert!(!show_axis_labels(
+            &[0, 0, 1, 1],
+            &counts,
+            facet_depth,
+            1,
+            FacetDirection::Column,
+            AxisPosition::Left
+        ));
+    }
+}

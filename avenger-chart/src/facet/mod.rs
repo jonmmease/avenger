@@ -4,10 +4,14 @@
 
 pub mod band_positions;
 pub mod coord;
+pub mod coordination;
 pub mod dimension_config;
 pub mod evaluated_facet_tree;
 pub mod guide;
 pub mod guide_utils;
 pub mod keys;
+pub mod layout_plan;
 pub mod marks;
+pub mod path_math;
 pub mod scalar_cmp;
+pub mod sharing_policy;

@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
@@ -10,10 +10,7 @@ pub use crate::guide::OverflowSpaceRequirement;
 
 use crate::{
     error::AvengerChartError,
-    facet::{
-        band_positions::BandPosition,
-        coord::{compute_ancestor_key, union_domain_extents},
-    },
+    facet::{band_positions::BandPosition, coordination::CoordinationGroupKey},
     guide::CoordinateGuide,
     marks::CompiledMark,
     plot::compiled::ComponentsMeasurement,
@@ -247,6 +244,16 @@ pub trait CoordMeasurement: Send + Sync + 'static {
     fn set_parent_bandwidth(&mut self, _bandwidth: f32) {
         // Default: no-op
     }
+
+    /// Coordination grouping key for this node.
+    ///
+    /// Facet measurements should return a stable key containing depth/axis/field
+    /// identity so cross-branch coordination is explicit and deterministic.
+    ///
+    /// Default implementation: `None`, which uses a depth-only fallback key.
+    fn coordination_group_key(&self, _depth: usize) -> Option<CoordinationGroupKey> {
+        None
+    }
 }
 
 /// Layout parameters coordinated across all FacetCol nodes at the same depth.
@@ -289,171 +296,6 @@ impl CoordMeasurement for EmptyCoordMeasurement {
     // Use default implementations for coordination methods (return None/empty)
 }
 
-// =============================================================================
-// Coordination Functions
-// =============================================================================
-
-/// Distribute coordinated overflow values across all facets at each nesting level.
-///
-/// Uses a two-pass algorithm:
-/// 1. Collect overflow values by depth (via trait method)
-/// 2. Distribute max values back to all facets at each depth (via trait method)
-///
-/// This ensures that facet labels at the same nesting depth are horizontally aligned
-/// regardless of their individual subplot overflow requirements ("cousin" coordination).
-fn distribute_coordinated_overflow(measurement: &mut ComponentsMeasurement) {
-    // Pass 1: Collect all overflow values by nesting depth
-    let mut overflow_by_level: HashMap<usize, Vec<CoordinatedOverflow>> = HashMap::new();
-    collect_overflow_by_level(measurement, 0, &mut overflow_by_level);
-
-    // Aggregation: Compute global max for each level
-    let max_by_level: HashMap<usize, CoordinatedOverflow> = overflow_by_level
-        .into_iter()
-        .map(|(depth, values)| {
-            let mut merged = CoordinatedOverflow::default();
-            for v in &values {
-                merged.merge(&v);
-            }
-            (depth, merged)
-        })
-        .collect();
-
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "coordinate_overflow_for_guides: max_by_level={:?}",
-            max_by_level
-        );
-    }
-
-    // Pass 2: Distribute max values to all facets at each level
-    distribute_overflow_by_level(measurement, 0, &max_by_level);
-}
-
-/// Pass 1: Collect overflow values from all facets, keyed by nesting depth.
-///
-/// Uses trait methods - works for ANY CoordMeasurement that implements the trait.
-fn collect_overflow_by_level(
-    measurement: &ComponentsMeasurement,
-    depth: usize,
-    registry: &mut HashMap<usize, Vec<CoordinatedOverflow>>,
-) {
-    // Generic: works for any CoordMeasurement
-    if let Some(local) = measurement.coord_measurement.local_overflow() {
-        registry.entry(depth).or_default().push(local);
-    }
-
-    // Recurse into children (also generic via trait)
-    for child in measurement.coord_measurement.child_measurements() {
-        collect_overflow_by_level(child, depth + 1, registry);
-    }
-}
-
-/// Pass 2: Distribute coordinated max values to all facets at each level.
-///
-/// Uses trait methods - works for ANY CoordMeasurement that implements the trait.
-fn distribute_overflow_by_level(
-    measurement: &mut ComponentsMeasurement,
-    depth: usize,
-    max_by_level: &HashMap<usize, CoordinatedOverflow>,
-) {
-    // Generic: set coordinated overflow via trait
-    if let Some(max_overflow) = max_by_level.get(&depth) {
-        measurement
-            .coord_measurement
-            .set_coordinated_overflow(max_overflow.clone());
-    }
-
-    // Recurse into children (generic via trait)
-    for child in measurement.coord_measurement.child_measurements_mut() {
-        distribute_overflow_by_level(child, depth + 1, max_by_level);
-    }
-}
-
-// =============================================================================
-// Layout Coordination
-//
-// These functions coordinate layout parameters (padding, outer offsets, cell count)
-// across all FacetCol nodes at the same nesting depth, ensuring consistent subplot
-// widths and gaps across all branches.
-// =============================================================================
-
-/// Distribute coordinated layout values across all facets at each nesting level.
-///
-/// Uses the same collect-aggregate-distribute pattern as overflow coordination:
-/// 1. Collect layout values by depth (via trait method)
-/// 2. Compute max at each depth
-/// 3. Distribute max values back to all facets at each depth
-fn distribute_coordinated_layout(measurement: &mut ComponentsMeasurement) {
-    // Pass 1: Collect all layout values by nesting depth
-    let mut layout_by_level: HashMap<usize, Vec<CoordinatedLayout>> = HashMap::new();
-    collect_layout_by_level(measurement, 0, &mut layout_by_level);
-
-    if layout_by_level.is_empty() {
-        return;
-    }
-
-    // Aggregation: Compute global max for each level
-    let max_by_level: HashMap<usize, CoordinatedLayout> = layout_by_level
-        .into_iter()
-        .map(|(depth, values)| {
-            let mut merged = CoordinatedLayout::default();
-            for v in &values {
-                merged.merge(v);
-            }
-            (depth, merged)
-        })
-        .collect();
-
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "distribute_coordinated_layout: max_by_level={:?}",
-            max_by_level
-        );
-    }
-
-    // Pass 2: Distribute max values to all facets at each level
-    distribute_layout_by_level(measurement, 0, &max_by_level);
-}
-
-/// Pass 1: Collect layout values from all facets, keyed by nesting depth.
-fn collect_layout_by_level(
-    measurement: &ComponentsMeasurement,
-    depth: usize,
-    registry: &mut HashMap<usize, Vec<CoordinatedLayout>>,
-) {
-    if let Some(local) = measurement.coord_measurement.local_layout() {
-        registry.entry(depth).or_default().push(local);
-    }
-
-    for child in measurement.coord_measurement.child_measurements() {
-        collect_layout_by_level(child, depth + 1, registry);
-    }
-}
-
-/// Pass 2: Distribute coordinated max layout values to all facets at each level.
-fn distribute_layout_by_level(
-    measurement: &mut ComponentsMeasurement,
-    depth: usize,
-    max_by_level: &HashMap<usize, CoordinatedLayout>,
-) {
-    if let Some(max_layout) = max_by_level.get(&depth) {
-        measurement
-            .coord_measurement
-            .set_coordinated_layout(max_layout.clone());
-    }
-
-    for child in measurement.coord_measurement.child_measurements_mut() {
-        distribute_layout_by_level(child, depth + 1, max_by_level);
-    }
-}
-
-// =============================================================================
-// Domain Extent Coordination
-//
-// These functions coordinate domain extents across cells in the measurement tree
-// to implement level-aware scale sharing for radius-aware domains.
-// =============================================================================
-
 /// Cell domain extent info collected during Pass 1.
 ///
 /// Contains all the information needed to group and aggregate domain extents
@@ -472,114 +314,6 @@ pub struct CellDomainInfo {
     pub extent: DomainExtent,
 }
 
-/// Pass 1: Collect all cell domain extents from the entire measurement tree.
-///
-/// Recursively traverses the measurement tree and collects domain extent
-/// information from all facet nodes via the trait method.
-fn collect_cell_domain_extents_recursive(
-    measurement: &ComponentsMeasurement,
-    collector: &mut Vec<CellDomainInfo>,
-) {
-    // Collect from this measurement via trait method
-    measurement
-        .coord_measurement
-        .collect_cell_domain_extents(collector);
-
-    // Recurse into children
-    for child in measurement.coord_measurement.child_measurements() {
-        collect_cell_domain_extents_recursive(child, collector);
-    }
-}
-
-/// Aggregate domain extents by (channel, ancestor_key).
-///
-/// Groups collected extents by their ancestor key (based on sharing level)
-/// and unions extents within each group.
-fn aggregate_domain_extents(
-    infos: &[CellDomainInfo],
-) -> HashMap<(String, Vec<ScalarValue>), DomainExtent> {
-    let mut groups: HashMap<(String, Vec<ScalarValue>), Vec<&DomainExtent>> = HashMap::new();
-
-    for info in infos {
-        let ancestor_key =
-            compute_ancestor_key(&info.full_cell_path, info.sharing_level, info.facet_depth);
-        groups
-            .entry((info.channel.clone(), ancestor_key))
-            .or_default()
-            .push(&info.extent);
-    }
-
-    // Union extents within each group
-    groups
-        .into_iter()
-        .map(|(key, extents)| {
-            let unified = extents
-                .into_iter()
-                .fold(None, |acc: Option<DomainExtent>, extent| match acc {
-                    None => Some(extent.clone()),
-                    Some(acc) => Some(union_domain_extents(&acc, extent)),
-                })
-                .unwrap();
-            (key, unified)
-        })
-        .collect()
-}
-
-/// Pass 2: Distribute unified domain extents back to all cells.
-///
-/// Recursively traverses the measurement tree and distributes coordinated
-/// domain extents to all facet nodes via the trait method.
-fn distribute_cell_domain_extents_recursive(
-    measurement: &mut ComponentsMeasurement,
-    unified: &HashMap<(String, Vec<ScalarValue>), DomainExtent>,
-) {
-    // Distribute to this measurement via trait method
-    measurement
-        .coord_measurement
-        .distribute_cell_domain_extents(unified);
-
-    // Recurse into children
-    for child in measurement.coord_measurement.child_measurements_mut() {
-        distribute_cell_domain_extents_recursive(child, unified);
-    }
-}
-
-/// Coordinate domain extents across all cells in the measurement tree.
-///
-/// This implements the two-pass coordination pattern:
-/// 1. Collect all cell domain extents from the entire tree
-/// 2. Group by (channel, ancestor_key) and union extents within each group
-/// 3. Distribute unified extents back to all cells
-fn coordinate_cell_domain_extents(measurement: &mut ComponentsMeasurement) {
-    // Pass 1: Collect all cell domain extents
-    let mut all_extents = Vec::new();
-    collect_cell_domain_extents_recursive(measurement, &mut all_extents);
-
-    if all_extents.is_empty() {
-        return;
-    }
-
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "coordinate_cell_domain_extents: collected {} domain extents",
-            all_extents.len()
-        );
-    }
-
-    // Aggregation: Group by (channel, ancestor_key) and union
-    let unified = aggregate_domain_extents(&all_extents);
-
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "coordinate_cell_domain_extents: unified into {} groups",
-            unified.len()
-        );
-    }
-
-    // Pass 2: Distribute back to all cells
-    distribute_cell_domain_extents_recursive(measurement, &unified);
-}
-
 /// This is the main entry point for overflow coordination. It:
 /// 1. Collects overflow values by nesting depth
 /// 2. Computes max overflow at each depth level
@@ -593,119 +327,7 @@ pub async fn coordinate_overflow_for_guides(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    // Step 1: Distribute coordinated overflow values
-    distribute_coordinated_overflow(measurement);
-
-    // Step 2: Distribute coordinated layout parameters (padding, outer, cell count)
-    distribute_coordinated_layout(measurement);
-
-    // Step 3: Coordinate domain extents across all cells for level-aware scale sharing
-    coordinate_cell_domain_extents(measurement);
-
-    // Step 4: Apply coordinated overflow by re-measuring affected subplots
-    apply_coordinated_overflow_recursive(measurement, eval_ctx).await?;
-
-    // Step 5: Re-distribute coordinated state to newly created child measurements.
-    // When a parent FacetCol re-measures in Step 4, it replaces its subplot_measurements
-    // with fresh measurements that have default (non-coordinated) values. Re-distributing
-    // ensures nested FacetCol nodes retain their coordination for rendering.
-    distribute_coordinated_overflow(measurement);
-    distribute_coordinated_layout(measurement);
-
-    // Step 6: Re-apply scale adjustments to all measurements in the tree.
-    // The scales stored in each ComponentsMeasurement were built during measurement
-    // (Steps 1-4) with local (pre-coordination) values. Now that coordination is
-    // complete (Step 5 distributed final values), we need to update the stored scales
-    // to use coordinated padding_inner_px and outer_left/outer_right values.
-    // Without this, the rendering path would use stale scale configurations.
-    reapply_scale_adjustments_recursive(measurement);
-
-    Ok(())
-}
-
-/// Recursively apply coordinated overflow to all measurements in the tree.
-///
-/// After applying coordination to each node, propagates the coordinated subplot
-/// width to child nodes so they use the coordinated parent bandwidth (instead of
-/// the measurement-phase bandwidth) when computing their own coordinated widths.
-/// This fixes the cascading coordination problem where children of different parent
-/// branches would compute different subplot widths despite identical coordination
-/// parameters.
-fn apply_coordinated_overflow_recursive<'a>(
-    measurement: &'a mut ComponentsMeasurement,
-    eval_ctx: &'a EvaluationContext,
-) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>> {
-    Box::pin(async move {
-        // Apply to this measurement's coord_measurement
-        measurement
-            .coord_measurement
-            .apply_coordinated_overflow(eval_ctx)
-            .await?;
-
-        // Propagate coordinated subplot width to children.
-        // After coordination, this node's subplot_width reflects the coordinated value.
-        // Children need this as their original_column_scale range so they compute
-        // consistent widths regardless of which branch they belong to.
-        let parent_width = measurement.coord_measurement.coordinated_subplot_width();
-
-        // Recurse into children, propagating parent width first
-        for child in measurement.coord_measurement.child_measurements_mut() {
-            if let Some(width) = parent_width {
-                child.coord_measurement.set_parent_bandwidth(width);
-            }
-            apply_coordinated_overflow_recursive(child, eval_ctx).await?;
-        }
-
-        Ok(())
-    })
-}
-
-/// Re-apply scale adjustments and propagate coordinated widths recursively.
-///
-/// After coordination completes, two things need updating in the rendering path:
-///
-/// 1. **Scale adjustments**: Scales stored in ComponentsMeasurement were built during
-///    measurement with local (pre-coordination) values. Re-applying adjustments updates
-///    them with coordinated padding_inner_px, outer_left/outer_right, etc.
-///
-/// 2. **Width propagation**: Each child's `plot_area_width` and column scale range need
-///    to match the parent's coordinated `subplot_width`. Without this, children of different
-///    parent branches would render at different widths despite identical coordination.
-fn reapply_scale_adjustments_recursive(measurement: &mut ComponentsMeasurement) {
-    // Re-apply scale adjustments from coord_measurement to stored scales
-    measurement
-        .coord_measurement
-        .apply_scale_adjustments(&mut measurement.scales);
-
-    // Get parent's coordinated subplot width before mutable borrow of children
-    let parent_width = measurement.coord_measurement.coordinated_subplot_width();
-
-    // Recurse into children, propagating coordinated parent width
-    for child in measurement.coord_measurement.child_measurements_mut() {
-        if let Some(width) = parent_width {
-            // Update child's plot_area_width to match coordinated parent bandwidth
-            if (child.plot_area_width - width).abs() > 0.01 {
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "reapply_scale: updating child plot_area_width {:.1} -> {:.1}",
-                        child.plot_area_width, width
-                    );
-                }
-                child.plot_area_width = width;
-
-                // Update column scale range to match the coordinated parent width
-                if let Some(column_scale) = child.scales.get_mut("column") {
-                    let updated_config = column_scale
-                        .configured()
-                        .clone()
-                        .with_range_interval((0.0, width));
-                    *column_scale =
-                        ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
-                }
-            }
-        }
-        reapply_scale_adjustments_recursive(child);
-    }
+    crate::facet::coordination::coordinate_facet_measurement_tree(measurement, eval_ctx).await
 }
 
 #[typetag::serde(tag = "type")]
