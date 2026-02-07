@@ -370,6 +370,21 @@ impl EvaluatedFacetTree {
         Some(current)
     }
 
+    /// Check whether a full cell path exists in the evaluated facet tree.
+    ///
+    /// This treats `path` as a full value path (including the leaf cell value),
+    /// and checks that the parent node contains the final value.
+    pub fn cell_exists(&self, path: &[ScalarValue]) -> bool {
+        if path.is_empty() {
+            return self.root().is_some();
+        }
+
+        let parent_path = &path[..path.len() - 1];
+        let target_value = &path[path.len() - 1];
+        self.node_at_path(parent_path)
+            .map_or(false, |parent| parent.values().any(|v| v == target_value))
+    }
+
     /// Get the domain values of a nested (inner) facet given the outer path.
     ///
     /// This navigates to the node at `outer_path`, then returns the domain values
@@ -1282,6 +1297,35 @@ mod tests {
 
         // Test domain_count
         assert_eq!(branch.domain_count(), 2);
+    }
+
+    #[test]
+    fn test_cell_exists() {
+        let team_leaf = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "team".to_string(),
+            None,
+            vec![scalar("A"), scalar("B")],
+        );
+
+        let mut dept_children = IndexMap::new();
+        dept_children.insert(scalar("Eng"), Box::new(team_leaf));
+        let dept_node = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "dept".to_string(),
+            None,
+            dept_children,
+        );
+
+        let tree = EvaluatedFacetTree::new(Some(dept_node));
+
+        assert!(tree.cell_exists(&[]));
+        assert!(tree.cell_exists(&[scalar("Eng")]));
+        assert!(tree.cell_exists(&[scalar("Eng"), scalar("A")]));
+        assert!(!tree.cell_exists(&[scalar("Ops")]));
+        assert!(!tree.cell_exists(&[scalar("Eng"), scalar("Z")]));
     }
 
     #[test]

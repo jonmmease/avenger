@@ -421,6 +421,14 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             // Build full cell path from parent_path + current cell value
             let mut cell_path: Vec<ScalarValue> = self.parent_path.clone();
             cell_path.push(value.clone());
+            let is_empty = self.empty_cells.get(idx).copied().unwrap_or(false);
+            let cell = FacetCell {
+                value: value.clone(),
+                path: cell_path,
+                exists: !is_empty,
+                is_empty,
+                filtered_df: data_override.clone(),
+            };
 
             // Create a scale builder for this cell with coordinated domain extents applied
             let mut cell_scale_builder = self.shared_scale_builder.clone();
@@ -440,41 +448,19 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 }
             }
 
-            // Use DynamicScaleProvider with the cell-specific scale builder
-            let scale_provider = DynamicScaleProvider {
-                builder: &cell_scale_builder,
-                plot: &self.compiled_subplot,
-            };
-
             // Build layout spec with fixed plot area (subplot dimensions)
-            let subplot_layout_spec = EvaluatedLayoutSpec {
-                canvas: EvaluatedSizeMode::Auto,
-                plot_area: EvaluatedSizeMode::Fixed {
-                    width: self.subplot_width,
-                    height: adjusted_height,
+            let subplot_layout_spec =
+                fixed_plot_area_layout_spec(self.subplot_width, adjusted_height);
+            let measurement = measure_facet_cell(
+                &cell,
+                &self.compiled_subplot,
+                &subplot_eval_ctx,
+                &subplot_layout_spec,
+                FacetCellMeasurementMode::ExplicitBuilder {
+                    scale_builder: &cell_scale_builder,
                 },
-                margins: EvaluatedMargins {
-                    top: 0.0,
-                    right: 0.0,
-                    bottom: 0.0,
-                    left: 0.0,
-                },
-            };
-
-            // Pass None for empty cells to match Pass 1/Pass 2 behavior
-            let is_empty = self.empty_cells.get(idx).copied().unwrap_or(false);
-            let data_arg = if is_empty { None } else { Some(data_override) };
-
-            let measurement = self
-                .compiled_subplot
-                .measure_plot_components(
-                    &subplot_eval_ctx,
-                    &subplot_layout_spec,
-                    &scale_provider,
-                    data_arg,
-                    &cell_path,
-                )
-                .await?;
+            )
+            .await?;
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
@@ -797,23 +783,233 @@ fn collect_values_at_depth(
     }
 }
 
-/// Check whether a cell path exists in the facet tree.
+/// Per-cell facet context reused across measurement passes.
 ///
-/// We can't use `node_at_path(&cell_path)` directly because that would try to
-/// traverse INTO the leaf value. Instead, check if the parent node contains
-/// the leaf value in its values/children.
-fn cell_path_exists(
+/// This centralizes path/existence/data filtering semantics so Pass 1 and Pass 2
+/// operate over the same cell definition.
+#[derive(Clone)]
+struct FacetCell {
+    value: ScalarValue,
+    path: Vec<ScalarValue>,
+    exists: bool,
+    is_empty: bool,
+    filtered_df: DataFrame,
+}
+
+/// Scale selection strategy for measuring a facet cell.
+enum FacetCellMeasurementMode<'a> {
+    /// Use nested sharing rules (Free/Level(N)/Shared) for nested facet cells.
+    NestedSharing {
+        nested_col_sharing: Option<u8>,
+        nested_depth: u8,
+        scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
+        shared_scale_builder: &'a ScaleBuilder,
+        facet_tree: &'a crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        data_df: &'a DataFrame,
+        eval_ctx: &'a EvaluationContext,
+    },
+    /// Use an explicit scale builder (e.g., coordination re-measure path).
+    ExplicitBuilder { scale_builder: &'a ScaleBuilder },
+}
+
+/// Build a single facet cell context from value and parent path.
+fn build_facet_cell(
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-    cell_path: &[ScalarValue],
-) -> bool {
-    if cell_path.is_empty() {
-        facet_tree.root().is_some()
+    facet_path: &[ScalarValue],
+    value: &ScalarValue,
+    data_df: &DataFrame,
+) -> Result<FacetCell, AvengerChartError> {
+    let mut path = facet_path.to_vec();
+    path.push(value.clone());
+
+    let exists = facet_tree.cell_exists(&path);
+    let is_empty = !exists;
+    let predicate = facet_tree.cell_predicate(&path, 0);
+
+    // Empty cells use an explicit false predicate so they preserve schema but
+    // contain no rows (instead of leaking unrelated data from unfiltered input).
+    let filtered_df = if is_empty {
+        data_df.clone().filter(lit(false)).map_err(|e| {
+            AvengerChartError::InternalError(format!(
+                "Failed to create empty DataFrame for column {:?}: {}",
+                value, e
+            ))
+        })?
+    } else if let Some(pred) = predicate {
+        data_df.clone().filter(pred).map_err(|e| {
+            AvengerChartError::InternalError(format!(
+                "Failed to filter data for column {:?}: {}",
+                value, e
+            ))
+        })?
     } else {
-        let parent_path = &cell_path[..cell_path.len() - 1];
-        let target_value = &cell_path[cell_path.len() - 1];
-        facet_tree
-            .node_at_path(parent_path)
-            .map_or(false, |parent| parent.values().any(|v| v == target_value))
+        data_df.clone()
+    };
+
+    Ok(FacetCell {
+        value: value.clone(),
+        path,
+        exists,
+        is_empty,
+        filtered_df,
+    })
+}
+
+/// Build a fixed-plot-area layout spec for subplot measurement.
+fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
+    EvaluatedLayoutSpec {
+        canvas: EvaluatedSizeMode::Auto,
+        plot_area: EvaluatedSizeMode::Fixed { width, height },
+        margins: EvaluatedMargins {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+        },
+    }
+}
+
+/// Measure a single facet cell using a selected scale strategy.
+///
+/// This is the shared measurement engine used by pass 1, pass 2, and coordinated
+/// re-measurement to keep cell measurement behavior consistent.
+async fn measure_facet_cell(
+    cell: &FacetCell,
+    compiled_subplot: &Arc<CompiledPlot>,
+    subplot_eval_ctx: &EvaluationContext,
+    subplot_layout_spec: &EvaluatedLayoutSpec,
+    mode: FacetCellMeasurementMode<'_>,
+) -> Result<ComponentsMeasurement, AvengerChartError> {
+    match mode {
+        FacetCellMeasurementMode::NestedSharing {
+            nested_col_sharing,
+            nested_depth,
+            scale_builder_cache,
+            shared_scale_builder,
+            facet_tree,
+            data_df,
+            eval_ctx,
+        } => {
+            let shared_scale_provider = DynamicScaleProvider {
+                builder: shared_scale_builder,
+                plot: compiled_subplot,
+            };
+
+            if cell.is_empty {
+                return compiled_subplot
+                    .measure_plot_components(
+                        subplot_eval_ctx,
+                        subplot_layout_spec,
+                        &shared_scale_provider,
+                        None,
+                        &cell.path,
+                    )
+                    .await;
+            }
+
+            match nested_col_sharing {
+                Some(0) => {
+                    let cell_scale_builder = build_scale_builder_from_marks(
+                        &compiled_subplot.marks,
+                        &compiled_subplot.scale_specs,
+                        &compiled_subplot.coord_transform,
+                        &compiled_subplot.data,
+                        Some(cell.filtered_df.clone()),
+                        &eval_ctx.session_context,
+                        &eval_ctx.params,
+                        compiled_subplot.get_theme().as_ref(),
+                    )
+                    .await?;
+
+                    let cell_scale_provider = DynamicScaleProvider {
+                        builder: &cell_scale_builder,
+                        plot: compiled_subplot,
+                    };
+
+                    compiled_subplot
+                        .measure_plot_components(
+                            subplot_eval_ctx,
+                            subplot_layout_spec,
+                            &cell_scale_provider,
+                            Some(&cell.filtered_df),
+                            &cell.path,
+                        )
+                        .await
+                }
+                Some(sharing_level) if sharing_level < nested_depth => {
+                    let ancestor_key_len =
+                        (nested_depth as usize).saturating_sub(sharing_level as usize);
+                    let ancestor_key: Vec<ScalarValue> =
+                        cell.path.iter().take(ancestor_key_len).cloned().collect();
+
+                    let cached_builder =
+                        scale_builder_cache.get(&ancestor_key).ok_or_else(|| {
+                            AvengerChartError::InternalError(format!(
+                                "Missing cached scale builder for ancestor key {:?}",
+                                ancestor_key
+                            ))
+                        })?;
+
+                    let cached_scale_provider = DynamicScaleProvider {
+                        builder: cached_builder,
+                        plot: compiled_subplot,
+                    };
+
+                    let ancestor_filtered_df =
+                        if let Some(pred) = facet_tree.path_predicate(&ancestor_key) {
+                            data_df.clone().filter(pred).map_err(|e| {
+                                AvengerChartError::InternalError(format!(
+                                    "Failed to filter data for ancestor key {:?}: {}",
+                                    ancestor_key, e
+                                ))
+                            })?
+                        } else {
+                            data_df.clone()
+                        };
+
+                    compiled_subplot
+                        .measure_plot_components(
+                            subplot_eval_ctx,
+                            subplot_layout_spec,
+                            &cached_scale_provider,
+                            Some(&ancestor_filtered_df),
+                            &cell.path,
+                        )
+                        .await
+                }
+                _ => {
+                    compiled_subplot
+                        .measure_plot_components(
+                            subplot_eval_ctx,
+                            subplot_layout_spec,
+                            &shared_scale_provider,
+                            Some(&cell.filtered_df),
+                            &cell.path,
+                        )
+                        .await
+                }
+            }
+        }
+        FacetCellMeasurementMode::ExplicitBuilder { scale_builder } => {
+            let scale_provider = DynamicScaleProvider {
+                builder: scale_builder,
+                plot: compiled_subplot,
+            };
+            let data_arg = if cell.is_empty {
+                None
+            } else {
+                Some(&cell.filtered_df)
+            };
+            compiled_subplot
+                .measure_plot_components(
+                    subplot_eval_ctx,
+                    subplot_layout_spec,
+                    &scale_provider,
+                    data_arg,
+                    &cell.path,
+                )
+                .await
+        }
     }
 }
 
@@ -1369,13 +1565,6 @@ impl CoordinateSystemTransform for FacetColumn {
         )
         .await?;
 
-        // Create shared scale_provider for cases where sharing >= nested_depth.
-        // For sharing < nested_depth, we build per-cell scale providers inside the loop.
-        let shared_scale_provider = DynamicScaleProvider {
-            builder: &shared_scale_builder,
-            plot: &compiled_subplot,
-        };
-
         // Get nested FacetCol's sharing level for scale builder selection.
         // - Level(0) / Free: build per-cell scales (filtered to individual cell data)
         // - Level(N) where 0 < N < nested_depth: use cached scale builders per ancestor group
@@ -1439,6 +1628,12 @@ impl CoordinateSystemTransform for FacetColumn {
             eval_ctx.with_params(params)
         };
 
+        // Build canonical per-cell contexts once and reuse across pass 1/pass 2.
+        let cells: Vec<FacetCell> = cell_values
+            .iter()
+            .map(|value| build_facet_cell(facet_tree, facet_path, value, data_df))
+            .collect::<Result<_, _>>()?;
+
         // === PASS 1: Measure each cell to compute overflow (for padding calculation) ===
         let mut data_overrides = Vec::with_capacity(cell_values.len());
         let mut cell_overflows = Vec::with_capacity(cell_values.len());
@@ -1447,177 +1642,34 @@ impl CoordinateSystemTransform for FacetColumn {
         // Track max child padding for nested FacetCol propagation
         let mut max_child_padding: f32 = 0.0;
 
-        for (idx, value) in cell_values.iter().enumerate() {
-            // Build the full path for this cell (parent path + current value)
-            let mut cell_path: Vec<ScalarValue> = facet_path.to_vec();
-            cell_path.push(value.clone());
-
-            // Check if this path exists in the tree.
-            // For Level(N > 0) sharing, we may enumerate values from broader ancestor groups
-            // that don't exist in every subtree. These are "empty cells" that should show
-            // proper layout but no data.
-            //
-            let path_exists = cell_path_exists(facet_tree, &cell_path);
-
-            // Get filter predicate for this cell using the full path
-            let predicate = facet_tree.cell_predicate(&cell_path, 0);
-
-            // Filter the data
-            // CRITICAL: If path doesn't exist in tree, this is an empty cell.
-            // Use lit(false) predicate to create empty DataFrame with correct schema.
-            // Do NOT fall back to unfiltered data, which would show unrelated data.
-            let filtered_df = if !path_exists {
-                // Empty cell: no data for this combination
-                data_df.clone().filter(lit(false)).map_err(|e| {
-                    AvengerChartError::InternalError(format!(
-                        "Failed to create empty DataFrame for column {:?}: {}",
-                        value, e
-                    ))
-                })?
-            } else if let Some(pred) = predicate {
-                data_df.clone().filter(pred).map_err(|e| {
-                    AvengerChartError::InternalError(format!(
-                        "Failed to filter data for column {:?}: {}",
-                        value, e
-                    ))
-                })?
-            } else {
-                data_df.clone()
-            };
-
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && !path_exists {
+        for (idx, cell) in cells.iter().enumerate() {
+            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && cell.is_empty {
                 eprintln!(
                     "FacetCol pass1: cell[{}]={:?} is empty (path not in tree)",
-                    idx, value
+                    idx, cell.value
                 );
             }
-            pass1_empty_cells.push(!path_exists);
+            pass1_empty_cells.push(cell.is_empty);
 
             // Measure the subplot with filtered data to get overflow
             // Pass cell_path for visibility-aware overflow measurement (value-based path, not indices)
-            let subplot_layout_spec = EvaluatedLayoutSpec {
-                canvas: EvaluatedSizeMode::Auto,
-                plot_area: EvaluatedSizeMode::Fixed {
-                    width: subplot_width,
-                    height: plot_height,
+            let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_width, plot_height);
+            let measurement = measure_facet_cell(
+                cell,
+                compiled_subplot,
+                &subplot_eval_ctx,
+                &subplot_layout_spec,
+                FacetCellMeasurementMode::NestedSharing {
+                    nested_col_sharing,
+                    nested_depth,
+                    scale_builder_cache: &scale_builder_cache,
+                    shared_scale_builder: &shared_scale_builder,
+                    facet_tree,
+                    data_df,
+                    eval_ctx,
                 },
-                margins: EvaluatedMargins {
-                    top: 0.0,
-                    right: 0.0,
-                    bottom: 0.0,
-                    left: 0.0,
-                },
-            };
-
-            // Build scale provider for this cell based on sharing level.
-            // - Empty cells (!path_exists): use shared scale provider to avoid empty data issues
-            // - Level(0): build per-cell scale builder from filtered data
-            // - Level(N) where 0 < N < nested_depth: use cached scale builder for ancestor group
-            // - Level(N) where N >= nested_depth or None: use shared scale provider
-            let measurement = if !path_exists {
-                // Empty cell: use shared scale provider for layout, pass None for data
-                // to avoid triggering data-dependent code paths in nested subplots.
-                // The shared_scale_provider has domain info from full data, so scales work.
-                // The nested coord_transform.measure will detect the non-existent path
-                // and return an empty measurement.
-                compiled_subplot
-                    .measure_plot_components(
-                        &subplot_eval_ctx,
-                        &subplot_layout_spec,
-                        &shared_scale_provider,
-                        None, // No data for empty cells - prevents NULL conversion errors
-                        &cell_path,
-                    )
-                    .await?
-            } else {
-                match nested_col_sharing {
-                    Some(0) => {
-                        // Level(0) / Free: per-cell scale building
-                        let cell_scale_builder = build_scale_builder_from_marks(
-                            &compiled_subplot.marks,
-                            &compiled_subplot.scale_specs,
-                            &compiled_subplot.coord_transform,
-                            &compiled_subplot.data,
-                            Some(filtered_df.clone()),
-                            &eval_ctx.session_context,
-                            &eval_ctx.params,
-                            compiled_subplot.get_theme().as_ref(),
-                        )
-                        .await?;
-
-                        let cell_scale_provider = DynamicScaleProvider {
-                            builder: &cell_scale_builder,
-                            plot: &compiled_subplot,
-                        };
-
-                        compiled_subplot
-                            .measure_plot_components(
-                                &subplot_eval_ctx,
-                                &subplot_layout_spec,
-                                &cell_scale_provider,
-                                Some(&filtered_df),
-                                &cell_path,
-                            )
-                            .await?
-                    }
-                    Some(sharing_level) if sharing_level < nested_depth => {
-                        // Intermediate level: look up from cache
-                        let ancestor_key_len =
-                            (nested_depth as usize).saturating_sub(sharing_level as usize);
-                        let ancestor_key: Vec<ScalarValue> =
-                            cell_path.iter().take(ancestor_key_len).cloned().collect();
-
-                        let cached_builder =
-                            scale_builder_cache.get(&ancestor_key).ok_or_else(|| {
-                                AvengerChartError::InternalError(format!(
-                                    "Missing cached scale builder for ancestor key {:?}",
-                                    ancestor_key
-                                ))
-                            })?;
-
-                        let cached_scale_provider = DynamicScaleProvider {
-                            builder: cached_builder,
-                            plot: &compiled_subplot,
-                        };
-
-                        // For intermediate sharing, pass ancestor-group-filtered data to the
-                        // nested subplot so it can build scales from all data in the sharing group.
-                        let ancestor_filtered_df =
-                            if let Some(pred) = facet_tree.path_predicate(&ancestor_key) {
-                                data_df.clone().filter(pred).map_err(|e| {
-                                    AvengerChartError::InternalError(format!(
-                                        "Failed to filter data for ancestor key {:?}: {}",
-                                        ancestor_key, e
-                                    ))
-                                })?
-                            } else {
-                                data_df.clone()
-                            };
-
-                        compiled_subplot
-                            .measure_plot_components(
-                                &subplot_eval_ctx,
-                                &subplot_layout_spec,
-                                &cached_scale_provider,
-                                Some(&ancestor_filtered_df),
-                                &cell_path,
-                            )
-                            .await?
-                    }
-                    _ => {
-                        // Shared or None: use shared scale provider
-                        compiled_subplot
-                            .measure_plot_components(
-                                &subplot_eval_ctx,
-                                &subplot_layout_spec,
-                                &shared_scale_provider,
-                                Some(&filtered_df),
-                                &cell_path,
-                            )
-                            .await?
-                    }
-                }
-            };
+            )
+            .await?;
 
             // Get both guide-only overflow and total overflow (guide + legend)
             let guide_overflow = measurement.layout.overflow.clone();
@@ -1633,7 +1685,7 @@ impl CoordinateSystemTransform for FacetColumn {
                 eprintln!(
                     "FacetCol coord measure pass 1: cell[{}]={:?} guide_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}} total_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}}",
                     idx,
-                    value,
+                    cell.value,
                     guide_overflow.top,
                     guide_overflow.bottom,
                     guide_overflow.left,
@@ -1647,14 +1699,14 @@ impl CoordinateSystemTransform for FacetColumn {
 
             // Extract per-cell domain extents for level-aware coordination.
             // Skip for empty cells (no data to extract domains from).
-            let annotated_extents: HashMap<String, ChannelDomainExtent> = if path_exists {
+            let annotated_extents: HashMap<String, ChannelDomainExtent> = if cell.exists {
                 // Build a scale builder from the filtered data to get domain extents.
                 let cell_scale_builder = build_scale_builder_from_marks(
                     &compiled_subplot.marks,
                     &compiled_subplot.scale_specs,
                     &compiled_subplot.coord_transform,
                     &compiled_subplot.data,
-                    Some(filtered_df.clone()),
+                    Some(cell.filtered_df.clone()),
                     &eval_ctx.session_context,
                     &eval_ctx.params,
                     compiled_subplot.get_theme().as_ref(),
@@ -1687,7 +1739,7 @@ impl CoordinateSystemTransform for FacetColumn {
 
             cell_domain_extents.push(annotated_extents);
 
-            data_overrides.push(filtered_df);
+            data_overrides.push(cell.filtered_df.clone());
             // Store (guide_overflow, total_overflow) pairs for computing both padding and legend adjustment
             cell_overflows.push((guide_overflow, total_overflow));
         }
@@ -1789,139 +1841,41 @@ impl CoordinateSystemTransform for FacetColumn {
         let mut subplot_measurements = Vec::with_capacity(cell_values.len());
         let mut empty_cells = Vec::with_capacity(cell_values.len());
 
-        for (idx, (value, filtered_df)) in cell_values.iter().zip(data_overrides.iter()).enumerate()
-        {
-            let mut cell_path: Vec<ScalarValue> = facet_path.to_vec();
-            cell_path.push(value.clone());
-
-            let path_exists = cell_path_exists(facet_tree, &cell_path);
-
-            let subplot_layout_spec = EvaluatedLayoutSpec {
-                canvas: EvaluatedSizeMode::Auto,
-                plot_area: EvaluatedSizeMode::Fixed {
-                    width: final_subplot_width,
-                    height: plot_height,
-                },
-                margins: EvaluatedMargins {
-                    top: 0.0,
-                    right: 0.0,
-                    bottom: 0.0,
-                    left: 0.0,
-                },
+        for (idx, (cell, filtered_df)) in cells.iter().zip(data_overrides.iter()).enumerate() {
+            let pass2_cell = FacetCell {
+                value: cell.value.clone(),
+                path: cell.path.clone(),
+                exists: cell.exists,
+                is_empty: cell.is_empty,
+                filtered_df: filtered_df.clone(),
             };
-
-            // Build scale provider for this cell (same logic as Pass 1).
-            // Empty cells (!path_exists) use shared scale provider with None data.
-            let measurement = if !path_exists {
-                // Empty cell: use shared scale provider for layout, pass None for data
-                // (same as Pass 1 - prevents NULL conversion errors in nested subplots)
-                compiled_subplot
-                    .measure_plot_components(
-                        &subplot_eval_ctx,
-                        &subplot_layout_spec,
-                        &shared_scale_provider,
-                        None, // No data for empty cells
-                        &cell_path,
-                    )
-                    .await?
-            } else {
-                match nested_col_sharing {
-                    Some(0) => {
-                        // Level(0) / Free: per-cell scale building
-                        let cell_scale_builder = build_scale_builder_from_marks(
-                            &compiled_subplot.marks,
-                            &compiled_subplot.scale_specs,
-                            &compiled_subplot.coord_transform,
-                            &compiled_subplot.data,
-                            Some(filtered_df.clone()),
-                            &eval_ctx.session_context,
-                            &eval_ctx.params,
-                            compiled_subplot.get_theme().as_ref(),
-                        )
-                        .await?;
-
-                        let cell_scale_provider = DynamicScaleProvider {
-                            builder: &cell_scale_builder,
-                            plot: &compiled_subplot,
-                        };
-
-                        compiled_subplot
-                            .measure_plot_components(
-                                &subplot_eval_ctx,
-                                &subplot_layout_spec,
-                                &cell_scale_provider,
-                                Some(filtered_df),
-                                &cell_path,
-                            )
-                            .await?
-                    }
-                    Some(sharing_level) if sharing_level < nested_depth => {
-                        // Intermediate level: look up from cache
-                        let ancestor_key_len =
-                            (nested_depth as usize).saturating_sub(sharing_level as usize);
-                        let ancestor_key: Vec<ScalarValue> =
-                            cell_path.iter().take(ancestor_key_len).cloned().collect();
-
-                        let cached_builder =
-                            scale_builder_cache.get(&ancestor_key).ok_or_else(|| {
-                                AvengerChartError::InternalError(format!(
-                                    "Missing cached scale builder for ancestor key {:?}",
-                                    ancestor_key
-                                ))
-                            })?;
-
-                        let cached_scale_provider = DynamicScaleProvider {
-                            builder: cached_builder,
-                            plot: &compiled_subplot,
-                        };
-
-                        // For intermediate sharing, pass ancestor-group-filtered data
-                        let ancestor_filtered_df =
-                            if let Some(pred) = facet_tree.path_predicate(&ancestor_key) {
-                                data_df.clone().filter(pred).map_err(|e| {
-                                    AvengerChartError::InternalError(format!(
-                                        "Failed to filter data for ancestor key {:?}: {}",
-                                        ancestor_key, e
-                                    ))
-                                })?
-                            } else {
-                                data_df.clone()
-                            };
-
-                        compiled_subplot
-                            .measure_plot_components(
-                                &subplot_eval_ctx,
-                                &subplot_layout_spec,
-                                &cached_scale_provider,
-                                Some(&ancestor_filtered_df),
-                                &cell_path,
-                            )
-                            .await?
-                    }
-                    _ => {
-                        // Shared or None: use shared scale provider
-                        compiled_subplot
-                            .measure_plot_components(
-                                &subplot_eval_ctx,
-                                &subplot_layout_spec,
-                                &shared_scale_provider,
-                                Some(filtered_df),
-                                &cell_path,
-                            )
-                            .await?
-                    }
-                }
-            };
+            let subplot_layout_spec = fixed_plot_area_layout_spec(final_subplot_width, plot_height);
+            let measurement = measure_facet_cell(
+                &pass2_cell,
+                compiled_subplot,
+                &subplot_eval_ctx,
+                &subplot_layout_spec,
+                FacetCellMeasurementMode::NestedSharing {
+                    nested_col_sharing,
+                    nested_depth,
+                    scale_builder_cache: &scale_builder_cache,
+                    shared_scale_builder: &shared_scale_builder,
+                    facet_tree,
+                    data_df,
+                    eval_ctx,
+                },
+            )
+            .await?;
 
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
                     "FacetCol coord measure pass 2: cell[{}]={:?} measured at width={:.1} path_exists={}",
-                    idx, value, final_subplot_width, path_exists
+                    idx, cell.value, final_subplot_width, cell.exists
                 );
             }
 
             subplot_measurements.push(measurement);
-            empty_cells.push(!path_exists);
+            empty_cells.push(cell.is_empty);
         }
 
         Ok(Box::new(FacetColCoordMeasurement {

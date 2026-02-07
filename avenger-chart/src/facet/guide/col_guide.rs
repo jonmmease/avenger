@@ -494,25 +494,12 @@ impl FacetColGuide {
                     .await;
             }
 
-            // Use first/last existing cells when Level(N) enumeration introduces
-            // empty placeholders. This keeps edge overflow aligned with real data.
-            let cell_path_exists = |path: &[datafusion::common::ScalarValue]| -> bool {
-                if path.is_empty() {
-                    return facet_tree.root().is_some();
-                }
-                let parent_path = &path[..path.len() - 1];
-                let target_value = &path[path.len() - 1];
-                facet_tree
-                    .node_at_path(parent_path)
-                    .map_or(false, |parent| parent.values().any(|v| v == target_value))
-            };
-
             let mut first_existing_idx: Option<usize> = None;
             let mut last_existing_idx: Option<usize> = None;
             for (idx, band_position) in band_positions.iter().enumerate() {
                 let mut path = facet_path.to_vec();
                 path.push(band_position.value.clone());
-                if cell_path_exists(&path) {
+                if facet_tree.cell_exists(&path) {
                     if first_existing_idx.is_none() {
                         first_existing_idx = Some(idx);
                     }
