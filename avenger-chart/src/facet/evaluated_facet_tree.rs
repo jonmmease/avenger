@@ -974,6 +974,36 @@ fn extract_field_name(expr: &Expr) -> String {
     }
 }
 
+/// Resolved metadata for building a partition node from a facet mark.
+struct FacetPartitionSpec<'a> {
+    channels: &'a IndexMap<String, ChannelValue>,
+    channel_name: &'static str,
+    direction: FacetDirection,
+    subplot: &'a Arc<CompiledPlot>,
+    scale_sharing: Option<ScaleSharing>,
+}
+
+impl<'a> FacetPartitionSpec<'a> {
+    fn from_facet_mark(facet_mark: FacetMarkRef<'a>) -> Self {
+        match facet_mark {
+            FacetMarkRef::Row(facet_row) => Self {
+                channels: facet_row.compiled_state().data.channels(),
+                channel_name: "row",
+                direction: FacetDirection::Row,
+                subplot: facet_row.compiled_subplot(),
+                scale_sharing: facet_row.facet_scale_sharing(),
+            },
+            FacetMarkRef::Col(facet_col) => Self {
+                channels: facet_col.compiled_state().data.channels(),
+                channel_name: "column",
+                direction: FacetDirection::Column,
+                subplot: facet_col.compiled_subplot(),
+                scale_sharing: facet_col.facet_scale_sharing(),
+            },
+        }
+    }
+}
+
 /// Recursively build a partition tree from compiled marks.
 ///
 /// # Arguments
@@ -993,38 +1023,16 @@ async fn build_partition_tree(
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     for mark in marks {
         if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
-            return match facet_mark {
-                FacetMarkRef::Row(facet_row) => {
-                    Box::pin(build_partition_node(
-                        facet_row.compiled_state().data.channels(),
-                        "row",
-                        FacetDirection::Row,
-                        facet_row.compiled_subplot(),
-                        facet_row.facet_scale_sharing(),
-                        df,
-                        ctx,
-                        parent_filter,
-                        current_depth,
-                        domain_cache,
-                    ))
-                    .await
-                }
-                FacetMarkRef::Col(facet_col) => {
-                    Box::pin(build_partition_node(
-                        facet_col.compiled_state().data.channels(),
-                        "column",
-                        FacetDirection::Column,
-                        facet_col.compiled_subplot(),
-                        facet_col.facet_scale_sharing(),
-                        df,
-                        ctx,
-                        parent_filter,
-                        current_depth,
-                        domain_cache,
-                    ))
-                    .await
-                }
-            };
+            let spec = FacetPartitionSpec::from_facet_mark(facet_mark);
+            return Box::pin(build_partition_node(
+                &spec,
+                df,
+                ctx,
+                parent_filter,
+                current_depth,
+                domain_cache,
+            ))
+            .await;
         }
     }
 
@@ -1033,13 +1041,8 @@ async fn build_partition_tree(
 }
 
 /// Build a partition node for a specific facet.
-#[allow(clippy::too_many_arguments)]
 async fn build_partition_node(
-    channels: &IndexMap<String, ChannelValue>,
-    channel_name: &str,
-    direction: FacetDirection,
-    subplot: &Arc<CompiledPlot>,
-    scale_sharing: Option<ScaleSharing>,
+    spec: &FacetPartitionSpec<'_>,
     df: &DataFrame,
     ctx: &SessionContext,
     parent_filter: Option<Expr>,
@@ -1047,7 +1050,7 @@ async fn build_partition_node(
     domain_cache: &mut SharedDomainCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     // Get channel value
-    let channel_value = match channels.get(channel_name) {
+    let channel_value = match spec.channels.get(spec.channel_name) {
         Some(cv) => cv,
         None => return Ok(None), // No facet channel
     };
@@ -1059,7 +1062,8 @@ async fn build_partition_node(
     };
 
     // Get sharing level
-    let sharing = scale_sharing
+    let sharing = spec
+        .scale_sharing
         .or_else(|| channel_value.get_share_mode())
         .map(|s| s.to_level())
         .unwrap_or(0);
@@ -1097,7 +1101,7 @@ async fn build_partition_node(
 
     // Check for nested facets in subplot
     let nested_facet = Box::pin(build_partition_tree(
-        &subplot.marks,
+        &spec.subplot.marks,
         df,
         ctx,
         None,
@@ -1121,7 +1125,7 @@ async fn build_partition_node(
 
             // Recursively build child partition using the combined filter
             if let Some(child) = Box::pin(build_partition_tree(
-                &subplot.marks,
+                &spec.subplot.marks,
                 df,
                 ctx,
                 Some(combined_filter),
@@ -1137,7 +1141,7 @@ async fn build_partition_node(
         if children.is_empty() {
             // No valid children - make leaf
             Ok(Some(PartitionNode::leaf(
-                direction,
+                spec.direction,
                 sharing,
                 field,
                 Some(field_expr),
@@ -1145,7 +1149,7 @@ async fn build_partition_node(
             )))
         } else {
             Ok(Some(PartitionNode::branch(
-                direction,
+                spec.direction,
                 sharing,
                 field,
                 Some(field_expr),
@@ -1155,7 +1159,7 @@ async fn build_partition_node(
     } else {
         // No nested facets - leaf node
         Ok(Some(PartitionNode::leaf(
-            direction,
+            spec.direction,
             sharing,
             field,
             Some(field_expr),
