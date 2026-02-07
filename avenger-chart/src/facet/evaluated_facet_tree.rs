@@ -24,7 +24,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         keys::FacetKeyExtractor,
-        marks::facet::{CompiledFacetCol, CompiledFacetRow},
+        marks::facet::{FacetMarkRef, facet_mark_ref},
         scalar_cmp::scalar_total_cmp,
     },
     guide::FacetDirection,
@@ -915,21 +915,10 @@ fn extract_channel_sharing_levels(marks: &[Arc<dyn CompiledMark>]) -> HashMap<St
     let mut result = HashMap::new();
 
     for mark in marks {
-        let mark_type = mark.mark_type();
-
-        // Check if this is a facet mark with a subplot
-        if mark_type == "facet_row" {
-            if let Some(facet_row) = mark.as_any().downcast_ref::<CompiledFacetRow>() {
-                // Recurse into subplot to find innermost marks
-                let inner = extract_channel_sharing_levels(&facet_row.compiled_subplot.marks);
-                result.extend(inner);
-            }
-        } else if mark_type == "facet_col" {
-            if let Some(facet_col) = mark.as_any().downcast_ref::<CompiledFacetCol>() {
-                // Recurse into subplot to find innermost marks
-                let inner = extract_channel_sharing_levels(&facet_col.compiled_subplot.marks);
-                result.extend(inner);
-            }
+        if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
+            // Recurse into subplot to find innermost marks
+            let inner = extract_channel_sharing_levels(&facet_mark.compiled_subplot().marks);
+            result.extend(inner);
         } else {
             // Non-facet mark - extract channel sharing levels
             let data_context = mark.data_context();
@@ -1003,40 +992,39 @@ async fn build_partition_tree(
     domain_cache: &mut SharedDomainCache,
 ) -> Result<Option<PartitionNode>, AvengerChartError> {
     for mark in marks {
-        let mark_type = mark.mark_type();
-
-        if mark_type == "facet_row" {
-            if let Some(facet_row) = mark.as_any().downcast_ref::<CompiledFacetRow>() {
-                return Box::pin(build_partition_node(
-                    facet_row.state.data.channels(),
-                    "row",
-                    FacetDirection::Row,
-                    &facet_row.compiled_subplot,
-                    facet_row.facet_scale_sharing,
-                    df,
-                    ctx,
-                    parent_filter,
-                    current_depth,
-                    domain_cache,
-                ))
-                .await;
-            }
-        } else if mark_type == "facet_col" {
-            if let Some(facet_col) = mark.as_any().downcast_ref::<CompiledFacetCol>() {
-                return Box::pin(build_partition_node(
-                    facet_col.state.data.channels(),
-                    "column",
-                    FacetDirection::Column,
-                    &facet_col.compiled_subplot,
-                    facet_col.facet_scale_sharing,
-                    df,
-                    ctx,
-                    parent_filter,
-                    current_depth,
-                    domain_cache,
-                ))
-                .await;
-            }
+        if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
+            return match facet_mark {
+                FacetMarkRef::Row(facet_row) => {
+                    Box::pin(build_partition_node(
+                        facet_row.compiled_state().data.channels(),
+                        "row",
+                        FacetDirection::Row,
+                        facet_row.compiled_subplot(),
+                        facet_row.facet_scale_sharing(),
+                        df,
+                        ctx,
+                        parent_filter,
+                        current_depth,
+                        domain_cache,
+                    ))
+                    .await
+                }
+                FacetMarkRef::Col(facet_col) => {
+                    Box::pin(build_partition_node(
+                        facet_col.compiled_state().data.channels(),
+                        "column",
+                        FacetDirection::Column,
+                        facet_col.compiled_subplot(),
+                        facet_col.facet_scale_sharing(),
+                        df,
+                        ctx,
+                        parent_filter,
+                        current_depth,
+                        domain_cache,
+                    ))
+                    .await
+                }
+            };
         }
     }
 

@@ -20,7 +20,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         guide::{FacetColGuideConfig, FacetRowGuideConfig},
-        marks::facet::{CompiledFacetCol, CompiledFacetRow, CompiledFacetSource},
+        marks::facet::{FacetMarkRef, facet_mark_ref},
     },
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     marks::CompiledMark,
@@ -1419,17 +1419,20 @@ impl CoordinateSystemTransform for FacetColumn {
         compiled_marks: &[Arc<dyn CompiledMark>],
         facet_path: &[ScalarValue],
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        // Find the CompiledFacetCol mark to access its subplot
+        // Find the FacetCol mark to access its subplot
         let facet_mark = compiled_marks
             .iter()
-            .find_map(|m| m.as_any().downcast_ref::<CompiledFacetCol>())
+            .find_map(|m| match facet_mark_ref(m.as_ref()) {
+                Some(FacetMarkRef::Col(facet_col)) => Some(facet_col),
+                _ => None,
+            })
             .ok_or_else(|| {
                 AvengerChartError::InternalError(
                     "FacetColumn coord requires a CompiledFacetCol mark".into(),
                 )
             })?;
 
-        let compiled_subplot = &facet_mark.compiled_subplot;
+        let compiled_subplot = facet_mark.compiled_subplot();
 
         // Get the column scale for layout calculations
         let column_scale = scales
@@ -1587,25 +1590,11 @@ impl CoordinateSystemTransform for FacetColumn {
         // - Level(N) where N >= nested_depth (including Shared/255): use shared scale provider
         // - None (default): use shared scale provider
         let nested_depth = (facet_path.len() + 2) as u8; // +1 for current, +1 for nested
-        let nested_col_sharing: Option<u8> = compiled_subplot
-            .marks
-            .iter()
-            .filter(|m| m.mark_type() == "facet_col" || m.mark_type() == "facet_row")
-            .find_map(|m| {
-                // Check both FacetCol and FacetRow via CompiledFacetSource trait
-                let facet_source: Option<&dyn CompiledFacetSource> = m
-                    .as_any()
-                    .downcast_ref::<CompiledFacetCol>()
-                    .map(|f| f as &dyn CompiledFacetSource)
-                    .or_else(|| {
-                        m.as_any()
-                            .downcast_ref::<CompiledFacetRow>()
-                            .map(|f| f as &dyn CompiledFacetSource)
-                    });
-                facet_source
-                    .and_then(|f| f.facet_scale_sharing())
-                    .map(|s| s.to_level())
-            });
+        let nested_col_sharing: Option<u8> = compiled_subplot.marks.iter().find_map(|m| {
+            facet_mark_ref(m.as_ref())
+                .and_then(|facet| facet.facet_scale_sharing())
+                .map(|s| s.to_level())
+        });
 
         // Build scale builder cache for intermediate sharing levels (0 < level < depth).
         let scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder> =

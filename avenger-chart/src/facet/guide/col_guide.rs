@@ -11,7 +11,7 @@ use crate::facet::guide_utils::{
     FacetLabelMeasurementConfig, FacetLabelRenderConfig, measure_facet_label_slab,
     render_facet_label_slab,
 };
-use crate::facet::marks::facet::{CompiledFacetCol, CompiledFacetSource};
+use crate::facet::marks::facet::CompiledFacetCol;
 use crate::guide::{CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;

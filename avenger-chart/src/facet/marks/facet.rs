@@ -121,23 +121,6 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
     }
 }
 
-/// Trait for accessing common fields from compiled facet marks.
-/// This enables generic code to work with both CompiledFacetRow and CompiledFacetCol.
-pub trait CompiledFacetSource {
-    /// Get the compiled subplot
-    fn compiled_subplot(&self) -> &Arc<CompiledPlot>;
-    /// Get the compiled mark state
-    fn compiled_state(&self) -> &CompiledMarkState;
-    /// Get the optional facet title
-    fn facet_title(&self) -> Option<&str>;
-    /// Get the optional facet spacing
-    fn facet_spacing(&self) -> Option<f32>;
-    /// Get the optional facet scale sharing mode
-    fn facet_scale_sharing(&self) -> Option<ScaleSharing>;
-    /// Get the optional facet label position ("top" or "bottom")
-    fn facet_position(&self) -> Option<&str>;
-}
-
 /// Compiled facet mark specialized for FacetRow outer coords
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
@@ -149,23 +132,23 @@ pub struct CompiledFacetRow {
     pub(crate) facet_scale_sharing: Option<ScaleSharing>,
 }
 
-impl CompiledFacetSource for CompiledFacetRow {
-    fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+impl CompiledFacetRow {
+    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
         &self.compiled_subplot
     }
-    fn compiled_state(&self) -> &CompiledMarkState {
+    pub fn compiled_state(&self) -> &CompiledMarkState {
         &self.state
     }
-    fn facet_title(&self) -> Option<&str> {
+    pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
     }
-    fn facet_spacing(&self) -> Option<f32> {
+    pub fn facet_spacing(&self) -> Option<f32> {
         self.facet_spacing
     }
-    fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
+    pub fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
         self.facet_scale_sharing
     }
-    fn facet_position(&self) -> Option<&str> {
+    pub fn facet_position(&self) -> Option<&str> {
         // FacetRow position not yet implemented
         None
     }
@@ -348,25 +331,59 @@ pub struct CompiledFacetCol {
     pub(crate) facet_position: Option<String>,
 }
 
-impl CompiledFacetSource for CompiledFacetCol {
-    fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
+impl CompiledFacetCol {
+    pub fn compiled_subplot(&self) -> &Arc<CompiledPlot> {
         &self.compiled_subplot
     }
-    fn compiled_state(&self) -> &CompiledMarkState {
+    pub fn compiled_state(&self) -> &CompiledMarkState {
         &self.state
     }
-    fn facet_title(&self) -> Option<&str> {
+    pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
     }
-    fn facet_spacing(&self) -> Option<f32> {
+    pub fn facet_spacing(&self) -> Option<f32> {
         self.facet_spacing
     }
-    fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
+    pub fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
         self.facet_scale_sharing
     }
-    fn facet_position(&self) -> Option<&str> {
+    pub fn facet_position(&self) -> Option<&str> {
         self.facet_position.as_deref()
     }
+}
+
+/// Typed view over compiled facet marks.
+pub enum FacetMarkRef<'a> {
+    Row(&'a CompiledFacetRow),
+    Col(&'a CompiledFacetCol),
+}
+
+impl<'a> FacetMarkRef<'a> {
+    pub fn compiled_subplot(self) -> &'a Arc<CompiledPlot> {
+        match self {
+            Self::Row(mark) => mark.compiled_subplot(),
+            Self::Col(mark) => mark.compiled_subplot(),
+        }
+    }
+
+    pub fn facet_scale_sharing(self) -> Option<ScaleSharing> {
+        match self {
+            Self::Row(mark) => mark.facet_scale_sharing(),
+            Self::Col(mark) => mark.facet_scale_sharing(),
+        }
+    }
+}
+
+/// Downcast a compiled mark into a typed facet mark reference.
+pub fn facet_mark_ref(mark: &dyn CompiledMark) -> Option<FacetMarkRef<'_>> {
+    mark.as_any()
+        .downcast_ref::<CompiledFacetCol>()
+        .map(FacetMarkRef::Col)
+        .or_else(|| {
+            mark.as_any()
+                .downcast_ref::<CompiledFacetRow>()
+                .map(FacetMarkRef::Row)
+        })
 }
 
 #[async_trait::async_trait]
