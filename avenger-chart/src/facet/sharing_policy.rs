@@ -137,4 +137,79 @@ mod tests {
             AxisPosition::Left
         ));
     }
+
+    #[test]
+    fn labels_visibility_handles_left_and_right_edges_under_shared() {
+        let counts = vec![3];
+        let facet_depth = 1;
+
+        assert!(show_axis_labels(
+            &[0],
+            &counts,
+            facet_depth,
+            255,
+            FacetDirection::Column,
+            AxisPosition::Left
+        ));
+        assert!(!show_axis_labels(
+            &[1],
+            &counts,
+            facet_depth,
+            255,
+            FacetDirection::Column,
+            AxisPosition::Left
+        ));
+
+        assert!(!show_axis_labels(
+            &[1],
+            &counts,
+            facet_depth,
+            255,
+            FacetDirection::Column,
+            AxisPosition::Right
+        ));
+        assert!(show_axis_labels(
+            &[2],
+            &counts,
+            facet_depth,
+            255,
+            FacetDirection::Column,
+            AxisPosition::Right
+        ));
+    }
+
+    #[test]
+    fn title_visibility_uses_global_edge_rules() {
+        let counts = vec![2, 2];
+        let facet_depth = 2;
+
+        assert!(show_axis_title(
+            &[0, 0],
+            &counts,
+            facet_depth,
+            FacetDirection::Column,
+            AxisPosition::Left
+        ));
+        assert!(!show_axis_title(
+            &[0, 1],
+            &counts,
+            facet_depth,
+            FacetDirection::Column,
+            AxisPosition::Left
+        ));
+        assert!(show_axis_title(
+            &[1, 1],
+            &counts,
+            facet_depth,
+            FacetDirection::Column,
+            AxisPosition::Right
+        ));
+    }
+
+    #[test]
+    fn domain_group_key_supports_null_values() {
+        let path = vec![ScalarValue::Null, s("B"), ScalarValue::Int64(Some(5))];
+        let key = domain_group_key(&path, 1, 3);
+        assert_eq!(key, vec![ScalarValue::Null, s("B")]);
+    }
 }

@@ -181,6 +181,57 @@ mod tests {
     }
 
     #[test]
+    fn compute_padding_skips_middle_empty_pairs() {
+        let overflows = vec![
+            OverflowSpaceRequirement {
+                right: 10.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                left: 2.0,
+                right: 4.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                left: 6.0,
+                right: 8.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                left: 3.0,
+                ..Default::default()
+            },
+        ];
+        // pair 1-2 is skipped due to empty middle cell; max should come from pair 2-3
+        let empty_cells = vec![false, true, false, false];
+        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
+        assert_eq!(padding, 11.0);
+    }
+
+    #[test]
+    fn compute_padding_ignores_trailing_empty_cell() {
+        let overflows = vec![
+            OverflowSpaceRequirement {
+                right: 5.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                left: 7.0,
+                right: 9.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                left: 13.0,
+                ..Default::default()
+            },
+        ];
+        // pair 1-2 should be ignored because right cell is empty
+        let empty_cells = vec![false, false, true];
+        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
+        assert_eq!(padding, 12.0);
+    }
+
+    #[test]
     fn effective_edge_indices_prefers_non_empty_cells() {
         let empty_cells = vec![true, true, false, false];
         assert_eq!(effective_edge_indices(&empty_cells, 4), Some((2, 3)));

@@ -473,7 +473,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                     continue;
                 }
 
-                let ancestor_key = compute_ancestor_key(
+                let ancestor_key = sharing_policy::domain_group_key(
                     &full_cell_path,
                     annotated.sharing_level,
                     self.facet_depth,
@@ -556,31 +556,6 @@ impl CoordMeasurement for FacetColCoordMeasurement {
     }
 }
 
-/// Compute ancestor key for grouping domain extents.
-///
-/// Uses FULL CELL PATH (not just parent_path).
-/// Level(N) means "remove last N components from full_cell_path".
-///
-/// # Arguments
-/// * `full_cell_path` - Complete path to cell: parent_path + [cell_value]
-/// * `sharing_level` - The scale sharing level (0=Free, N=Level(N), 255=Shared)
-/// * `facet_depth` - 1-based depth in facet hierarchy (MUST equal full_cell_path.len())
-///
-/// # Examples
-///
-/// At facet_depth=3 with full_cell_path=["GP", "P", "Cell"]:
-/// - Level(0): ["GP", "P", "Cell"] (no sharing, per-cell)
-/// - Level(1): ["GP", "P"] (share with siblings, remove last 1)
-/// - Level(2): ["GP"] (share with cousins, remove last 2)
-/// - Level(3+): [] (global, remove all)
-pub fn compute_ancestor_key(
-    full_cell_path: &[ScalarValue],
-    sharing_level: u8,
-    facet_depth: u8,
-) -> Vec<ScalarValue> {
-    sharing_policy::domain_group_key(full_cell_path, sharing_level, facet_depth)
-}
-
 /// Scale selection strategy for measuring a facet cell.
 enum FacetCellMeasurementMode<'a> {
     /// Use nested sharing rules (Free/Level(N)/Shared) for nested facet cells.
@@ -618,11 +593,10 @@ struct FacetColNestedMeasureContext<'a> {
     eval_ctx: &'a EvaluationContext,
 }
 
-/// Output of pass 1 (overflow/domain extraction pass).
+/// Output of pass 1 (overflow extraction pass).
 struct FacetColPass1Result {
     data_overrides: Vec<DataFrame>,
     cell_overflows: Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>,
-    cell_domain_extents: Vec<HashMap<String, ChannelDomainExtent>>,
     empty_cells: Vec<bool>,
     max_child_padding: f32,
 }
@@ -783,7 +757,7 @@ async fn measure_facet_cell(
                     // Nested sharing is defined one level deeper than `cell.full_path`,
                     // so convert Level(N) at nested depth to a truncation on the
                     // current cell path by removing `N - 1` components.
-                    let ancestor_key = compute_ancestor_key(
+                    let ancestor_key = sharing_policy::domain_group_key(
                         &cell.full_path,
                         sharing_level.saturating_sub(1),
                         cell.full_path.len() as u8,
@@ -944,7 +918,6 @@ async fn run_facet_col_measure_pass1(
 ) -> Result<FacetColPass1Result, AvengerChartError> {
     let mut data_overrides = Vec::with_capacity(cells.len());
     let mut cell_overflows = Vec::with_capacity(cells.len());
-    let mut cell_domain_extents = Vec::with_capacity(cells.len());
     let mut empty_cells = Vec::with_capacity(cells.len());
     let mut max_child_padding: f32 = 0.0;
 
@@ -998,41 +971,6 @@ async fn run_facet_col_measure_pass1(
             );
         }
 
-        // Extract per-cell domain extents for level-aware coordination.
-        // Skip for empty cells (no data to extract domains from).
-        let annotated_extents: HashMap<String, ChannelDomainExtent> = if cell.exists_in_tree {
-            let cell_scale_builder = build_scale_builder_from_marks(
-                &compiled_subplot.marks,
-                &compiled_subplot.scale_specs,
-                &compiled_subplot.coord_transform,
-                &compiled_subplot.data,
-                Some(cell.filtered_df.clone()),
-                &nested_ctx.eval_ctx.session_context,
-                &nested_ctx.eval_ctx.params,
-                compiled_subplot.get_theme().as_ref(),
-            )
-            .await?;
-
-            let raw_extents = cell_scale_builder.extract_domain_extents(&["x", "y", "x2", "y2"]);
-
-            raw_extents
-                .into_iter()
-                .map(|(channel, extent)| {
-                    let sharing_level = nested_ctx.facet_tree.channel_sharing_level_or(&channel, 0); // Free
-                    (
-                        channel,
-                        ChannelDomainExtent {
-                            extent,
-                            sharing_level,
-                        },
-                    )
-                })
-                .collect()
-        } else {
-            HashMap::new()
-        };
-
-        cell_domain_extents.push(annotated_extents);
         data_overrides.push(cell.filtered_df.clone());
         cell_overflows.push((guide_overflow, total_overflow));
     }
@@ -1040,7 +978,6 @@ async fn run_facet_col_measure_pass1(
     Ok(FacetColPass1Result {
         data_overrides,
         cell_overflows,
-        cell_domain_extents,
         empty_cells,
         max_child_padding,
     })
@@ -1098,6 +1035,58 @@ async fn run_facet_col_measure_pass2(
     Ok((subplot_measurements, empty_cells))
 }
 
+/// Collect per-cell domain extents after final subplot geometry is resolved.
+///
+/// Radius-aware domain sharing stores pixel-space radius padding in extents.
+/// Those extents are later converted during scale construction with final ranges,
+/// so we intentionally collect extents after the final subplot width/height pass.
+async fn collect_cell_domain_extents_after_layout(
+    cells: &[FacetCellPlan],
+    data_overrides: &[DataFrame],
+    compiled_subplot: &Arc<CompiledPlot>,
+    nested_ctx: &FacetColNestedMeasureContext<'_>,
+) -> Result<Vec<HashMap<String, ChannelDomainExtent>>, AvengerChartError> {
+    let mut cell_domain_extents = Vec::with_capacity(cells.len());
+
+    for (cell, filtered_df) in cells.iter().zip(data_overrides.iter()) {
+        let annotated_extents: HashMap<String, ChannelDomainExtent> = if cell.exists_in_tree {
+            let cell_scale_builder = build_scale_builder_from_marks(
+                &compiled_subplot.marks,
+                &compiled_subplot.scale_specs,
+                &compiled_subplot.coord_transform,
+                &compiled_subplot.data,
+                Some(filtered_df.clone()),
+                &nested_ctx.eval_ctx.session_context,
+                &nested_ctx.eval_ctx.params,
+                compiled_subplot.get_theme().as_ref(),
+            )
+            .await?;
+
+            let raw_extents = cell_scale_builder.extract_domain_extents(&["x", "y", "x2", "y2"]);
+
+            raw_extents
+                .into_iter()
+                .map(|(channel, extent)| {
+                    let sharing_level = nested_ctx.facet_tree.channel_sharing_level_or(&channel, 0);
+                    (
+                        channel,
+                        ChannelDomainExtent {
+                            extent,
+                            sharing_level,
+                        },
+                    )
+                })
+                .collect()
+        } else {
+            HashMap::new()
+        };
+
+        cell_domain_extents.push(annotated_extents);
+    }
+
+    Ok(cell_domain_extents)
+}
+
 /// Build scale builders for each ancestor group based on sharing level.
 ///
 /// For Level(N) sharing where 0 < N < depth, cells are grouped by ancestor key
@@ -1123,7 +1112,7 @@ async fn build_ancestor_group_scale_builders(
         // Nested sharing is defined one level deeper than `full_path`, so convert
         // Level(N) at nested depth to truncation on current cell path by removing
         // `N - 1` components.
-        let ancestor_key = compute_ancestor_key(
+        let ancestor_key = sharing_policy::domain_group_key(
             &full_path,
             sharing_level.saturating_sub(1),
             full_path.len() as u8,
@@ -1254,11 +1243,7 @@ fn union_radius_padding(
 ///     );
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct FacetRow {
-    pub(crate) padding_px: Option<f32>,
-    pub(crate) overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-}
+pub struct FacetRow;
 
 impl CoordinateSystem for FacetRow {
     type Guide = FacetRowGuideConfig;
@@ -1335,20 +1320,9 @@ impl CoordinateSystemTransform for FacetRow {
         Box::new(self.clone())
     }
 
-    fn with_measured_padding(&self, spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
-        match spec {
-            PaddingSpec::Single {
-                padding_px: _,
-                overflow,
-            } => {
-                let mut updated = self.clone();
-                // Band spacing is controlled directly by scale padding options.
-                // Keep transform-time padding disabled to avoid double-accounting.
-                updated.padding_px = None;
-                updated.overflow_by_facet = Some(overflow.clone());
-                Box::new(updated)
-            }
-        }
+    fn with_measured_padding(&self, _spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
+        // Facet spacing is encoded in the column/row band scale options.
+        Box::new(self.clone())
     }
 
     fn transform(
@@ -1446,11 +1420,7 @@ impl CoordinateSystemTransform for FacetRow {
 ///     );
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct FacetColumn {
-    pub(crate) padding_px: Option<f32>,
-    pub(crate) overflow_by_facet: Option<Vec<OverflowSpaceRequirement>>,
-}
+pub struct FacetColumn;
 
 impl CoordinateSystem for FacetColumn {
     type Guide = FacetColGuideConfig;
@@ -1475,20 +1445,9 @@ impl CoordinateSystemTransform for FacetColumn {
         Box::new(self.clone())
     }
 
-    fn with_measured_padding(&self, spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
-        match spec {
-            PaddingSpec::Single {
-                padding_px: _,
-                overflow,
-            } => {
-                let mut updated = self.clone();
-                // Band spacing is controlled directly by scale padding options.
-                // Keep transform-time padding disabled to avoid double-accounting.
-                updated.padding_px = None;
-                updated.overflow_by_facet = Some(overflow.clone());
-                Box::new(updated)
-            }
-        }
+    fn with_measured_padding(&self, _spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
+        // Facet spacing is encoded in the column/row band scale options.
+        Box::new(self.clone())
     }
 
     async fn measure(
@@ -1635,7 +1594,6 @@ impl CoordinateSystemTransform for FacetColumn {
         let FacetColPass1Result {
             data_overrides,
             cell_overflows,
-            cell_domain_extents,
             empty_cells: pass1_empty_cells,
             max_child_padding,
         } = pass1;
@@ -1752,6 +1710,13 @@ impl CoordinateSystemTransform for FacetColumn {
             &nested_measure_ctx,
         )
         .await?;
+        let cell_domain_extents = collect_cell_domain_extents_after_layout(
+            &band_plan.cells,
+            &data_overrides,
+            compiled_subplot,
+            &nested_measure_ctx,
+        )
+        .await?;
 
         Ok(Box::new(FacetColCoordMeasurement {
             cell_values,
@@ -1861,17 +1826,7 @@ mod tests {
 
     #[test]
     fn facet_row_constructs_struct() {
-        let coord = FacetRow {
-            padding_px: Some(5.0),
-            overflow_by_facet: Some(vec![OverflowSpaceRequirement {
-                top: 1.0,
-                bottom: 2.0,
-                left: 3.0,
-                right: 4.0,
-            }]),
-        };
-        assert_eq!(coord.padding_px, Some(5.0));
-        assert!(coord.overflow_by_facet.is_some());
+        let _coord = FacetRow;
     }
 
     #[test]
