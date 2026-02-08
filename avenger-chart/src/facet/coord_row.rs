@@ -4,6 +4,7 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
 use datafusion::{common::ScalarValue, scalar::ScalarValue as DfScalarValue};
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 use crate::{
     coords::{
@@ -11,7 +12,7 @@ use crate::{
         SubplotRect,
     },
     error::AvengerChartError,
-    facet::{debug, guide::FacetRowGuideConfig},
+    facet::guide::FacetRowGuideConfig,
 };
 
 /// Row faceting coordinate system
@@ -85,12 +86,13 @@ pub(crate) fn compute_band_layout(positions: &[f32], extent: f32) -> (Vec<f32>, 
         extent.max(0.0)
     };
 
-    if debug::layout_enabled() {
-        eprintln!(
-            "compute_band_layout: positions={:?} inferred_bandwidth={:.3} fallback_bandwidth={:.3} bandwidth={:.3}",
-            positions, inferred_bandwidth, fallback_bandwidth, bandwidth
-        );
-    }
+    trace!(
+        positions = ?positions,
+        inferred_bandwidth,
+        fallback_bandwidth,
+        bandwidth,
+        "compute_band_layout"
+    );
 
     // Input positions are already starts (not centers), so use them directly
     let starts: Vec<f32> = positions.to_vec();

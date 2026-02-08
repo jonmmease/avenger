@@ -32,6 +32,7 @@ use datafusion::{
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
+use tracing::{Level, debug};
 
 use crate::{
     channel::{
@@ -40,7 +41,7 @@ use crate::{
     },
     coords::{CoordMeasurement, coordinate_overflow_for_guides},
     error::AvengerChartError,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet::{debug as facet_debug, evaluated_facet_tree::EvaluatedFacetTree},
     guide::OverflowSpaceRequirement,
     layout::{
         ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, LayoutBounds,
@@ -600,20 +601,17 @@ impl CompiledPlot {
                 .map(|(k, v)| (k.clone(), v.configured().clone()))
                 .collect();
 
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            if tracing::enabled!(Level::DEBUG) {
                 if let Some(y_scale) = configured_scales.get("y") {
                     let domain = y_scale.domain();
                     if let Some(float_arr) = domain.as_any().downcast_ref::<Float32Array>() {
                         let vals: Vec<f32> = float_arr.iter().filter_map(|v| v).collect();
-                        eprintln!("create_guide_marks: y scale domain = {:?}", vals);
+                        debug!(domain = ?vals, "create_guide_marks y scale domain");
                     } else if let Some(float_arr) = domain.as_any().downcast_ref::<Float64Array>() {
                         let vals: Vec<f64> = float_arr.iter().filter_map(|v| v).collect();
-                        eprintln!("create_guide_marks: y scale domain = {:?}", vals);
+                        debug!(domain = ?vals, "create_guide_marks y scale domain");
                     } else {
-                        eprintln!(
-                            "create_guide_marks: y scale domain type = {:?}",
-                            domain.data_type()
-                        );
+                        debug!(domain_type = ?domain.data_type(), "create_guide_marks y scale domain type");
                     }
                 }
             }
@@ -1083,12 +1081,10 @@ impl CompiledPlot {
         // Phase 1: Extract dimensions from layout spec
         let (width, height, is_plot_area_mode) = Self::resolve_dimensions_from_spec(layout_spec);
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "measure_plot_components: width={:.3} height={:.3} is_plot_area_mode={}",
-                width, height, is_plot_area_mode
-            );
-        }
+        debug!(
+            width,
+            height, is_plot_area_mode, "measure_plot_components dimensions"
+        );
 
         // Add dimensions to params for media queries
         let params_with_dims = eval_ctx.with_dimension_params(width, height);
@@ -1185,12 +1181,12 @@ impl CompiledPlot {
     ) -> Result<PlotComponents, AvengerChartError> {
         let ctx = &*eval_ctx.session_context;
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "build_plot_components: plot_area={}x{} dimensions_are_plot_area={}",
-                measurement.plot_area_width, measurement.plot_area_height, dimensions_are_plot_area
-            );
-        }
+        debug!(
+            plot_area_width = measurement.plot_area_width,
+            plot_area_height = measurement.plot_area_height,
+            dimensions_are_plot_area,
+            "build_plot_components start"
+        );
 
         // Render components using measurement
         let layout_solution = measurement.layout.clone();
@@ -1248,12 +1244,11 @@ impl CompiledPlot {
                     .map(|(k, v)| (k.clone(), v.configured().clone()))
                     .collect();
                 let pb = layout_initial.plot_area_bounds();
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "Calling guide measure_overflow with pb.width={} pb.height={}",
-                        pb.width, pb.height
-                    );
-                }
+                debug!(
+                    width = pb.width,
+                    height = pb.height,
+                    "Calling guide measure_overflow"
+                );
                 let overflow_final = if let Some(ref compiled_guide) = self.compiled_guide {
                     compiled_guide
                         .measure_overflow(
@@ -1273,15 +1268,13 @@ impl CompiledPlot {
                     OverflowSpaceRequirement::default()
                 };
 
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "SECOND-PASS overflow (outer): left={:.3} right={:.3} top={:.3} bottom={:.3}",
-                        overflow_final.left,
-                        overflow_final.right,
-                        overflow_final.top,
-                        overflow_final.bottom
-                    );
-                }
+                debug!(
+                    left = overflow_final.left,
+                    right = overflow_final.right,
+                    top = overflow_final.top,
+                    bottom = overflow_final.bottom,
+                    "Second-pass outer overflow"
+                );
 
                 // Rebuild layout unconditionally with the second-pass overflow
                 let evaluated_spec2 = evaluate_layout_spec(
@@ -1371,17 +1364,9 @@ impl CompiledPlot {
                 };
 
                 let mut debug_marks = vec![];
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                if facet_debug::layout_overlay_enabled() {
                     // Use INITIAL layout for debug visualization - this matches the dimensions used to position marks
                     // Marks were evaluated with plot_area_width/height from layout_initial
-                    eprintln!(
-                        "INITIAL layout plot width: {}",
-                        layout_initial.taffy_layout.plot_area.width
-                    );
-                    eprintln!(
-                        "FINAL layout plot width: {}",
-                        layout.taffy_layout.plot_area.width
-                    );
                     debug_marks.extend(create_debug_layout_rects(
                         &layout_initial.taffy_layout, // Use initial layout that matches mark positioning
                         None,                         // Use default magenta color
@@ -1466,7 +1451,7 @@ impl CompiledPlot {
                 // (Subplots typically don't have titles, but the layout might include them)
 
                 let mut debug_marks = vec![];
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                if facet_debug::layout_overlay_enabled() {
                     // Use the actual computed layout which includes legends
                     // The layout has plot area at an offset due to overflow/legends
                     // We need to translate it to (0,0) for subplot coordinates

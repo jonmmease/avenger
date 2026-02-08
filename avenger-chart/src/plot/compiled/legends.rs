@@ -5,6 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::{common::ScalarValue, logical_expr::lit, prelude::SessionContext};
 use indexmap::IndexMap;
+use tracing::debug;
 
 use crate::{
     channel::value::ChannelValue,
@@ -841,12 +842,14 @@ impl CompiledPlot {
                             LegendPosition::Right
                         }
                     };
-                if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
-                    eprintln!(
-                        "LEGEND MEASURE: channel='{}' size=({:.1},{:.1}) flexible={} position={:?}",
-                        primary_channel.name, size.width, size.height, flexible, position
-                    );
-                }
+                debug!(
+                    channel = primary_channel.name.as_str(),
+                    width = size.width,
+                    height = size.height,
+                    flexible,
+                    position = ?position,
+                    "Legend measure"
+                );
                 legend_measurements.insert(
                     primary_channel.name.clone(),
                     LegendMeasurement {

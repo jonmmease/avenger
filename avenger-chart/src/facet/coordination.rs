@@ -6,13 +6,14 @@
 use std::{collections::HashMap, future::Future, pin::Pin};
 
 use datafusion::common::ScalarValue;
+use tracing::{debug, trace};
 
 use crate::{
     coords::{CellDomainInfo, CoordinatedLayout, CoordinatedOverflow},
     error::AvengerChartError,
     facet::{
         coord::{FacetColCoordMeasurement, union_domain_extents},
-        debug, sharing_policy,
+        sharing_policy,
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
@@ -84,20 +85,12 @@ pub async fn coordinate_facet_measurement_tree(
     let initial_snapshot = collect_coordination_snapshot(measurement, true);
     let initial_aggregates = aggregate_snapshot(initial_snapshot, true);
 
-    if debug::layout_enabled() {
-        eprintln!(
-            "coordinate_facet_measurement_tree overflow: {:?}",
-            initial_aggregates.merged_overflow_by_key
-        );
-        eprintln!(
-            "coordinate_facet_measurement_tree layout: {:?}",
-            initial_aggregates.merged_layout_by_key
-        );
-        eprintln!(
-            "coordinate_facet_measurement_tree domains: unified into {} groups",
-            initial_aggregates.unified_domain_extents.len()
-        );
-    }
+    debug!(
+        overflow_groups = initial_aggregates.merged_overflow_by_key.len(),
+        layout_groups = initial_aggregates.merged_layout_by_key.len(),
+        domain_groups = initial_aggregates.unified_domain_extents.len(),
+        "coordinate_facet_measurement_tree initial aggregates"
+    );
 
     apply_aggregates(measurement, &initial_aggregates, true);
 
@@ -289,12 +282,11 @@ fn reapply_scale_adjustments_recursive(measurement: &mut ComponentsMeasurement) 
         for child in facet_col.child_measurements_iter_mut() {
             if let Some(width) = parent_width {
                 if (child.plot_area_width - width).abs() > 0.01 {
-                    if debug::layout_enabled() {
-                        eprintln!(
-                            "coordinate_facet_measurement_tree: child plot_area_width {:.1} -> {:.1}",
-                            child.plot_area_width, width
-                        );
-                    }
+                    trace!(
+                        old_width = child.plot_area_width,
+                        new_width = width,
+                        "coordinate_facet_measurement_tree updating child plot area width"
+                    );
                     child.plot_area_width = width;
 
                     if let Some(column_scale) = child.scales.get_mut("column") {

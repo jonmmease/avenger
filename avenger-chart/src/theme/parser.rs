@@ -10,6 +10,7 @@ use cssparser::{
 };
 use indexmap::IndexMap;
 use selectors::parser::{ParseRelative, Parser as SelectorParser, SelectorList};
+use tracing::warn;
 
 use crate::{
     color::types::ColorSpace,
@@ -308,7 +309,11 @@ impl<'i, 'a> AtRuleParser<'i> for ChartStyleParser<'a> {
 
             // Parse the condition
             let condition = parse_media_condition(condition_str).map_err(|e| {
-                eprintln!("Failed to parse media condition '{}': {}", condition_str, e);
+                warn!(
+                    condition = condition_str,
+                    error = %e,
+                    "Failed to parse media condition"
+                );
                 input.new_custom_error(())
             })?;
 

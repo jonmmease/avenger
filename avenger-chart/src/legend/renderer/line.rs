@@ -341,12 +341,11 @@ impl LegendRenderer for CompiledLineLegend {
         if let Some(size) = theme.font_size(&label_ctx) {
             legend_config.label_font_size = Some(size);
         }
-        if std::env::var("AVENGER_DEBUG_LEGEND").is_ok() {
-            eprintln!(
-                "LINE LEGEND DEBUG: text_padding={:.1} entry_margin={:.1}",
-                legend_config.text_padding, legend_config.entry_margin
-            );
-        }
+        tracing::debug!(
+            text_padding = legend_config.text_padding,
+            entry_margin = legend_config.entry_margin,
+            "Line legend typography spacing"
+        );
         if let Some(node) = config
             .title_font_weight
             .as_option()

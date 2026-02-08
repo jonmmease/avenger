@@ -7,6 +7,7 @@ use datafusion::{
     scalar::ScalarValue as DfScalarValue,
 };
 use serde::{Deserialize, Serialize};
+use tracing::{debug, trace};
 
 use crate::{
     coords::{
@@ -18,7 +19,6 @@ use crate::{
     facet::{
         coord_row::compute_band_layout,
         coordination::CoordinationGroupKey,
-        debug,
         guide::FacetColGuideConfig,
         layout_plan::{
             FacetBandPlan, FacetCellPlan, compute_padding_from_overflows, effective_edge_indices,
@@ -203,12 +203,10 @@ impl FacetColCoordMeasurement {
                 .clone()
                 .with_range_interval((0.0, bandwidth));
 
-            if debug::layout_enabled() {
-                eprintln!(
-                    "FacetCol set_parent_bandwidth: updated original_column_scale range to (0, {:.1})",
-                    bandwidth
-                );
-            }
+            debug!(
+                bandwidth,
+                "FacetCol set_parent_bandwidth updated original column scale range"
+            );
         }
     }
 }
@@ -423,17 +421,15 @@ impl FacetColCoordMeasurement {
                 ))
             })?;
 
-            if debug::layout_enabled() {
-                eprintln!(
-                    "FacetCol apply_coordinated_overflow: layout coordination: width {:.1} -> {:.1}, n {} -> {}, padding {:.1} -> {:.1}",
-                    self.subplot_width,
-                    new_subplot_width,
-                    self.local_layout.n,
-                    layout.n,
-                    self.local_layout.padding_inner_px,
-                    layout.padding_inner_px
-                );
-            }
+            debug!(
+                old_width = self.subplot_width,
+                new_width = new_subplot_width,
+                local_n = self.local_layout.n,
+                coordinated_n = layout.n,
+                local_padding = self.local_layout.padding_inner_px,
+                coordinated_padding = layout.padding_inner_px,
+                "FacetCol apply_coordinated_overflow layout coordination"
+            );
 
             self.subplot_width = new_subplot_width;
         }
@@ -458,16 +454,14 @@ impl FacetColCoordMeasurement {
             original_height
         };
 
-        if debug::layout_enabled() {
-            eprintln!(
-                "FacetCol apply_coordinated_overflow: height {:.1} -> {:.1} (legend_top={:.1}, legend_bottom={:.1}, has_coordinated_extents={})",
-                original_height,
-                adjusted_height,
-                legend_top,
-                legend_bottom,
-                has_coordinated_extents
-            );
-        }
+        debug!(
+            original_height,
+            adjusted_height,
+            legend_top,
+            legend_bottom,
+            has_coordinated_extents,
+            "FacetCol apply_coordinated_overflow height adjustment"
+        );
 
         // Create subplot EvaluationContext with merged params
         let subplot_eval_ctx = {
@@ -499,12 +493,14 @@ impl FacetColCoordMeasurement {
             )
             .await?;
 
-            if debug::layout_enabled() {
-                eprintln!(
-                    "FacetCol apply_coordinated_overflow: re-measured cell[{}]={:?} at width={:.1} height={:.1} empty={}",
-                    idx, cell.plan.value, self.subplot_width, adjusted_height, cell.plan.is_empty
-                );
-            }
+            trace!(
+                cell_index = idx,
+                cell_value = ?cell.plan.value,
+                width = self.subplot_width,
+                height = adjusted_height,
+                is_empty = cell.plan.is_empty,
+                "FacetCol apply_coordinated_overflow re-measured cell"
+            );
             cell.measurement = measurement;
         }
         Ok(())
@@ -934,11 +930,11 @@ async fn build_facet_col_measure_plan(
             HashMap::new()
         };
 
-    if debug::layout_enabled() && !scale_builder_cache.is_empty() {
-        eprintln!(
-            "FacetCol: built {} scale builders for sharing level {}",
-            scale_builder_cache.len(),
-            nested_col_sharing.unwrap_or(255)
+    if !scale_builder_cache.is_empty() {
+        debug!(
+            scale_builder_count = scale_builder_cache.len(),
+            sharing_level = nested_col_sharing.unwrap_or(255),
+            "FacetCol built cached scale builders"
         );
     }
 
@@ -1029,10 +1025,11 @@ async fn measure_cells_overflow_probe(
     summary.cell_overflows.reserve(cells.len());
 
     for (idx, cell) in cells.iter().enumerate() {
-        if debug::layout_enabled() && cell.plan.is_empty {
-            eprintln!(
-                "FacetCol overflow probe: cell[{}]={:?} is empty (path not in tree)",
-                idx, cell.plan.value
+        if cell.plan.is_empty {
+            trace!(
+                cell_index = idx,
+                cell_value = ?cell.plan.value,
+                "FacetCol overflow probe empty cell"
             );
         }
 
@@ -1060,21 +1057,19 @@ async fn measure_cells_overflow_probe(
                 .max(child_facet_col.active_layout().padding_inner_px);
         }
 
-        if debug::layout_enabled() {
-            eprintln!(
-                "FacetCol overflow probe: cell[{}]={:?} guide_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}} total_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}}",
-                idx,
-                cell.plan.value,
-                guide_overflow.top,
-                guide_overflow.bottom,
-                guide_overflow.left,
-                guide_overflow.right,
-                total_overflow.top,
-                total_overflow.bottom,
-                total_overflow.left,
-                total_overflow.right
-            );
-        }
+        trace!(
+            cell_index = idx,
+            cell_value = ?cell.plan.value,
+            guide_top = guide_overflow.top,
+            guide_bottom = guide_overflow.bottom,
+            guide_left = guide_overflow.left,
+            guide_right = guide_overflow.right,
+            total_top = total_overflow.top,
+            total_bottom = total_overflow.bottom,
+            total_left = total_overflow.left,
+            total_right = total_overflow.right,
+            "FacetCol overflow probe result"
+        );
 
         summary
             .cell_overflows
@@ -1093,10 +1088,11 @@ async fn measure_cells_final_and_extents(
     nested_ctx: &FacetColNestedMeasureContext<'_>,
 ) -> Result<(), AvengerChartError> {
     for (idx, cell) in cells.iter_mut().enumerate() {
-        if debug::layout_enabled() && cell.plan.is_empty {
-            eprintln!(
-                "FacetCol final measure: cell[{}]={:?} is empty (path not in tree)",
-                idx, cell.plan.value
+        if cell.plan.is_empty {
+            trace!(
+                cell_index = idx,
+                cell_value = ?cell.plan.value,
+                "FacetCol final measure empty cell"
             );
         }
 
@@ -1114,12 +1110,13 @@ async fn measure_cells_final_and_extents(
         )
         .await?;
 
-        if debug::layout_enabled() {
-            eprintln!(
-                "FacetCol final measure: cell[{}]={:?} measured at width={:.1} empty={}",
-                idx, cell.plan.value, subplot_width, cell.plan.is_empty
-            );
-        }
+        trace!(
+            cell_index = idx,
+            cell_value = ?cell.plan.value,
+            subplot_width,
+            is_empty = cell.plan.is_empty,
+            "FacetCol final measure result"
+        );
 
         let local_extents = if !cell.plan.is_empty {
             let extent_builder = if let Some(builder) = cell_scale_builder {
@@ -1346,12 +1343,11 @@ impl<'a> FacetColMeasurePipeline<'a> {
         };
         let cell_values = self.enumerate_cell_values(&resolved);
 
-        if debug::layout_enabled() {
-            eprintln!(
-                "FacetCol: facet_path={:?} cell_values={:?}",
-                self.facet_path, cell_values
-            );
-        }
+        debug!(
+            facet_path = ?self.facet_path,
+            cell_values = ?cell_values,
+            "FacetCol enumerated cell values"
+        );
 
         if cell_values.is_empty() {
             return Ok(empty_facet_col_measurement(
@@ -1456,12 +1452,10 @@ impl<'a> FacetColMeasurePipeline<'a> {
         };
 
         let Some(current_node) = current_node else {
-            if debug::layout_enabled() {
-                eprintln!(
-                    "FacetCol: path {:?} not in tree (empty cell context), returning empty measurement",
-                    self.facet_path
-                );
-            }
+            debug!(
+                facet_path = ?self.facet_path,
+                "FacetCol path not present in tree; returning empty measurement"
+            );
             return Ok(ResolveNodeOutcome::Empty(empty_facet_col_measurement(
                 self.facet_path,
                 compiled_subplot,
@@ -1570,17 +1564,15 @@ impl<'a> FacetColMeasurePipeline<'a> {
             .map(|(guide, total)| (total.right - guide.right).max(0.0))
             .unwrap_or(0.0);
 
-        if debug::layout_enabled() {
-            eprintln!(
-                "FacetCol coord measure: padding_inner_px={:.1}, outer_left={:.1}, outer_right={:.1} from {} cells (edge_idx={}..={})",
-                padding_inner_px,
-                outer_left,
-                outer_right,
-                cell_values.len(),
-                first_edge_idx,
-                last_edge_idx
-            );
-        }
+        debug!(
+            padding_inner_px,
+            outer_left,
+            outer_right,
+            cell_count = cell_values.len(),
+            first_edge_idx,
+            last_edge_idx,
+            "FacetCol derived local layout"
+        );
 
         FacetBandPlan {
             padding_inner_px,
@@ -1617,12 +1609,11 @@ impl<'a> FacetColMeasurePipeline<'a> {
             AvengerChartError::InternalError(format!("Failed to get final bandwidth: {}", e))
         })?;
 
-        if debug::layout_enabled() {
-            eprintln!(
-                "FacetCol coord measure pass 2: initial_width={:.1} -> final_width={:.1}",
-                initial_subplot_width, final_subplot_width
-            );
-        }
+        debug!(
+            initial_width = initial_subplot_width,
+            final_width = final_subplot_width,
+            "FacetCol pass 2 scale bandwidth"
+        );
 
         Ok(final_subplot_width)
     }

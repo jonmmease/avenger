@@ -10,6 +10,7 @@ use datafusion::{common::ScalarValue, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use taffy::{Size, prelude::*};
+use tracing::debug;
 
 use crate::{
     error::AvengerChartError,
@@ -363,12 +364,13 @@ impl GridBuilder {
         };
 
         let mut grid = GridLayout::new();
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "GRID build_with_overflow: left={:.3} right={:.3} top={:.3} bottom={:.3}",
-                overflow.left, overflow.right, overflow.top, overflow.bottom
-            );
-        }
+        debug!(
+            left = overflow.left,
+            right = overflow.right,
+            top = overflow.top,
+            bottom = overflow.bottom,
+            "Grid build_with_overflow"
+        );
 
         // === Build Column Template ===
         // Columns are built left-to-right:
@@ -475,12 +477,11 @@ impl GridBuilder {
         // 4. Add rows for top-positioned legends
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Top) {
             let height = self.measure_legend_container_height(channels, legend_sizes);
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "LAYOUT: top legend container height={:.1} channels={:?}",
-                    height, channels
-                );
-            }
+            debug!(
+                height,
+                channels = ?channels,
+                "Top legend container height"
+            );
             grid.rows.push(length(height));
             // Top legends should align with plot area, not include left overflow
             grid.add_component(
@@ -570,12 +571,11 @@ impl GridBuilder {
         // 11. Add rows for bottom-positioned legends
         if let Some(channels) = self.legends_by_position.get(&LegendPosition::Bottom) {
             let height = self.measure_legend_container_height(channels, legend_sizes);
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "LAYOUT: bottom legend container height={:.1} channels={:?}",
-                    height, channels
-                );
-            }
+            debug!(
+                height,
+                channels = ?channels,
+                "Bottom legend container height"
+            );
             grid.rows.push(length(height));
             // Bottom legends should align with plot area, not include left overflow
             grid.add_component(

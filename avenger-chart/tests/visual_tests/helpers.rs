@@ -1,5 +1,6 @@
 // Helper functions for visual tests
 
+use crate::tracing::try_init_tracing;
 use avenger_chart::plot::CompiledPlot;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
@@ -58,12 +59,12 @@ async fn render_compiled_plot_with_serialization(
     if direct_result.scene_graph.width != bincode_result.scene_graph.width
         || direct_result.scene_graph.height != bincode_result.scene_graph.height
     {
-        eprintln!(
-            "Warning: Serialization round-trip changed dimensions! Direct: {}x{}, After bincode: {}x{}",
-            direct_result.scene_graph.width,
-            direct_result.scene_graph.height,
-            bincode_result.scene_graph.width,
-            bincode_result.scene_graph.height
+        tracing::warn!(
+            direct_width = direct_result.scene_graph.width,
+            direct_height = direct_result.scene_graph.height,
+            bincode_width = bincode_result.scene_graph.width,
+            bincode_height = bincode_result.scene_graph.height,
+            "Serialization round-trip changed scene dimensions"
         );
     }
 
@@ -254,6 +255,8 @@ pub async fn assert_visual_match(
     baseline_name: &str,
     tolerance: f64,
 ) {
+    try_init_tracing();
+
     let (direct_image, serialized_image) =
         render_compiled_plot_with_serialization(compiled, ctx, params).await;
     let baseline_path = get_baseline_path(category, baseline_name);
@@ -284,9 +287,10 @@ pub async fn assert_visual_match(
         .expect("Failed to compare direct and serialized renders");
 
     if comparison.score < 0.99999 {
-        eprintln!(
-            "Warning: Serialization round-trip changed rendering for '{}'. Similarity: {:.6}",
-            baseline_name, comparison.score
+        tracing::warn!(
+            baseline_name = baseline_name,
+            similarity = comparison.score,
+            "Serialization round-trip changed rendering"
         );
     }
 }

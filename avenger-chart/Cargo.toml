@@ -50,6 +50,7 @@ postcard = { version = "1.1.3", features = ["alloc"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 image-compare = "0.4"
 bincode = "1.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[example]]
 name = "simple_bar_chart"

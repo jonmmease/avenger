@@ -7,7 +7,6 @@ use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
 use crate::facet::coord::FacetColCoordMeasurement;
-use crate::facet::debug;
 use crate::facet::guide_utils::{
     FacetLabelMeasurementConfig, FacetLabelRenderConfig, measure_facet_label_slab,
     render_facet_label_slab,
@@ -30,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::debug;
 
 /// Guide configuration for FacetCol coordinate system
 #[derive(Clone, Default)]
@@ -226,12 +226,14 @@ impl CompiledGuide for FacetColGuide {
             )
         };
 
-        if debug::layout_enabled() {
-            eprintln!(
-                "FacetColGuide measure_overflow: position={:?}, subplot_overflow.top={:.1}, facet_guide_height={:.1}, total_top={:.1}, total_bottom={:.1}",
-                self.position, subplot_overflow.top, facet_guide_height, total_top, total_bottom
-            );
-        }
+        debug!(
+            position = ?self.position,
+            subplot_overflow_top = subplot_overflow.top,
+            facet_guide_height,
+            total_top,
+            total_bottom,
+            "FacetColGuide measure_overflow"
+        );
         Ok(OverflowSpaceRequirement {
             top: total_top,
             bottom: total_bottom,
@@ -320,12 +322,13 @@ impl CompiledGuide for FacetColGuide {
             coordinated_overflow.map(|co| co.total.top).unwrap_or(0.0)
         };
 
-        if debug::layout_enabled() {
-            eprintln!(
-                "FacetColGuide evaluate: position={:?}, plot_bounds.y={:.1}, subplot_overflow={:.1}, labels={:?}",
-                self.position, plot_bounds.y, subplot_overflow, labels
-            );
-        }
+        debug!(
+            position = ?self.position,
+            plot_bounds_y = plot_bounds.y,
+            subplot_overflow,
+            labels = ?labels,
+            "FacetColGuide evaluate"
+        );
 
         // Adjust plot_bounds to account for subplot overflow
         // For position=top: shift up by top overflow (subtract, since y increases downward)

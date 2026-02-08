@@ -31,6 +31,7 @@ use datafusion::{arrow::datatypes::DataType, logical_expr::lit, prelude::Session
 use datafusion_common::ScalarValue;
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
+use tracing::{debug, trace};
 
 use crate::{
     error::AvengerChartError,
@@ -281,32 +282,25 @@ impl ScaleBuilder {
     /// # Arguments
     /// * `shared_extents` - HashMap mapping channel names to their shared DomainExtent values
     pub fn extend_with_domain_extents(&mut self, shared_extents: &HashMap<String, DomainExtent>) {
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "extend_with_domain_extents called with {} channels",
-                shared_extents.len()
-            );
-            for (ch, ext) in shared_extents {
-                eprintln!("  shared extent {}: {:?}", ch, ext);
-            }
-            eprintln!(
-                "  channel_builders available: {:?}",
-                self.channel_scale_data.keys().collect::<Vec<_>>()
-            );
+        debug!(
+            shared_channel_count = shared_extents.len(),
+            available_channels = ?self.channel_scale_data.keys().collect::<Vec<_>>(),
+            "extend_with_domain_extents"
+        );
+        for (ch, ext) in shared_extents {
+            trace!(channel = ch, extent = ?ext, "shared extent");
         }
 
         for (channel, shared_extent) in shared_extents {
             if let Some(channel_builder) = self.channel_scale_data.get_mut(channel) {
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    let variant = match channel_builder {
-                        ChannelScaleData::Standard { data_extents, .. } => {
-                            format!("Standard({:?})", data_extents)
-                        }
-                        ChannelScaleData::RadiusAware { .. } => "RadiusAware".to_string(),
-                        ChannelScaleData::ExplicitDomain { .. } => "ExplicitDomain".to_string(),
-                    };
-                    eprintln!("  Processing channel {}: builder={}", channel, variant);
-                }
+                let variant = match channel_builder {
+                    ChannelScaleData::Standard { data_extents, .. } => {
+                        format!("Standard({:?})", data_extents)
+                    }
+                    ChannelScaleData::RadiusAware { .. } => "RadiusAware".to_string(),
+                    ChannelScaleData::ExplicitDomain { .. } => "ExplicitDomain".to_string(),
+                };
+                trace!(channel, builder = %variant, "processing shared extent");
 
                 match channel_builder {
                     ChannelScaleData::Standard { data_extents, .. } => {
@@ -319,18 +313,23 @@ impl ScaleBuilder {
                                     max: shared_max,
                                 },
                             ) => {
-                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                    eprintln!(
-                                        "  Extending {} extents: local=({}, {}) shared=({}, {})",
-                                        channel, local_min, local_max, shared_min, shared_max
-                                    );
-                                }
+                                trace!(
+                                    channel,
+                                    local_min = *local_min,
+                                    local_max = *local_max,
+                                    shared_min = *shared_min,
+                                    shared_max = *shared_max,
+                                    "Extending numeric extents"
+                                );
                                 // Take union: min of mins, max of maxes
                                 *local_min = local_min.min(*shared_min);
                                 *local_max = local_max.max(*shared_max);
-                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                    eprintln!("  Result: ({}, {})", local_min, local_max);
-                                }
+                                trace!(
+                                    channel,
+                                    new_min = *local_min,
+                                    new_max = *local_max,
+                                    "Updated numeric extents"
+                                );
                             }
                             (
                                 DataExtents::Temporal(local_min, local_max),
@@ -347,23 +346,17 @@ impl ScaleBuilder {
                                 DomainBounds::Discrete(shared_values),
                             ) => {
                                 // For categorical scale sharing, replace local values with shared values.
-                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                    eprintln!(
-                                        "  Extending {} discrete extents: local={} values -> shared={} values",
-                                        channel,
-                                        local_values.len(),
-                                        shared_values.len()
-                                    );
-                                }
+                                trace!(
+                                    channel,
+                                    local_values = local_values.len(),
+                                    shared_values = shared_values.len(),
+                                    "Replacing discrete extents with shared values"
+                                );
                                 *local_values =
                                     shared_values.iter().map(|v| v.to_scalar()).collect();
                             }
                             _ => {
-                                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                    eprintln!(
-                                        "  No match for data_extents/shared_extent combination"
-                                    );
-                                }
+                                trace!(channel, "No matching extent variant for shared extent");
                             }
                         }
                     }
@@ -403,18 +396,16 @@ impl ScaleBuilder {
                             radius_lower_data.push(0.0);
                             radius_upper_data.push(max_radius_upper);
 
-                            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                                eprintln!(
-                                    "  Extended RadiusAware {} with shared extents ({}, {}), radii=({:.1}, {:.1}), len {} -> {}",
-                                    channel,
-                                    shared_min,
-                                    shared_max,
-                                    max_radius_lower,
-                                    max_radius_upper,
-                                    len_before,
-                                    position_data.len()
-                                );
-                            }
+                            trace!(
+                                channel,
+                                shared_min = *shared_min,
+                                shared_max = *shared_max,
+                                max_radius_lower,
+                                max_radius_upper,
+                                len_before,
+                                len_after = position_data.len(),
+                                "Extended RadiusAware extents with shared range"
+                            );
                         }
                     }
                     ChannelScaleData::ExplicitDomain { .. } => {
@@ -462,13 +453,13 @@ impl ScaleBuilder {
         builder_entries.sort_by(|a, b| a.0.cmp(b.0));
 
         for (channel_name, channel_builder) in builder_entries.into_iter() {
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && channel_name == "y" {
+            if channel_name == "y" {
                 match channel_builder {
                     ChannelScaleData::RadiusAware { position_data, .. } => {
-                        eprintln!(
-                            "build_scales: starting {} with RadiusAware(len={})",
-                            channel_name,
-                            position_data.len()
+                        trace!(
+                            channel = channel_name,
+                            len = position_data.len(),
+                            "build_scales starting RadiusAware channel"
                         );
                     }
                     _ => {}
@@ -631,17 +622,17 @@ impl ScaleBuilder {
                         range_width,
                     )?;
 
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && channel_name == "y" {
+                    if channel_name == "y" {
                         let data_preview: Vec<f64> =
                             position_data.iter().take(12).cloned().collect();
-                        eprintln!(
-                            "  RadiusAware {} domain after compute_domain_from_data: ({:.2}, {:.2}), position_data len={}, range_width={:.2}, data={:?}",
-                            channel_name,
+                        trace!(
+                            channel = channel_name,
                             d_min,
                             d_max,
-                            position_data.len(),
+                            position_len = position_data.len(),
                             range_width,
-                            data_preview
+                            data_preview = ?data_preview,
+                            "RadiusAware domain after compute_domain_from_data"
                         );
                     }
 
@@ -652,16 +643,16 @@ impl ScaleBuilder {
                     // Normalize domain (apply zero, nice, padding)
                     scale = scale.normalize_domain(width, height, ctx, params).await?;
 
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && channel_name == "y" {
+                    if channel_name == "y" {
                         if let Ok((norm_min, norm_max)) = scale
                             .clone()
                             .create_configured_scale(width, height, ctx, params)
                             .await
                             .and_then(|c| Ok(c.numeric_interval_domain()?))
                         {
-                            eprintln!(
-                                "  RadiusAware {} domain after normalize: ({:.2}, {:.2})",
-                                channel_name, norm_min, norm_max
+                            trace!(
+                                channel = channel_name,
+                                norm_min, norm_max, "RadiusAware domain after normalize"
                             );
                         }
                     }

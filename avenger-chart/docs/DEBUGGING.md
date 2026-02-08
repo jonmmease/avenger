@@ -22,6 +22,8 @@ AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart::layout=debug cargo test -- 
 
 The avenger-chart crate uses the `tracing` crate for structured logging. This provides textual output to help understand internal operations like layout calculations, scale transformations, and legend rendering.
 
+`avenger-chart` is a library crate and does **not** initialize a tracing subscriber in production code. Applications, examples, and tests must initialize a subscriber.
+
 ### Basic Setup
 
 To see debug output from avenger-chart, set up a tracing subscriber in your application:
@@ -38,6 +40,8 @@ fn main() {
     // Your chart code here
 }
 ```
+
+For visual regression tests in this repository, tracing initialization is handled by `avenger-chart/tests/tracing.rs` via `try_init_tracing()`.
 
 ### Environment Variable Configuration
 
@@ -208,3 +212,15 @@ fn main() {
 - Use more specific module filters: `RUST_LOG=avenger_chart::layout=debug` instead of `avenger_chart=trace`
 - Lower the log level to `info` or `warn`
 - Focus on the specific component you're debugging
+
+## Guardrails
+
+To verify repository logging conventions:
+
+```bash
+avenger-chart/scripts/check_logging_guardrails.sh
+```
+
+This enforces:
+- no new non-test `eprintln!` callsites in `avenger-chart/src`
+- `AVENGER_CHART_DEBUG_LAYOUT` usage restricted to overlay-control paths

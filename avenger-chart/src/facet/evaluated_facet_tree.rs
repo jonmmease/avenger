@@ -17,13 +17,13 @@ use datafusion::{
     prelude::SessionContext,
 };
 use indexmap::IndexMap;
+use tracing::debug;
 
 use crate::{
     cartesian::axis::AxisPosition,
     channel::config_traits::ScaleSharing,
     error::AvengerChartError,
     facet::{
-        debug,
         keys::FacetKeyExtractor,
         marks::facet::{FacetMarkRef, facet_mark_ref},
         path_math,
@@ -629,15 +629,13 @@ impl EvaluatedFacetTree {
             return AxisVisibility::visible();
         };
 
-        if debug::layout_enabled() {
-            eprintln!(
-                "axis_visibility: position={:?}, axis={:?}, sharing_level={}, counts={:?}",
-                position_indices,
-                axis_position,
-                sharing_level,
-                self.level_counts_ref()
-            );
-        }
+        debug!(
+            position = ?position_indices,
+            axis = ?axis_position,
+            sharing_level,
+            counts = ?self.level_counts_ref(),
+            "axis_visibility"
+        );
 
         let mut node = root;
         for (level, &pos_idx) in position_indices.iter().enumerate() {

@@ -9,6 +9,7 @@ use avenger_text::types::FontWeight;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, trace};
 
 use crate::{
     error::AvengerChartError,
@@ -194,13 +195,11 @@ impl LegendRenderer for CompiledColorbar {
             legend_config.format_number = Some(evaluate_string_expr(&expr, ctx, params).await?);
         }
 
-        // Debug: print colorbar configuration if requested
-        if std::env::var("AVENGER_DEBUG_COLORBAR").is_ok() {
-            eprintln!(
-                "COLORBAR DEBUG: orient={:?} thickness={:?}",
-                legend_config.orientation, legend_config.colorbar_width
-            );
-        }
+        debug!(
+            orientation = ?legend_config.orientation,
+            thickness = ?legend_config.colorbar_width,
+            "Colorbar config"
+        );
 
         // Evaluate and apply legend colors (from config or theme)
         // Title color
@@ -419,20 +418,18 @@ impl LegendRenderer for CompiledColorbar {
         let mut colorbar_group =
             make_colorbar_marks(configured_scale, &title, plot_origin, &legend_config)?;
 
-        if std::env::var("AVENGER_DEBUG_COLORBAR_GROUP").is_ok() {
-            let bbox = colorbar_group.bounding_box();
-            let lower = bbox.lower();
-            let upper = bbox.upper();
-            eprintln!(
-                "COLORBAR GROUP BBOX: lower=({:.1},{:.1}) upper=({:.1},{:.1}) w={:.1} h={:.1}",
-                lower[0],
-                lower[1],
-                upper[0],
-                upper[1],
-                bbox.width(),
-                bbox.height()
-            );
-        }
+        let bbox = colorbar_group.bounding_box();
+        let lower = bbox.lower();
+        let upper = bbox.upper();
+        trace!(
+            lower_x = lower[0],
+            lower_y = lower[1],
+            upper_x = upper[0],
+            upper_y = upper[1],
+            width = bbox.width(),
+            height = bbox.height(),
+            "Colorbar group bbox"
+        );
 
         // Position the colorbar group
         colorbar_group.origin = [x, y];

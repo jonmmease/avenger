@@ -453,12 +453,11 @@ impl ChartLayout {
                 "Plot area bounds"
             );
 
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "Taffy plot-area (raw): w={:.6} h={:.6}",
-                    layout.size.width, layout.size.height
-                );
-            }
+            debug!(
+                width = layout.size.width,
+                height = layout.size.height,
+                "Taffy plot-area raw size"
+            );
 
             result.plot_area = LayoutBounds {
                 x: layout.location.x.round(),
@@ -467,15 +466,13 @@ impl ChartLayout {
                 width: layout.size.width.floor(),
                 height: layout.size.height.floor(),
             };
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "OUTER plot-area: x={:.3} y={:.3} w={:.3} h={:.3}",
-                    result.plot_area.x,
-                    result.plot_area.y,
-                    result.plot_area.width,
-                    result.plot_area.height
-                );
-            }
+            debug!(
+                x = result.plot_area.x,
+                y = result.plot_area.y,
+                width = result.plot_area.width,
+                height = result.plot_area.height,
+                "Outer plot-area"
+            );
         }
 
         // Get guide overflow bounds
@@ -496,21 +493,18 @@ impl ChartLayout {
                 width: layout.size.width.ceil(),
                 height: layout.size.height.ceil(),
             };
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                let pos = match position {
-                    AxisPosition::Left => "Left",
-                    AxisPosition::Right => "Right",
-                    AxisPosition::Top => "Top",
-                    AxisPosition::Bottom => "Bottom",
-                };
-                // Also print offset relative to plot-area for easier comparison
-                let rel_x = bounds.x - result.plot_area.x;
-                let rel_y = bounds.y - result.plot_area.y;
-                eprintln!(
-                    "OUTER of-{}: x={:.3} y={:.3} w={:.3} h={:.3}  (rel_to_plot: x={:.3} y={:.3})",
-                    pos, bounds.x, bounds.y, bounds.width, bounds.height, rel_x, rel_y
-                );
-            }
+            let rel_x = bounds.x - result.plot_area.x;
+            let rel_y = bounds.y - result.plot_area.y;
+            debug!(
+                position = ?position,
+                x = bounds.x,
+                y = bounds.y,
+                width = bounds.width,
+                height = bounds.height,
+                rel_x,
+                rel_y,
+                "Outer guide overflow bounds"
+            );
             result.guide_overflows.insert(*position, bounds);
         }
 

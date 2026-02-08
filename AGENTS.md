@@ -12,7 +12,10 @@ The workspace is a Rust visualization stack. `avenger-scenegraph` defines scene 
 - `cargo fmt --all`, `cargo clippy --all-targets`: format and lint before review.
 - `pixi run dev-py`, `pixi run build-py`: work on the Python bindings.
 - `examples/iris-pan-zoom/wasm-pack build --target web --release`: build the WebAssembly demo.
-- `cargo test -p avenger-chart -- --nocapture`: run chart suites; pair with `AVENGER_CHART_DEBUG_LAYOUT=1` or `RUST_LOG=avenger_chart=debug`.
+- `cargo test -p avenger-chart -- --nocapture`: run chart suites.
+- `RUST_LOG=avenger_chart=debug cargo test -p avenger-chart -- --nocapture`: enable textual diagnostics via tracing.
+- `AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart`: enable visual debug overlay marks (no tracing output unless `RUST_LOG` is set).
+- `avenger-chart/scripts/check_logging_guardrails.sh`: enforce tracing/overlay logging guardrails.
 
 ## Coding Style & Naming Conventions
 Follow `rustfmt` defaults (4-space indentation, trailing commas). Use `snake_case` for files and modules, `PascalCase` for public types, and align new APIs with patterns used by `SceneGraphBuilder` and `EventStreamHandler`. Keep shader updates in `avenger-wgpu/src/shaders/` mirrored in host structs, and leave focused comments for GPU or layout edge cases.

@@ -3,7 +3,6 @@ use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
 use crate::facet::coord::{FacetColumn, FacetRow};
-use crate::facet::debug;
 use crate::facet::dimension_config::{
     ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
@@ -20,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::trace;
 
 /// Facet mark for FacetRow or FacetCol outer coordinate system.
 /// Renders a provided inner plot for each band value in the facet channel.
@@ -615,12 +615,12 @@ impl CompiledMark for CompiledFacetCol {
             };
             scene_marks.push(SceneMark::Group(subplot_group));
 
-            if debug::layout_enabled() {
-                eprintln!(
-                    "FacetCol render: column[{}] at x={:.1} width={:.1}",
-                    idx, position, subplot_width
-                );
-            }
+            trace!(
+                cell_index = idx,
+                x = position,
+                width = subplot_width,
+                "FacetCol render position"
+            );
         }
 
         Ok(scene_marks)

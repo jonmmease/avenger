@@ -20,6 +20,7 @@ use datafusion::{
 };
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
+use tracing::trace;
 
 use crate::{
     channel::{resolution::resolve_all_channel_refs, value::strip_trailing_numbers},
@@ -1006,25 +1007,21 @@ async fn cache_radius_aware_data(
             let radius_upper_array = batch.column_by_name("__radius_upper__").ok_or_else(|| {
                 AvengerChartError::InternalError("Radius upper column not found".to_string())
             })?;
-            if std::env::var("AVENGER_DEBUG_CAST").is_ok() {
-                eprintln!(
-                    "RadiusAware cast types: pos={:?}, lower={:?}, upper={:?}",
-                    position_array.data_type(),
-                    radius_lower_array.data_type(),
-                    radius_upper_array.data_type()
-                );
-            }
+            trace!(
+                pos_type = ?position_array.data_type(),
+                lower_type = ?radius_lower_array.data_type(),
+                upper_type = ?radius_upper_array.data_type(),
+                "RadiusAware cast input types"
+            );
             let position_f64 = cast(position_array, &ArrowDataType::Float64)?;
             let radius_lower_f64 = cast(radius_lower_array, &ArrowDataType::Float64)?;
             let radius_upper_f64 = cast(radius_upper_array, &ArrowDataType::Float64)?;
-            if std::env::var("AVENGER_DEBUG_CAST").is_ok() {
-                eprintln!(
-                    "After cast types: pos={:?}, lower={:?}, upper={:?}",
-                    position_f64.data_type(),
-                    radius_lower_f64.data_type(),
-                    radius_upper_f64.data_type()
-                );
-            }
+            trace!(
+                pos_type = ?position_f64.data_type(),
+                lower_type = ?radius_lower_f64.data_type(),
+                upper_type = ?radius_upper_f64.data_type(),
+                "RadiusAware cast output types"
+            );
             let positions = position_f64.as_primitive::<Float64Type>();
             let radius_lower = radius_lower_f64.as_primitive::<Float64Type>();
             let radius_upper = radius_upper_f64.as_primitive::<Float64Type>();
