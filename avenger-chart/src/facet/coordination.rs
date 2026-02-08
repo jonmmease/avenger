@@ -80,34 +80,83 @@ pub async fn coordinate_facet_measurement_tree(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    // 1) distribute shared overflow by coordination key
-    distribute_coordinated_overflow(measurement);
-    // 2) distribute shared layout params by coordination key
-    distribute_coordinated_layout(measurement);
-    // 3) unify/distribute domain extents by sharing policy
-    coordinate_cell_domain_extents(measurement);
+    // 1) collect and distribute shared overflow/layout/domains by coordination key
+    let initial_snapshot = collect_coordination_snapshot(measurement, true);
+    let initial_aggregates = aggregate_snapshot(initial_snapshot, true);
+
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "coordinate_facet_measurement_tree overflow: {:?}",
+            initial_aggregates.merged_overflow_by_key
+        );
+        eprintln!(
+            "coordinate_facet_measurement_tree layout: {:?}",
+            initial_aggregates.merged_layout_by_key
+        );
+        eprintln!(
+            "coordinate_facet_measurement_tree domains: unified into {} groups",
+            initial_aggregates.unified_domain_extents.len()
+        );
+    }
+
+    apply_aggregates(measurement, &initial_aggregates, true);
+
     // 4) apply coordinated overflow/layout/domain to children
     apply_coordinated_overflow_recursive(measurement, eval_ctx).await?;
-    // 5) re-distribute because step 4 may replace child measurements
-    distribute_coordinated_overflow(measurement);
-    distribute_coordinated_layout(measurement);
+    // 5) re-distribute overflow/layout because step 4 may replace child measurements
+    let post_snapshot = collect_coordination_snapshot(measurement, false);
+    let post_aggregates = aggregate_snapshot(post_snapshot, false);
+    apply_aggregates(measurement, &post_aggregates, false);
     // 6) update stored scales and propagated widths after coordination
     reapply_scale_adjustments_recursive(measurement);
 
     Ok(())
 }
 
-fn distribute_coordinated_overflow(measurement: &mut ComponentsMeasurement) {
-    let mut overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>> =
-        HashMap::new();
+#[derive(Default)]
+struct CoordinationSnapshot {
+    overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>>,
+    layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>>,
+    domain_infos: Vec<CellDomainInfo>,
+}
+
+struct CoordinationAggregates {
+    merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
+    merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
+    unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
+}
+
+fn collect_coordination_snapshot(
+    measurement: &ComponentsMeasurement,
+    include_domains: bool,
+) -> CoordinationSnapshot {
+    let mut snapshot = CoordinationSnapshot::default();
     visit_facet_cols(measurement, 0, &mut |depth, facet_col| {
-        if let Some(local) = facet_col.local_overflow_value() {
-            let key = facet_col.coordination_group_key_for_depth(depth);
-            overflow_by_key.entry(key).or_default().push(local);
+        let key = facet_col.coordination_group_key_for_depth(depth);
+        if let Some(local_overflow) = facet_col.local_overflow_value() {
+            snapshot
+                .overflow_by_key
+                .entry(key.clone())
+                .or_default()
+                .push(local_overflow);
+        }
+        snapshot
+            .layout_by_key
+            .entry(key)
+            .or_default()
+            .push(facet_col.local_layout_value());
+
+        if include_domains {
+            facet_col.collect_cell_domain_infos(&mut snapshot.domain_infos);
         }
     });
+    snapshot
+}
 
-    let max_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow> = overflow_by_key
+fn merge_overflow_groups(
+    overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>>,
+) -> HashMap<CoordinationGroupKey, CoordinatedOverflow> {
+    overflow_by_key
         .into_iter()
         .map(|(key, values)| {
             let mut merged = CoordinatedOverflow::default();
@@ -116,35 +165,13 @@ fn distribute_coordinated_overflow(measurement: &mut ComponentsMeasurement) {
             }
             (key, merged)
         })
-        .collect();
-
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!("coordinate_facet_measurement_tree overflow: {max_by_key:?}");
-    }
-
-    visit_facet_cols_mut(measurement, 0, &mut |depth, facet_col| {
-        let key = facet_col.coordination_group_key_for_depth(depth);
-        if let Some(max_overflow) = max_by_key.get(&key).cloned() {
-            facet_col.set_coordinated_overflow_value(max_overflow);
-        }
-    });
+        .collect()
 }
 
-fn distribute_coordinated_layout(measurement: &mut ComponentsMeasurement) {
-    let mut layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>> = HashMap::new();
-    visit_facet_cols(measurement, 0, &mut |depth, facet_col| {
-        let key = facet_col.coordination_group_key_for_depth(depth);
-        layout_by_key
-            .entry(key)
-            .or_default()
-            .push(facet_col.local_layout_value());
-    });
-
-    if layout_by_key.is_empty() {
-        return;
-    }
-
-    let max_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout> = layout_by_key
+fn merge_layout_groups(
+    layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>>,
+) -> HashMap<CoordinationGroupKey, CoordinatedLayout> {
+    layout_by_key
         .into_iter()
         .map(|(key, values)| {
             let mut merged = CoordinatedLayout::default();
@@ -153,16 +180,41 @@ fn distribute_coordinated_layout(measurement: &mut ComponentsMeasurement) {
             }
             (key, merged)
         })
-        .collect();
+        .collect()
+}
 
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!("coordinate_facet_measurement_tree layout: {max_by_key:?}");
+fn aggregate_snapshot(
+    snapshot: CoordinationSnapshot,
+    include_domains: bool,
+) -> CoordinationAggregates {
+    let unified_domain_extents = if include_domains && !snapshot.domain_infos.is_empty() {
+        aggregate_domain_extents(&snapshot.domain_infos)
+    } else {
+        HashMap::new()
+    };
+
+    CoordinationAggregates {
+        merged_overflow_by_key: merge_overflow_groups(snapshot.overflow_by_key),
+        merged_layout_by_key: merge_layout_groups(snapshot.layout_by_key),
+        unified_domain_extents,
     }
+}
 
+fn apply_aggregates(
+    measurement: &mut ComponentsMeasurement,
+    aggregates: &CoordinationAggregates,
+    apply_domains: bool,
+) {
     visit_facet_cols_mut(measurement, 0, &mut |depth, facet_col| {
         let key = facet_col.coordination_group_key_for_depth(depth);
-        if let Some(max_layout) = max_by_key.get(&key).cloned() {
-            facet_col.set_coordinated_layout_value(max_layout);
+        if let Some(overflow) = aggregates.merged_overflow_by_key.get(&key).cloned() {
+            facet_col.set_coordinated_overflow_value(overflow);
+        }
+        if let Some(layout) = aggregates.merged_layout_by_key.get(&key).cloned() {
+            facet_col.set_coordinated_layout_value(layout);
+        }
+        if apply_domains && !aggregates.unified_domain_extents.is_empty() {
+            facet_col.distribute_coordinated_domain_extents(&aggregates.unified_domain_extents);
         }
     });
 }
@@ -197,37 +249,6 @@ fn aggregate_domain_extents(
             (key, unified)
         })
         .collect()
-}
-
-fn coordinate_cell_domain_extents(measurement: &mut ComponentsMeasurement) {
-    let mut all_extents = Vec::new();
-    visit_facet_cols(measurement, 0, &mut |_, facet_col| {
-        facet_col.collect_cell_domain_infos(&mut all_extents);
-    });
-
-    if all_extents.is_empty() {
-        return;
-    }
-
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "coordinate_facet_measurement_tree domains: collected {} extents",
-            all_extents.len()
-        );
-    }
-
-    let unified = aggregate_domain_extents(&all_extents);
-
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "coordinate_facet_measurement_tree domains: unified into {} groups",
-            unified.len()
-        );
-    }
-
-    visit_facet_cols_mut(measurement, 0, &mut |_, facet_col| {
-        facet_col.distribute_coordinated_domain_extents(&unified);
-    });
 }
 
 fn apply_coordinated_overflow_recursive<'a>(

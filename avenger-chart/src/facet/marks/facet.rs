@@ -1,6 +1,7 @@
 use crate::channel::config_traits::ScaleSharing;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::facet::band_positions::BandPositionIterator;
 use crate::facet::coord::{FacetColumn, FacetRow};
 use crate::facet::dimension_config::{
     ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
@@ -497,8 +498,8 @@ impl CompiledMark for CompiledFacetCol {
     /// Render faceted column layout
     ///
     /// Uses coord_measurement from RenderContext (computed by FacetColumn coord system)
-    /// to get padding_inner_px. Rebuilds the band scale with this padding to compute
-    /// correct positions and widths, then measures and renders each subplot.
+    /// and the already-adjusted column scale to resolve deterministic band positions,
+    /// then renders each subplot using its cached measurement.
     async fn render_from_data(
         &self,
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
@@ -533,19 +534,8 @@ impl CompiledMark for CompiledFacetCol {
 
         // Compute positions from the scale
         let cell_values: Vec<ScalarValue> = facet_measurement.cell_values().cloned().collect();
-        let domain_array =
-            ScalarValue::iter_to_array(cell_values.iter().cloned()).map_err(|e| {
-                AvengerChartError::InternalError(format!("Failed to create domain array: {}", e))
-            })?;
-
         let configured = column_scale.configured();
-        let positions = configured
-            .scale_impl
-            .scale_to_numeric(&configured.config, &domain_array)
-            .map_err(|e| {
-                AvengerChartError::InternalError(format!("Failed to scale positions: {}", e))
-            })?;
-        let cell_positions: Vec<f32> = positions.as_vec(cell_values.len(), None);
+        let cell_positions = resolve_facet_col_positions(configured, &cell_values)?;
 
         // Get subplot width from scale (used for debug logging)
         let subplot_width = bandwidth(&configured.config).map_err(|e| {
@@ -675,6 +665,31 @@ impl CompiledMark for CompiledFacetCol {
     }
 }
 
+fn resolve_facet_col_positions(
+    configured: &avenger_scales::scales::ConfiguredScale,
+    cell_values: &[ScalarValue],
+) -> Result<Vec<f32>, AvengerChartError> {
+    let bands: Vec<_> = BandPositionIterator::from_configured_scale(configured)?.collect();
+    if bands.len() != cell_values.len() {
+        return Err(AvengerChartError::InternalError(format!(
+            "FacetCol render: band positions length {} did not match facet cell count {}",
+            bands.len(),
+            cell_values.len()
+        )));
+    }
+
+    if !bands
+        .iter()
+        .zip(cell_values.iter())
+        .all(|(band, value)| band.value == *value)
+    {
+        return Err(AvengerChartError::InternalError(
+            "FacetCol render: band position order did not align with facet cell order".into(),
+        ));
+    }
+    Ok(bands.into_iter().map(|band| band.start()).collect())
+}
+
 // ============================================================================
 // Axis-Aligned Empty Space Helper
 // ============================================================================
@@ -738,4 +753,64 @@ pub fn determine_facet_band_align(is_row_facet: bool, compiled_subplot: &Compile
     // Default: 0.0 (start alignment) for backward compatibility
     // This is the original hardcoded behavior
     0.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_scales::scales::band::BandScale;
+
+    fn make_band_scale(range: (f32, f32)) -> avenger_scales::scales::ConfiguredScale {
+        let domain = ScalarValue::iter_to_array(
+            vec![
+                ScalarValue::Utf8(Some("a".to_string())),
+                ScalarValue::Utf8(Some("b".to_string())),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+        BandScale::configured(domain, range)
+    }
+
+    #[test]
+    fn resolve_facet_col_positions_returns_aligned_band_positions() {
+        let scale = make_band_scale((0.0, 100.0));
+        let cell_values = vec![
+            ScalarValue::Utf8(Some("a".to_string())),
+            ScalarValue::Utf8(Some("b".to_string())),
+        ];
+
+        let positions = resolve_facet_col_positions(&scale, &cell_values).unwrap();
+        assert_eq!(positions.len(), 2);
+        assert!(positions[0] < positions[1]);
+    }
+
+    #[test]
+    fn resolve_facet_col_positions_errors_on_count_mismatch() {
+        let scale = make_band_scale((0.0, 100.0));
+        let cell_values = vec![
+            ScalarValue::Utf8(Some("a".to_string())),
+            ScalarValue::Utf8(Some("b".to_string())),
+            ScalarValue::Utf8(Some("c".to_string())),
+        ];
+
+        let err = resolve_facet_col_positions(&scale, &cell_values).unwrap_err();
+        let message = format!("{}", err);
+        assert!(message.contains("band positions length"));
+        assert!(message.contains("facet cell count"));
+    }
+
+    #[test]
+    fn resolve_facet_col_positions_errors_on_order_mismatch() {
+        let scale = make_band_scale((0.0, 100.0));
+        let cell_values = vec![
+            ScalarValue::Utf8(Some("b".to_string())),
+            ScalarValue::Utf8(Some("a".to_string())),
+        ];
+
+        let err = resolve_facet_col_positions(&scale, &cell_values).unwrap_err();
+        let message = format!("{}", err);
+        assert!(message.contains("band position order"));
+        assert!(message.contains("facet cell order"));
+    }
 }

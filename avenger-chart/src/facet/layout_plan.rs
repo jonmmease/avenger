@@ -4,6 +4,7 @@
 //! keep cell planning and overflow edge/gap semantics consistent.
 
 use crate::coords::OverflowSpaceRequirement;
+use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use datafusion::{common::ScalarValue, logical_expr::Expr};
 
 /// Canonical per-cell plan representation for column facet measurement.
@@ -75,16 +76,35 @@ pub(crate) fn effective_edge_indices(empty_cells: &[bool], count: usize) -> Opti
     }
 }
 
-pub(crate) fn effective_edge_indices_from_exists(
-    exists_in_tree: &[bool],
+fn empty_mask_for_values_at_path(
+    facet_tree: &EvaluatedFacetTree,
+    facet_path: &[ScalarValue],
+    values: &[ScalarValue],
+) -> Vec<bool> {
+    values
+        .iter()
+        .map(|value| {
+            let mut path = facet_path.to_vec();
+            path.push(value.clone());
+            !facet_tree.cell_exists(&path)
+        })
+        .collect()
+}
+
+pub(crate) fn effective_edge_indices_for_values_at_path(
+    facet_tree: &EvaluatedFacetTree,
+    facet_path: &[ScalarValue],
+    values: &[ScalarValue],
 ) -> Option<(usize, usize)> {
-    let empty_cells: Vec<bool> = exists_in_tree.iter().map(|exists| !*exists).collect();
-    effective_edge_indices(&empty_cells, exists_in_tree.len())
+    let empty_cells = empty_mask_for_values_at_path(facet_tree, facet_path, values);
+    effective_edge_indices(&empty_cells, values.len())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::facet::evaluated_facet_tree::PartitionNode;
+    use crate::guide::FacetDirection;
 
     #[test]
     fn compute_padding_skips_pairs_with_empty_cells() {
@@ -224,9 +244,25 @@ mod tests {
         assert_eq!(effective_edge_indices(&[], 0), None);
     }
 
+    fn s(value: &str) -> ScalarValue {
+        ScalarValue::Utf8(Some(value.to_string()))
+    }
+
     #[test]
-    fn effective_edge_indices_from_exists_maps_to_empty_mask() {
-        let exists = vec![false, false, true, true];
-        assert_eq!(effective_edge_indices_from_exists(&exists), Some((2, 3)));
+    fn effective_edge_indices_for_values_at_path_uses_tree_existence() {
+        let tree = EvaluatedFacetTree::new(Some(PartitionNode::leaf(
+            FacetDirection::Column,
+            255,
+            "column".to_string(),
+            None,
+            vec![s("A"), s("B")],
+        )));
+        let values = vec![s("X"), s("A"), s("B")];
+        let empty_mask = empty_mask_for_values_at_path(&tree, &[], &values);
+        assert_eq!(empty_mask, vec![true, false, false]);
+        assert_eq!(
+            effective_edge_indices_for_values_at_path(&tree, &[], &values),
+            Some((1, 2))
+        );
     }
 }

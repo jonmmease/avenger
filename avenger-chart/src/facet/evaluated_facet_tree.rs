@@ -129,7 +129,7 @@ impl EvaluatedFacetTree {
     pub fn new(root: Option<PartitionNode>) -> Self {
         let level_counts_cache = root
             .as_ref()
-            .map(Self::collect_level_counts_for_root)
+            .map(Self::collect_level_counts_first_branch_for_root)
             .unwrap_or_default();
         Self {
             root,
@@ -145,7 +145,7 @@ impl EvaluatedFacetTree {
     ) -> Self {
         let level_counts_cache = root
             .as_ref()
-            .map(Self::collect_level_counts_for_root)
+            .map(Self::collect_level_counts_first_branch_for_root)
             .unwrap_or_default();
         Self {
             root,
@@ -425,8 +425,8 @@ impl EvaluatedFacetTree {
     ///
     /// Returns vec where index is nesting level and value is domain count.
     ///
-    /// INVARIANT: Assumes balanced tree where all children at each branch
-    /// have identical domain counts (true for grid-aligned facets).
+    /// Semantics: counts are derived by following the first branch at each level.
+    /// This is intentional for asymmetric trees and matches existing behavior.
     pub fn level_counts(&self) -> Vec<usize> {
         self.level_counts_cache.clone()
     }
@@ -435,7 +435,11 @@ impl EvaluatedFacetTree {
         &self.level_counts_cache
     }
 
-    fn collect_level_counts(node: &PartitionNode, counts: &mut Vec<usize>, level: usize) {
+    fn collect_level_counts_first_branch(
+        node: &PartitionNode,
+        counts: &mut Vec<usize>,
+        level: usize,
+    ) {
         // Ensure vector is large enough
         if counts.len() <= level {
             counts.resize(level + 1, 0);
@@ -448,14 +452,14 @@ impl EvaluatedFacetTree {
         // asymmetric trees without panicking in debug builds.
         if let PartitionContent::Branch { ref children } = node.content {
             if let Some(first_child) = children.values().next() {
-                Self::collect_level_counts(first_child.as_ref(), counts, level + 1);
+                Self::collect_level_counts_first_branch(first_child.as_ref(), counts, level + 1);
             }
         }
     }
 
-    fn collect_level_counts_for_root(root: &PartitionNode) -> Vec<usize> {
+    fn collect_level_counts_first_branch_for_root(root: &PartitionNode) -> Vec<usize> {
         let mut counts = Vec::new();
-        Self::collect_level_counts(root, &mut counts, 0);
+        Self::collect_level_counts_first_branch(root, &mut counts, 0);
         counts
     }
 

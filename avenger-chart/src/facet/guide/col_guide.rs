@@ -11,7 +11,7 @@ use crate::facet::guide_utils::{
     FacetLabelMeasurementConfig, FacetLabelRenderConfig, measure_facet_label_slab,
     render_facet_label_slab,
 };
-use crate::facet::layout_plan::effective_edge_indices_from_exists;
+use crate::facet::layout_plan::effective_edge_indices_for_values_at_path;
 use crate::facet::marks::facet::CompiledFacetCol;
 use crate::guide::{CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
@@ -482,16 +482,13 @@ impl FacetColGuide {
                     .await;
             }
 
-            let exists_in_tree: Vec<bool> = band_positions
+            let cell_values: Vec<_> = band_positions
                 .iter()
-                .map(|band_position| {
-                    let mut path = facet_path.to_vec();
-                    path.push(band_position.value.clone());
-                    facet_tree.cell_exists(&path)
-                })
+                .map(|band_position| band_position.value.clone())
                 .collect();
-            let (first_idx, last_idx) = effective_edge_indices_from_exists(&exists_in_tree)
-                .unwrap_or((0, band_positions.len() - 1));
+            let (first_idx, last_idx) =
+                effective_edge_indices_for_values_at_path(facet_tree, facet_path, &cell_values)
+                    .unwrap_or((0, band_positions.len() - 1));
 
             // Measure first cell for correct left overflow (Y-axis on left)
             let first_path = {
