@@ -305,7 +305,9 @@ impl CartesianAxis {
         let facet_visibility = if facet_path.is_empty() {
             AxisVisibility::visible()
         } else {
-            facet_tree.axis_visibility_for_path(facet_path, position, sharing_level)
+            facet_tree
+                .axis_visibility_for_path_checked(facet_path, position, sharing_level)
+                .unwrap_or_else(AxisVisibility::visible)
         };
 
         // Combine user-specified show_title with facet visibility

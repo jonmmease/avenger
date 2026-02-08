@@ -497,21 +497,34 @@ impl EvaluatedFacetTree {
     /// * `axis_position` - Which edge the axis is on (Top/Bottom/Left/Right)
     /// * `sharing_level` - Channel's sharing level: 0=Free, N=Level(N), 255=Shared
     ///
-    /// Returns `AxisVisibility::visible()` if the path is invalid or empty.
+    /// Returns:
+    /// - `Some(AxisVisibility)` for valid (or empty) paths
+    /// - `None` when the path is invalid
+    pub fn axis_visibility_for_path_checked(
+        &self,
+        path: &[ScalarValue],
+        axis_position: AxisPosition,
+        sharing_level: u8,
+    ) -> Option<AxisVisibility> {
+        if path.is_empty() {
+            return Some(AxisVisibility::visible());
+        }
+
+        match self.indices_from_path(path) {
+            Some(indices) => Some(self.axis_visibility(&indices, axis_position, sharing_level)),
+            None => None,
+        }
+    }
+
+    /// Compatibility wrapper that defaults invalid paths to visible.
     pub fn axis_visibility_for_path(
         &self,
         path: &[ScalarValue],
         axis_position: AxisPosition,
         sharing_level: u8,
     ) -> AxisVisibility {
-        if path.is_empty() {
-            return AxisVisibility::visible();
-        }
-
-        match self.indices_from_path(path) {
-            Some(indices) => self.axis_visibility(&indices, axis_position, sharing_level),
-            None => AxisVisibility::visible(), // Invalid path, default to visible
-        }
+        self.axis_visibility_for_path_checked(path, axis_position, sharing_level)
+            .unwrap_or_else(AxisVisibility::visible)
     }
 
     /// Determine axis visibility for a cell at given position in the facet grid.
@@ -1248,6 +1261,37 @@ mod tests {
         let tree = build_enumeration_test_tree();
         let path = vec![scalar("North"), scalar("Eng")];
         assert!(tree.enumerate_values_for_facet(&path, 0).is_none());
+    }
+
+    #[test]
+    fn test_axis_visibility_for_path_checked_valid_path_returns_some() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("East"), scalar("Eng"), scalar("A")];
+        let visibility = tree.axis_visibility_for_path_checked(&path, AxisPosition::Left, 0);
+        assert!(visibility.is_some());
+    }
+
+    #[test]
+    fn test_axis_visibility_for_path_checked_invalid_path_returns_none() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("North"), scalar("Eng"), scalar("A")];
+        let visibility = tree.axis_visibility_for_path_checked(&path, AxisPosition::Left, 0);
+        assert!(visibility.is_none());
+    }
+
+    #[test]
+    fn test_axis_visibility_for_path_wrapper_defaults_invalid_to_visible() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("North"), scalar("Eng"), scalar("A")];
+        let visibility = tree.axis_visibility_for_path(&path, AxisPosition::Left, 0);
+        assert!(visibility.show_labels);
+        assert!(visibility.show_title);
     }
 
     #[test]
