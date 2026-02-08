@@ -81,26 +81,16 @@ pub async fn coordinate_facet_measurement_tree(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    // 1) collect and distribute shared overflow/layout/domains by coordination key
-    let initial_snapshot = collect_coordination_snapshot(measurement, true);
-    let initial_aggregates = aggregate_snapshot(initial_snapshot, true);
+    // Invariants for facet coordination:
+    // 1. Initial phase coordinates overflow/layout/domain extents across equivalent nodes.
+    // 2. Remeasure can replace child measurements, so overflow/layout must be recollected.
+    // 3. Final scale adjustment pass propagates coordinated widths to descendants.
+    run_initial_coordination_phase(measurement);
 
-    debug!(
-        overflow_groups = initial_aggregates.merged_overflow_by_key.len(),
-        layout_groups = initial_aggregates.merged_layout_by_key.len(),
-        domain_groups = initial_aggregates.unified_domain_extents.len(),
-        "coordinate_facet_measurement_tree initial aggregates"
-    );
-
-    apply_aggregates(measurement, &initial_aggregates, true);
-
-    // 4) apply coordinated overflow/layout/domain to children
     apply_coordinated_overflow_recursive(measurement, eval_ctx).await?;
-    // 5) re-distribute overflow/layout because step 4 may replace child measurements
-    let post_snapshot = collect_coordination_snapshot(measurement, false);
-    let post_aggregates = aggregate_snapshot(post_snapshot, false);
-    apply_aggregates(measurement, &post_aggregates, false);
-    // 6) update stored scales and propagated widths after coordination
+
+    run_post_remeasure_coordination_phase(measurement);
+
     reapply_scale_adjustments_recursive(measurement);
 
     Ok(())
@@ -191,6 +181,33 @@ fn aggregate_snapshot(
         merged_layout_by_key: merge_layout_groups(snapshot.layout_by_key),
         unified_domain_extents,
     }
+}
+
+fn run_initial_coordination_phase(measurement: &mut ComponentsMeasurement) {
+    let initial_snapshot = collect_coordination_snapshot(measurement, true);
+    let initial_aggregates = aggregate_snapshot(initial_snapshot, true);
+
+    debug!(
+        overflow_groups = initial_aggregates.merged_overflow_by_key.len(),
+        layout_groups = initial_aggregates.merged_layout_by_key.len(),
+        domain_groups = initial_aggregates.unified_domain_extents.len(),
+        "coordinate_facet_measurement_tree initial coordination phase"
+    );
+
+    apply_aggregates(measurement, &initial_aggregates, true);
+}
+
+fn run_post_remeasure_coordination_phase(measurement: &mut ComponentsMeasurement) {
+    let post_snapshot = collect_coordination_snapshot(measurement, false);
+    let post_aggregates = aggregate_snapshot(post_snapshot, false);
+
+    debug!(
+        overflow_groups = post_aggregates.merged_overflow_by_key.len(),
+        layout_groups = post_aggregates.merged_layout_by_key.len(),
+        "coordinate_facet_measurement_tree post-remeasure coordination phase"
+    );
+
+    apply_aggregates(measurement, &post_aggregates, false);
 }
 
 fn apply_aggregates(

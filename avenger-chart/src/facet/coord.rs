@@ -328,6 +328,12 @@ fn should_remeasure_cells(has_legend_overflow: bool, has_coordinated_extents: bo
     has_legend_overflow || has_coordinated_extents
 }
 
+fn legend_vertical_overflow(coordinated: &CoordinatedOverflow) -> (f32, f32) {
+    let legend_top = (coordinated.total.top - coordinated.guide.top).max(0.0);
+    let legend_bottom = (coordinated.total.bottom - coordinated.guide.bottom).max(0.0);
+    (legend_top, legend_bottom)
+}
+
 #[cfg(test)]
 fn layout_from_measurement_or_local(
     local_layout: &CoordinatedLayout,
@@ -387,10 +393,11 @@ impl FacetColCoordMeasurement {
         &mut self,
         eval_ctx: &EvaluationContext,
     ) -> Result<(), AvengerChartError> {
-        // Compute legend-adjusted height from coordinated overflow
-        let coordinated = &self.coordinated_overflow;
-        let legend_top = (coordinated.total.top - coordinated.guide.top).max(0.0);
-        let legend_bottom = (coordinated.total.bottom - coordinated.guide.bottom).max(0.0);
+        // Invariants for this coordination stage:
+        // 1. Scale adjustments are idempotent and always re-applied from original scales.
+        // 2. Width-only coordination (band_n/padding) does not trigger full re-measurement.
+        // 3. Full re-measurement is reserved for legend overflow and coordinated domain extents.
+        let (legend_top, legend_bottom) = legend_vertical_overflow(&self.coordinated_overflow);
 
         let has_legend_overflow = legend_top > 0.0 || legend_bottom > 0.0;
 
@@ -1342,6 +1349,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
     }
 
     async fn run(&self) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+        // Stage 1: resolve this facet node and enumerate column values for the current path.
         let resolved = match self.resolve_node_or_empty()? {
             ResolveNodeOutcome::Empty(measurement) => return Ok(measurement),
             ResolveNodeOutcome::Ready(resolved) => resolved,
@@ -1366,6 +1374,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             AvengerChartError::InternalError("FacetColumn measure requires data".into())
         })?;
 
+        // Stage 2: build per-cell plan/data overrides and prepare nested measurement context.
         let mut plan = self
             .build_measure_plan(cell_values, data_df, resolved.compiled_subplot)
             .await?;
@@ -1386,7 +1395,8 @@ impl<'a> FacetColMeasurePipeline<'a> {
             eval_ctx: self.eval_ctx,
         };
 
-        let pass1 = self
+        // Stage 3: probe cell overflow (guide + total) to drive band padding/outer-edge layout.
+        let overflow_probe_summary = self
             .probe_overflow(
                 &plan.cells,
                 resolved.subplot_width,
@@ -1396,14 +1406,17 @@ impl<'a> FacetColMeasurePipeline<'a> {
             )
             .await?;
 
-        let band_plan = self.derive_layout_plan(&plan.cells, &plan.cell_values, &pass1);
+        // Stage 4: derive the local band layout and pass-2 subplot width from the probe.
+        let band_layout_plan =
+            self.derive_layout_plan(&plan.cells, &plan.cell_values, &overflow_probe_summary);
         let final_subplot_width = self.build_pass2_scale(
             resolved.column_scale,
-            &band_plan,
+            &band_layout_plan,
             &plan.cell_values,
             resolved.subplot_width,
         )?;
 
+        // Stage 5: run final measurement pass and collect local domain extents per non-empty cell.
         self.measure_final_cells(
             &mut plan.cells,
             final_subplot_width,
@@ -1413,8 +1426,9 @@ impl<'a> FacetColMeasurePipeline<'a> {
         )
         .await?;
 
+        // Stage 6: package runtime cell state for rendering + later coordination phases.
         Ok(self.build_coord_measurement(
-            band_plan,
+            band_layout_plan,
             plan.cells,
             plan.shared_scale_builder,
             resolved.compiled_subplot,
