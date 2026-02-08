@@ -4,7 +4,7 @@
 //! keep cell planning and overflow edge/gap semantics consistent.
 
 use crate::coords::OverflowSpaceRequirement;
-use datafusion::{common::ScalarValue, dataframe::DataFrame};
+use datafusion::{common::ScalarValue, logical_expr::Expr};
 
 /// Canonical per-cell plan representation for column facet measurement.
 #[derive(Clone, Debug)]
@@ -12,7 +12,7 @@ pub(crate) struct FacetCellPlan {
     pub value: ScalarValue,
     pub full_path: Vec<ScalarValue>,
     pub is_empty: bool,
-    pub filtered_df: DataFrame,
+    pub filter_predicate: Option<Expr>,
 }
 
 /// Resolved band-level facet layout values for a single FacetCol node.

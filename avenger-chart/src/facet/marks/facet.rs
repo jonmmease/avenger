@@ -595,7 +595,7 @@ impl CompiledMark for CompiledFacetCol {
                 .build_plot_components(
                     &subplot_eval_ctx,
                     &cell.measurement,
-                    Some(&cell.plan.filtered_df),
+                    Some(&cell.data_override),
                     true, // dimensions_are_plot_area
                     &cell.plan.full_path,
                 )

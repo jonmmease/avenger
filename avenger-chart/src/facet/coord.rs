@@ -16,7 +16,7 @@ use crate::{
     },
     error::AvengerChartError,
     facet::{
-        coordination::{CoordinationAxis, CoordinationGroupKey},
+        coordination::CoordinationGroupKey,
         guide::{FacetColGuideConfig, FacetRowGuideConfig},
         layout_plan::{
             FacetBandPlan, FacetCellPlan, compute_padding_from_overflows, effective_edge_indices,
@@ -52,8 +52,10 @@ pub struct ChannelDomainExtent {
 /// Runtime state for a single enumerated facet cell.
 #[derive(Debug)]
 pub(crate) struct FacetCellRuntime {
-    /// Canonical plan metadata (value, path, emptiness, filtered data).
+    /// Canonical plan metadata (value, path, emptiness, filter intent).
     pub(crate) plan: FacetCellPlan,
+    /// Per-cell dataframe override used by render and coordinated re-measure paths.
+    pub(crate) data_override: DataFrame,
     /// Final subplot measurement used for rendering.
     pub(crate) measurement: ComponentsMeasurement,
     /// Per-channel local domain extents extracted after final geometry is known.
@@ -69,12 +71,6 @@ pub(crate) struct FacetCellRuntime {
 pub struct FacetColCoordMeasurement {
     /// Enumerated cell runtime state.
     pub(crate) cells: Vec<FacetCellRuntime>,
-    /// Computed padding between cells in pixels (MAX of adjacent overflow combinations)
-    pub padding_inner_px: f32,
-    /// Outer left total_overflow (first cell's left edge) - used to adjust scale range
-    pub outer_left: f32,
-    /// Outer right total_overflow (last cell's right edge) - used to adjust scale range
-    pub outer_right: f32,
     /// ScaleBuilder for shared scales (caches data extents for rebuilding with updated dimensions).
     /// Used with DynamicScaleProvider to correctly compute radius-aware domains.
     pub shared_scale_builder: ScaleBuilder,
@@ -103,6 +99,12 @@ pub struct FacetColCoordMeasurement {
 }
 
 impl FacetColCoordMeasurement {
+    fn active_layout(&self) -> &CoordinatedLayout {
+        self.coordinated_layout
+            .as_ref()
+            .unwrap_or(&self.local_layout)
+    }
+
     pub fn cell_values(&self) -> impl Iterator<Item = &ScalarValue> {
         self.cells.iter().map(|cell| &cell.plan.value)
     }
@@ -240,10 +242,6 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 .windows(2)
                 .any(|pair| !pair[0].plan.is_empty && !pair[1].plan.is_empty);
             let needs_zero_padding_override = has_empty_cells && !has_adjacent_non_empty;
-            let layout = layout_from_measurement_or_local(
-                &self.local_layout,
-                self.coordinated_layout.as_ref(),
-            );
             let cell_values: Vec<ScalarValue> = self.cell_values().cloned().collect();
             let domain_override = if cell_values.is_empty() {
                 None
@@ -257,7 +255,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             // its actual domain cells evenly across the full allocated width.
             let updated_config = apply_facet_col_scale_layout(
                 column_scale.configured(),
-                &layout,
+                self.active_layout(),
                 domain_override,
                 None,
                 false,
@@ -268,15 +266,6 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
         }
     }
-}
-
-fn layout_from_measurement_or_local(
-    local_layout: &CoordinatedLayout,
-    coordinated_layout: Option<&CoordinatedLayout>,
-) -> CoordinatedLayout {
-    coordinated_layout
-        .cloned()
-        .unwrap_or_else(|| local_layout.clone())
 }
 
 /// Canonical facet-column scale rewrite helper shared by measurement and render paths.
@@ -332,13 +321,19 @@ fn should_remeasure_cells(has_legend_overflow: bool, has_coordinated_extents: bo
     has_legend_overflow || has_coordinated_extents
 }
 
+#[cfg(test)]
+fn layout_from_measurement_or_local(
+    local_layout: &CoordinatedLayout,
+    coordinated_layout: Option<&CoordinatedLayout>,
+) -> CoordinatedLayout {
+    coordinated_layout
+        .cloned()
+        .unwrap_or_else(|| local_layout.clone())
+}
+
 impl FacetColCoordMeasurement {
     pub fn coordination_group_key_for_depth(&self, depth: usize) -> CoordinationGroupKey {
-        CoordinationGroupKey::new(
-            depth,
-            CoordinationAxis::Column,
-            self.coordination_field_identity.clone(),
-        )
+        CoordinationGroupKey::new(depth, format!("col:{}", self.coordination_field_identity))
     }
 
     pub fn collect_cell_domain_infos(&self, collector: &mut Vec<CellDomainInfo>) {
@@ -437,9 +432,6 @@ impl FacetColCoordMeasurement {
             }
 
             self.subplot_width = new_subplot_width;
-            self.padding_inner_px = layout.padding_inner_px;
-            self.outer_left = layout.outer_left;
-            self.outer_right = layout.outer_right;
         }
 
         // Only do full re-measurement for legend overflow or coordinated domain extents.
@@ -480,31 +472,29 @@ impl FacetColCoordMeasurement {
             eval_ctx.with_params(params)
         };
 
-        let coordinated_extents: Vec<HashMap<String, DomainExtent>> = self
-            .cells
-            .iter()
-            .map(|cell| cell.coordinated_domain_extents.clone())
-            .collect();
-        let cell_plans: Vec<FacetCellPlan> =
-            self.cells.iter().map(|cell| cell.plan.clone()).collect();
+        let compiled_subplot = self.compiled_subplot.clone();
+        let shared_scale_builder = self.shared_scale_builder.clone();
+        for (idx, cell) in self.cells.iter_mut().enumerate() {
+            let subplot_layout_spec =
+                fixed_plot_area_layout_spec(self.subplot_width, adjusted_height);
+            let mut builder = shared_scale_builder.clone();
+            if !cell.coordinated_domain_extents.is_empty() {
+                builder.extend_with_domain_extents(&cell.coordinated_domain_extents);
+            }
 
-        let remeasured = measure_cells_remeasure(
-            &cell_plans,
-            self.subplot_width,
-            adjusted_height,
-            &self.compiled_subplot,
-            &subplot_eval_ctx,
-            &self.shared_scale_builder,
-            &coordinated_extents,
-        )
-        .await?;
+            let mode = FacetCellMeasurementMode::ExplicitBuilder {
+                scale_builder: &builder,
+            };
+            let FacetCellMeasureResult { measurement, .. } = measure_facet_cell(
+                &cell.plan,
+                &cell.data_override,
+                &compiled_subplot,
+                &subplot_eval_ctx,
+                &subplot_layout_spec,
+                mode,
+            )
+            .await?;
 
-        for (idx, (cell, measurement)) in self
-            .cells
-            .iter_mut()
-            .zip(remeasured.measurements.into_iter())
-            .enumerate()
-        {
             if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
                 eprintln!(
                     "FacetCol apply_coordinated_overflow: re-measured cell[{}]={:?} at width={:.1} height={:.1} empty={}",
@@ -559,20 +549,6 @@ struct FacetColNestedMeasureContext<'a> {
     eval_ctx: &'a EvaluationContext,
 }
 
-#[derive(Clone, Copy, Debug)]
-enum FacetCellMeasurementStage {
-    OverflowProbe,
-    FinalMeasureAndCollectExtents,
-}
-
-#[derive(Default)]
-struct MeasureCellsStageSummary {
-    cell_overflows: Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>,
-    max_child_padding: f32,
-    measurements: Vec<ComponentsMeasurement>,
-    local_domain_extents: Vec<HashMap<String, ChannelDomainExtent>>,
-}
-
 #[derive(Default)]
 struct OverflowProbeSummary {
     cell_overflows: Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>,
@@ -585,11 +561,6 @@ struct FinalMeasureSummary {
     local_domain_extents: Vec<HashMap<String, ChannelDomainExtent>>,
 }
 
-#[derive(Default)]
-struct RemeasureSummary {
-    measurements: Vec<ComponentsMeasurement>,
-}
-
 fn empty_facet_col_measurement(
     facet_path: &[ScalarValue],
     compiled_subplot: &Arc<CompiledPlot>,
@@ -597,9 +568,6 @@ fn empty_facet_col_measurement(
 ) -> Box<dyn CoordMeasurement> {
     Box::new(FacetColCoordMeasurement {
         cells: Vec::new(),
-        padding_inner_px: 0.0,
-        outer_left: 0.0,
-        outer_right: 0.0,
         shared_scale_builder: ScaleBuilder::default(),
         coordinated_overflow: CoordinatedOverflow::default(),
         compiled_subplot: compiled_subplot.clone(),
@@ -617,41 +585,45 @@ fn build_facet_cell(
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     facet_path: &[ScalarValue],
     value: &ScalarValue,
-    data_df: &DataFrame,
 ) -> Result<FacetCellPlan, AvengerChartError> {
     let mut path = facet_path.to_vec();
     path.push(value.clone());
 
     let exists = facet_tree.cell_exists(&path);
     let is_empty = !exists;
-    let predicate = facet_tree.cell_predicate(&path, 0);
-
-    // Empty cells use an explicit false predicate so they preserve schema but
-    // contain no rows (instead of leaking unrelated data from unfiltered input).
-    let filtered_df = if is_empty {
-        data_df.clone().filter(lit(false)).map_err(|e| {
-            AvengerChartError::InternalError(format!(
-                "Failed to create empty DataFrame for column {:?}: {}",
-                value, e
-            ))
-        })?
-    } else if let Some(pred) = predicate {
-        data_df.clone().filter(pred).map_err(|e| {
-            AvengerChartError::InternalError(format!(
-                "Failed to filter data for column {:?}: {}",
-                value, e
-            ))
-        })?
+    let filter_predicate = if is_empty {
+        Some(lit(false))
     } else {
-        data_df.clone()
+        facet_tree.cell_predicate(&path, 0)
     };
 
     Ok(FacetCellPlan {
         value: value.clone(),
         full_path: path,
         is_empty,
-        filtered_df,
+        filter_predicate,
     })
+}
+
+fn materialize_cell_data_overrides(
+    cells: &[FacetCellPlan],
+    data_df: &DataFrame,
+) -> Result<Vec<DataFrame>, AvengerChartError> {
+    cells
+        .iter()
+        .map(|cell| {
+            if let Some(predicate) = cell.filter_predicate.clone() {
+                data_df.clone().filter(predicate).map_err(|e| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to filter data for facet cell {:?}: {}",
+                        cell.value, e
+                    ))
+                })
+            } else {
+                Ok(data_df.clone())
+            }
+        })
+        .collect()
 }
 
 /// Build a fixed-plot-area layout spec for subplot measurement.
@@ -674,6 +646,7 @@ fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
 /// re-measurement to keep cell measurement behavior consistent.
 async fn measure_facet_cell(
     cell: &FacetCellPlan,
+    data_override: &DataFrame,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
     subplot_layout_spec: &EvaluatedLayoutSpec,
@@ -717,7 +690,7 @@ async fn measure_facet_cell(
                         &compiled_subplot.scale_specs,
                         &compiled_subplot.coord_transform,
                         &compiled_subplot.data,
-                        Some(cell.filtered_df.clone()),
+                        Some(data_override.clone()),
                         &eval_ctx.session_context,
                         &eval_ctx.params,
                         compiled_subplot.get_theme().as_ref(),
@@ -734,7 +707,7 @@ async fn measure_facet_cell(
                             subplot_eval_ctx,
                             subplot_layout_spec,
                             &cell_scale_provider,
-                            Some(&cell.filtered_df),
+                            Some(data_override),
                             &cell.full_path,
                         )
                         .await?;
@@ -797,7 +770,7 @@ async fn measure_facet_cell(
                             subplot_eval_ctx,
                             subplot_layout_spec,
                             &shared_scale_provider,
-                            Some(&cell.filtered_df),
+                            Some(data_override),
                             &cell.full_path,
                         )
                         .await?;
@@ -817,7 +790,7 @@ async fn measure_facet_cell(
             let data_arg = if cell.is_empty {
                 None
             } else {
-                Some(&cell.filtered_df)
+                Some(data_override)
             };
             compiled_subplot
                 .measure_plot_components(
@@ -897,7 +870,7 @@ async fn build_facet_col_measure_plan(
     // Build canonical per-cell contexts once and reuse across pass 1/pass 2.
     let cells: Vec<FacetCellPlan> = cell_values
         .iter()
-        .map(|value| build_facet_cell(facet_tree, facet_path, value, data_df))
+        .map(|value| build_facet_cell(facet_tree, facet_path, value))
         .collect::<Result<_, _>>()?;
 
     Ok(FacetColMeasurePlan {
@@ -911,7 +884,7 @@ async fn build_facet_col_measure_plan(
 }
 
 async fn build_extent_builder_for_cell(
-    cell: &FacetCellPlan,
+    data_override: &DataFrame,
     compiled_subplot: &Arc<CompiledPlot>,
     nested_ctx: &FacetColNestedMeasureContext<'_>,
 ) -> Result<ScaleBuilder, AvengerChartError> {
@@ -920,7 +893,7 @@ async fn build_extent_builder_for_cell(
         &compiled_subplot.scale_specs,
         &compiled_subplot.coord_transform,
         &compiled_subplot.data,
-        Some(cell.filtered_df.clone()),
+        Some(data_override.clone()),
         &nested_ctx.eval_ctx.session_context,
         &nested_ctx.eval_ctx.params,
         compiled_subplot.get_theme().as_ref(),
@@ -947,25 +920,102 @@ fn annotate_domain_extents(
         .collect()
 }
 
-async fn measure_cells_stage(
-    stage: FacetCellMeasurementStage,
+async fn measure_cells_overflow_probe(
     cells: &[FacetCellPlan],
+    data_overrides: &[DataFrame],
     subplot_width: f32,
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
     nested_ctx: &FacetColNestedMeasureContext<'_>,
-) -> Result<MeasureCellsStageSummary, AvengerChartError> {
-    let mut summary = MeasureCellsStageSummary::default();
+) -> Result<OverflowProbeSummary, AvengerChartError> {
+    let mut summary = OverflowProbeSummary::default();
     summary.cell_overflows.reserve(cells.len());
+
+    for (idx, (cell, data_override)) in cells.iter().zip(data_overrides.iter()).enumerate() {
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && cell.is_empty {
+            eprintln!(
+                "FacetCol overflow probe: cell[{}]={:?} is empty (path not in tree)",
+                idx, cell.value
+            );
+        }
+
+        let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_width, plot_height);
+        let mode = FacetCellMeasurementMode::NestedSharing {
+            nested_col_sharing: nested_ctx.nested_col_sharing,
+            nested_depth: nested_ctx.nested_depth,
+            scale_builder_cache: nested_ctx.scale_builder_cache,
+            shared_scale_builder: nested_ctx.shared_scale_builder,
+            facet_tree: nested_ctx.facet_tree,
+            data_df: nested_ctx.data_df,
+            eval_ctx: nested_ctx.eval_ctx,
+        };
+
+        let FacetCellMeasureResult { measurement, .. } = measure_facet_cell(
+            cell,
+            data_override,
+            compiled_subplot,
+            subplot_eval_ctx,
+            &subplot_layout_spec,
+            mode,
+        )
+        .await?;
+
+        let guide_overflow = measurement.layout.overflow.clone();
+        let total_overflow = measurement.layout.total_overflow.clone();
+
+        if let Some(child_facet_col) = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetColCoordMeasurement>()
+        {
+            summary.max_child_padding = summary
+                .max_child_padding
+                .max(child_facet_col.active_layout().padding_inner_px);
+        }
+
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "FacetCol overflow probe: cell[{}]={:?} guide_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}} total_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}}",
+                idx,
+                cell.value,
+                guide_overflow.top,
+                guide_overflow.bottom,
+                guide_overflow.left,
+                guide_overflow.right,
+                total_overflow.top,
+                total_overflow.bottom,
+                total_overflow.left,
+                total_overflow.right
+            );
+        }
+
+        summary
+            .cell_overflows
+            .push((guide_overflow, total_overflow));
+    }
+
+    Ok(summary)
+}
+
+async fn measure_cells_final_and_extents(
+    cells: &[FacetCellPlan],
+    data_overrides: &[DataFrame],
+    subplot_width: f32,
+    plot_height: f32,
+    compiled_subplot: &Arc<CompiledPlot>,
+    subplot_eval_ctx: &EvaluationContext,
+    nested_ctx: &FacetColNestedMeasureContext<'_>,
+) -> Result<FinalMeasureSummary, AvengerChartError> {
+    let mut summary = FinalMeasureSummary::default();
     summary.measurements.reserve(cells.len());
     summary.local_domain_extents.reserve(cells.len());
 
-    for (idx, cell) in cells.iter().enumerate() {
+    for (idx, (cell, data_override)) in cells.iter().zip(data_overrides.iter()).enumerate() {
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && cell.is_empty {
             eprintln!(
-                "FacetCol {:?}: cell[{}]={:?} is empty (path not in tree)",
-                stage, idx, cell.value
+                "FacetCol final measure: cell[{}]={:?} is empty (path not in tree)",
+                idx, cell.value
             );
         }
 
@@ -985,154 +1035,7 @@ async fn measure_cells_stage(
             cell_scale_builder,
         } = measure_facet_cell(
             cell,
-            compiled_subplot,
-            subplot_eval_ctx,
-            &subplot_layout_spec,
-            mode,
-        )
-        .await?;
-
-        match stage {
-            FacetCellMeasurementStage::OverflowProbe => {
-                let guide_overflow = measurement.layout.overflow.clone();
-                let total_overflow = measurement.layout.total_overflow.clone();
-
-                if let Some(child_facet_col) = measurement
-                    .coord_measurement
-                    .as_any()
-                    .downcast_ref::<FacetColCoordMeasurement>()
-                {
-                    summary.max_child_padding = summary
-                        .max_child_padding
-                        .max(child_facet_col.padding_inner_px);
-                }
-
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "FacetCol overflow probe: cell[{}]={:?} guide_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}} total_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}}",
-                        idx,
-                        cell.value,
-                        guide_overflow.top,
-                        guide_overflow.bottom,
-                        guide_overflow.left,
-                        guide_overflow.right,
-                        total_overflow.top,
-                        total_overflow.bottom,
-                        total_overflow.left,
-                        total_overflow.right
-                    );
-                }
-
-                summary
-                    .cell_overflows
-                    .push((guide_overflow, total_overflow));
-            }
-            FacetCellMeasurementStage::FinalMeasureAndCollectExtents => {
-                if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "FacetCol final measure: cell[{}]={:?} measured at width={:.1} empty={}",
-                        idx, cell.value, subplot_width, cell.is_empty
-                    );
-                }
-
-                let local_extents = if !cell.is_empty {
-                    let extent_builder = if let Some(builder) = cell_scale_builder {
-                        builder
-                    } else {
-                        build_extent_builder_for_cell(cell, compiled_subplot, nested_ctx).await?
-                    };
-                    annotate_domain_extents(
-                        extent_builder.extract_domain_extents(&["x", "y", "x2", "y2"]),
-                        nested_ctx,
-                    )
-                } else {
-                    HashMap::new()
-                };
-
-                summary.measurements.push(measurement);
-                summary.local_domain_extents.push(local_extents);
-            }
-        }
-    }
-
-    Ok(summary)
-}
-
-async fn measure_cells_overflow_probe(
-    cells: &[FacetCellPlan],
-    subplot_width: f32,
-    plot_height: f32,
-    compiled_subplot: &Arc<CompiledPlot>,
-    subplot_eval_ctx: &EvaluationContext,
-    nested_ctx: &FacetColNestedMeasureContext<'_>,
-) -> Result<OverflowProbeSummary, AvengerChartError> {
-    let summary = measure_cells_stage(
-        FacetCellMeasurementStage::OverflowProbe,
-        cells,
-        subplot_width,
-        plot_height,
-        compiled_subplot,
-        subplot_eval_ctx,
-        nested_ctx,
-    )
-    .await?;
-    Ok(OverflowProbeSummary {
-        cell_overflows: summary.cell_overflows,
-        max_child_padding: summary.max_child_padding,
-    })
-}
-
-async fn measure_cells_final_and_extents(
-    cells: &[FacetCellPlan],
-    subplot_width: f32,
-    plot_height: f32,
-    compiled_subplot: &Arc<CompiledPlot>,
-    subplot_eval_ctx: &EvaluationContext,
-    nested_ctx: &FacetColNestedMeasureContext<'_>,
-) -> Result<FinalMeasureSummary, AvengerChartError> {
-    let summary = measure_cells_stage(
-        FacetCellMeasurementStage::FinalMeasureAndCollectExtents,
-        cells,
-        subplot_width,
-        plot_height,
-        compiled_subplot,
-        subplot_eval_ctx,
-        nested_ctx,
-    )
-    .await?;
-    Ok(FinalMeasureSummary {
-        measurements: summary.measurements,
-        local_domain_extents: summary.local_domain_extents,
-    })
-}
-
-async fn measure_cells_remeasure(
-    cells: &[FacetCellPlan],
-    subplot_width: f32,
-    plot_height: f32,
-    compiled_subplot: &Arc<CompiledPlot>,
-    subplot_eval_ctx: &EvaluationContext,
-    shared_scale_builder: &ScaleBuilder,
-    coordinated_domain_extents: &[HashMap<String, DomainExtent>],
-) -> Result<RemeasureSummary, AvengerChartError> {
-    let mut summary = RemeasureSummary::default();
-    summary.measurements.reserve(cells.len());
-
-    for (idx, cell) in cells.iter().enumerate() {
-        let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_width, plot_height);
-        let mut builder = shared_scale_builder.clone();
-        if let Some(coordinated) = coordinated_domain_extents
-            .get(idx)
-            .filter(|extents| !extents.is_empty())
-        {
-            builder.extend_with_domain_extents(coordinated);
-        }
-
-        let mode = FacetCellMeasurementMode::ExplicitBuilder {
-            scale_builder: &builder,
-        };
-        let FacetCellMeasureResult { measurement, .. } = measure_facet_cell(
-            cell,
+            data_override,
             compiled_subplot,
             subplot_eval_ctx,
             &subplot_layout_spec,
@@ -1142,12 +1045,27 @@ async fn measure_cells_remeasure(
 
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             eprintln!(
-                "FacetCol coordinated remeasure: cell[{}]={:?} width={:.1}",
-                idx, cell.value, subplot_width
+                "FacetCol final measure: cell[{}]={:?} measured at width={:.1} empty={}",
+                idx, cell.value, subplot_width, cell.is_empty
             );
         }
 
+        let local_extents = if !cell.is_empty {
+            let extent_builder = if let Some(builder) = cell_scale_builder {
+                builder
+            } else {
+                build_extent_builder_for_cell(data_override, compiled_subplot, nested_ctx).await?
+            };
+            annotate_domain_extents(
+                extent_builder.extract_domain_extents(&["x", "y", "x2", "y2"]),
+                nested_ctx,
+            )
+        } else {
+            HashMap::new()
+        };
+
         summary.measurements.push(measurement);
+        summary.local_domain_extents.push(local_extents);
     }
 
     Ok(summary)
@@ -1628,6 +1546,7 @@ impl CoordinateSystemTransform for FacetColumn {
             scale_builder_cache,
             shared_scale_builder,
         } = plan;
+        let cell_data_overrides = materialize_cell_data_overrides(&cells, data_df)?;
 
         // Create subplot EvaluationContext with merged params
         let subplot_eval_ctx = {
@@ -1647,6 +1566,7 @@ impl CoordinateSystemTransform for FacetColumn {
         };
         let pass1 = measure_cells_overflow_probe(
             &cells,
+            &cell_data_overrides,
             subplot_width,
             plot_height,
             compiled_subplot,
@@ -1751,6 +1671,7 @@ impl CoordinateSystemTransform for FacetColumn {
 
         let final_measure = measure_cells_final_and_extents(
             &band_plan.cells,
+            &cell_data_overrides,
             final_subplot_width,
             plot_height,
             compiled_subplot,
@@ -1762,11 +1683,13 @@ impl CoordinateSystemTransform for FacetColumn {
             .cells
             .iter()
             .cloned()
+            .zip(cell_data_overrides.into_iter())
             .zip(final_measure.measurements.into_iter())
             .zip(final_measure.local_domain_extents.into_iter())
             .map(
-                |((plan, measurement), local_domain_extents)| FacetCellRuntime {
+                |(((plan, data_override), measurement), local_domain_extents)| FacetCellRuntime {
                     plan,
+                    data_override,
                     measurement,
                     local_domain_extents,
                     coordinated_domain_extents: HashMap::new(),
@@ -1776,9 +1699,6 @@ impl CoordinateSystemTransform for FacetColumn {
 
         Ok(Box::new(FacetColCoordMeasurement {
             cells: cell_runtimes,
-            padding_inner_px: band_plan.padding_inner_px,
-            outer_left: band_plan.outer_left,
-            outer_right: band_plan.outer_right,
             shared_scale_builder,
             coordinated_overflow: CoordinatedOverflow::default(),
             compiled_subplot: compiled_subplot.clone(),

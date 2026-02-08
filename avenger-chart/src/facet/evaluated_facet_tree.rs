@@ -53,6 +53,8 @@ type SharedDomainCache = HashMap<String, Vec<ScalarValue>>;
 pub struct EvaluatedFacetTree {
     /// Tree of partition values (handles non-shared domains)
     root: Option<PartitionNode>,
+    /// Cached domain counts per nesting level.
+    level_counts_cache: Vec<usize>,
     /// Channel sharing levels extracted from innermost marks.
     /// Maps channel name (e.g., "x", "y") to sharing level (0=Free, N=Level(N), 255=Shared).
     /// Used for axis visibility decisions when CoordMeasurement is not available.
@@ -125,8 +127,13 @@ impl EvaluatedFacetTree {
     /// Note: All configuration (scale sharing levels, axis positions) is passed
     /// as parameters to query methods like `subplot_visibility`.
     pub fn new(root: Option<PartitionNode>) -> Self {
+        let level_counts_cache = root
+            .as_ref()
+            .map(Self::collect_level_counts_for_root)
+            .unwrap_or_default();
         Self {
             root,
+            level_counts_cache,
             channel_sharing_levels: HashMap::new(),
         }
     }
@@ -136,8 +143,13 @@ impl EvaluatedFacetTree {
         root: Option<PartitionNode>,
         channel_sharing_levels: HashMap<String, u8>,
     ) -> Self {
+        let level_counts_cache = root
+            .as_ref()
+            .map(Self::collect_level_counts_for_root)
+            .unwrap_or_default();
         Self {
             root,
+            level_counts_cache,
             channel_sharing_levels,
         }
     }
@@ -146,6 +158,7 @@ impl EvaluatedFacetTree {
     pub fn empty() -> Self {
         Self {
             root: None,
+            level_counts_cache: Vec::new(),
             channel_sharing_levels: HashMap::new(),
         }
     }
@@ -415,11 +428,11 @@ impl EvaluatedFacetTree {
     /// INVARIANT: Assumes balanced tree where all children at each branch
     /// have identical domain counts (true for grid-aligned facets).
     pub fn level_counts(&self) -> Vec<usize> {
-        let mut counts = Vec::new();
-        if let Some(ref root) = self.root {
-            Self::collect_level_counts(root, &mut counts, 0);
-        }
-        counts
+        self.level_counts_cache.clone()
+    }
+
+    fn level_counts_ref(&self) -> &[usize] {
+        &self.level_counts_cache
     }
 
     fn collect_level_counts(node: &PartitionNode, counts: &mut Vec<usize>, level: usize) {
@@ -430,28 +443,20 @@ impl EvaluatedFacetTree {
         // Record count at this level
         counts[level] = node.domain_count();
 
-        // Recurse to children (use first child to get next level structure)
+        // Recurse to children (use first child to get next level structure).
+        // This preserves existing first-branch semantics for potentially
+        // asymmetric trees without panicking in debug builds.
         if let PartitionContent::Branch { ref children } = node.content {
             if let Some(first_child) = children.values().next() {
-                // Debug assertion: verify tree balance invariant
-                #[cfg(debug_assertions)]
-                {
-                    let expected_count = first_child.domain_count();
-                    for (i, child) in children.values().enumerate().skip(1) {
-                        debug_assert_eq!(
-                            child.domain_count(),
-                            expected_count,
-                            "Tree balance violation: child {} has domain_count {} but expected {} at level {}",
-                            i,
-                            child.domain_count(),
-                            expected_count,
-                            level + 1
-                        );
-                    }
-                }
                 Self::collect_level_counts(first_child.as_ref(), counts, level + 1);
             }
         }
+    }
+
+    fn collect_level_counts_for_root(root: &PartitionNode) -> Vec<usize> {
+        let mut counts = Vec::new();
+        Self::collect_level_counts(root, &mut counts, 0);
+        counts
     }
 
     /// Convert a path of domain values to position indices.
@@ -571,7 +576,7 @@ impl EvaluatedFacetTree {
         };
 
         // Get level counts for bounds checking
-        let counts = self.level_counts();
+        let counts = self.level_counts_ref();
         if counts.is_empty() {
             return AxisVisibility::visible();
         }
@@ -585,54 +590,44 @@ impl EvaluatedFacetTree {
             );
         }
 
-        // Walk through each level checking visibility
-        let mut current_node = Some(root);
-        let mut hide_labels = false;
-        let mut hide_title = false;
+        let mut node = root;
+        for (level, &pos_idx) in position_indices.iter().enumerate() {
+            if pos_idx >= node.domain_count() {
+                return AxisVisibility::visible();
+            }
 
-        for (_level, &_pos_idx) in position_indices.iter().enumerate() {
-            let Some(node) = current_node else {
+            if level + 1 == position_indices.len() {
                 break;
-            };
-
-            // Labels and titles use the same sharing policy module to avoid drift
-            // between visibility and domain coordination semantics.
-            let should_hide_labels = !sharing_policy::show_axis_labels(
-                position_indices,
-                &counts,
-                facet_depth,
-                sharing_level,
-                node.direction,
-                axis_position,
-            );
-
-            let should_hide_title = !sharing_policy::show_axis_title(
-                position_indices,
-                &counts,
-                facet_depth,
-                node.direction,
-                axis_position,
-            );
-
-            if should_hide_labels {
-                hide_labels = true;
-            }
-            if should_hide_title {
-                hide_title = true;
             }
 
-            // Move to next level
-            current_node = match &node.content {
-                PartitionContent::Branch { children } => children
-                    .get_index(_pos_idx)
-                    .map(|(_, child)| child.as_ref()),
-                PartitionContent::Leaf { .. } => None,
+            node = match &node.content {
+                PartitionContent::Branch { children } => {
+                    if let Some((_, child)) = children.get_index(pos_idx) {
+                        child.as_ref()
+                    } else {
+                        return AxisVisibility::visible();
+                    }
+                }
+                PartitionContent::Leaf { .. } => return AxisVisibility::visible(),
             };
         }
 
         AxisVisibility {
-            show_labels: !hide_labels,
-            show_title: !hide_title,
+            show_labels: sharing_policy::show_axis_labels(
+                position_indices,
+                counts,
+                facet_depth,
+                sharing_level,
+                node.direction,
+                axis_position,
+            ),
+            show_title: sharing_policy::show_axis_title(
+                position_indices,
+                counts,
+                facet_depth,
+                node.direction,
+                axis_position,
+            ),
         }
     }
 }

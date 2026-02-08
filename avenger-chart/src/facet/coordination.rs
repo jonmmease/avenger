@@ -23,27 +23,14 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CoordinationGroupKey {
     pub depth: usize,
-    pub facet_axis: CoordinationAxis,
-    pub facet_field_identity: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CoordinationAxis {
-    Column,
-    Row,
-    Generic,
+    pub facet_group_identity: String,
 }
 
 impl CoordinationGroupKey {
-    pub fn new(
-        depth: usize,
-        facet_axis: CoordinationAxis,
-        facet_field_identity: impl Into<String>,
-    ) -> Self {
+    pub fn new(depth: usize, facet_group_identity: impl Into<String>) -> Self {
         Self {
             depth,
-            facet_axis,
-            facet_field_identity: facet_field_identity.into(),
+            facet_group_identity: facet_group_identity.into(),
         }
     }
 }
