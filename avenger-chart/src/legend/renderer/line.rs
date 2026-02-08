@@ -553,7 +553,9 @@ impl LegendRenderer for CompiledLineLegend {
 
 fn format_scalar_value(value: &ScalarValue) -> String {
     match value {
-        ScalarValue::Utf8(Some(s)) => s.clone(),
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => s.clone(),
         ScalarValue::Float64(Some(f)) => {
             // Format float nicely - remove trailing zeros
             if f.fract() == 0.0 && f.abs() < 1e10 {

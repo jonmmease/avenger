@@ -345,14 +345,14 @@ pub mod helpers {
         mark_encodings: &HashMap<String, ChannelValue>,
         session_context: &SessionContext,
     ) -> Option<String> {
-        if let Some(ScalarValue::Utf8(Some(s))) = get_constant_scalar(
+        if let Some(scalar) = get_constant_scalar(
             channel_name,
             related_channels,
             mark_encodings,
             session_context,
         ) {
-            return Some(s);
-        }
+            return scalar.as_scalar_string().ok();
+        };
         None
     }
 }

@@ -193,7 +193,9 @@ impl LegendRenderer for CompiledSymbolLegend {
             mark_defaults
                 .get("shape")
                 .and_then(|v| match v {
-                    ScalarValue::Utf8(Some(s)) => Some(s.clone()),
+                    ScalarValue::Utf8(Some(s))
+                    | ScalarValue::LargeUtf8(Some(s))
+                    | ScalarValue::Utf8View(Some(s)) => Some(s.clone()),
                     _ => None,
                 })
                 .unwrap_or_else(|| "circle".to_string())
@@ -207,7 +209,9 @@ impl LegendRenderer for CompiledSymbolLegend {
         let default_fill = mark_defaults
             .get("fill")
             .and_then(|v| match v {
-                ScalarValue::Utf8(Some(s)) => Some(s.clone()),
+                ScalarValue::Utf8(Some(s))
+                | ScalarValue::LargeUtf8(Some(s))
+                | ScalarValue::Utf8View(Some(s)) => Some(s.clone()),
                 _ => None,
             })
             .unwrap_or_else(|| "#4682b4".to_string());
@@ -224,7 +228,9 @@ impl LegendRenderer for CompiledSymbolLegend {
             mark_defaults
                 .get("stroke")
                 .and_then(|v| match v {
-                    ScalarValue::Utf8(Some(s)) => Some(s.clone()),
+                    ScalarValue::Utf8(Some(s))
+                    | ScalarValue::LargeUtf8(Some(s))
+                    | ScalarValue::Utf8View(Some(s)) => Some(s.clone()),
                     _ => None,
                 })
                 .unwrap_or_else(|| "#000000".to_string())
@@ -430,12 +436,13 @@ impl LegendRenderer for CompiledSymbolLegend {
                                     // Convert SerializableScalar wrappers to strings
                                     scalars
                                         .iter()
-                                        .filter_map(|s| {
-                                            if let ScalarValue::Utf8(Some(string)) = &s.0 {
+                                        .filter_map(|s| match &s.0 {
+                                            ScalarValue::Utf8(Some(string))
+                                            | ScalarValue::LargeUtf8(Some(string))
+                                            | ScalarValue::Utf8View(Some(string)) => {
                                                 Some(string.clone())
-                                            } else {
-                                                None
                                             }
+                                            _ => None,
                                         })
                                         .collect()
                                 } else {
@@ -691,7 +698,9 @@ impl LegendRenderer for CompiledSymbolLegend {
 
 fn format_scalar_value(value: &ScalarValue) -> String {
     match value {
-        ScalarValue::Utf8(Some(s)) => s.clone(),
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => s.clone(),
         ScalarValue::Float64(Some(f)) => {
             // Format float nicely - remove trailing zeros
             if f.fract() == 0.0 && f.abs() < 1e10 {
