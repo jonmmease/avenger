@@ -3,6 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use avenger_scales::scales::ConfiguredScale;
+use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{common::ScalarValue, logical_expr::lit, prelude::SessionContext};
 use indexmap::IndexMap;
 use tracing::debug;
@@ -12,6 +13,7 @@ use crate::{
     coords::{EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
     facet::evaluated_facet_tree::EvaluatedFacetTree,
+    layout::LayoutResult,
     layout::legend::measure_legend_size_with_channels,
     legend::{
         ChannelInfo, Legend, LegendChannel, LegendPosition, MergeKey, renderer::LegendRenderer,
@@ -39,6 +41,26 @@ fn color_array_to_hex(color: [f32; 4]) -> String {
     } else {
         format!("#{:02x}{:02x}{:02x}", r, g, b)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LegendPlanScope {
+    TopLevel,
+    FacetCell,
+}
+
+#[derive(Clone)]
+pub(crate) struct PreparedLegendGroup {
+    pub primary_channel: String,
+    pub channels: Vec<LegendChannel>,
+    pub legend: Legend,
+    pub renderer: Arc<dyn LegendRenderer>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct PreparedLegendPlan {
+    pub groups: Vec<PreparedLegendGroup>,
+    pub measurements: LegendMeasurements,
 }
 
 impl CompiledPlot {
@@ -567,6 +589,79 @@ impl CompiledPlot {
         }
     }
 
+    /// Policy hook for legend visibility.
+    ///
+    /// Current behavior is conservative: all channels allowed, with filtering
+    /// still driven by legend visibility expressions. This hook is the
+    /// future insertion point for facet-sharing-aware suppression.
+    fn legend_visibility_allowed(
+        &self,
+        _channel: &str,
+        _scope: LegendPlanScope,
+        _facet_tree: &EvaluatedFacetTree,
+        _facet_path: &[ScalarValue],
+        _configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        _params: &IndexMap<String, ScalarValue>,
+    ) -> bool {
+        true
+    }
+
+    async fn resolve_legend_position(
+        &self,
+        legend: &Legend,
+        primary_channel: &LegendChannel,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<LegendPosition, AvengerChartError> {
+        use super::expr_eval::evaluate_legend_position_expr;
+
+        if let Some(node) = legend.position.as_option().and_then(|o| o.as_ref()) {
+            let expr = node.to_expr(ctx)?;
+            return evaluate_legend_position_expr(&expr, ctx, params).await;
+        }
+
+        // Position not set - check if theme has a position with runtime params.
+        if let Some(theme) = &self.theme {
+            // Determine legend type for theme context.
+            let legend_type = if let Some(scale) = scales.get(primary_channel.name.as_str()) {
+                if let Some(mark) = self.marks.iter().find(|m| {
+                    m.data_context()
+                        .channels()
+                        .contains_key(primary_channel.name.as_str())
+                }) {
+                    mark.preferred_legend_renderer(&primary_channel.name, scale.configured())
+                        .map(|renderer| match renderer.name() {
+                            "CompiledSymbolLegend" => "symbol",
+                            "CompiledLineLegend" => "line",
+                            "CompiledColorbar" => "colorbar",
+                            "CompiledRectLegend" => "rect",
+                            _ => "symbol",
+                        })
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let legend_ctx = theme.legend_context_with_params(legend_type, params.clone());
+            if let Some(theme_value) = theme.query(&legend_ctx, "position") {
+                if let Some(position_str) = theme_value.as_string() {
+                    return Ok(match position_str.to_lowercase().as_str() {
+                        "top" => LegendPosition::Top,
+                        "bottom" => LegendPosition::Bottom,
+                        "left" => LegendPosition::Left,
+                        "right" => LegendPosition::Right,
+                        _ => LegendPosition::Right,
+                    });
+                }
+            }
+        }
+
+        Ok(LegendPosition::Right)
+    }
+
     /// Merge legend channels based on merge keys
     pub(super) async fn merge_legend_channels(
         &self,
@@ -700,27 +795,24 @@ impl CompiledPlot {
         Ok((sorted_channel_groups, legends_map))
     }
 
-    /// Prepare legend measurements for layout computation
-    /// Note: This should be called with the legends_map from merge_legend_channels
-    /// to ensure measurements match rendering
-    pub(super) async fn prepare_legend_measurements(
+    pub(super) async fn prepare_legend_plan(
         &self,
-        legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         available_space: taffy::Size<f32>,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
-    ) -> Result<LegendMeasurements, AvengerChartError> {
-        use super::expr_eval::evaluate_legend_position_expr;
-
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        scope: LegendPlanScope,
+    ) -> Result<PreparedLegendPlan, AvengerChartError> {
         let mut legend_measurements = LegendMeasurements::new();
+        let mut groups = Vec::new();
 
         // Get all legends including channel-level configs
         let all_legends = self.get_legends_with_theme(scales, ctx, params);
 
         // Merge channels to get the same groups that will be used for rendering
-        // Use the passed-in legends parameter which is already sorted
-        let (sorted_channel_groups, _) = self
+        let (sorted_channel_groups, legends_map) = self
             .merge_legend_channels(&all_legends, scales, ctx, params)
             .await?;
 
@@ -732,17 +824,21 @@ impl CompiledPlot {
             // Get the primary channel (first in group)
             let primary_channel = &channels[0];
 
-            // Get legend config - first try the passed-in legends (from merge),
-            // then fall back to all_legends
-            let legend = legends
-                .get(&primary_channel.name)
-                .or_else(|| all_legends.get(&primary_channel.name))
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Legend configuration not found for channel '{}'",
-                        primary_channel.name
-                    ))
-                })?;
+            let Some(legend) = legends_map.get(&primary_channel.name) else {
+                // Visibility expression evaluated to false in merge_legend_channels.
+                continue;
+            };
+
+            if !self.legend_visibility_allowed(
+                &primary_channel.name,
+                scope,
+                facet_tree,
+                facet_path,
+                scales,
+                params,
+            ) {
+                continue;
+            }
 
             // Get scale for primary channel
             let scale = scales.get(&primary_channel.name).ok_or_else(|| {
@@ -777,71 +873,17 @@ impl CompiledPlot {
                 let (size, flexible) = measure_legend_size_with_channels(
                     &channels,
                     legend,
-                    renderer,
+                    renderer.clone(),
                     available_space,
                     theme.as_ref(),
                     params,
                     ctx,
                 )
                 .await?;
-                // Evaluate position expression
-                let position =
-                    if let Some(node) = legend.position.as_option().and_then(|o| o.as_ref()) {
-                        let expr = node.to_expr(ctx)?;
-                        evaluate_legend_position_expr(&expr, ctx, params).await?
-                    } else {
-                        // Position not set - check if theme has a position with runtime params
-                        // This handles media queries that depend on runtime parameters
-                        if let Some(theme) = &self.theme {
-                            // Determine legend type for theme context
-                            let legend_type =
-                                if let Some(scale) = scales.get(primary_channel.name.as_str()) {
-                                    if let Some(mark) = self.marks.iter().find(|m| {
-                                        m.data_context()
-                                            .channels()
-                                            .contains_key(primary_channel.name.as_str())
-                                    }) {
-                                        mark.preferred_legend_renderer(
-                                            &primary_channel.name,
-                                            scale.configured(),
-                                        )
-                                        .map(|renderer| {
-                                            match renderer.name() {
-                                                "CompiledSymbolLegend" => "symbol",
-                                                "CompiledLineLegend" => "line",
-                                                "CompiledColorbar" => "colorbar",
-                                                "CompiledRectLegend" => "rect",
-                                                _ => "symbol",
-                                            }
-                                        })
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                };
+                let position = self
+                    .resolve_legend_position(legend, primary_channel, scales, ctx, params)
+                    .await?;
 
-                            let legend_ctx =
-                                theme.legend_context_with_params(legend_type, params.clone());
-                            if let Some(theme_value) = theme.query(&legend_ctx, "position") {
-                                if let Some(position_str) = theme_value.as_string() {
-                                    match position_str.to_lowercase().as_str() {
-                                        "top" => LegendPosition::Top,
-                                        "bottom" => LegendPosition::Bottom,
-                                        "left" => LegendPosition::Left,
-                                        "right" => LegendPosition::Right,
-                                        _ => LegendPosition::Right,
-                                    }
-                                } else {
-                                    LegendPosition::Right
-                                }
-                            } else {
-                                LegendPosition::Right
-                            }
-                        } else {
-                            LegendPosition::Right
-                        }
-                    };
                 debug!(
                     channel = primary_channel.name.as_str(),
                     width = size.width,
@@ -858,10 +900,56 @@ impl CompiledPlot {
                         position,
                     },
                 );
+
+                groups.push(PreparedLegendGroup {
+                    primary_channel: primary_channel.name.clone(),
+                    channels: channels.clone(),
+                    legend: legend.clone(),
+                    renderer,
+                });
             }
         }
 
-        Ok(legend_measurements)
+        Ok(PreparedLegendPlan {
+            groups,
+            measurements: legend_measurements,
+        })
+    }
+
+    pub(super) async fn render_legends_from_plan(
+        &self,
+        legend_plan: &PreparedLegendPlan,
+        layout: &LayoutResult,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let theme = self.get_theme();
+        let mut legend_marks = Vec::new();
+
+        for group in &legend_plan.groups {
+            let Some(bounds) = layout.legends.get(&group.primary_channel) else {
+                continue;
+            };
+            let group_opt = group
+                .renderer
+                .evaluate(
+                    &group.channels,
+                    &group.legend,
+                    bounds.x,
+                    bounds.y,
+                    bounds.width,
+                    bounds.height,
+                    theme.as_ref(),
+                    params,
+                    ctx,
+                )
+                .await?;
+            if let Some(rendered_group) = group_opt {
+                legend_marks.push(SceneMark::Group(rendered_group));
+            }
+        }
+
+        Ok(legend_marks)
     }
 
     /// Infer a title for the legend based on channel

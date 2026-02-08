@@ -39,6 +39,8 @@ use crate::{
     theme::Theme,
 };
 
+use self::legends::PreparedLegendPlan;
+
 use super::{
     specs::{AxisSpec, ScaleSpec},
     title::{PlotSubtitle, PlotTitle},
@@ -381,6 +383,9 @@ pub struct ComponentsMeasurement {
 
     /// Merged params (defaults + provided + canvas dimensions)
     pub params: indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+
+    /// Prepared legend plan used by both layout and render phases
+    pub(crate) legend_plan: PreparedLegendPlan,
 }
 
 impl std::fmt::Debug for ComponentsMeasurement {
@@ -392,6 +397,7 @@ impl std::fmt::Debug for ComponentsMeasurement {
             .field("plot_area_height", &self.plot_area_height)
             .field("canvas_size", &self.canvas_size)
             .field("layout", &"LayoutSolution")
+            .field("legend_plan", &"<legend_plan>")
             .finish()
     }
 }

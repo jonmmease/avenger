@@ -45,7 +45,7 @@ use crate::{
     guide::OverflowSpaceRequirement,
     layout::{
         ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, LayoutBounds,
-        LayoutResult, LayoutSpec, Margins, SizeMode,
+        LayoutSpec, Margins, SizeMode,
     },
     legend::LegendPosition,
     marks::CompiledMark,
@@ -62,7 +62,8 @@ use crate::{
 
 use super::{
     CompiledPlot, ComponentsMeasurement, PlotComponents,
-    expr_eval::{evaluate_bool_expr, evaluate_f32_expr},
+    expr_eval::evaluate_f32_expr,
+    legends::{LegendPlanScope, PreparedLegendPlan},
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
 };
@@ -650,7 +651,7 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
-    ) -> Result<LayoutSolution, AvengerChartError> {
+    ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
 
@@ -706,41 +707,68 @@ impl CompiledPlot {
             OverflowSpaceRequirement::default()
         };
 
-        // Get legends with theme applied
-        let all_legends = self.get_legends_with_theme(scales, ctx, params);
-
-        // Use the helper to merge legend channels
-        let (_channel_groups, legends_map) = self
-            .merge_legend_channels(&all_legends, scales, ctx, params)
-            .await?;
-
-        // Prepare legend measurements
         let available_size = taffy::Size {
             width: estimate_width,
             height: estimate_height,
         };
-        let legend_measurements = self
-            .prepare_legend_measurements(&legends_map, scales, available_size, ctx, params)
+        let scope = if facet_path.is_empty() {
+            LegendPlanScope::TopLevel
+        } else {
+            LegendPlanScope::FacetCell
+        };
+        self.compute_layout_with_precomputed_overflow(
+            &overflow,
+            layout_spec,
+            scales,
+            available_size,
+            ctx,
+            params,
+            facet_tree,
+            facet_path,
+            scope,
+        )
+        .await
+    }
+
+    async fn compute_layout_with_precomputed_overflow(
+        &self,
+        overflow: &OverflowSpaceRequirement,
+        layout_spec: &EvaluatedLayoutSpec,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        available_size: taffy::Size<f32>,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        scope: LegendPlanScope,
+    ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
+        let legend_plan = self
+            .prepare_legend_plan(
+                scales,
+                available_size,
+                ctx,
+                params,
+                facet_tree,
+                facet_path,
+                scope,
+            )
             .await?;
 
-        // Create and compute layout
         let mut layout = ChartLayout::new(
-            &overflow,
+            overflow,
             layout_spec,
             self.get_title(),
             self.get_subtitle(),
             self.get_theme().as_ref(),
-            &legend_measurements,
+            &legend_plan.measurements,
             ctx,
             params,
         )
         .await?;
-
         let mut result = layout.compute(layout_spec)?;
 
-        // Add legend dimensions to total_overflow so facets can position their labels correctly
-        // (ChartLayout.compute() sets total_overflow to guide-only; we add legend space here)
-        for (channel, measurement) in legend_measurements.iter() {
+        // ChartLayout.compute() sets total_overflow to guide-only; add legend dimensions.
+        for measurement in legend_plan.measurements.values() {
             match measurement.position {
                 LegendPosition::Left => {
                     result.total_overflow.left += measurement.size.width;
@@ -755,103 +783,9 @@ impl CompiledPlot {
                     result.total_overflow.bottom += measurement.size.height;
                 }
             }
-            let _ = channel; // suppress unused warning
         }
 
-        Ok(result)
-    }
-
-    /// Create legends positioned according to layout
-    pub(super) async fn create_legends_with_layout(
-        &self,
-        scales: &HashMap<String, ConfiguredScaleWithSpec>,
-        layout: &LayoutResult,
-        ctx: &SessionContext,
-        params: &IndexMap<String, ScalarValue>,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Get legends with theme applied (same as used for layout)
-        let all_legend_configs = self.get_legends_with_theme(scales, ctx, params);
-
-        // Use the helper to merge legend channels
-        let (sorted_channel_groups, _legends_map) = self
-            .merge_legend_channels(&all_legend_configs, scales, ctx, params)
-            .await?;
-
-        // Create legend marks positioned according to layout
-        let mut legend_marks = Vec::new();
-
-        for channels in sorted_channel_groups {
-            if channels.is_empty() {
-                continue;
-            }
-
-            // Get the primary channel (first in group)
-            let primary_channel = &channels[0];
-
-            // Get legend config for primary channel
-            let legend = &all_legend_configs[&primary_channel.name];
-
-            // Get layout bounds for this legend
-            if let Some(bounds) = layout.legends.get(&primary_channel.name) {
-                // Determine the appropriate renderer for this group of channels
-                let renderer_opt = if channels.len() > 1 {
-                    // Multiple channels - try to get a merged renderer
-                    // Find the mark that these channels belong to
-                    let mark_opt = self.marks.get(primary_channel.mark_index);
-                    // Extract ConfiguredScale from ConfiguredScaleWithSpec for mark's renderer
-                    let configured_scales: HashMap<String, ConfiguredScale> = scales
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.configured().clone()))
-                        .collect();
-
-                    mark_opt.and_then(|mark| {
-                        mark.preferred_merged_legend_renderer(&channels, &configured_scales)
-                    })
-                } else {
-                    // Single channel - use the unified renderer selection
-                    scales.get(&primary_channel.name).and_then(|scale| {
-                        self.get_legend_renderer(&primary_channel.channel_type, scale)
-                    })
-                };
-
-                // Check visibility before rendering
-                let visible =
-                    if let Some(node) = legend.visible.as_option().and_then(|o| o.as_ref()) {
-                        let expr = node.to_expr(ctx)?;
-                        evaluate_bool_expr(&expr, ctx, params).await?
-                    } else {
-                        true // Default to visible
-                    };
-
-                // Skip this legend group if no renderer is available or if not visible
-                if visible {
-                    if let Some(renderer) = renderer_opt {
-                        // Evaluate the legend with the determined renderer
-                        let theme = self.get_theme();
-                        let group_opt = renderer
-                            .evaluate(
-                                &channels,
-                                legend,
-                                bounds.x,
-                                bounds.y,
-                                bounds.width,
-                                bounds.height,
-                                theme.as_ref(),
-                                params,
-                                ctx,
-                            )
-                            .await?;
-
-                        // Add the legend group mark if it was rendered
-                        if let Some(group) = group_opt {
-                            legend_marks.push(SceneMark::Group(group));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(legend_marks)
+        Ok((result, legend_plan))
     }
 
     /// Extract dimensions and determine layout mode from evaluated layout spec.
@@ -928,7 +862,7 @@ impl CompiledPlot {
     /// - **Canvas mode** (`is_plot_area_mode=false`): Uses provided dimensions as canvas,
     ///   computes layout to determine plot area from overflow
     ///
-    /// Returns (plot_area_width, plot_area_height, canvas_size, layout)
+    /// Returns (plot_area_width, plot_area_height, canvas_size, layout, legend_plan)
     async fn compute_layout_and_dimensions(
         &self,
         is_plot_area_mode: bool,
@@ -941,7 +875,7 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
-    ) -> Result<(f32, f32, (f32, f32), LayoutSolution), AvengerChartError> {
+    ) -> Result<(f32, f32, (f32, f32), LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         if is_plot_area_mode {
             // Plot area mode: dimensions specify the plot area size
             let plot_area_width = width;
@@ -951,7 +885,7 @@ impl CompiledPlot {
                 .build_scales(plot_area_width, plot_area_height, ctx, merged_params)
                 .await?;
 
-            let layout = self
+            let (layout, legend_plan) = self
                 .compute_layout_with_spec(
                     layout_spec,
                     &initial_scales,
@@ -968,6 +902,7 @@ impl CompiledPlot {
                 plot_area_height,
                 layout.canvas_size,
                 layout,
+                legend_plan,
             ))
         } else {
             // Canvas mode: dimensions are canvas size, compute layout to determine plot area
@@ -978,7 +913,7 @@ impl CompiledPlot {
                 .build_scales(initial_plot_width, initial_plot_height, ctx, merged_params)
                 .await?;
 
-            let layout = self
+            let (layout, legend_plan) = self
                 .compute_layout_with_spec(
                     layout_spec,
                     &initial_scales,
@@ -996,6 +931,7 @@ impl CompiledPlot {
                 plot_bounds.height,
                 layout.canvas_size,
                 layout,
+                legend_plan,
             ))
         }
     }
@@ -1091,7 +1027,7 @@ impl CompiledPlot {
         let merged_params = params_with_dims.params.clone();
 
         // Phase 2: Compute layout and determine plot area dimensions
-        let (plot_area_width, plot_area_height, canvas_size, layout) = self
+        let (plot_area_width, plot_area_height, canvas_size, layout, legend_plan) = self
             .compute_layout_and_dimensions(
                 is_plot_area_mode,
                 width,
@@ -1143,6 +1079,7 @@ impl CompiledPlot {
             clip,
             layout,
             params: merged_params,
+            legend_plan,
         })
     }
 
@@ -1198,6 +1135,7 @@ impl CompiledPlot {
         let clip = measurement.clip.clone();
         let merged_params = measurement.params.clone();
         let merged_scales = measurement.scales.clone();
+        let legend_plan_initial = measurement.legend_plan.clone();
 
         // Create context with measurement's params (which include dimensions)
         let mark_eval_ctx = eval_ctx.with_params(merged_params.clone());
@@ -1284,13 +1222,10 @@ impl CompiledPlot {
                     theme.as_ref(),
                 )
                 .await?;
-                let all_legends2 = self.get_legends_with_theme(&merged_scales, ctx, &merged_params);
-                let (_channel_groups2, legends_map2) = self
-                    .merge_legend_channels(&all_legends2, &merged_scales, ctx, &merged_params)
-                    .await?;
-                let legend_measurements2 = self
-                    .prepare_legend_measurements(
-                        &legends_map2,
+                let (layout, legend_plan_second_pass) = self
+                    .compute_layout_with_precomputed_overflow(
+                        &overflow_final,
+                        &evaluated_spec2,
                         &merged_scales,
                         taffy::Size {
                             width: plot_area_width,
@@ -1298,22 +1233,11 @@ impl CompiledPlot {
                         },
                         ctx,
                         &merged_params,
+                        eval_ctx.facet_tree.as_ref(),
+                        facet_path,
+                        LegendPlanScope::TopLevel,
                     )
                     .await?;
-                let layout = {
-                    let mut l = ChartLayout::new(
-                        &overflow_final,
-                        &evaluated_spec2,
-                        self.get_title(),
-                        self.get_subtitle(),
-                        theme.as_ref(),
-                        &legend_measurements2,
-                        ctx,
-                        &merged_params,
-                    )
-                    .await?;
-                    l.compute(&evaluated_spec2)?
-                };
 
                 let plot_bounds = layout.plot_area_bounds();
                 // Use original plot area dimensions to stay consistent with evaluated marks
@@ -1341,8 +1265,8 @@ impl CompiledPlot {
                     .await?;
 
                 let legend_marks = self
-                    .create_legends_with_layout(
-                        &merged_scales,
+                    .render_legends_from_plan(
+                        &legend_plan_second_pass,
                         &layout.taffy_layout,
                         ctx,
                         &merged_params,
@@ -1418,8 +1342,8 @@ impl CompiledPlot {
                 // Legend positions from layout include the plot area offset, but we need them at (0,0)
                 let plot_bounds = layout_initial.plot_area_bounds();
                 let legend_marks_raw = self
-                    .create_legends_with_layout(
-                        &merged_scales,
+                    .render_legends_from_plan(
+                        &legend_plan_initial,
                         &layout_initial.taffy_layout,
                         ctx,
                         &merged_params,

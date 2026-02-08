@@ -251,12 +251,17 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 Some(cell_values.as_slice())
             };
 
+            // Always start from the original measured column scale so repeated
+            // coordination passes re-apply the same layout adjustments
+            // deterministically without shrinking the range multiple times.
+            let base_scale = self.original_column_scale.clone();
+
             // NOTE: We do NOT set band_n on the column scale here. The band_n option
             // is only used during measurement (apply_coordinated_overflow) to compute
             // the correct subplot_width. For rendering, the column scale should position
             // its actual domain cells evenly across the full allocated width.
             let updated_config = apply_facet_col_scale_layout(
-                column_scale.configured(),
+                &base_scale,
                 self.active_layout(),
                 domain_override,
                 None,

@@ -559,7 +559,9 @@ fn format_scalar_value(value: &datafusion::common::ScalarValue) -> String {
     use datafusion::common::ScalarValue;
 
     match value {
-        ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => s.clone(),
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => s.to_string(),
         ScalarValue::Int8(Some(n)) => n.to_string(),
         ScalarValue::Int16(Some(n)) => n.to_string(),
         ScalarValue::Int32(Some(n)) => n.to_string(),
