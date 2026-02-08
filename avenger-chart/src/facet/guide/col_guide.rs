@@ -7,6 +7,7 @@ use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
 use crate::facet::coord::FacetColCoordMeasurement;
+use crate::facet::debug;
 use crate::facet::guide_utils::{
     FacetLabelMeasurementConfig, FacetLabelRenderConfig, measure_facet_label_slab,
     render_facet_label_slab,
@@ -225,7 +226,7 @@ impl CompiledGuide for FacetColGuide {
             )
         };
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if debug::layout_enabled() {
             eprintln!(
                 "FacetColGuide measure_overflow: position={:?}, subplot_overflow.top={:.1}, facet_guide_height={:.1}, total_top={:.1}, total_bottom={:.1}",
                 self.position, subplot_overflow.top, facet_guide_height, total_top, total_bottom
@@ -319,7 +320,7 @@ impl CompiledGuide for FacetColGuide {
             coordinated_overflow.map(|co| co.total.top).unwrap_or(0.0)
         };
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if debug::layout_enabled() {
             eprintln!(
                 "FacetColGuide evaluate: position={:?}, plot_bounds.y={:.1}, subplot_overflow={:.1}, labels={:?}",
                 self.position, plot_bounds.y, subplot_overflow, labels

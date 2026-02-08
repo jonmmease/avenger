@@ -19,7 +19,6 @@ pub(crate) struct FacetCellPlan {
 /// Resolved band-level facet layout values for a single FacetCol node.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FacetBandPlan {
-    pub cells: Vec<FacetCellPlan>,
     pub padding_inner_px: f32,
     pub outer_left: f32,
     pub outer_right: f32,

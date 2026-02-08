@@ -3,6 +3,7 @@ use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
 use crate::facet::coord::{FacetColumn, FacetRow};
+use crate::facet::debug;
 use crate::facet::dimension_config::{
     ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
@@ -614,7 +615,7 @@ impl CompiledMark for CompiledFacetCol {
             };
             scene_marks.push(SceneMark::Group(subplot_group));
 
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            if debug::layout_enabled() {
                 eprintln!(
                     "FacetCol render: column[{}] at x={:.1} width={:.1}",
                     idx, position, subplot_width

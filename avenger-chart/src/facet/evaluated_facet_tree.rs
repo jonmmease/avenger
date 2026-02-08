@@ -23,6 +23,7 @@ use crate::{
     channel::config_traits::ScaleSharing,
     error::AvengerChartError,
     facet::{
+        debug,
         keys::FacetKeyExtractor,
         marks::facet::{FacetMarkRef, facet_mark_ref},
         path_math,
@@ -463,6 +464,38 @@ impl EvaluatedFacetTree {
         counts
     }
 
+    fn axis_visibility_from_resolved(
+        &self,
+        position_indices: &[usize],
+        axis_position: AxisPosition,
+        sharing_level: u8,
+        direction: FacetDirection,
+    ) -> AxisVisibility {
+        let counts = self.level_counts_ref();
+        if counts.is_empty() {
+            return AxisVisibility::visible();
+        }
+
+        let facet_depth = position_indices.len() as u8;
+        AxisVisibility {
+            show_labels: sharing_policy::show_axis_labels(
+                position_indices,
+                counts,
+                facet_depth,
+                sharing_level,
+                direction,
+                axis_position,
+            ),
+            show_title: sharing_policy::show_axis_title(
+                position_indices,
+                counts,
+                facet_depth,
+                direction,
+                axis_position,
+            ),
+        }
+    }
+
     /// Convert a path of domain values to position indices.
     ///
     /// This is the inverse of `path_values_from_indices`. Given a path like
@@ -519,10 +552,27 @@ impl EvaluatedFacetTree {
             return Some(AxisVisibility::visible());
         }
 
-        match self.indices_from_path(path) {
-            Some(indices) => Some(self.axis_visibility(&indices, axis_position, sharing_level)),
-            None => None,
+        let mut indices = Vec::with_capacity(path.len());
+        let mut node = self.root.as_ref()?;
+
+        for (level, value) in path.iter().enumerate() {
+            let idx = match &node.content {
+                PartitionContent::Leaf { values } => values.iter().position(|v| v == value)?,
+                PartitionContent::Branch { children } => children.get_index_of(value)?,
+            };
+            indices.push(idx);
+
+            if level + 1 < path.len() {
+                node = node.child(value)?;
+            }
         }
+
+        Some(self.axis_visibility_from_resolved(
+            &indices,
+            axis_position,
+            sharing_level,
+            node.direction,
+        ))
     }
 
     /// Compatibility wrapper that defaults invalid paths to visible.
@@ -579,18 +629,13 @@ impl EvaluatedFacetTree {
             return AxisVisibility::visible();
         };
 
-        // Get level counts for bounds checking
-        let counts = self.level_counts_ref();
-        if counts.is_empty() {
-            return AxisVisibility::visible();
-        }
-
-        let facet_depth = position_indices.len() as u8;
-
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if debug::layout_enabled() {
             eprintln!(
-                "axis_visibility: position={:?}, axis={:?}, sharing_level={}, facet_depth={}, counts={:?}",
-                position_indices, axis_position, sharing_level, facet_depth, counts
+                "axis_visibility: position={:?}, axis={:?}, sharing_level={}, counts={:?}",
+                position_indices,
+                axis_position,
+                sharing_level,
+                self.level_counts_ref()
             );
         }
 
@@ -616,23 +661,12 @@ impl EvaluatedFacetTree {
             };
         }
 
-        AxisVisibility {
-            show_labels: sharing_policy::show_axis_labels(
-                position_indices,
-                counts,
-                facet_depth,
-                sharing_level,
-                node.direction,
-                axis_position,
-            ),
-            show_title: sharing_policy::show_axis_title(
-                position_indices,
-                counts,
-                facet_depth,
-                node.direction,
-                axis_position,
-            ),
-        }
+        self.axis_visibility_from_resolved(
+            position_indices,
+            axis_position,
+            sharing_level,
+            node.direction,
+        )
     }
 }
 

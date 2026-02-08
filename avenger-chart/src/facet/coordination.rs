@@ -12,7 +12,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coord::{FacetColCoordMeasurement, union_domain_extents},
-        sharing_policy,
+        debug, sharing_policy,
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
@@ -84,7 +84,7 @@ pub async fn coordinate_facet_measurement_tree(
     let initial_snapshot = collect_coordination_snapshot(measurement, true);
     let initial_aggregates = aggregate_snapshot(initial_snapshot, true);
 
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+    if debug::layout_enabled() {
         eprintln!(
             "coordinate_facet_measurement_tree overflow: {:?}",
             initial_aggregates.merged_overflow_by_key
@@ -289,7 +289,7 @@ fn reapply_scale_adjustments_recursive(measurement: &mut ComponentsMeasurement) 
         for child in facet_col.child_measurements_iter_mut() {
             if let Some(width) = parent_width {
                 if (child.plot_area_width - width).abs() > 0.01 {
-                    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+                    if debug::layout_enabled() {
                         eprintln!(
                             "coordinate_facet_measurement_tree: child plot_area_width {:.1} -> {:.1}",
                             child.plot_area_width, width

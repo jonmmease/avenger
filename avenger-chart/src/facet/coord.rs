@@ -16,8 +16,10 @@ use crate::{
     },
     error::AvengerChartError,
     facet::{
+        coord_row::compute_band_layout,
         coordination::CoordinationGroupKey,
-        guide::{FacetColGuideConfig, FacetRowGuideConfig},
+        debug,
+        guide::FacetColGuideConfig,
         layout_plan::{
             FacetBandPlan, FacetCellPlan, compute_padding_from_overflows, effective_edge_indices,
         },
@@ -36,6 +38,8 @@ use crate::{
         domain_extent::{DomainBounds, DomainExtent, RadiusPadding},
     },
 };
+
+pub use crate::facet::coord_row::FacetRow;
 
 /// Domain extent with associated sharing level.
 ///
@@ -199,7 +203,7 @@ impl FacetColCoordMeasurement {
                 .clone()
                 .with_range_interval((0.0, bandwidth));
 
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            if debug::layout_enabled() {
                 eprintln!(
                     "FacetCol set_parent_bandwidth: updated original_column_scale range to (0, {:.1})",
                     bandwidth
@@ -419,7 +423,7 @@ impl FacetColCoordMeasurement {
                 ))
             })?;
 
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            if debug::layout_enabled() {
                 eprintln!(
                     "FacetCol apply_coordinated_overflow: layout coordination: width {:.1} -> {:.1}, n {} -> {}, padding {:.1} -> {:.1}",
                     self.subplot_width,
@@ -454,7 +458,7 @@ impl FacetColCoordMeasurement {
             original_height
         };
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if debug::layout_enabled() {
             eprintln!(
                 "FacetCol apply_coordinated_overflow: height {:.1} -> {:.1} (legend_top={:.1}, legend_bottom={:.1}, has_coordinated_extents={})",
                 original_height,
@@ -495,7 +499,7 @@ impl FacetColCoordMeasurement {
             )
             .await?;
 
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            if debug::layout_enabled() {
                 eprintln!(
                     "FacetCol apply_coordinated_overflow: re-measured cell[{}]={:?} at width={:.1} height={:.1} empty={}",
                     idx, cell.plan.value, self.subplot_width, adjusted_height, cell.plan.is_empty
@@ -528,6 +532,13 @@ struct MeasuredFacetCell {
     cell_scale_builder: Option<ScaleBuilder>,
 }
 
+struct FacetCellDraft {
+    plan: FacetCellPlan,
+    data_override: DataFrame,
+    measurement: Option<ComponentsMeasurement>,
+    local_domain_extents: HashMap<String, ChannelDomainExtent>,
+}
+
 enum NestedScalePlan<'a> {
     Shared,
     PerCellBuilder,
@@ -541,7 +552,7 @@ enum NestedScalePlan<'a> {
 /// Planning data prepared once before running FacetCol measurement passes.
 struct FacetColMeasurePlan {
     cell_values: Vec<ScalarValue>,
-    cells: Vec<FacetCellPlan>,
+    cells: Vec<FacetCellDraft>,
     nested_col_sharing: Option<u8>,
     nested_depth: u8,
     scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
@@ -563,12 +574,6 @@ struct FacetColNestedMeasureContext<'a> {
 struct OverflowProbeSummary {
     cell_overflows: Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>,
     max_child_padding: f32,
-}
-
-#[derive(Default)]
-struct FinalMeasureSummary {
-    measurements: Vec<ComponentsMeasurement>,
-    local_domain_extents: Vec<HashMap<String, ChannelDomainExtent>>,
 }
 
 fn empty_facet_col_measurement(
@@ -613,27 +618,6 @@ fn build_facet_cell(
         is_empty,
         filter_predicate,
     })
-}
-
-fn materialize_cell_data_overrides(
-    cells: &[FacetCellPlan],
-    data_df: &DataFrame,
-) -> Result<Vec<DataFrame>, AvengerChartError> {
-    cells
-        .iter()
-        .map(|cell| {
-            if let Some(predicate) = cell.filter_predicate.clone() {
-                data_df.clone().filter(predicate).map_err(|e| {
-                    AvengerChartError::InternalError(format!(
-                        "Failed to filter data for facet cell {:?}: {}",
-                        cell.value, e
-                    ))
-                })
-            } else {
-                Ok(data_df.clone())
-            }
-        })
-        .collect()
 }
 
 /// Build a fixed-plot-area layout spec for subplot measurement.
@@ -950,7 +934,7 @@ async fn build_facet_col_measure_plan(
             HashMap::new()
         };
 
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && !scale_builder_cache.is_empty() {
+    if debug::layout_enabled() && !scale_builder_cache.is_empty() {
         eprintln!(
             "FacetCol: built {} scale builders for sharing level {}",
             scale_builder_cache.len(),
@@ -959,10 +943,32 @@ async fn build_facet_col_measure_plan(
     }
 
     // Build canonical per-cell contexts once and reuse across pass 1/pass 2.
-    let cells: Vec<FacetCellPlan> = cell_values
+    let cell_plans: Vec<FacetCellPlan> = cell_values
         .iter()
         .map(|value| build_facet_cell(facet_tree, facet_path, value))
         .collect::<Result<_, _>>()?;
+    let cells: Vec<FacetCellDraft> = cell_plans
+        .into_iter()
+        .map(|plan| {
+            let data_override = if let Some(predicate) = plan.filter_predicate.clone() {
+                data_df.clone().filter(predicate).map_err(|e| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to filter data for facet cell {:?}: {}",
+                        plan.value, e
+                    ))
+                })?
+            } else {
+                data_df.clone()
+            };
+
+            Ok(FacetCellDraft {
+                plan,
+                data_override,
+                measurement: None,
+                local_domain_extents: HashMap::new(),
+            })
+        })
+        .collect::<Result<_, AvengerChartError>>()?;
 
     Ok(FacetColMeasurePlan {
         cell_values,
@@ -1012,8 +1018,7 @@ fn annotate_domain_extents(
 }
 
 async fn measure_cells_overflow_probe(
-    cells: &[FacetCellPlan],
-    data_overrides: &[DataFrame],
+    cells: &[FacetCellDraft],
     subplot_width: f32,
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
@@ -1023,17 +1028,17 @@ async fn measure_cells_overflow_probe(
     let mut summary = OverflowProbeSummary::default();
     summary.cell_overflows.reserve(cells.len());
 
-    for (idx, (cell, data_override)) in cells.iter().zip(data_overrides.iter()).enumerate() {
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && cell.is_empty {
+    for (idx, cell) in cells.iter().enumerate() {
+        if debug::layout_enabled() && cell.plan.is_empty {
             eprintln!(
                 "FacetCol overflow probe: cell[{}]={:?} is empty (path not in tree)",
-                idx, cell.value
+                idx, cell.plan.value
             );
         }
 
         let MeasuredFacetCell { measurement, .. } = measure_nested_cell(
-            cell,
-            data_override,
+            &cell.plan,
+            &cell.data_override,
             subplot_width,
             plot_height,
             compiled_subplot,
@@ -1055,11 +1060,11 @@ async fn measure_cells_overflow_probe(
                 .max(child_facet_col.active_layout().padding_inner_px);
         }
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if debug::layout_enabled() {
             eprintln!(
                 "FacetCol overflow probe: cell[{}]={:?} guide_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}} total_overflow={{top={:.1}, bottom={:.1}, left={:.1}, right={:.1}}}",
                 idx,
-                cell.value,
+                cell.plan.value,
                 guide_overflow.top,
                 guide_overflow.bottom,
                 guide_overflow.left,
@@ -1080,23 +1085,18 @@ async fn measure_cells_overflow_probe(
 }
 
 async fn measure_cells_final_and_extents(
-    cells: &[FacetCellPlan],
-    data_overrides: &[DataFrame],
+    cells: &mut [FacetCellDraft],
     subplot_width: f32,
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
     nested_ctx: &FacetColNestedMeasureContext<'_>,
-) -> Result<FinalMeasureSummary, AvengerChartError> {
-    let mut summary = FinalMeasureSummary::default();
-    summary.measurements.reserve(cells.len());
-    summary.local_domain_extents.reserve(cells.len());
-
-    for (idx, (cell, data_override)) in cells.iter().zip(data_overrides.iter()).enumerate() {
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() && cell.is_empty {
+) -> Result<(), AvengerChartError> {
+    for (idx, cell) in cells.iter_mut().enumerate() {
+        if debug::layout_enabled() && cell.plan.is_empty {
             eprintln!(
                 "FacetCol final measure: cell[{}]={:?} is empty (path not in tree)",
-                idx, cell.value
+                idx, cell.plan.value
             );
         }
 
@@ -1104,8 +1104,8 @@ async fn measure_cells_final_and_extents(
             measurement,
             cell_scale_builder,
         } = measure_nested_cell(
-            cell,
-            data_override,
+            &cell.plan,
+            &cell.data_override,
             subplot_width,
             plot_height,
             compiled_subplot,
@@ -1114,18 +1114,19 @@ async fn measure_cells_final_and_extents(
         )
         .await?;
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if debug::layout_enabled() {
             eprintln!(
                 "FacetCol final measure: cell[{}]={:?} measured at width={:.1} empty={}",
-                idx, cell.value, subplot_width, cell.is_empty
+                idx, cell.plan.value, subplot_width, cell.plan.is_empty
             );
         }
 
-        let local_extents = if !cell.is_empty {
+        let local_extents = if !cell.plan.is_empty {
             let extent_builder = if let Some(builder) = cell_scale_builder {
                 builder
             } else {
-                build_extent_builder_for_cell(data_override, compiled_subplot, nested_ctx).await?
+                build_extent_builder_for_cell(&cell.data_override, compiled_subplot, nested_ctx)
+                    .await?
             };
             annotate_domain_extents(
                 extent_builder.extract_domain_extents(&["x", "y", "x2", "y2"]),
@@ -1135,11 +1136,11 @@ async fn measure_cells_final_and_extents(
             HashMap::new()
         };
 
-        summary.measurements.push(measurement);
-        summary.local_domain_extents.push(local_extents);
+        cell.measurement = Some(measurement);
+        cell.local_domain_extents = local_extents;
     }
 
-    Ok(summary)
+    Ok(())
 }
 
 /// Build scale builders for each ancestor group based on sharing level.
@@ -1277,183 +1278,6 @@ fn union_radius_padding(
     }
 }
 
-/// Row faceting coordinate system
-///
-/// Facets data along the row dimension, creating a vertical stack of subplots.
-/// Each subplot represents one unique value from the `row` channel.
-///
-/// # Example
-/// ```ignore
-/// let plot = Plot::<FacetRow>::new()
-///     .data(df)
-///     .mark(
-///         Facet::new()
-///             .row(col("species"))
-///             .subplot(
-///                 Plot::<Cartesian>::new().mark(Symbol::new()...),
-///             ),
-///     );
-/// ```
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct FacetRow;
-
-impl CoordinateSystem for FacetRow {
-    type Guide = FacetRowGuideConfig;
-
-    fn required_channels(&self) -> &'static [&'static str] {
-        &["row"]
-    }
-
-    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
-    }
-}
-
-fn compute_band_layout(positions: &[f32], extent: f32) -> (Vec<f32>, f32) {
-    if positions.is_empty() {
-        return (Vec::new(), 0.0);
-    }
-
-    let mut sorted = positions.to_vec();
-    sorted.sort_by(|a, b| a.total_cmp(b));
-
-    // Spacing is owned by the band scale configuration (padding_inner[_px]).
-    // Derive cell bandwidth directly from the positioned starts and total extent.
-    let inferred_bandwidth = if sorted.len() > 1 {
-        let first = sorted.first().copied().unwrap_or(0.0);
-        let last = sorted.last().copied().unwrap_or(first);
-        (extent - (last - first)).max(0.0)
-    } else {
-        extent.max(0.0)
-    };
-
-    // Fallback to min adjacent distance if inference is invalid.
-    let fallback_bandwidth = sorted
-        .windows(2)
-        .filter_map(|pair| {
-            let gap = (pair[1] - pair[0]).abs();
-            if gap.is_finite() && gap > 0.0 {
-                Some(gap)
-            } else {
-                None
-            }
-        })
-        .fold(f32::INFINITY, f32::min);
-
-    let bandwidth = if inferred_bandwidth.is_finite() && inferred_bandwidth > 0.0 {
-        inferred_bandwidth
-    } else if fallback_bandwidth.is_finite() && fallback_bandwidth > 0.0 {
-        fallback_bandwidth
-    } else {
-        extent.max(0.0)
-    };
-
-    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "compute_band_layout: positions={:?} inferred_bandwidth={:.3} fallback_bandwidth={:.3} bandwidth={:.3}",
-            positions, inferred_bandwidth, fallback_bandwidth, bandwidth
-        );
-    }
-
-    // Input positions are already starts (not centers), so use them directly
-    let starts: Vec<f32> = positions.to_vec();
-
-    (starts, bandwidth)
-}
-
-#[async_trait::async_trait]
-#[typetag::serde]
-impl CoordinateSystemTransform for FacetRow {
-    fn required_channels(&self) -> &'static [&'static str] {
-        &["row"]
-    }
-
-    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(self.clone())
-    }
-
-    fn with_measured_padding(&self, _spec: &PaddingSpec) -> Box<dyn CoordinateSystemTransform> {
-        // Facet spacing is encoded in the column/row band scale options.
-        Box::new(self.clone())
-    }
-
-    fn transform(
-        &self,
-        position_channels: &HashMap<&str, ScalarOrArray<f32>>,
-        position_values: Option<&HashMap<&str, Vec<datafusion::common::ScalarValue>>>,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
-        let row_positions = position_channels.get("row").ok_or_else(|| {
-            AvengerChartError::InternalError("Missing 'row' channel for FacetRow transform".into())
-        })?;
-
-        let count = row_positions.len();
-        if count == 0 {
-            return Ok(Box::new(SubplotGeometry::default()));
-        }
-
-        let centers = row_positions.as_vec(count, None);
-        let (starts, bandwidth) = compute_band_layout(&centers, plot_height);
-
-        if starts.is_empty() {
-            return Ok(Box::new(SubplotGeometry::default()));
-        }
-
-        // Extract actual row values from position_values (if provided)
-        let row_values = position_values
-            .and_then(|pv| pv.get("row"))
-            .map(|v| v.as_slice())
-            .unwrap_or(&[]);
-
-        let rects = starts
-            .into_iter()
-            .enumerate()
-            .map(|(i, start)| {
-                // Use actual facet value if available, otherwise Null
-                let value = row_values.get(i).cloned().unwrap_or(ScalarValue::Null);
-                SubplotRect::new(value, 0.0, start, plot_width, bandwidth)
-            })
-            .collect();
-
-        Ok(Box::new(SubplotGeometry::new(rects)))
-    }
-
-    fn default_range(
-        &self,
-        channel: &str,
-        _plot_area_width: f64,
-        plot_area_height: f64,
-    ) -> Option<(f64, f64)> {
-        match channel {
-            "row" => Some((0.0, plot_area_height)),
-            _ => None,
-        }
-    }
-
-    fn default_scale_options(
-        &self,
-        channel: &str,
-        scale_impl: &dyn ScaleImpl,
-    ) -> HashMap<String, DfScalarValue> {
-        let mut options = HashMap::new();
-        if channel == "row" && scale_impl.scale_type() == "band" {
-            // Set outer padding to 0 to avoid extra space at top/bottom
-            // Set inner padding to 0.1 for default spacing between facets
-            options.insert(
-                "padding_inner".to_string(),
-                DfScalarValue::Float64(Some(0.1)),
-            );
-            options.insert(
-                "padding_outer".to_string(),
-                DfScalarValue::Float64(Some(0.0)),
-            );
-            options.insert("round".to_string(), DfScalarValue::Boolean(Some(true)));
-        }
-        options
-    }
-}
-
 /// Column faceting coordinate system
 ///
 /// Facets data along the column dimension, creating a horizontal row of subplots.
@@ -1496,16 +1320,6 @@ enum ResolveNodeOutcome<'a> {
     Ready(FacetColResolvedNode<'a>),
 }
 
-struct FacetColPipelinePlan {
-    cell_values: Vec<ScalarValue>,
-    cells: Vec<FacetCellPlan>,
-    cell_data_overrides: Vec<DataFrame>,
-    nested_col_sharing: Option<u8>,
-    nested_depth: u8,
-    scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
-    shared_scale_builder: ScaleBuilder,
-}
-
 impl<'a> FacetColMeasurePipeline<'a> {
     fn new(
         scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
@@ -1532,7 +1346,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         };
         let cell_values = self.enumerate_cell_values(&resolved);
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if debug::layout_enabled() {
             eprintln!(
                 "FacetCol: facet_path={:?} cell_values={:?}",
                 self.facet_path, cell_values
@@ -1551,7 +1365,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             AvengerChartError::InternalError("FacetColumn measure requires data".into())
         })?;
 
-        let plan = self
+        let mut plan = self
             .build_measure_plan(cell_values, data_df, resolved.compiled_subplot)
             .await?;
 
@@ -1574,7 +1388,6 @@ impl<'a> FacetColMeasurePipeline<'a> {
         let pass1 = self
             .probe_overflow(
                 &plan.cells,
-                &plan.cell_data_overrides,
                 resolved.subplot_width,
                 resolved.compiled_subplot,
                 &subplot_eval_ctx,
@@ -1590,21 +1403,18 @@ impl<'a> FacetColMeasurePipeline<'a> {
             resolved.subplot_width,
         )?;
 
-        let final_measure = self
-            .measure_final_cells(
-                &band_plan.cells,
-                &plan.cell_data_overrides,
-                final_subplot_width,
-                resolved.compiled_subplot,
-                &subplot_eval_ctx,
-                &nested_measure_ctx,
-            )
-            .await?;
+        self.measure_final_cells(
+            &mut plan.cells,
+            final_subplot_width,
+            resolved.compiled_subplot,
+            &subplot_eval_ctx,
+            &nested_measure_ctx,
+        )
+        .await?;
 
         Ok(self.build_coord_measurement(
             band_plan,
-            final_measure,
-            plan.cell_data_overrides,
+            plan.cells,
             plan.shared_scale_builder,
             resolved.compiled_subplot,
             final_subplot_width,
@@ -1646,7 +1456,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         };
 
         let Some(current_node) = current_node else {
-            if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+            if debug::layout_enabled() {
                 eprintln!(
                     "FacetCol: path {:?} not in tree (empty cell context), returning empty measurement",
                     self.facet_path
@@ -1697,8 +1507,8 @@ impl<'a> FacetColMeasurePipeline<'a> {
         cell_values: Vec<ScalarValue>,
         data_df: &DataFrame,
         compiled_subplot: &Arc<CompiledPlot>,
-    ) -> Result<FacetColPipelinePlan, AvengerChartError> {
-        let plan = build_facet_col_measure_plan(
+    ) -> Result<FacetColMeasurePlan, AvengerChartError> {
+        build_facet_col_measure_plan(
             cell_values,
             self.facet_path,
             data_df,
@@ -1706,25 +1516,12 @@ impl<'a> FacetColMeasurePipeline<'a> {
             &self.eval_ctx.facet_tree,
             self.eval_ctx,
         )
-        .await?;
-
-        let cell_data_overrides = materialize_cell_data_overrides(&plan.cells, data_df)?;
-
-        Ok(FacetColPipelinePlan {
-            cell_values: plan.cell_values,
-            cells: plan.cells,
-            cell_data_overrides,
-            nested_col_sharing: plan.nested_col_sharing,
-            nested_depth: plan.nested_depth,
-            scale_builder_cache: plan.scale_builder_cache,
-            shared_scale_builder: plan.shared_scale_builder,
-        })
+        .await
     }
 
     async fn probe_overflow(
         &self,
-        cells: &[FacetCellPlan],
-        cell_data_overrides: &[DataFrame],
+        cells: &[FacetCellDraft],
         subplot_width: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
@@ -1732,7 +1529,6 @@ impl<'a> FacetColMeasurePipeline<'a> {
     ) -> Result<OverflowProbeSummary, AvengerChartError> {
         measure_cells_overflow_probe(
             cells,
-            cell_data_overrides,
             subplot_width,
             self.plot_height,
             compiled_subplot,
@@ -1744,11 +1540,11 @@ impl<'a> FacetColMeasurePipeline<'a> {
 
     fn derive_layout_plan(
         &self,
-        cells: &[FacetCellPlan],
+        cells: &[FacetCellDraft],
         cell_values: &[ScalarValue],
         pass1: &OverflowProbeSummary,
     ) -> FacetBandPlan {
-        let pass1_empty_cells: Vec<bool> = cells.iter().map(|cell| cell.is_empty).collect();
+        let pass1_empty_cells: Vec<bool> = cells.iter().map(|cell| cell.plan.is_empty).collect();
 
         let padding_inner_px = compute_padding_from_overflows(
             &pass1
@@ -1774,7 +1570,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             .map(|(guide, total)| (total.right - guide.right).max(0.0))
             .unwrap_or(0.0);
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if debug::layout_enabled() {
             eprintln!(
                 "FacetCol coord measure: padding_inner_px={:.1}, outer_left={:.1}, outer_right={:.1} from {} cells (edge_idx={}..={})",
                 padding_inner_px,
@@ -1787,7 +1583,6 @@ impl<'a> FacetColMeasurePipeline<'a> {
         }
 
         FacetBandPlan {
-            cells: cells.to_vec(),
             padding_inner_px,
             outer_left,
             outer_right,
@@ -1822,7 +1617,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             AvengerChartError::InternalError(format!("Failed to get final bandwidth: {}", e))
         })?;
 
-        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        if debug::layout_enabled() {
             eprintln!(
                 "FacetCol coord measure pass 2: initial_width={:.1} -> final_width={:.1}",
                 initial_subplot_width, final_subplot_width
@@ -1834,16 +1629,14 @@ impl<'a> FacetColMeasurePipeline<'a> {
 
     async fn measure_final_cells(
         &self,
-        cells: &[FacetCellPlan],
-        cell_data_overrides: &[DataFrame],
+        cells: &mut [FacetCellDraft],
         final_subplot_width: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
         nested_measure_ctx: &FacetColNestedMeasureContext<'_>,
-    ) -> Result<FinalMeasureSummary, AvengerChartError> {
+    ) -> Result<(), AvengerChartError> {
         measure_cells_final_and_extents(
             cells,
-            cell_data_overrides,
             final_subplot_width,
             self.plot_height,
             compiled_subplot,
@@ -1856,30 +1649,24 @@ impl<'a> FacetColMeasurePipeline<'a> {
     fn build_coord_measurement(
         &self,
         band_plan: FacetBandPlan,
-        final_measure: FinalMeasureSummary,
-        cell_data_overrides: Vec<DataFrame>,
+        cells: Vec<FacetCellDraft>,
         shared_scale_builder: ScaleBuilder,
         compiled_subplot: &Arc<CompiledPlot>,
         final_subplot_width: f32,
         column_scale: &ConfiguredScaleWithSpec,
         coordination_field_identity: String,
     ) -> Box<dyn CoordMeasurement> {
-        let cell_runtimes: Vec<FacetCellRuntime> = band_plan
-            .cells
-            .iter()
-            .cloned()
-            .zip(cell_data_overrides)
-            .zip(final_measure.measurements)
-            .zip(final_measure.local_domain_extents)
-            .map(
-                |(((plan, data_override), measurement), local_domain_extents)| FacetCellRuntime {
-                    data_override,
-                    plan,
-                    measurement,
-                    local_domain_extents,
-                    coordinated_domain_extents: HashMap::new(),
-                },
-            )
+        let cell_runtimes: Vec<FacetCellRuntime> = cells
+            .into_iter()
+            .map(|cell| FacetCellRuntime {
+                data_override: cell.data_override,
+                plan: cell.plan,
+                measurement: cell
+                    .measurement
+                    .expect("FacetCol internal invariant violated: missing final cell measurement"),
+                local_domain_extents: cell.local_domain_extents,
+                coordinated_domain_extents: HashMap::new(),
+            })
             .collect();
 
         let local_layout = CoordinatedLayout {
@@ -2048,26 +1835,6 @@ mod tests {
         )
         .unwrap();
         BandScale::configured(domain, range)
-    }
-
-    #[test]
-    fn facet_row_constructs_struct() {
-        let _coord = FacetRow;
-    }
-
-    #[test]
-    fn compute_band_layout_derives_bandwidth_from_scale_positions() {
-        let positions = vec![0.0, 100.0, 200.0];
-        let (starts, bandwidth) = compute_band_layout(&positions, 260.0);
-        assert_eq!(starts, positions);
-        assert!((bandwidth - 60.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn compute_band_layout_falls_back_when_inference_invalid() {
-        let positions = vec![10.0, 20.0, 30.0];
-        let (_starts, bandwidth) = compute_band_layout(&positions, 0.0);
-        assert!((bandwidth - 10.0).abs() < 0.01);
     }
 
     #[test]

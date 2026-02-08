@@ -4,7 +4,9 @@
 
 pub mod band_positions;
 pub mod coord;
+pub mod coord_row;
 pub mod coordination;
+pub mod debug;
 pub mod dimension_config;
 pub mod evaluated_facet_tree;
 pub mod guide;
