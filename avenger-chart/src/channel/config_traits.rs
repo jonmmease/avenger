@@ -299,7 +299,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             otherwise,
             scale_config,
             legend_config,
-            ..
+            share_mode,
         } => {
             conditions.push((condition_node, new_branch));
             ChannelValue::Conditional {
@@ -307,7 +307,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
                 otherwise,
                 scale_config,
                 legend_config,
-                share_mode: None,
+                share_mode,
             }
         }
         ChannelValue::Scaled {
@@ -316,13 +316,13 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             legend_config,
             scale_name: _,
             band: _,
-            ..
+            share_mode,
         } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
-            share_mode: None,
+            share_mode,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
@@ -346,7 +346,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             otherwise,
             scale_config,
             legend_config,
-            ..
+            share_mode,
         } => {
             conditions.push((condition_node, new_branch));
             ChannelValue::Conditional {
@@ -354,7 +354,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
                 otherwise,
                 scale_config,
                 legend_config,
-                share_mode: None,
+                share_mode,
             }
         }
         ChannelValue::Scaled {
@@ -363,13 +363,13 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             legend_config,
             scale_name: _,
             band: _,
-            ..
+            share_mode,
         } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
             otherwise: ConditionalValue::Scaled { expr },
             scale_config,
             legend_config,
-            share_mode: None,
+            share_mode,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
@@ -389,6 +389,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             scale_name,
             band,
             legend_config,
+            share_mode,
             ..
         } => ChannelValue::Scaled {
             expr,
@@ -396,19 +397,20 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             band,
             scale_config: Some(scale_config),
             legend_config,
-            share_mode: None,
+            share_mode,
         },
         ChannelValue::Conditional {
             conditions,
             otherwise,
             legend_config,
+            share_mode,
             ..
         } => ChannelValue::Conditional {
             conditions,
             otherwise,
             scale_config: Some(scale_config),
             legend_config,
-            share_mode: None,
+            share_mode,
         },
         ChannelValue::Value { .. } => {
             // Identity values don't support scale config
@@ -425,6 +427,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             scale_name,
             band,
             scale_config,
+            share_mode,
             ..
         } => ChannelValue::Scaled {
             expr,
@@ -432,19 +435,20 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             band,
             scale_config,
             legend_config: Some(legend_config),
-            share_mode: None,
+            share_mode,
         },
         ChannelValue::Conditional {
             conditions,
             otherwise,
             scale_config,
+            share_mode,
             ..
         } => ChannelValue::Conditional {
             conditions,
             otherwise,
             scale_config,
             legend_config: Some(legend_config),
-            share_mode: None,
+            share_mode,
         },
         ChannelValue::Value { .. } => {
             // Identity values don't support legend config

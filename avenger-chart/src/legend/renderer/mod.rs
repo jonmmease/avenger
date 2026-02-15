@@ -151,9 +151,10 @@ pub struct LegendChannel {
     pub name: String,
     pub expression: Option<Expr>,
     pub scale: ConfiguredScale,
-    pub channel_type: String, // "fill", "stroke", "size", etc.
-    pub mark_type: String,    // "point", "line", "rect", etc.
-    pub mark_index: usize,    // Index of the mark in the plot's marks array
+    pub channel_type: String,      // "fill", "stroke", "size", etc.
+    pub sharing_level: Option<u8>, // Scale sharing level (0=Free, N=Level(N), 255=Shared)
+    pub mark_type: String,         // "point", "line", "rect", etc.
+    pub mark_index: usize,         // Index of the mark in the plot's marks array
     pub related_channels: HashMap<String, ChannelInfo>, // Other channels from same mark
 }
 

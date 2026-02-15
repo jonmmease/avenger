@@ -592,11 +592,17 @@ impl CompiledMark for CompiledFacetCol {
                 )
                 .await?;
 
-            // Combine all marks into a single group at [position, 0]
-            // Use the subplot's clip (from Cartesian/Polar guide) for proper data clipping
-            let mut all_marks = Vec::new();
+            // Mirror top-level plot composition: only data marks are clipped to plot area.
+            // Guides/legends/titles must render outside the plot clip region.
+            let data_marks_group = SceneGroup {
+                origin: [0.0, 0.0],
+                marks: components.data_marks,
+                clip: components.clip,
+                zindex: Some(0),
+                ..Default::default()
+            };
+            let mut all_marks = vec![SceneMark::Group(data_marks_group)];
             all_marks.extend(components.guide_marks);
-            all_marks.extend(components.data_marks);
             all_marks.extend(components.legend_marks);
             all_marks.extend(components.title_marks);
             all_marks.extend(components.subtitle_marks);
@@ -604,7 +610,7 @@ impl CompiledMark for CompiledFacetCol {
             let subplot_group = SceneGroup {
                 name: format!("facet_col_{}", idx),
                 origin: [position, 0.0],
-                clip: components.clip, // Use subplot's clip for proper data clipping
+                clip: avenger_scenegraph::marks::group::Clip::None,
                 marks: all_marks,
                 gradients: Vec::new(),
                 fill: None,

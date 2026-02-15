@@ -25,6 +25,7 @@ pub mod test_default_axes_visual;
 pub mod test_eight_types_symbol;
 pub mod test_facet_column;
 pub mod test_facet_domain_edge_cases;
+pub mod test_facet_legend_sharing;
 pub mod test_facet_legends;
 pub mod test_facet_measurement_edge_cases;
 pub mod test_facet_overflow_overlap;

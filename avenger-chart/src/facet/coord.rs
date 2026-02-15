@@ -185,6 +185,7 @@ impl FacetColCoordMeasurement {
     }
 
     pub fn set_coordinated_layout_value(&mut self, layout: CoordinatedLayout) {
+        let layout = coordinated_layout_preserving_outer_edges(&self.local_layout, layout);
         self.coordinated_layout = Some(layout);
     }
 
@@ -267,6 +268,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 None,
                 false,
                 needs_zero_padding_override,
+                self.facet_depth > 1,
             );
 
             *column_scale =
@@ -283,6 +285,7 @@ fn apply_facet_col_scale_layout(
     band_n_override: Option<usize>,
     set_padding_always: bool,
     allow_zero_padding_override: bool,
+    side_specific_outer_edges: bool,
 ) -> ConfiguredScale {
     let mut updated = base.clone();
 
@@ -305,11 +308,34 @@ fn apply_facet_col_scale_layout(
     if (layout.outer_left > 0.0 || layout.outer_right > 0.0)
         && let Ok((range_start, range_end)) = updated.config.numeric_interval_range()
     {
-        let new_end = range_end - layout.outer_left - layout.outer_right;
-        updated = updated.with_range_interval((range_start, new_end));
+        let new_start = if side_specific_outer_edges {
+            range_start + layout.outer_left
+        } else {
+            range_start
+        };
+        let mut new_end = if side_specific_outer_edges {
+            range_end - layout.outer_right
+        } else {
+            range_end - layout.outer_left - layout.outer_right
+        };
+
+        if new_end <= new_start {
+            new_end = new_start + 1.0;
+        }
+
+        updated = updated.with_range_interval((new_start, new_end));
     }
 
     updated
+}
+
+fn coordinated_layout_preserving_outer_edges(
+    local_layout: &CoordinatedLayout,
+    mut coordinated_layout: CoordinatedLayout,
+) -> CoordinatedLayout {
+    coordinated_layout.outer_left = local_layout.outer_left;
+    coordinated_layout.outer_right = local_layout.outer_right;
+    coordinated_layout
 }
 
 fn has_coordinated_layout_change(
@@ -332,6 +358,14 @@ fn legend_vertical_overflow(coordinated: &CoordinatedOverflow) -> (f32, f32) {
     let legend_top = (coordinated.total.top - coordinated.guide.top).max(0.0);
     let legend_bottom = (coordinated.total.bottom - coordinated.guide.bottom).max(0.0);
     (legend_top, legend_bottom)
+}
+
+fn adjusted_height_for_legend_overflow(
+    original_height: f32,
+    legend_top: f32,
+    legend_bottom: f32,
+) -> f32 {
+    (original_height - legend_top - legend_bottom).max(1.0)
 }
 
 #[cfg(test)]
@@ -423,6 +457,7 @@ impl FacetColCoordMeasurement {
                 Some(layout.n),
                 true,
                 false,
+                self.facet_depth > 1,
             );
 
             // Recompute subplot_width from coordinated scale
@@ -440,6 +475,10 @@ impl FacetColCoordMeasurement {
                 coordinated_n = layout.n,
                 local_padding = self.local_layout.padding_inner_px,
                 coordinated_padding = layout.padding_inner_px,
+                local_outer_left = self.local_layout.outer_left,
+                local_outer_right = self.local_layout.outer_right,
+                coordinated_outer_left = layout.outer_left,
+                coordinated_outer_right = layout.outer_right,
                 "FacetCol apply_coordinated_overflow layout coordination"
             );
 
@@ -460,11 +499,12 @@ impl FacetColCoordMeasurement {
             .map(|cell| cell.measurement.plot_area_height)
             .unwrap_or(0.0);
 
-        let adjusted_height = if has_legend_overflow {
-            (original_height - legend_top - legend_bottom).max(1.0)
-        } else {
-            original_height
-        };
+        // Keep the total cell height stable after coordinated overflow updates by
+        // shrinking the plot area by legend overflow at both edges.
+        // This avoids bottom clipping when top legends are introduced and keeps
+        // legend-reserved space from inflating the overall subplot stack.
+        let adjusted_height =
+            adjusted_height_for_legend_overflow(original_height, legend_top, legend_bottom);
 
         debug!(
             original_height,
@@ -582,6 +622,31 @@ struct FacetColNestedMeasureContext<'a> {
 struct OverflowProbeSummary {
     cell_overflows: Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>,
     max_child_padding: f32,
+}
+
+fn derive_padding_inner_px_from_probe(
+    pass1: &OverflowProbeSummary,
+    pass1_empty_cells: &[bool],
+) -> f32 {
+    const MAX_CHILD_PADDING_PROPAGATION_DELTA: f32 = 16.0;
+
+    let parent_padding = compute_padding_from_overflows(
+        &pass1
+            .cell_overflows
+            .iter()
+            .map(|(_, total)| total.clone())
+            .collect::<Vec<_>>(),
+        pass1_empty_cells,
+    );
+
+    // Preserve nested-grid alignment for moderate child-padding deltas while
+    // ignoring large child-padding spikes (typically legend-driven) that create
+    // oversized parent gaps.
+    if pass1.max_child_padding <= parent_padding + MAX_CHILD_PADDING_PROPAGATION_DELTA {
+        parent_padding.max(pass1.max_child_padding)
+    } else {
+        parent_padding
+    }
 }
 
 fn empty_facet_col_measurement(
@@ -1559,15 +1624,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
     ) -> FacetBandPlan {
         let pass1_empty_cells: Vec<bool> = cells.iter().map(|cell| cell.plan.is_empty).collect();
 
-        let padding_inner_px = compute_padding_from_overflows(
-            &pass1
-                .cell_overflows
-                .iter()
-                .map(|(_, total)| total.clone())
-                .collect::<Vec<_>>(),
-            &pass1_empty_cells,
-        )
-        .max(pass1.max_child_padding);
+        let padding_inner_px = derive_padding_inner_px_from_probe(pass1, &pass1_empty_cells);
 
         let (first_edge_idx, last_edge_idx) =
             effective_edge_indices(&pass1_empty_cells, pass1.cell_overflows.len())
@@ -1622,6 +1679,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             None,
             true,
             false,
+            !self.facet_path.is_empty(),
         );
 
         let final_subplot_width = bandwidth(&updated_column_scale.config).map_err(|e| {
@@ -1896,11 +1954,12 @@ mod tests {
             None,
             true,
             false,
+            true,
         );
 
         let (start, end) = updated.config.numeric_interval_range().unwrap();
-        assert_eq!(start, 0.0);
-        assert_eq!(end, 270.0);
+        assert_eq!(start, 10.0);
+        assert_eq!(end, 280.0);
         assert_eq!(
             updated
                 .config
@@ -1915,6 +1974,28 @@ mod tests {
     }
 
     #[test]
+    fn set_coordinated_layout_preserves_local_outer_edges() {
+        let local = CoordinatedLayout {
+            padding_inner_px: 6.0,
+            outer_left: 11.0,
+            outer_right: 12.0,
+            n: 2,
+        };
+        let coordinated = CoordinatedLayout {
+            padding_inner_px: 18.0,
+            outer_left: 91.0,
+            outer_right: 92.0,
+            n: 4,
+        };
+
+        let merged = coordinated_layout_preserving_outer_edges(&local, coordinated);
+        assert_eq!(merged.padding_inner_px, 18.0);
+        assert_eq!(merged.n, 4);
+        assert_eq!(merged.outer_left, local.outer_left);
+        assert_eq!(merged.outer_right, local.outer_right);
+    }
+
+    #[test]
     fn apply_facet_col_scale_layout_zero_padding_override_is_optional() {
         let base = make_band_scale((0.0, 200.0));
         let layout = CoordinatedLayout {
@@ -1924,10 +2005,12 @@ mod tests {
             n: 2,
         };
 
-        let no_override = apply_facet_col_scale_layout(&base, &layout, None, None, false, false);
+        let no_override =
+            apply_facet_col_scale_layout(&base, &layout, None, None, false, false, true);
         assert!(!no_override.config.options.contains_key("padding_inner_px"));
 
-        let with_override = apply_facet_col_scale_layout(&base, &layout, None, None, false, true);
+        let with_override =
+            apply_facet_col_scale_layout(&base, &layout, None, None, false, true, true);
         assert!(
             with_override
                 .config
@@ -1944,6 +2027,22 @@ mod tests {
                 .unwrap(),
             0.0
         );
+    }
+
+    #[test]
+    fn apply_facet_col_scale_layout_top_level_reserves_edges_on_range_end() {
+        let base = make_band_scale((0.0, 300.0));
+        let layout = CoordinatedLayout {
+            padding_inner_px: 12.0,
+            outer_left: 10.0,
+            outer_right: 20.0,
+            n: 3,
+        };
+
+        let updated = apply_facet_col_scale_layout(&base, &layout, None, None, true, false, false);
+        let (start, end) = updated.config.numeric_interval_range().unwrap();
+        assert_eq!(start, 0.0);
+        assert_eq!(end, 270.0);
     }
 
     #[test]
@@ -1978,5 +2077,86 @@ mod tests {
         assert!(should_remeasure_cells(true, false));
         assert!(should_remeasure_cells(false, true));
         assert!(should_remeasure_cells(true, true));
+    }
+
+    #[test]
+    fn adjusted_height_for_top_legend_overflow_reduces_height() {
+        assert_eq!(adjusted_height_for_legend_overflow(291.0, 48.0, 0.0), 243.0);
+    }
+
+    #[test]
+    fn adjusted_height_for_bottom_legend_overflow_reduces_height() {
+        assert_eq!(adjusted_height_for_legend_overflow(291.0, 0.0, 48.0), 243.0);
+    }
+
+    #[test]
+    fn adjusted_height_for_bottom_legend_overflow_clamps_to_minimum() {
+        assert_eq!(adjusted_height_for_legend_overflow(20.0, 0.0, 48.0), 1.0);
+    }
+
+    #[test]
+    fn adjusted_height_for_top_and_bottom_legend_overflow_reduces_height() {
+        assert_eq!(
+            adjusted_height_for_legend_overflow(291.0, 20.0, 28.0),
+            243.0
+        );
+    }
+
+    #[test]
+    fn derive_layout_plan_does_not_depend_on_child_padding() {
+        let pass1 = OverflowProbeSummary {
+            cell_overflows: vec![
+                (
+                    OverflowSpaceRequirement::default(),
+                    OverflowSpaceRequirement {
+                        right: 7.0,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    OverflowSpaceRequirement::default(),
+                    OverflowSpaceRequirement {
+                        left: 5.0,
+                        ..Default::default()
+                    },
+                ),
+            ],
+            max_child_padding: 50.0,
+        };
+        let empty_cells = vec![false, false];
+
+        assert_eq!(
+            derive_padding_inner_px_from_probe(&pass1, &empty_cells),
+            12.0
+        );
+    }
+
+    #[test]
+    fn derive_layout_plan_propagates_moderate_child_padding() {
+        let pass1 = OverflowProbeSummary {
+            cell_overflows: vec![
+                (
+                    OverflowSpaceRequirement::default(),
+                    OverflowSpaceRequirement {
+                        right: 7.0,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    OverflowSpaceRequirement::default(),
+                    OverflowSpaceRequirement {
+                        left: 5.0,
+                        ..Default::default()
+                    },
+                ),
+            ],
+            max_child_padding: 18.0,
+        };
+        let empty_cells = vec![false, false];
+
+        assert_eq!(
+            derive_padding_inner_px_from_probe(&pass1, &empty_cells),
+            18.0
+        );
     }
 }

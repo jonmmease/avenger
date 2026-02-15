@@ -12,7 +12,8 @@ use crate::{
     channel::value::ChannelValue,
     coords::{EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet::{evaluated_facet_tree::EvaluatedFacetTree, path_math},
+    guide::FacetDirection,
     layout::LayoutResult,
     layout::legend::measure_legend_size_with_channels,
     legend::{
@@ -55,6 +56,8 @@ pub(crate) struct PreparedLegendGroup {
     pub channels: Vec<LegendChannel>,
     pub legend: Legend,
     pub renderer: Arc<dyn LegendRenderer>,
+    pub effective_sharing_level: u8,
+    pub resolved_position: LegendPosition,
 }
 
 #[derive(Clone, Default)]
@@ -64,6 +67,70 @@ pub(crate) struct PreparedLegendPlan {
 }
 
 impl CompiledPlot {
+    fn effective_group_sharing_level(
+        facet_tree: &EvaluatedFacetTree,
+        channels: &[LegendChannel],
+    ) -> u8 {
+        channels
+            .iter()
+            .map(|channel| {
+                channel
+                    .sharing_level
+                    .unwrap_or_else(|| facet_tree.channel_sharing_level(channel.name.as_str()))
+            })
+            .min()
+            .unwrap_or(255)
+    }
+
+    fn legend_visible_for_facet_cell(
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        sharing_level: u8,
+        legend_position: LegendPosition,
+    ) -> bool {
+        if sharing_level == 0 {
+            return true;
+        }
+
+        if facet_path.is_empty() {
+            return true;
+        }
+
+        // Phase 1 behavior targets column facets; do not alter row-facet legend behavior.
+        let parent_path = &facet_path[..facet_path.len().saturating_sub(1)];
+        if let Some(parent_node) = facet_tree.node_at_path(parent_path) {
+            if parent_node.direction != FacetDirection::Column {
+                return true;
+            }
+        }
+
+        let Some(indices) = facet_tree.indices_from_path(facet_path) else {
+            return true;
+        };
+
+        if indices.is_empty() {
+            return true;
+        }
+
+        let level_counts = facet_tree.level_counts();
+        if level_counts.len() < indices.len() {
+            return true;
+        }
+
+        let facet_depth = indices.len() as u8;
+        let boundary = path_math::sharing_group_boundary(facet_depth, sharing_level);
+
+        match legend_position {
+            LegendPosition::Left | LegendPosition::Top => {
+                indices[boundary..].iter().all(|&i| i == 0)
+            }
+            LegendPosition::Right | LegendPosition::Bottom => indices[boundary..]
+                .iter()
+                .zip(level_counts[boundary..indices.len()].iter())
+                .all(|(&pos, &count)| pos == count.saturating_sub(1)),
+        }
+    }
+
     /// Apply a theme value to a legend field if the field is Unset
     ///
     /// This helper reduces repetition when applying theme defaults to legend properties.
@@ -577,12 +644,12 @@ impl CompiledPlot {
 
         // Get the mark type name
         let mark_type = mark.mark_type().to_string();
-
         LegendChannel {
             name: channel_name.to_string(),
             expression: channel_value.expr(ctx),
             scale: scale.configured().clone(),
             channel_type: channel_name.to_string(), // Use channel name as type
+            sharing_level: channel_value.get_share_mode().map(|mode| mode.to_level()),
             mark_type,
             mark_index,
             related_channels,
@@ -597,13 +664,23 @@ impl CompiledPlot {
     fn legend_visibility_allowed(
         &self,
         _channel: &str,
-        _scope: LegendPlanScope,
-        _facet_tree: &EvaluatedFacetTree,
-        _facet_path: &[ScalarValue],
+        scope: LegendPlanScope,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        resolved_position: LegendPosition,
+        effective_sharing_level: u8,
         _configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         _params: &IndexMap<String, ScalarValue>,
     ) -> bool {
-        true
+        match scope {
+            LegendPlanScope::TopLevel => true,
+            LegendPlanScope::FacetCell => Self::legend_visible_for_facet_cell(
+                facet_tree,
+                facet_path,
+                effective_sharing_level,
+                resolved_position,
+            ),
+        }
     }
 
     async fn resolve_legend_position(
@@ -829,11 +906,20 @@ impl CompiledPlot {
                 continue;
             };
 
+            let resolved_position = self
+                .resolve_legend_position(legend, primary_channel, scales, ctx, params)
+                .await?;
+
+            let effective_sharing_level =
+                Self::effective_group_sharing_level(facet_tree, channels.as_slice());
+
             if !self.legend_visibility_allowed(
                 &primary_channel.name,
                 scope,
                 facet_tree,
                 facet_path,
+                resolved_position,
+                effective_sharing_level,
                 scales,
                 params,
             ) {
@@ -880,16 +966,14 @@ impl CompiledPlot {
                     ctx,
                 )
                 .await?;
-                let position = self
-                    .resolve_legend_position(legend, primary_channel, scales, ctx, params)
-                    .await?;
 
                 debug!(
                     channel = primary_channel.name.as_str(),
                     width = size.width,
                     height = size.height,
                     flexible,
-                    position = ?position,
+                    position = ?resolved_position,
+                    sharing = effective_sharing_level,
                     "Legend measure"
                 );
                 legend_measurements.insert(
@@ -897,7 +981,7 @@ impl CompiledPlot {
                     LegendMeasurement {
                         size,
                         flexible,
-                        position,
+                        position: resolved_position,
                     },
                 );
 
@@ -906,6 +990,8 @@ impl CompiledPlot {
                     channels: channels.clone(),
                     legend: legend.clone(),
                     renderer,
+                    effective_sharing_level,
+                    resolved_position,
                 });
             }
         }
@@ -979,5 +1065,194 @@ impl CompiledPlot {
     fn default_legend_position(&self, _channel: &str) -> LegendPosition {
         // All legends default to the right
         LegendPosition::Right
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_scales::scales::band::BandScale;
+    use datafusion::logical_expr::Expr;
+    use indexmap::IndexMap;
+    use std::collections::HashMap;
+
+    use crate::facet::evaluated_facet_tree::PartitionNode;
+
+    fn s(value: &str) -> ScalarValue {
+        ScalarValue::Utf8(Some(value.to_string()))
+    }
+
+    fn make_simple_scale() -> ConfiguredScale {
+        let domain = ScalarValue::iter_to_array(vec![s("A"), s("B")].into_iter()).unwrap();
+        BandScale::configured(domain, (0.0, 100.0))
+    }
+
+    fn make_legend_channel(name: &str) -> LegendChannel {
+        LegendChannel {
+            name: name.to_string(),
+            expression: None::<Expr>,
+            scale: make_simple_scale(),
+            channel_type: name.to_string(),
+            sharing_level: None,
+            mark_type: "symbol".to_string(),
+            mark_index: 0,
+            related_channels: HashMap::new(),
+        }
+    }
+
+    fn make_two_level_column_tree_with_sharing(levels: HashMap<String, u8>) -> EvaluatedFacetTree {
+        let mut outer_children: IndexMap<ScalarValue, Box<PartitionNode>> = IndexMap::new();
+        for outer in ["DivA", "DivB"] {
+            let leaf = PartitionNode::leaf(
+                FacetDirection::Column,
+                0,
+                "department".to_string(),
+                None,
+                vec![s("Dept1"), s("Dept2")],
+            );
+            outer_children.insert(s(outer), Box::new(leaf));
+        }
+
+        let root = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "division".to_string(),
+            None,
+            outer_children,
+        );
+        EvaluatedFacetTree::new_with_sharing_levels(Some(root), levels)
+    }
+
+    #[test]
+    fn legend_visibility_free_always_true() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        let visible = CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivA"), s("Dept1")],
+            0,
+            LegendPosition::Right,
+        );
+        assert!(visible);
+    }
+
+    #[test]
+    fn legend_visibility_level1_right_last_in_group() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        assert!(!CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivA"), s("Dept1")],
+            1,
+            LegendPosition::Right,
+        ));
+        assert!(CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivA"), s("Dept2")],
+            1,
+            LegendPosition::Right,
+        ));
+        assert!(CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivB"), s("Dept2")],
+            1,
+            LegendPosition::Right,
+        ));
+    }
+
+    #[test]
+    fn legend_visibility_level1_left_first_in_group() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        assert!(CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivA"), s("Dept1")],
+            1,
+            LegendPosition::Left,
+        ));
+        assert!(!CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivA"), s("Dept2")],
+            1,
+            LegendPosition::Left,
+        ));
+    }
+
+    #[test]
+    fn legend_visibility_level1_top_first_in_group() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        assert!(CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivB"), s("Dept1")],
+            1,
+            LegendPosition::Top,
+        ));
+        assert!(!CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivB"), s("Dept2")],
+            1,
+            LegendPosition::Top,
+        ));
+    }
+
+    #[test]
+    fn legend_visibility_level1_bottom_last_in_group() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        assert!(!CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivB"), s("Dept1")],
+            1,
+            LegendPosition::Bottom,
+        ));
+        assert!(CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivB"), s("Dept2")],
+            1,
+            LegendPosition::Bottom,
+        ));
+    }
+
+    #[test]
+    fn legend_visibility_level2_coarser_grouping() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        assert!(!CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivA"), s("Dept2")],
+            2,
+            LegendPosition::Right,
+        ));
+        assert!(CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivB"), s("Dept2")],
+            2,
+            LegendPosition::Right,
+        ));
+    }
+
+    #[test]
+    fn legend_visibility_level_ge_depth_global_group() {
+        let tree = make_two_level_column_tree_with_sharing(HashMap::new());
+        assert!(CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivA"), s("Dept1")],
+            3,
+            LegendPosition::Left,
+        ));
+        assert!(!CompiledPlot::legend_visible_for_facet_cell(
+            &tree,
+            &[s("DivB"), s("Dept1")],
+            3,
+            LegendPosition::Left,
+        ));
+    }
+
+    #[test]
+    fn effective_group_sharing_uses_min_level() {
+        let mut levels = HashMap::new();
+        levels.insert("fill".to_string(), 1);
+        levels.insert("stroke".to_string(), 255);
+        let tree = make_two_level_column_tree_with_sharing(levels);
+        let channels = vec![make_legend_channel("fill"), make_legend_channel("stroke")];
+        assert_eq!(
+            CompiledPlot::effective_group_sharing_level(&tree, &channels),
+            1
+        );
     }
 }

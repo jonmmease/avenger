@@ -218,6 +218,7 @@ mod tests {
     use datafusion_proto::protobuf::LogicalExprNode;
 
     use super::*;
+    use crate::channel::config_traits::ScaleSharing;
     use crate::{channel::ConditionalValue, serialization::LogicalExprNodeExt};
 
     // Helper function to check if two ChannelValues are structurally equal
@@ -485,5 +486,25 @@ mod tests {
         };
 
         assert_channel_value_eq(&config.into_inner(), &expected);
+    }
+
+    #[test]
+    fn test_color_config_preserves_share_mode_with_legend_config() {
+        let value = ColorChannelConfig::new(col("temperature").into())
+            .with_scale_sharing(ScaleSharing::Level(1))
+            .legend(|l| l.title("Temperature"))
+            .into_inner();
+
+        assert_eq!(value.get_share_mode(), Some(ScaleSharing::Level(1)));
+    }
+
+    #[test]
+    fn test_color_config_preserves_share_mode_through_conditionals() {
+        let value = ColorChannelConfig::new(col("temperature").into())
+            .with_scale_sharing(ScaleSharing::Level(2))
+            .when_value(col("selected"), lit("red"))
+            .into_inner();
+
+        assert_eq!(value.get_share_mode(), Some(ScaleSharing::Level(2)));
     }
 }

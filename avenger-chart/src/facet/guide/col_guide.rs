@@ -4,6 +4,8 @@
 //! for column-based faceted plots.
 
 use crate::cartesian::axis::CartesianAxis;
+use crate::coords::CoordMeasurement;
+use crate::coords::CoordinatedOverflow;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
 use crate::facet::coord::FacetColCoordMeasurement;
@@ -116,6 +118,157 @@ pub struct FacetColGuide {
     position: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GuideAnchorSource {
+    CoordinatedGuide,
+    LocalGuide,
+    DefaultZero,
+}
+
+impl GuideAnchorSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::CoordinatedGuide => "coordinated_guide",
+            Self::LocalGuide => "local_guide",
+            Self::DefaultZero => "default_zero",
+        }
+    }
+}
+
+fn guide_anchor_value(overflow: &CoordinatedOverflow, place_at_bottom: bool) -> f32 {
+    if place_at_bottom {
+        overflow.guide.bottom
+    } else {
+        overflow.guide.top
+    }
+}
+
+fn resolve_guide_anchor_overflow(
+    place_at_bottom: bool,
+    coordinated_overflow: Option<&CoordinatedOverflow>,
+    local_overflow: Option<&CoordinatedOverflow>,
+) -> (f32, GuideAnchorSource) {
+    if let Some(coordinated) = coordinated_overflow {
+        return (
+            guide_anchor_value(coordinated, place_at_bottom),
+            GuideAnchorSource::CoordinatedGuide,
+        );
+    }
+
+    if let Some(local) = local_overflow {
+        return (
+            guide_anchor_value(local, place_at_bottom),
+            GuideAnchorSource::LocalGuide,
+        );
+    }
+
+    (0.0, GuideAnchorSource::DefaultZero)
+}
+
+fn coordinated_overflow_is_zero(overflow: &CoordinatedOverflow) -> bool {
+    overflow.guide.top == 0.0
+        && overflow.guide.bottom == 0.0
+        && overflow.guide.left == 0.0
+        && overflow.guide.right == 0.0
+        && overflow.total.top == 0.0
+        && overflow.total.bottom == 0.0
+        && overflow.total.left == 0.0
+        && overflow.total.right == 0.0
+}
+
+fn preferred_overflow_for_facet_measurement(
+    facet_measurement: &FacetColCoordMeasurement,
+) -> Option<CoordinatedOverflow> {
+    if !coordinated_overflow_is_zero(&facet_measurement.coordinated_overflow) {
+        Some(facet_measurement.coordinated_overflow.clone())
+    } else {
+        facet_measurement.local_overflow_value()
+    }
+}
+
+fn top_legend_delta(overflow: &CoordinatedOverflow) -> f32 {
+    (overflow.total.top - overflow.guide.top).max(0.0)
+}
+
+fn max_top_legend_delta_subtree(facet_measurement: &FacetColCoordMeasurement) -> f32 {
+    let own_delta = preferred_overflow_for_facet_measurement(facet_measurement)
+        .as_ref()
+        .map(top_legend_delta)
+        .unwrap_or(0.0);
+
+    let child_delta = facet_measurement
+        .child_measurements_iter()
+        .filter_map(|child| {
+            child
+                .coord_measurement
+                .as_any()
+                .downcast_ref::<FacetColCoordMeasurement>()
+        })
+        .map(max_top_legend_delta_subtree)
+        .fold(0.0f32, f32::max);
+
+    own_delta.max(child_delta)
+}
+
+fn resolve_top_legend_clearance(
+    coord_measurement: Option<&dyn CoordMeasurement>,
+    coordinated_overflow: Option<&CoordinatedOverflow>,
+    local_overflow: Option<&CoordinatedOverflow>,
+) -> f32 {
+    if let Some(facet_measurement) = coord_measurement.and_then(|measurement| {
+        measurement
+            .as_any()
+            .downcast_ref::<FacetColCoordMeasurement>()
+    }) {
+        return max_top_legend_delta_subtree(facet_measurement);
+    }
+
+    coordinated_overflow
+        .or(local_overflow)
+        .map(top_legend_delta)
+        .unwrap_or(0.0)
+}
+
+fn measure_facet_guide_height(
+    labels: &[String],
+    facet_title: Option<&String>,
+    theme: &crate::theme::Theme,
+    params: &IndexMap<String, datafusion::common::ScalarValue>,
+) -> f32 {
+    if labels.is_empty() {
+        return 0.0;
+    }
+
+    let label_ctx = ThemeContext::new("guide", params.clone())
+        .child("facet")
+        .child("label");
+    let title_ctx = ThemeContext::new("guide", params.clone())
+        .child("facet")
+        .child("title");
+
+    let label_font_size = theme.font_size(&label_ctx).unwrap_or(10.0);
+    let title_font_size = theme.font_size(&title_ctx).unwrap_or(12.0);
+    let font_family = theme
+        .font_family(&label_ctx)
+        .unwrap_or_else(|| "sans-serif".to_string());
+    let title_font_family = theme
+        .font_family(&title_ctx)
+        .unwrap_or_else(|| "sans-serif".to_string());
+
+    let measurement_config = FacetLabelMeasurementConfig {
+        labels: labels.to_vec(),
+        is_rotated: false, // Column labels are horizontal
+        font_family,
+        font_size_px: label_font_size,
+        title: facet_title.cloned(),
+        title_font_family,
+        title_font_size_px: title_font_size,
+        render_title: facet_title.is_some(),
+    };
+
+    measure_facet_label_slab(&measurement_config)
+}
+
 #[async_trait::async_trait]
 #[typetag::serde]
 impl CompiledGuide for FacetColGuide {
@@ -178,42 +331,32 @@ impl CompiledGuide for FacetColGuide {
 
         // Add facet guide space for all nesting levels
         // Each level measures and renders its own labels
-        let facet_guide_height = if !labels.is_empty() {
-            // Get font properties from theme for measurement
-            let label_ctx = ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("label");
-            let title_ctx = ThemeContext::new("guide", params.clone())
-                .child("facet")
-                .child("title");
+        let facet_guide_height =
+            measure_facet_guide_height(&labels, self.facet_title.as_ref(), theme, params);
 
-            let label_font_size = theme.font_size(&label_ctx).unwrap_or(10.0);
-            let title_font_size = theme.font_size(&title_ctx).unwrap_or(12.0);
-            let font_family = theme
-                .font_family(&label_ctx)
-                .unwrap_or_else(|| "sans-serif".to_string());
-            let title_font_family = theme
-                .font_family(&title_ctx)
-                .unwrap_or_else(|| "sans-serif".to_string());
-
-            let measurement_config = FacetLabelMeasurementConfig {
-                labels,
-                is_rotated: false, // Column labels are horizontal
-                font_family,
-                font_size_px: label_font_size,
-                title: self.facet_title.clone(),
-                title_font_family,
-                title_font_size_px: title_font_size,
-                render_title: self.facet_title.is_some(),
-            };
-
-            measure_facet_label_slab(&measurement_config)
-        } else {
-            0.0
-        };
-
-        // Add facet guide height to top or bottom overflow depending on position
         let place_at_bottom = self.position.as_deref() == Some("bottom");
+        let local_overflow = coord_measurement
+            .and_then(|measurement| {
+                measurement
+                    .as_any()
+                    .downcast_ref::<FacetColCoordMeasurement>()
+            })
+            .and_then(preferred_overflow_for_facet_measurement);
+
+        // Keep facet guides above legend bounds for top-positioned legends.
+        // Use guide-top anchoring plus top legend clearance from this subtree.
+        let guide_anchor_top = local_overflow
+            .as_ref()
+            .map(|overflow| overflow.guide.top)
+            .unwrap_or(subplot_overflow.top);
+        let top_legend_clearance = if place_at_bottom {
+            0.0
+        } else {
+            resolve_top_legend_clearance(coord_measurement, None, None)
+        };
+        let effective_top_anchor = guide_anchor_top + top_legend_clearance;
+
+        // Add facet guide height to top or bottom overflow depending on position.
         let (total_top, total_bottom) = if place_at_bottom {
             (
                 subplot_overflow.top,
@@ -221,7 +364,7 @@ impl CompiledGuide for FacetColGuide {
             )
         } else {
             (
-                subplot_overflow.top + facet_guide_height,
+                effective_top_anchor + facet_guide_height,
                 subplot_overflow.bottom,
             )
         };
@@ -229,6 +372,9 @@ impl CompiledGuide for FacetColGuide {
         debug!(
             position = ?self.position,
             subplot_overflow_top = subplot_overflow.top,
+            guide_anchor_top,
+            top_legend_clearance,
+            effective_top_anchor,
             facet_guide_height,
             total_top,
             total_bottom,
@@ -309,23 +455,54 @@ impl CompiledGuide for FacetColGuide {
 
         // Determine position - "bottom" places labels below, default "top" places above
         let place_at_bottom = self.position.as_deref() == Some("bottom");
+        let facet_guide_height =
+            measure_facet_guide_height(&labels, self.facet_title.as_ref(), theme, params);
 
-        // Use coordinated overflow value (computed globally across all facets at this nesting level)
-        // This ensures all facet labels at the same depth are aligned
-        // Use total overflow (guide + legend) so labels are positioned outside any legends
+        // Anchor facet guide rendering to GUIDE overflow, not total overflow.
+        // This preserves outer->inner facet-guide hierarchy under top legends.
+        //
+        // Legend space is still reserved via measure_overflow/layout, but legends should not
+        // reorder nested facet guide slabs during rendering.
         let coordinated_overflow = coord_measurement.coordinated_overflow();
-        let subplot_overflow = if place_at_bottom {
-            coordinated_overflow
-                .map(|co| co.total.bottom)
-                .unwrap_or(0.0)
+        let local_overflow = coord_measurement
+            .as_any()
+            .downcast_ref::<FacetColCoordMeasurement>()
+            .and_then(|fcm| fcm.local_overflow_value());
+        let (subplot_overflow, anchor_source) = resolve_guide_anchor_overflow(
+            place_at_bottom,
+            coordinated_overflow,
+            local_overflow.as_ref(),
+        );
+        let top_legend_clearance = if place_at_bottom {
+            0.0
         } else {
-            coordinated_overflow.map(|co| co.total.top).unwrap_or(0.0)
+            resolve_top_legend_clearance(
+                Some(coord_measurement),
+                coordinated_overflow,
+                local_overflow.as_ref(),
+            )
+        };
+        let subplot_overflow = if place_at_bottom {
+            subplot_overflow
+        } else {
+            subplot_overflow + top_legend_clearance
         };
 
         debug!(
             position = ?self.position,
             plot_bounds_y = plot_bounds.y,
             subplot_overflow,
+            top_legend_clearance,
+            facet_guide_height,
+            anchor_source = anchor_source.as_str(),
+            coordinated_guide_top = coordinated_overflow.map(|co| co.guide.top),
+            coordinated_guide_bottom = coordinated_overflow.map(|co| co.guide.bottom),
+            coordinated_total_top = coordinated_overflow.map(|co| co.total.top),
+            coordinated_total_bottom = coordinated_overflow.map(|co| co.total.bottom),
+            local_guide_top = local_overflow.as_ref().map(|co| co.guide.top),
+            local_guide_bottom = local_overflow.as_ref().map(|co| co.guide.bottom),
+            local_total_top = local_overflow.as_ref().map(|co| co.total.top),
+            local_total_bottom = local_overflow.as_ref().map(|co| co.total.bottom),
             labels = ?labels,
             "FacetColGuide evaluate"
         );
@@ -574,5 +751,65 @@ fn format_scalar_value(value: &datafusion::common::ScalarValue) -> String {
         ScalarValue::Float64(Some(n)) => format!("{:.2}", n),
         ScalarValue::Boolean(Some(b)) => b.to_string(),
         _ => format!("{:?}", value),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn coordinated_overflow(
+        guide_top: f32,
+        guide_bottom: f32,
+        total_top: f32,
+        total_bottom: f32,
+    ) -> CoordinatedOverflow {
+        CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                top: guide_top,
+                bottom: guide_bottom,
+                ..Default::default()
+            },
+            total: OverflowSpaceRequirement {
+                top: total_top,
+                bottom: total_bottom,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn resolve_guide_anchor_top_prefers_guide_over_total() {
+        let coordinated = coordinated_overflow(41.0, 34.0, 55.0, 34.0);
+        let (resolved, source) = resolve_guide_anchor_overflow(false, Some(&coordinated), None);
+        assert_eq!(resolved, 41.0);
+        assert_eq!(source, GuideAnchorSource::CoordinatedGuide);
+    }
+
+    #[test]
+    fn resolve_guide_anchor_bottom_prefers_guide_over_total() {
+        let coordinated = coordinated_overflow(41.0, 7.0, 41.0, 55.0);
+        let (resolved, source) = resolve_guide_anchor_overflow(true, Some(&coordinated), None);
+        assert_eq!(resolved, 7.0);
+        assert_eq!(source, GuideAnchorSource::CoordinatedGuide);
+    }
+
+    #[test]
+    fn resolve_guide_anchor_falls_back_to_local_guide_overflow() {
+        let local = coordinated_overflow(12.0, 8.0, 60.0, 40.0);
+        let (resolved_top, source_top) = resolve_guide_anchor_overflow(false, None, Some(&local));
+        let (resolved_bottom, source_bottom) =
+            resolve_guide_anchor_overflow(true, None, Some(&local));
+        assert_eq!(resolved_top, 12.0);
+        assert_eq!(source_top, GuideAnchorSource::LocalGuide);
+        assert_eq!(resolved_bottom, 8.0);
+        assert_eq!(source_bottom, GuideAnchorSource::LocalGuide);
+    }
+
+    #[test]
+    fn resolve_guide_anchor_defaults_to_zero_without_overflow_context() {
+        let (resolved, source) = resolve_guide_anchor_overflow(false, None, None);
+        assert_eq!(resolved, 0.0);
+        assert_eq!(source, GuideAnchorSource::DefaultZero);
     }
 }
