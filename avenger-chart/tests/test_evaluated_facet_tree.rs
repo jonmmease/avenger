@@ -386,15 +386,11 @@ async fn test_sharing_level_stored_in_node() {
 }
 
 #[tokio::test]
-async fn test_inner_domain_union() {
-    // Test that inner_domain_union returns the union of all inner domains
+async fn test_enumerate_values_for_facet_shared_returns_union() {
+    // Production behavior: enumerate values for inner facet under shared semantics.
     let ctx = SessionContext::new();
     let df = create_varying_domain_data(&ctx).await;
 
-    // Nested: FacetRow (region) > FacetRow (species)
-    // east has: setosa, versicolor
-    // west has: versicolor, virginica
-    // Union should be: setosa, versicolor, virginica
     let plot =
         Plot::<FacetRow>::new()
             .data(df)
@@ -414,21 +410,25 @@ async fn test_inner_domain_union() {
         .await
         .expect("build spec");
 
-    // Get the union of all inner domain values
-    let union = spec
-        .inner_domain_union(&[])
-        .expect("should have inner domain union");
+    // For the inner facet (species), shared enumeration should return union of all species.
+    let east_union = spec
+        .enumerate_values_for_facet(&[scalar("east")], 255)
+        .expect("east values");
+    let west_union = spec
+        .enumerate_values_for_facet(&[scalar("west")], 255)
+        .expect("west values");
 
-    // Should contain all three species
-    assert_eq!(union.len(), 3);
-    assert!(union.contains(&scalar("setosa")));
-    assert!(union.contains(&scalar("versicolor")));
-    assert!(union.contains(&scalar("virginica")));
+    assert_eq!(east_union.len(), 3);
+    assert_eq!(west_union.len(), 3);
+    assert_eq!(east_union, west_union);
+    assert!(east_union.contains(&scalar("setosa")));
+    assert!(east_union.contains(&scalar("versicolor")));
+    assert!(east_union.contains(&scalar("virginica")));
 }
 
 #[tokio::test]
-async fn test_domain_values_at() {
-    // Test domain_values_at method
+async fn test_node_at_path_root_values() {
+    // Production behavior: query root node values via node_at_path.
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
 
@@ -443,10 +443,8 @@ async fn test_domain_values_at() {
         .await
         .expect("build spec");
 
-    // Get outer domain values (at root level)
-    let domain = spec
-        .domain_values_at(&[])
-        .expect("should have domain values");
+    let root = spec.node_at_path(&[]).expect("root node");
+    let domain: Vec<_> = root.values().cloned().collect();
     assert_eq!(domain.len(), 3);
     assert!(domain.contains(&scalar("setosa")));
     assert!(domain.contains(&scalar("versicolor")));
@@ -454,7 +452,7 @@ async fn test_domain_values_at() {
 }
 
 #[tokio::test]
-async fn test_has_facets_and_has_nested_facets() {
+async fn test_facet_presence_via_root_and_depth() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
 
@@ -467,8 +465,8 @@ async fn test_has_facets_and_has_nested_facets() {
     let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
-    assert!(!spec.has_facets());
-    assert!(!spec.has_nested_facets());
+    assert!(spec.root().is_none());
+    assert_eq!(spec.depth(), 0);
 
     // Single facet
     let plot_single = Plot::<FacetRow>::new().data(df.clone()).mark(
@@ -481,8 +479,8 @@ async fn test_has_facets_and_has_nested_facets() {
     let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
-    assert!(spec.has_facets());
-    assert!(!spec.has_nested_facets());
+    assert!(spec.root().is_some());
+    assert_eq!(spec.depth(), 1);
 
     // Nested facets
     let plot_nested =
@@ -503,6 +501,6 @@ async fn test_has_facets_and_has_nested_facets() {
     let spec = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx)
         .await
         .expect("build spec");
-    assert!(spec.has_facets());
-    assert!(spec.has_nested_facets());
+    assert!(spec.root().is_some());
+    assert_eq!(spec.depth(), 2);
 }

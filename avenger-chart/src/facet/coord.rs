@@ -23,8 +23,9 @@ use crate::{
         layout_plan::{
             FacetBandPlan, FacetCellPlan, compute_padding_from_overflows, effective_edge_indices,
         },
+        layout_slabs::LayoutSlabs,
         marks::facet::{FacetMarkRef, facet_mark_ref},
-        path_math, sharing_policy,
+        padding_policy, path_math, sharing_policy,
     },
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     marks::CompiledMark,
@@ -266,13 +267,66 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 self.active_layout(),
                 domain_override,
                 None,
-                false,
-                needs_zero_padding_override,
-                self.facet_depth > 1,
+                ScaleLayoutRewriteMode::RenderPass {
+                    allow_zero_padding_override: needs_zero_padding_override,
+                    side_specific_outer_edges: self.facet_depth > 1,
+                },
             );
 
             *column_scale =
                 ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ScaleLayoutRewriteMode {
+    MeasurementPass {
+        side_specific_outer_edges: bool,
+    },
+    RenderPass {
+        allow_zero_padding_override: bool,
+        side_specific_outer_edges: bool,
+    },
+    RemeasurePass {
+        side_specific_outer_edges: bool,
+    },
+}
+
+impl ScaleLayoutRewriteMode {
+    #[inline]
+    fn set_padding_always(self) -> bool {
+        matches!(
+            self,
+            ScaleLayoutRewriteMode::MeasurementPass { .. }
+                | ScaleLayoutRewriteMode::RemeasurePass { .. }
+        )
+    }
+
+    #[inline]
+    fn allow_zero_padding_override(self) -> bool {
+        match self {
+            ScaleLayoutRewriteMode::RenderPass {
+                allow_zero_padding_override,
+                ..
+            } => allow_zero_padding_override,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    fn side_specific_outer_edges(self) -> bool {
+        match self {
+            ScaleLayoutRewriteMode::MeasurementPass {
+                side_specific_outer_edges,
+            }
+            | ScaleLayoutRewriteMode::RenderPass {
+                side_specific_outer_edges,
+                ..
+            }
+            | ScaleLayoutRewriteMode::RemeasurePass {
+                side_specific_outer_edges,
+            } => side_specific_outer_edges,
         }
     }
 }
@@ -283,9 +337,7 @@ fn apply_facet_col_scale_layout(
     layout: &CoordinatedLayout,
     domain_override: Option<&[ScalarValue]>,
     band_n_override: Option<usize>,
-    set_padding_always: bool,
-    allow_zero_padding_override: bool,
-    side_specific_outer_edges: bool,
+    mode: ScaleLayoutRewriteMode,
 ) -> ConfiguredScale {
     let mut updated = base.clone();
 
@@ -301,19 +353,22 @@ fn apply_facet_col_scale_layout(
         updated = updated.with_option("band_n", band_n as i32);
     }
 
-    if layout.padding_inner_px > 0.0 || set_padding_always || allow_zero_padding_override {
+    if layout.padding_inner_px > 0.0
+        || mode.set_padding_always()
+        || mode.allow_zero_padding_override()
+    {
         updated = updated.with_option("padding_inner_px", layout.padding_inner_px);
     }
 
     if (layout.outer_left > 0.0 || layout.outer_right > 0.0)
         && let Ok((range_start, range_end)) = updated.config.numeric_interval_range()
     {
-        let new_start = if side_specific_outer_edges {
+        let new_start = if mode.side_specific_outer_edges() {
             range_start + layout.outer_left
         } else {
             range_start
         };
-        let mut new_end = if side_specific_outer_edges {
+        let mut new_end = if mode.side_specific_outer_edges() {
             range_end - layout.outer_right
         } else {
             range_end - layout.outer_left - layout.outer_right
@@ -355,9 +410,7 @@ fn should_remeasure_cells(has_legend_overflow: bool, has_coordinated_extents: bo
 }
 
 fn legend_vertical_overflow(coordinated: &CoordinatedOverflow) -> (f32, f32) {
-    let legend_top = (coordinated.total.top - coordinated.guide.top).max(0.0);
-    let legend_bottom = (coordinated.total.bottom - coordinated.guide.bottom).max(0.0);
-    (legend_top, legend_bottom)
+    LayoutSlabs::from_coordinated(coordinated).legend_vertical()
 }
 
 fn adjusted_height_for_legend_overflow(
@@ -455,9 +508,9 @@ impl FacetColCoordMeasurement {
                 layout,
                 None,
                 Some(layout.n),
-                true,
-                false,
-                self.facet_depth > 1,
+                ScaleLayoutRewriteMode::RemeasurePass {
+                    side_specific_outer_edges: self.facet_depth > 1,
+                },
             );
 
             // Recompute subplot_width from coordinated scale
@@ -628,8 +681,6 @@ fn derive_padding_inner_px_from_probe(
     pass1: &OverflowProbeSummary,
     pass1_empty_cells: &[bool],
 ) -> f32 {
-    const MAX_CHILD_PADDING_PROPAGATION_DELTA: f32 = 16.0;
-
     let parent_padding = compute_padding_from_overflows(
         &pass1
             .cell_overflows
@@ -639,14 +690,7 @@ fn derive_padding_inner_px_from_probe(
         pass1_empty_cells,
     );
 
-    // Preserve nested-grid alignment for moderate child-padding deltas while
-    // ignoring large child-padding spikes (typically legend-driven) that create
-    // oversized parent gaps.
-    if pass1.max_child_padding <= parent_padding + MAX_CHILD_PADDING_PROPAGATION_DELTA {
-        parent_padding.max(pass1.max_child_padding)
-    } else {
-        parent_padding
-    }
+    padding_policy::derive_parent_padding(parent_padding, pass1.max_child_padding)
 }
 
 fn empty_facet_col_measurement(
@@ -1677,9 +1721,9 @@ impl<'a> FacetColMeasurePipeline<'a> {
             &pass2_layout,
             Some(cell_values),
             None,
-            true,
-            false,
-            !self.facet_path.is_empty(),
+            ScaleLayoutRewriteMode::MeasurementPass {
+                side_specific_outer_edges: !self.facet_path.is_empty(),
+            },
         );
 
         let final_subplot_width = bandwidth(&updated_column_scale.config).map_err(|e| {
@@ -1952,9 +1996,9 @@ mod tests {
             &layout,
             Some(domain_override.as_slice()),
             None,
-            true,
-            false,
-            true,
+            ScaleLayoutRewriteMode::MeasurementPass {
+                side_specific_outer_edges: true,
+            },
         );
 
         let (start, end) = updated.config.numeric_interval_range().unwrap();
@@ -2005,12 +2049,28 @@ mod tests {
             n: 2,
         };
 
-        let no_override =
-            apply_facet_col_scale_layout(&base, &layout, None, None, false, false, true);
+        let no_override = apply_facet_col_scale_layout(
+            &base,
+            &layout,
+            None,
+            None,
+            ScaleLayoutRewriteMode::RenderPass {
+                allow_zero_padding_override: false,
+                side_specific_outer_edges: true,
+            },
+        );
         assert!(!no_override.config.options.contains_key("padding_inner_px"));
 
-        let with_override =
-            apply_facet_col_scale_layout(&base, &layout, None, None, false, true, true);
+        let with_override = apply_facet_col_scale_layout(
+            &base,
+            &layout,
+            None,
+            None,
+            ScaleLayoutRewriteMode::RenderPass {
+                allow_zero_padding_override: true,
+                side_specific_outer_edges: true,
+            },
+        );
         assert!(
             with_override
                 .config
@@ -2039,7 +2099,15 @@ mod tests {
             n: 3,
         };
 
-        let updated = apply_facet_col_scale_layout(&base, &layout, None, None, true, false, false);
+        let updated = apply_facet_col_scale_layout(
+            &base,
+            &layout,
+            None,
+            None,
+            ScaleLayoutRewriteMode::MeasurementPass {
+                side_specific_outer_edges: false,
+            },
+        );
         let (start, end) = updated.config.numeric_interval_range().unwrap();
         assert_eq!(start, 0.0);
         assert_eq!(end, 270.0);

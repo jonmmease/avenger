@@ -86,12 +86,16 @@ pub async fn coordinate_facet_measurement_tree(
     // 2. Remeasure can replace child measurements, so overflow/layout must be recollected.
     // 3. Final scale adjustment pass propagates coordinated widths to descendants.
     run_initial_coordination_phase(measurement);
+    debug!("coordinate_facet_measurement_tree initial phase complete");
 
     apply_coordinated_overflow_recursive(measurement, eval_ctx).await?;
+    debug!("coordinate_facet_measurement_tree remeasure phase complete");
 
     run_post_remeasure_coordination_phase(measurement);
+    debug!("coordinate_facet_measurement_tree post-remeasure phase complete");
 
     reapply_scale_adjustments_recursive(measurement);
+    trace!("facet coordination complete");
 
     Ok(())
 }

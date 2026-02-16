@@ -12,8 +12,7 @@ use crate::{
     channel::value::ChannelValue,
     coords::{EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
-    facet::{evaluated_facet_tree::EvaluatedFacetTree, path_math},
-    guide::FacetDirection,
+    facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_policy},
     layout::LayoutResult,
     layout::legend::measure_legend_size_with_channels,
     legend::{
@@ -56,8 +55,6 @@ pub(crate) struct PreparedLegendGroup {
     pub channels: Vec<LegendChannel>,
     pub legend: Legend,
     pub renderer: Arc<dyn LegendRenderer>,
-    pub effective_sharing_level: u8,
-    pub resolved_position: LegendPosition,
 }
 
 #[derive(Clone, Default)]
@@ -96,12 +93,9 @@ impl CompiledPlot {
             return true;
         }
 
-        // Phase 1 behavior targets column facets; do not alter row-facet legend behavior.
         let parent_path = &facet_path[..facet_path.len().saturating_sub(1)];
-        if let Some(parent_node) = facet_tree.node_at_path(parent_path) {
-            if parent_node.direction != FacetDirection::Column {
-                return true;
-            }
+        if facet_tree.node_at_path(parent_path).is_none() {
+            return true;
         }
 
         let Some(indices) = facet_tree.indices_from_path(facet_path) else {
@@ -117,18 +111,13 @@ impl CompiledPlot {
             return true;
         }
 
-        let facet_depth = indices.len() as u8;
-        let boundary = path_math::sharing_group_boundary(facet_depth, sharing_level);
-
-        match legend_position {
-            LegendPosition::Left | LegendPosition::Top => {
-                indices[boundary..].iter().all(|&i| i == 0)
-            }
-            LegendPosition::Right | LegendPosition::Bottom => indices[boundary..]
-                .iter()
-                .zip(level_counts[boundary..indices.len()].iter())
-                .all(|(&pos, &count)| pos == count.saturating_sub(1)),
-        }
+        sharing_policy::legend_owner_for_position(
+            &indices,
+            &level_counts,
+            indices.len() as u8,
+            sharing_level,
+            legend_position,
+        )
     }
 
     /// Apply a theme value to a legend field if the field is Unset
@@ -990,8 +979,6 @@ impl CompiledPlot {
                     channels: channels.clone(),
                     legend: legend.clone(),
                     renderer,
-                    effective_sharing_level,
-                    resolved_position,
                 });
             }
         }
@@ -1076,7 +1063,7 @@ mod tests {
     use indexmap::IndexMap;
     use std::collections::HashMap;
 
-    use crate::facet::evaluated_facet_tree::PartitionNode;
+    use crate::{facet::evaluated_facet_tree::PartitionNode, guide::FacetDirection};
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))

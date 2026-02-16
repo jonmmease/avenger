@@ -3,10 +3,16 @@
 //! This module centralizes sharing-level behavior used by both:
 //! - domain coordination grouping keys, and
 //! - axis visibility decisions.
+//! - legend owner-cell visibility decisions.
 
 use datafusion::common::ScalarValue;
 
-use crate::{cartesian::axis::AxisPosition, facet::path_math, guide::FacetDirection};
+use crate::{
+    cartesian::axis::AxisPosition,
+    facet::sharing_kernel::{self, SharingGroupEdge},
+    guide::FacetDirection,
+    legend::LegendPosition,
+};
 
 /// Compute the canonical domain-group key for a cell path.
 ///
@@ -17,7 +23,7 @@ pub(crate) fn domain_group_key(
     sharing_level: u8,
     facet_depth: u8,
 ) -> Vec<ScalarValue> {
-    path_math::ancestor_key(full_cell_path, sharing_level, facet_depth)
+    sharing_kernel::domain_group_key(full_cell_path, sharing_level, facet_depth)
 }
 
 /// Determine whether axis labels should be visible for a facet cell.
@@ -29,20 +35,16 @@ pub(crate) fn show_axis_labels(
     direction: FacetDirection,
     axis_position: AxisPosition,
 ) -> bool {
-    match (direction, axis_position) {
-        (FacetDirection::Column, AxisPosition::Left) => {
-            is_first_in_sharing_group(position_indices, sharing_level, facet_depth)
-        }
-        (FacetDirection::Column, AxisPosition::Right) => {
-            is_last_in_sharing_group(position_indices, level_counts, sharing_level, facet_depth)
-        }
-        (FacetDirection::Row, AxisPosition::Bottom) => {
-            is_last_in_sharing_group(position_indices, level_counts, sharing_level, facet_depth)
-        }
-        (FacetDirection::Row, AxisPosition::Top) => {
-            is_first_in_sharing_group(position_indices, sharing_level, facet_depth)
-        }
-        _ => true,
+    if let Some(edge) = axis_edge_for_position(direction, axis_position) {
+        sharing_kernel::owner_for_edge_with_sharing(
+            edge,
+            position_indices,
+            level_counts,
+            facet_depth,
+            sharing_level,
+        )
+    } else {
+        true
     }
 }
 
@@ -57,43 +59,55 @@ pub(crate) fn show_axis_title(
     axis_position: AxisPosition,
 ) -> bool {
     let shared_level = 255;
-    match (direction, axis_position) {
-        (FacetDirection::Column, AxisPosition::Left) => {
-            is_first_in_sharing_group(position_indices, shared_level, facet_depth)
-        }
-        (FacetDirection::Column, AxisPosition::Right) => {
-            is_last_in_sharing_group(position_indices, level_counts, shared_level, facet_depth)
-        }
-        (FacetDirection::Row, AxisPosition::Bottom) => {
-            is_last_in_sharing_group(position_indices, level_counts, shared_level, facet_depth)
-        }
-        (FacetDirection::Row, AxisPosition::Top) => {
-            is_first_in_sharing_group(position_indices, shared_level, facet_depth)
-        }
-        _ => true,
+    if let Some(edge) = axis_edge_for_position(direction, axis_position) {
+        sharing_kernel::owner_for_edge_with_sharing(
+            edge,
+            position_indices,
+            level_counts,
+            facet_depth,
+            shared_level,
+        )
+    } else {
+        true
     }
 }
 
-fn is_first_in_sharing_group(
-    position_indices: &[usize],
-    sharing_level: u8,
-    facet_depth: u8,
-) -> bool {
-    let group_boundary = path_math::sharing_group_boundary(facet_depth, sharing_level);
-    position_indices[group_boundary..].iter().all(|&i| i == 0)
+#[inline]
+fn axis_edge_for_position(
+    direction: FacetDirection,
+    axis_position: AxisPosition,
+) -> Option<SharingGroupEdge> {
+    match (direction, axis_position) {
+        (FacetDirection::Column, AxisPosition::Left) => Some(SharingGroupEdge::Start),
+        (FacetDirection::Column, AxisPosition::Right) => Some(SharingGroupEdge::End),
+        (FacetDirection::Row, AxisPosition::Top) => Some(SharingGroupEdge::Start),
+        (FacetDirection::Row, AxisPosition::Bottom) => Some(SharingGroupEdge::End),
+        _ => None,
+    }
 }
 
-fn is_last_in_sharing_group(
+pub(crate) fn legend_edge_for_position(position: LegendPosition) -> SharingGroupEdge {
+    match position {
+        LegendPosition::Left | LegendPosition::Top => SharingGroupEdge::Start,
+        LegendPosition::Right | LegendPosition::Bottom => SharingGroupEdge::End,
+    }
+}
+
+pub(crate) fn legend_owner_for_position(
     position_indices: &[usize],
     level_counts: &[usize],
-    sharing_level: u8,
     facet_depth: u8,
+    sharing_level: u8,
+    legend_position: LegendPosition,
 ) -> bool {
-    let group_boundary = path_math::sharing_group_boundary(facet_depth, sharing_level);
-    position_indices[group_boundary..]
-        .iter()
-        .zip(level_counts[group_boundary..].iter())
-        .all(|(&pos, &count)| pos == count.saturating_sub(1))
+    let edge = legend_edge_for_position(legend_position);
+    sharing_kernel::owner_for_edge_with_sharing(
+        edge,
+        position_indices,
+        level_counts,
+        facet_depth,
+        sharing_level,
+    )
 }
 
 #[cfg(test)]
@@ -211,5 +225,42 @@ mod tests {
         let path = vec![ScalarValue::Null, s("B"), ScalarValue::Int64(Some(5))];
         let key = domain_group_key(&path, 1, 3);
         assert_eq!(key, vec![ScalarValue::Null, s("B")]);
+    }
+
+    #[test]
+    fn legend_owner_matches_axis_start_end_semantics() {
+        let counts = vec![2, 2];
+        let facet_depth = 2;
+        let idx_start = vec![1, 0];
+        let idx_end = vec![1, 1];
+
+        assert!(legend_owner_for_position(
+            &idx_start,
+            &counts,
+            facet_depth,
+            1,
+            LegendPosition::Top
+        ));
+        assert!(legend_owner_for_position(
+            &idx_end,
+            &counts,
+            facet_depth,
+            1,
+            LegendPosition::Bottom
+        ));
+        assert!(legend_owner_for_position(
+            &idx_start,
+            &counts,
+            facet_depth,
+            1,
+            LegendPosition::Left
+        ));
+        assert!(legend_owner_for_position(
+            &idx_end,
+            &counts,
+            facet_depth,
+            1,
+            LegendPosition::Right
+        ));
     }
 }

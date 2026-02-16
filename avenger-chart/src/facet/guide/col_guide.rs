@@ -14,6 +14,7 @@ use crate::facet::guide_utils::{
     render_facet_label_slab,
 };
 use crate::facet::layout_plan::effective_edge_indices_for_values_at_path;
+use crate::facet::layout_slabs::LayoutSlabs;
 use crate::facet::marks::facet::CompiledFacetCol;
 use crate::guide::{CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
@@ -135,14 +136,6 @@ impl GuideAnchorSource {
     }
 }
 
-fn guide_anchor_value(overflow: &CoordinatedOverflow, place_at_bottom: bool) -> f32 {
-    if place_at_bottom {
-        overflow.guide.bottom
-    } else {
-        overflow.guide.top
-    }
-}
-
 fn resolve_guide_anchor_overflow(
     place_at_bottom: bool,
     coordinated_overflow: Option<&CoordinatedOverflow>,
@@ -150,14 +143,14 @@ fn resolve_guide_anchor_overflow(
 ) -> (f32, GuideAnchorSource) {
     if let Some(coordinated) = coordinated_overflow {
         return (
-            guide_anchor_value(coordinated, place_at_bottom),
+            LayoutSlabs::from_coordinated(coordinated).guide_anchor(place_at_bottom),
             GuideAnchorSource::CoordinatedGuide,
         );
     }
 
     if let Some(local) = local_overflow {
         return (
-            guide_anchor_value(local, place_at_bottom),
+            LayoutSlabs::from_coordinated(local).guide_anchor(place_at_bottom),
             GuideAnchorSource::LocalGuide,
         );
     }
@@ -186,14 +179,10 @@ fn preferred_overflow_for_facet_measurement(
     }
 }
 
-fn top_legend_delta(overflow: &CoordinatedOverflow) -> f32 {
-    (overflow.total.top - overflow.guide.top).max(0.0)
-}
-
 fn max_top_legend_delta_subtree(facet_measurement: &FacetColCoordMeasurement) -> f32 {
     let own_delta = preferred_overflow_for_facet_measurement(facet_measurement)
         .as_ref()
-        .map(top_legend_delta)
+        .map(|overflow| LayoutSlabs::from_coordinated(overflow).legend.top)
         .unwrap_or(0.0);
 
     let child_delta = facet_measurement
@@ -225,7 +214,7 @@ fn resolve_top_legend_clearance(
 
     coordinated_overflow
         .or(local_overflow)
-        .map(top_legend_delta)
+        .map(|overflow| LayoutSlabs::from_coordinated(overflow).legend.top)
         .unwrap_or(0.0)
 }
 
