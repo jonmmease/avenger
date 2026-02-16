@@ -21,6 +21,27 @@ use crate::{
     theme::{Theme, ThemeContext},
 };
 
+/// Format a ScalarValue for display as a facet label.
+pub(crate) fn format_scalar_value(value: &ScalarValue) -> String {
+    match value {
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => s.to_string(),
+        ScalarValue::Int8(Some(n)) => n.to_string(),
+        ScalarValue::Int16(Some(n)) => n.to_string(),
+        ScalarValue::Int32(Some(n)) => n.to_string(),
+        ScalarValue::Int64(Some(n)) => n.to_string(),
+        ScalarValue::UInt8(Some(n)) => n.to_string(),
+        ScalarValue::UInt16(Some(n)) => n.to_string(),
+        ScalarValue::UInt32(Some(n)) => n.to_string(),
+        ScalarValue::UInt64(Some(n)) => n.to_string(),
+        ScalarValue::Float32(Some(n)) => format!("{n:.2}"),
+        ScalarValue::Float64(Some(n)) => format!("{n:.2}"),
+        ScalarValue::Boolean(Some(b)) => b.to_string(),
+        _ => format!("{value:?}"),
+    }
+}
+
 /// Configuration for measuring facet label slab space requirements
 ///
 /// This struct contains all information needed to measure the space required for
@@ -96,13 +117,7 @@ pub fn measure_facet_label_slab(config: &FacetLabelMeasurementConfig) -> f32 {
         };
         let bounds = measurer.measure_text_bounds(&text_config);
 
-        // For rotated (row) labels: text height becomes horizontal footprint after rotation
-        // For horizontal (col) labels: use text height directly
-        max_label_dimension = max_label_dimension.max(if config.is_rotated {
-            bounds.height
-        } else {
-            bounds.height
-        });
+        max_label_dimension = max_label_dimension.max(bounds.height);
     }
 
     // Start with label space
@@ -130,11 +145,7 @@ pub fn measure_facet_label_slab(config: &FacetLabelMeasurementConfig) -> f32 {
                 font_style: &FontStyle::Normal,
             };
             let title_bounds = measurer.measure_text_bounds(&title_config);
-            let title_dimension = if config.is_rotated {
-                title_bounds.height
-            } else {
-                title_bounds.height
-            };
+            let title_dimension = title_bounds.height;
 
             // Add gap + title + rule stroke (original logic - gap includes rule/tick space)
             let gap = 10.0_f32;
@@ -338,11 +349,7 @@ fn render_rule_with_ticks(
             font_style: &FontStyle::Normal,
         };
         let bounds = measurer.measure_text_bounds(&text_config);
-        max_label_dimension = max_label_dimension.max(if config.is_rotated {
-            bounds.height
-        } else {
-            bounds.height
-        });
+        max_label_dimension = max_label_dimension.max(bounds.height);
     }
 
     // Query rule styling from theme
@@ -522,11 +529,7 @@ fn render_facet_title(
             font_style: &FontStyle::Normal,
         };
         let bounds = measurer.measure_text_bounds(&text_config);
-        max_label_dimension = max_label_dimension.max(if config.is_rotated {
-            bounds.height
-        } else {
-            bounds.height
-        });
+        max_label_dimension = max_label_dimension.max(bounds.height);
     }
 
     let (x, y, angle, baseline) = if config.is_rotated {

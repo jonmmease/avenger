@@ -3,7 +3,7 @@
 //! This module is shared by facet coordinate measurement and facet guides to
 //! keep cell planning and overflow edge/gap semantics consistent.
 
-use crate::coords::OverflowSpaceRequirement;
+use crate::coords::{FacetAxis, OverflowSpaceRequirement};
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 use datafusion::{common::ScalarValue, logical_expr::Expr};
 
@@ -20,8 +20,8 @@ pub(crate) struct FacetCellPlan {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FacetBandPlan {
     pub padding_inner_px: f32,
-    pub outer_left: f32,
-    pub outer_right: f32,
+    pub outer_start: f32,
+    pub outer_end: f32,
     pub n: usize,
 }
 
@@ -35,6 +35,7 @@ pub(crate) fn is_renderable_slot(is_empty: bool) -> bool {
 /// Pairs containing empty placeholder cells are skipped so hidden slots do not
 /// inflate interior gaps.
 pub(crate) fn compute_padding_from_overflows(
+    axis: FacetAxis,
     overflows: &[OverflowSpaceRequirement],
     empty_cells: &[bool],
 ) -> f32 {
@@ -49,7 +50,10 @@ pub(crate) fn compute_padding_from_overflows(
         if !is_renderable_slot(left_is_empty) || !is_renderable_slot(right_is_empty) {
             continue;
         }
-        let combined = overflows[i].right + overflows[i + 1].left;
+        let combined = match axis {
+            FacetAxis::Column => overflows[i].right + overflows[i + 1].left,
+            FacetAxis::Row => overflows[i].bottom + overflows[i + 1].top,
+        };
         max_padding = max_padding.max(combined);
     }
     max_padding
@@ -127,7 +131,7 @@ mod tests {
             },
         ];
         let empty_cells = vec![true, true, false, false];
-        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
+        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
         assert_eq!(padding, 0.0);
     }
 
@@ -149,7 +153,7 @@ mod tests {
             },
         ];
         let empty_cells = vec![false, false, false];
-        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
+        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
         assert_eq!(padding, 12.0);
     }
 
@@ -177,7 +181,7 @@ mod tests {
         ];
         // pair 1-2 is skipped due to empty middle cell; max should come from pair 2-3
         let empty_cells = vec![false, true, false, false];
-        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
+        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
         assert_eq!(padding, 11.0);
     }
 
@@ -200,7 +204,7 @@ mod tests {
         ];
         // pair 1-2 should be ignored because right cell is empty
         let empty_cells = vec![false, false, true];
-        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
+        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
         assert_eq!(padding, 12.0);
     }
 
@@ -222,8 +226,30 @@ mod tests {
             },
         ];
         let empty_cells = vec![true, true, true];
-        let padding = compute_padding_from_overflows(&overflows, &empty_cells);
+        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
         assert_eq!(padding, 0.0);
+    }
+
+    #[test]
+    fn compute_padding_for_row_uses_vertical_edges() {
+        let overflows = vec![
+            OverflowSpaceRequirement {
+                bottom: 6.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                top: 5.0,
+                bottom: 1.0,
+                ..Default::default()
+            },
+            OverflowSpaceRequirement {
+                top: 4.0,
+                ..Default::default()
+            },
+        ];
+        let empty_cells = vec![false, false, false];
+        let padding = compute_padding_from_overflows(FacetAxis::Row, &overflows, &empty_cells);
+        assert_eq!(padding, 11.0);
     }
 
     #[test]

@@ -99,16 +99,16 @@ pub trait CoordMeasurement: Send + Sync + 'static {
 #[derive(Default, Clone, Debug)]
 pub struct CoordinatedLayout {
     pub padding_inner_px: f32,
-    pub outer_left: f32,
-    pub outer_right: f32,
+    pub outer_start: f32,
+    pub outer_end: f32,
     pub n: usize,
 }
 
 impl CoordinatedLayout {
     pub fn merge(&mut self, other: &CoordinatedLayout) {
         self.padding_inner_px = self.padding_inner_px.max(other.padding_inner_px);
-        self.outer_left = self.outer_left.max(other.outer_left);
-        self.outer_right = self.outer_right.max(other.outer_right);
+        self.outer_start = self.outer_start.max(other.outer_start);
+        self.outer_end = self.outer_end.max(other.outer_end);
         self.n = self.n.max(other.n);
     }
 }
@@ -276,6 +276,24 @@ impl PlotGeometry for SubplotGeometry {
 pub enum FacetAxis {
     Row,
     Column,
+}
+
+impl FacetAxis {
+    #[inline]
+    pub fn scale_name(self) -> &'static str {
+        match self {
+            FacetAxis::Row => "row",
+            FacetAxis::Column => "column",
+        }
+    }
+
+    #[inline]
+    pub fn coordination_key_prefix(self) -> &'static str {
+        match self {
+            FacetAxis::Row => "row",
+            FacetAxis::Column => "col",
+        }
+    }
 }
 
 /// Padding specification for coordinate system transforms

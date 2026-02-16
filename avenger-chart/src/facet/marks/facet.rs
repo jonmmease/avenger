@@ -508,18 +508,18 @@ impl CompiledMark for CompiledFacetCol {
         context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::facet::coord::FacetColCoordMeasurement;
+        use crate::facet::coord::FacetBandCoordMeasurement;
         use avenger_scales::scales::band::bandwidth;
         use avenger_scenegraph::marks::group::SceneGroup;
 
-        // Get coord_measurement from context and downcast to FacetColCoordMeasurement
+        // Get coord_measurement from context and downcast to FacetBandCoordMeasurement
         let facet_measurement = context
             .coord_measurement()
             .as_any()
-            .downcast_ref::<FacetColCoordMeasurement>()
+            .downcast_ref::<FacetBandCoordMeasurement>()
             .ok_or_else(|| {
                 AvengerChartError::InternalError(
-                    "Expected FacetColCoordMeasurement in coord_measurement".into(),
+                    "Expected FacetBandCoordMeasurement in coord_measurement".into(),
                 )
             })?;
 

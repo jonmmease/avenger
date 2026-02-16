@@ -8,10 +8,10 @@ use crate::coords::CoordMeasurement;
 use crate::coords::CoordinatedOverflow;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
-use crate::facet::coord::FacetColCoordMeasurement;
+use crate::facet::coord::FacetBandCoordMeasurement;
 use crate::facet::guide_utils::{
-    FacetLabelMeasurementConfig, FacetLabelRenderConfig, measure_facet_label_slab,
-    render_facet_label_slab,
+    FacetLabelMeasurementConfig, FacetLabelRenderConfig, format_scalar_value,
+    measure_facet_label_slab, render_facet_label_slab,
 };
 use crate::facet::layout_plan::effective_edge_indices_for_values_at_path;
 use crate::facet::layout_slabs::LayoutSlabs;
@@ -170,7 +170,7 @@ fn coordinated_overflow_is_zero(overflow: &CoordinatedOverflow) -> bool {
 }
 
 fn preferred_overflow_for_facet_measurement(
-    facet_measurement: &FacetColCoordMeasurement,
+    facet_measurement: &FacetBandCoordMeasurement,
 ) -> Option<CoordinatedOverflow> {
     if !coordinated_overflow_is_zero(&facet_measurement.coordinated_overflow) {
         Some(facet_measurement.coordinated_overflow.clone())
@@ -179,7 +179,7 @@ fn preferred_overflow_for_facet_measurement(
     }
 }
 
-fn max_top_legend_delta_subtree(facet_measurement: &FacetColCoordMeasurement) -> f32 {
+fn max_top_legend_delta_subtree(facet_measurement: &FacetBandCoordMeasurement) -> f32 {
     let own_delta = preferred_overflow_for_facet_measurement(facet_measurement)
         .as_ref()
         .map(|overflow| LayoutSlabs::from_coordinated(overflow).legend.top)
@@ -191,7 +191,7 @@ fn max_top_legend_delta_subtree(facet_measurement: &FacetColCoordMeasurement) ->
             child
                 .coord_measurement
                 .as_any()
-                .downcast_ref::<FacetColCoordMeasurement>()
+                .downcast_ref::<FacetBandCoordMeasurement>()
         })
         .map(max_top_legend_delta_subtree)
         .fold(0.0f32, f32::max);
@@ -207,7 +207,7 @@ fn resolve_top_legend_clearance(
     if let Some(facet_measurement) = coord_measurement.and_then(|measurement| {
         measurement
             .as_any()
-            .downcast_ref::<FacetColCoordMeasurement>()
+            .downcast_ref::<FacetBandCoordMeasurement>()
     }) {
         return max_top_legend_delta_subtree(facet_measurement);
     }
@@ -278,11 +278,11 @@ impl CompiledGuide for FacetColGuide {
         // This optimization avoids expensive re-measurement when coord_measurement
         // is already populated (second pass).
         let subplot_overflow = if let Some(fcm) =
-            coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetColCoordMeasurement>())
+            coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetBandCoordMeasurement>())
         {
             // Fast path: use pre-computed overflow from coord_measurement
             // Use total_overflow to include legend space in outer layout calculation,
-            // with the same edge policy used by FacetColCoordMeasurement::local_overflow.
+            // with the same edge policy used by FacetBandCoordMeasurement::local_overflow.
             fcm.local_overflow_value()
                 .map(|overflow| overflow.total)
                 .unwrap_or_default()
@@ -305,7 +305,7 @@ impl CompiledGuide for FacetColGuide {
         // Priority: Use cell_values from coord_measurement (has Level(N)-aware enumeration)
         // Fallback: Use column scale domain (first pass before coord_measurement exists)
         let labels: Vec<String> = if let Some(fcm) =
-            coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetColCoordMeasurement>())
+            coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetBandCoordMeasurement>())
         {
             // Second pass: use Level(N)-aware cell_values from coord measurement
             fcm.cell_values().map(format_scalar_value).collect()
@@ -328,7 +328,7 @@ impl CompiledGuide for FacetColGuide {
             .and_then(|measurement| {
                 measurement
                     .as_any()
-                    .downcast_ref::<FacetColCoordMeasurement>()
+                    .downcast_ref::<FacetBandCoordMeasurement>()
             })
             .and_then(preferred_overflow_for_facet_measurement);
 
@@ -420,7 +420,7 @@ impl CompiledGuide for FacetColGuide {
         // or fall back to scale domain
         let (band_positions, labels): (Vec<_>, Vec<String>) = if let Some(fcm) = coord_measurement
             .as_any()
-            .downcast_ref::<FacetColCoordMeasurement>()
+            .downcast_ref::<FacetBandCoordMeasurement>()
         {
             // Use cell_values from coord measurement (Level(N)-aware enumeration)
             let band_iter = BandPositionIterator::from_configured_scale(column_scale)?;
@@ -455,7 +455,7 @@ impl CompiledGuide for FacetColGuide {
         let coordinated_overflow = coord_measurement.coordinated_overflow();
         let local_overflow = coord_measurement
             .as_any()
-            .downcast_ref::<FacetColCoordMeasurement>()
+            .downcast_ref::<FacetBandCoordMeasurement>()
             .and_then(|fcm| fcm.local_overflow_value());
         let (subplot_overflow, anchor_source) = resolve_guide_anchor_overflow(
             place_at_bottom,
@@ -717,29 +717,6 @@ impl FacetColGuide {
         } else {
             Ok(OverflowSpaceRequirement::default())
         }
-    }
-}
-
-/// Format a ScalarValue for display as a facet label
-fn format_scalar_value(value: &datafusion::common::ScalarValue) -> String {
-    use datafusion::common::ScalarValue;
-
-    match value {
-        ScalarValue::Utf8(Some(s))
-        | ScalarValue::LargeUtf8(Some(s))
-        | ScalarValue::Utf8View(Some(s)) => s.to_string(),
-        ScalarValue::Int8(Some(n)) => n.to_string(),
-        ScalarValue::Int16(Some(n)) => n.to_string(),
-        ScalarValue::Int32(Some(n)) => n.to_string(),
-        ScalarValue::Int64(Some(n)) => n.to_string(),
-        ScalarValue::UInt8(Some(n)) => n.to_string(),
-        ScalarValue::UInt16(Some(n)) => n.to_string(),
-        ScalarValue::UInt32(Some(n)) => n.to_string(),
-        ScalarValue::UInt64(Some(n)) => n.to_string(),
-        ScalarValue::Float32(Some(n)) => format!("{:.2}", n),
-        ScalarValue::Float64(Some(n)) => format!("{:.2}", n),
-        ScalarValue::Boolean(Some(b)) => b.to_string(),
-        _ => format!("{:?}", value),
     }
 }
 

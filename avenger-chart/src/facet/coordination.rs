@@ -9,10 +9,10 @@ use datafusion::common::ScalarValue;
 use tracing::{debug, trace};
 
 use crate::{
-    coords::{CellDomainInfo, CoordinatedLayout, CoordinatedOverflow},
+    coords::{CellDomainInfo, CoordinatedLayout, CoordinatedOverflow, FacetAxis},
     error::AvengerChartError,
     facet::{
-        coord::{FacetColCoordMeasurement, union_domain_extents},
+        coord::{FacetBandCoordMeasurement, union_domain_extents},
         sharing_policy,
     },
     plot::compiled::ComponentsMeasurement,
@@ -36,40 +36,42 @@ impl CoordinationGroupKey {
     }
 }
 
-fn facet_col_ref(measurement: &ComponentsMeasurement) -> Option<&FacetColCoordMeasurement> {
+fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<&FacetBandCoordMeasurement> {
     measurement
         .coord_measurement
         .as_any()
-        .downcast_ref::<FacetColCoordMeasurement>()
+        .downcast_ref::<FacetBandCoordMeasurement>()
 }
 
-fn facet_col_mut(measurement: &mut ComponentsMeasurement) -> Option<&mut FacetColCoordMeasurement> {
+fn facet_band_mut(
+    measurement: &mut ComponentsMeasurement,
+) -> Option<&mut FacetBandCoordMeasurement> {
     measurement
         .coord_measurement
         .as_any_mut()
-        .downcast_mut::<FacetColCoordMeasurement>()
+        .downcast_mut::<FacetBandCoordMeasurement>()
 }
 
-fn visit_facet_cols<F>(measurement: &ComponentsMeasurement, depth: usize, visit: &mut F)
+fn visit_facet_bands<F>(measurement: &ComponentsMeasurement, depth: usize, visit: &mut F)
 where
-    F: FnMut(usize, &FacetColCoordMeasurement),
+    F: FnMut(usize, &FacetBandCoordMeasurement),
 {
-    if let Some(facet_col) = facet_col_ref(measurement) {
-        visit(depth, facet_col);
-        for child in facet_col.child_measurements_iter() {
-            visit_facet_cols(child, depth + 1, visit);
+    if let Some(facet_band) = facet_band_ref(measurement) {
+        visit(depth, facet_band);
+        for child in facet_band.child_measurements_iter() {
+            visit_facet_bands(child, depth + 1, visit);
         }
     }
 }
 
-fn visit_facet_cols_mut<F>(measurement: &mut ComponentsMeasurement, depth: usize, visit: &mut F)
+fn visit_facet_bands_mut<F>(measurement: &mut ComponentsMeasurement, depth: usize, visit: &mut F)
 where
-    F: FnMut(usize, &mut FacetColCoordMeasurement),
+    F: FnMut(usize, &mut FacetBandCoordMeasurement),
 {
-    if let Some(facet_col) = facet_col_mut(measurement) {
-        visit(depth, facet_col);
-        for child in facet_col.child_measurements_iter_mut() {
-            visit_facet_cols_mut(child, depth + 1, visit);
+    if let Some(facet_band) = facet_band_mut(measurement) {
+        visit(depth, facet_band);
+        for child in facet_band.child_measurements_iter_mut() {
+            visit_facet_bands_mut(child, depth + 1, visit);
         }
     }
 }
@@ -118,9 +120,9 @@ fn collect_coordination_snapshot(
     include_domains: bool,
 ) -> CoordinationSnapshot {
     let mut snapshot = CoordinationSnapshot::default();
-    visit_facet_cols(measurement, 0, &mut |depth, facet_col| {
-        let key = facet_col.coordination_group_key_for_depth(depth);
-        if let Some(local_overflow) = facet_col.local_overflow_value() {
+    visit_facet_bands(measurement, 0, &mut |depth, facet_band| {
+        let key = facet_band.coordination_group_key_for_depth(depth);
+        if let Some(local_overflow) = facet_band.local_overflow_value() {
             snapshot
                 .overflow_by_key
                 .entry(key.clone())
@@ -131,10 +133,10 @@ fn collect_coordination_snapshot(
             .layout_by_key
             .entry(key)
             .or_default()
-            .push(facet_col.local_layout_value());
+            .push(facet_band.local_layout_value());
 
         if include_domains {
-            facet_col.collect_cell_domain_infos(&mut snapshot.domain_infos);
+            facet_band.collect_cell_domain_infos(&mut snapshot.domain_infos);
         }
     });
     snapshot
@@ -219,16 +221,16 @@ fn apply_aggregates(
     aggregates: &CoordinationAggregates,
     apply_domains: bool,
 ) {
-    visit_facet_cols_mut(measurement, 0, &mut |depth, facet_col| {
-        let key = facet_col.coordination_group_key_for_depth(depth);
+    visit_facet_bands_mut(measurement, 0, &mut |depth, facet_band| {
+        let key = facet_band.coordination_group_key_for_depth(depth);
         if let Some(overflow) = aggregates.merged_overflow_by_key.get(&key).cloned() {
-            facet_col.set_coordinated_overflow_value(overflow);
+            facet_band.set_coordinated_overflow_value(overflow);
         }
         if let Some(layout) = aggregates.merged_layout_by_key.get(&key).cloned() {
-            facet_col.set_coordinated_layout_value(layout);
+            facet_band.set_coordinated_layout_value(layout);
         }
         if apply_domains && !aggregates.unified_domain_extents.is_empty() {
-            facet_col.distribute_coordinated_domain_extents(&aggregates.unified_domain_extents);
+            facet_band.distribute_coordinated_domain_extents(&aggregates.unified_domain_extents);
         }
     });
 }
@@ -270,18 +272,18 @@ fn apply_coordinated_overflow_recursive<'a>(
     eval_ctx: &'a EvaluationContext,
 ) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
-        if let Some(facet_col) = facet_col_mut(measurement) {
-            facet_col.apply_coordinated_overflow(eval_ctx).await?;
-            let parent_width = facet_col.coordinated_subplot_width_value();
+        if let Some(facet_band) = facet_band_mut(measurement) {
+            facet_band.apply_coordinated_overflow(eval_ctx).await?;
+            let parent_width = facet_band.coordinated_subplot_cross_size();
 
-            for child in facet_col.child_measurements_iter_mut() {
+            for child in facet_band.child_measurements_iter_mut() {
                 if let Some(width) = parent_width {
-                    if let Some(child_facet_col) = child
+                    if let Some(child_facet_band) = child
                         .coord_measurement
                         .as_any_mut()
-                        .downcast_mut::<FacetColCoordMeasurement>()
+                        .downcast_mut::<FacetBandCoordMeasurement>()
                     {
-                        child_facet_col.set_parent_bandwidth_value(width);
+                        child_facet_band.set_parent_bandwidth_value(width);
                     }
                 }
                 apply_coordinated_overflow_recursive(child, eval_ctx).await?;
@@ -297,29 +299,41 @@ fn reapply_scale_adjustments_recursive(measurement: &mut ComponentsMeasurement) 
         .coord_measurement
         .apply_scale_adjustments(&mut measurement.scales);
 
-    if let Some(facet_col) = facet_col_mut(measurement) {
-        let parent_width = facet_col.coordinated_subplot_width_value();
+    if let Some(facet_band) = facet_band_mut(measurement) {
+        let parent_width = facet_band.coordinated_subplot_cross_size();
+        let axis = facet_band.axis;
 
-        for child in facet_col.child_measurements_iter_mut() {
+        for child in facet_band.child_measurements_iter_mut() {
             if let Some(width) = parent_width {
-                if (child.plot_area_width - width).abs() > 0.01 {
-                    trace!(
-                        old_width = child.plot_area_width,
-                        new_width = width,
-                        "coordinate_facet_measurement_tree updating child plot area width"
-                    );
-                    child.plot_area_width = width;
-
-                    if let Some(column_scale) = child.scales.get_mut("column") {
-                        let updated_config = column_scale
-                            .configured()
-                            .clone()
-                            .with_range_interval((0.0, width));
-                        *column_scale = ConfiguredScaleWithSpec::new(
-                            column_scale.spec().clone(),
-                            updated_config,
+                match axis {
+                    FacetAxis::Column if (child.plot_area_width - width).abs() > 0.01 => {
+                        trace!(
+                            old_width = child.plot_area_width,
+                            new_width = width,
+                            axis = "column",
+                            "coordinate_facet_measurement_tree updating child plot area cross-size"
                         );
+                        child.plot_area_width = width;
                     }
+                    FacetAxis::Row if (child.plot_area_height - width).abs() > 0.01 => {
+                        trace!(
+                            old_height = child.plot_area_height,
+                            new_height = width,
+                            axis = "row",
+                            "coordinate_facet_measurement_tree updating child plot area cross-size"
+                        );
+                        child.plot_area_height = width;
+                    }
+                    _ => {}
+                }
+
+                if let Some(band_scale) = child.scales.get_mut(axis.scale_name()) {
+                    let updated_config = band_scale
+                        .configured()
+                        .clone()
+                        .with_range_interval((0.0, width));
+                    *band_scale =
+                        ConfiguredScaleWithSpec::new(band_scale.spec().clone(), updated_config);
                 }
             }
             reapply_scale_adjustments_recursive(child);

@@ -1553,48 +1553,4 @@ mod tests {
         // [0, 2] -> ["East"] (second index out of bounds)
         assert_eq!(spec.path_values_from_indices(&[0, 2]), vec![scalar("East")]);
     }
-
-    /*
-    // Additional tests commented out until query methods are added back
-
-    #[test]
-    fn test_visibility_single_row_level1() {
-        // ... implementation ...
-    }
-
-    #[test]
-    fn test_visibility_level4_sharing_four_level_row() {
-        // ... implementation ...
-    }
-
-    #[test]
-    fn test_visibility_level2_sharing_four_level_row() {
-        // ... implementation ...
-    }
-
-    #[test]
-    fn test_visibility_col_row_nesting() {
-        // ... implementation ...
-    }
-
-    #[test]
-    fn test_iterator() {
-        // ... implementation ...
-    }
-
-    #[test]
-    fn test_position_info() {
-        // ... implementation ...
-    }
-
-    #[test]
-    fn test_domain_inference_predicate_four_level_row() {
-        // ... implementation ...
-    }
-
-    #[test]
-    fn test_domain_inference_predicate_col_row() {
-        // ... implementation ...
-    }
-    */
 }

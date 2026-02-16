@@ -12,7 +12,7 @@ use tracing::{debug, trace};
 use crate::{
     coords::{
         CellDomainInfo, CoordMeasurement, CoordinateSystem, CoordinateSystemTransform,
-        CoordinatedLayout, CoordinatedOverflow, OverflowSpaceRequirement, PaddingSpec,
+        CoordinatedLayout, CoordinatedOverflow, FacetAxis, OverflowSpaceRequirement, PaddingSpec,
         PlotGeometry, SubplotGeometry, SubplotRect,
     },
     error::AvengerChartError,
@@ -73,7 +73,9 @@ pub(crate) struct FacetCellRuntime {
 ///
 /// This captures the computed padding from overflow measurement and pre-computed
 /// subplot measurements. Marks use the stored measurements directly without re-measuring.
-pub struct FacetColCoordMeasurement {
+pub struct FacetBandCoordMeasurement {
+    /// Facet axis orientation for this measurement.
+    pub axis: FacetAxis,
     /// Enumerated cell runtime state.
     pub(crate) cells: Vec<FacetCellRuntime>,
     /// ScaleBuilder for shared scales (caches data extents for rebuilding with updated dimensions).
@@ -89,21 +91,21 @@ pub struct FacetColCoordMeasurement {
     /// Used by `apply_coordinated_overflow` to re-measure with adjusted height.
     pub compiled_subplot: Arc<CompiledPlot>,
     /// Subplot width (bandwidth) for re-measurement.
-    pub subplot_width: f32,
+    pub subplot_cross_size: f32,
     /// Facet depth in the hierarchy (1 = outermost, 2 = nested, etc.)
     /// INVARIANT: facet_depth == full_cell_path.len() for any cell
     /// Used for sharing level comparison: sharing >= facet_depth means global.
     pub facet_depth: u8,
     /// Column scale (as ConfiguredScale) BEFORE Pass 2 adjustments.
     /// Used to recompute subplot width when coordinated layout differs from local.
-    pub original_column_scale: ConfiguredScale,
+    pub original_band_scale: ConfiguredScale,
     /// Local layout values (pre-coordination).
     pub local_layout: CoordinatedLayout,
     /// Coordinated layout values (post-coordination). None before coordination.
     pub coordinated_layout: Option<CoordinatedLayout>,
 }
 
-impl FacetColCoordMeasurement {
+impl FacetBandCoordMeasurement {
     fn active_layout(&self) -> &CoordinatedLayout {
         self.coordinated_layout
             .as_ref()
@@ -144,34 +146,76 @@ impl FacetColCoordMeasurement {
         let first_layout = &self.cells[first_idx].measurement.layout;
         let last_layout = &self.cells[last_idx].measurement.layout;
 
-        let guide = OverflowSpaceRequirement {
-            top: self
-                .cells
-                .iter()
-                .map(|cell| cell.measurement.layout.overflow.top)
-                .fold(0.0f32, f32::max),
-            bottom: self
-                .cells
-                .iter()
-                .map(|cell| cell.measurement.layout.overflow.bottom)
-                .fold(0.0f32, f32::max),
-            left: first_layout.overflow.left,
-            right: last_layout.overflow.right,
+        let max_guide_top = self
+            .cells
+            .iter()
+            .map(|cell| cell.measurement.layout.overflow.top)
+            .fold(0.0f32, f32::max);
+        let max_guide_bottom = self
+            .cells
+            .iter()
+            .map(|cell| cell.measurement.layout.overflow.bottom)
+            .fold(0.0f32, f32::max);
+        let max_guide_left = self
+            .cells
+            .iter()
+            .map(|cell| cell.measurement.layout.overflow.left)
+            .fold(0.0f32, f32::max);
+        let max_guide_right = self
+            .cells
+            .iter()
+            .map(|cell| cell.measurement.layout.overflow.right)
+            .fold(0.0f32, f32::max);
+
+        let max_total_top = self
+            .cells
+            .iter()
+            .map(|cell| cell.measurement.layout.total_overflow.top)
+            .fold(0.0f32, f32::max);
+        let max_total_bottom = self
+            .cells
+            .iter()
+            .map(|cell| cell.measurement.layout.total_overflow.bottom)
+            .fold(0.0f32, f32::max);
+        let max_total_left = self
+            .cells
+            .iter()
+            .map(|cell| cell.measurement.layout.total_overflow.left)
+            .fold(0.0f32, f32::max);
+        let max_total_right = self
+            .cells
+            .iter()
+            .map(|cell| cell.measurement.layout.total_overflow.right)
+            .fold(0.0f32, f32::max);
+
+        let guide = match self.axis {
+            FacetAxis::Column => OverflowSpaceRequirement {
+                top: max_guide_top,
+                bottom: max_guide_bottom,
+                left: first_layout.overflow.left,
+                right: last_layout.overflow.right,
+            },
+            FacetAxis::Row => OverflowSpaceRequirement {
+                top: first_layout.overflow.top,
+                bottom: last_layout.overflow.bottom,
+                left: max_guide_left,
+                right: max_guide_right,
+            },
         };
 
-        let total = OverflowSpaceRequirement {
-            top: self
-                .cells
-                .iter()
-                .map(|cell| cell.measurement.layout.total_overflow.top)
-                .fold(0.0f32, f32::max),
-            bottom: self
-                .cells
-                .iter()
-                .map(|cell| cell.measurement.layout.total_overflow.bottom)
-                .fold(0.0f32, f32::max),
-            left: first_layout.total_overflow.left,
-            right: last_layout.total_overflow.right,
+        let total = match self.axis {
+            FacetAxis::Column => OverflowSpaceRequirement {
+                top: max_total_top,
+                bottom: max_total_bottom,
+                left: first_layout.total_overflow.left,
+                right: last_layout.total_overflow.right,
+            },
+            FacetAxis::Row => OverflowSpaceRequirement {
+                top: first_layout.total_overflow.top,
+                bottom: last_layout.total_overflow.bottom,
+                left: max_total_left,
+                right: max_total_right,
+            },
         };
 
         Some(CoordinatedOverflow { guide, total })
@@ -190,9 +234,9 @@ impl FacetColCoordMeasurement {
         self.coordinated_layout = Some(layout);
     }
 
-    pub fn coordinated_subplot_width_value(&self) -> Option<f32> {
-        if self.subplot_width > 0.0 {
-            Some(self.subplot_width)
+    pub fn coordinated_subplot_cross_size(&self) -> Option<f32> {
+        if self.subplot_cross_size > 0.0 {
+            Some(self.subplot_cross_size)
         } else {
             None
         }
@@ -200,8 +244,8 @@ impl FacetColCoordMeasurement {
 
     pub fn set_parent_bandwidth_value(&mut self, bandwidth: f32) {
         if bandwidth > 0.0 {
-            self.original_column_scale = self
-                .original_column_scale
+            self.original_band_scale = self
+                .original_band_scale
                 .clone()
                 .with_range_interval((0.0, bandwidth));
 
@@ -213,7 +257,7 @@ impl FacetColCoordMeasurement {
     }
 }
 
-impl CoordMeasurement for FacetColCoordMeasurement {
+impl CoordMeasurement for FacetBandCoordMeasurement {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -228,10 +272,10 @@ impl CoordMeasurement for FacetColCoordMeasurement {
 
     fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
         // Apply padding_inner_px, outer edge adjustments, and domain override to the column scale.
-        // The outer_left/outer_right values represent legend space at the outer edges
+        // The outer_start/outer_end values represent legend space at the outer edges
         // of the first/last cells. We reduce the scale range width to account for this space.
         //
-        // The total available width is reduced by BOTH outer_left and outer_right.
+        // The total available width is reduced by BOTH outer_start and outer_end.
         // The scale start remains at 0 (or the original start), but the end is reduced
         // so that cells fit within the remaining space after legends are accounted for.
         //
@@ -239,7 +283,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
         // to use cell_values from the facet tree (which includes empty cells for uniform layout).
         // Without this, the scale domain would only contain values from the filtered data,
         // not the Level(N)-aware enumerated values.
-        if let Some(column_scale) = scales.get_mut("column") {
+        if let Some(band_scale) = scales.get_mut(self.axis.scale_name()) {
             let has_empty_cells = self.cells.iter().any(|cell| cell.plan.is_empty);
             let has_adjacent_non_empty = self
                 .cells
@@ -256,11 +300,11 @@ impl CoordMeasurement for FacetColCoordMeasurement {
             // Always start from the original measured column scale so repeated
             // coordination passes re-apply the same layout adjustments
             // deterministically without shrinking the range multiple times.
-            let base_scale = self.original_column_scale.clone();
+            let base_scale = self.original_band_scale.clone();
 
             // NOTE: We do NOT set band_n on the column scale here. The band_n option
             // is only used during measurement (apply_coordinated_overflow) to compute
-            // the correct subplot_width. For rendering, the column scale should position
+            // the correct subplot_cross_size. For rendering, the column scale should position
             // its actual domain cells evenly across the full allocated width.
             let updated_config = apply_facet_col_scale_layout(
                 &base_scale,
@@ -273,8 +317,7 @@ impl CoordMeasurement for FacetColCoordMeasurement {
                 },
             );
 
-            *column_scale =
-                ConfiguredScaleWithSpec::new(column_scale.spec().clone(), updated_config);
+            *band_scale = ConfiguredScaleWithSpec::new(band_scale.spec().clone(), updated_config);
         }
     }
 }
@@ -360,18 +403,18 @@ fn apply_facet_col_scale_layout(
         updated = updated.with_option("padding_inner_px", layout.padding_inner_px);
     }
 
-    if (layout.outer_left > 0.0 || layout.outer_right > 0.0)
+    if (layout.outer_start > 0.0 || layout.outer_end > 0.0)
         && let Ok((range_start, range_end)) = updated.config.numeric_interval_range()
     {
         let new_start = if mode.side_specific_outer_edges() {
-            range_start + layout.outer_left
+            range_start + layout.outer_start
         } else {
             range_start
         };
         let mut new_end = if mode.side_specific_outer_edges() {
-            range_end - layout.outer_right
+            range_end - layout.outer_end
         } else {
-            range_end - layout.outer_left - layout.outer_right
+            range_end - layout.outer_start - layout.outer_end
         };
 
         if new_end <= new_start {
@@ -388,8 +431,8 @@ fn coordinated_layout_preserving_outer_edges(
     local_layout: &CoordinatedLayout,
     mut coordinated_layout: CoordinatedLayout,
 ) -> CoordinatedLayout {
-    coordinated_layout.outer_left = local_layout.outer_left;
-    coordinated_layout.outer_right = local_layout.outer_right;
+    coordinated_layout.outer_start = local_layout.outer_start;
+    coordinated_layout.outer_end = local_layout.outer_end;
     coordinated_layout
 }
 
@@ -400,8 +443,8 @@ fn has_coordinated_layout_change(
     coordinated_layout.is_some_and(|coordinated| {
         coordinated.n != local_layout.n
             || (coordinated.padding_inner_px - local_layout.padding_inner_px).abs() > 0.01
-            || (coordinated.outer_left - local_layout.outer_left).abs() > 0.01
-            || (coordinated.outer_right - local_layout.outer_right).abs() > 0.01
+            || (coordinated.outer_start - local_layout.outer_start).abs() > 0.01
+            || (coordinated.outer_end - local_layout.outer_end).abs() > 0.01
     })
 }
 
@@ -431,9 +474,16 @@ fn layout_from_measurement_or_local(
         .unwrap_or_else(|| local_layout.clone())
 }
 
-impl FacetColCoordMeasurement {
+impl FacetBandCoordMeasurement {
     pub fn coordination_group_key_for_depth(&self, depth: usize) -> CoordinationGroupKey {
-        CoordinationGroupKey::new(depth, format!("col:{}", self.coordination_field_identity))
+        CoordinationGroupKey::new(
+            depth,
+            format!(
+                "{}:{}",
+                self.axis.coordination_key_prefix(),
+                self.coordination_field_identity
+            ),
+        )
     }
 
     pub fn collect_cell_domain_infos(&self, collector: &mut Vec<CellDomainInfo>) {
@@ -498,13 +548,13 @@ impl FacetColCoordMeasurement {
         let has_coordinated_layout =
             has_coordinated_layout_change(&self.local_layout, self.coordinated_layout.as_ref());
 
-        // If coordinated layout changed, recompute subplot_width using band_n.
+        // If coordinated layout changed, recompute subplot_cross_size using band_n.
         // This only updates the width/padding fields — it does NOT trigger re-measurement.
         // Re-measurement would rebuild scales from scratch, changing y-domains.
         if has_coordinated_layout {
             let layout = self.coordinated_layout.as_ref().unwrap();
             let scale = apply_facet_col_scale_layout(
-                &self.original_column_scale,
+                &self.original_band_scale,
                 layout,
                 None,
                 Some(layout.n),
@@ -513,8 +563,8 @@ impl FacetColCoordMeasurement {
                 },
             );
 
-            // Recompute subplot_width from coordinated scale
-            let new_subplot_width = bandwidth(&scale.config).map_err(|e| {
+            // Recompute subplot_cross_size from coordinated scale
+            let new_subplot_cross_size = bandwidth(&scale.config).map_err(|e| {
                 AvengerChartError::InternalError(format!(
                     "Failed to get coordinated bandwidth: {}",
                     e
@@ -522,24 +572,24 @@ impl FacetColCoordMeasurement {
             })?;
 
             debug!(
-                old_width = self.subplot_width,
-                new_width = new_subplot_width,
+                old_width = self.subplot_cross_size,
+                new_width = new_subplot_cross_size,
                 local_n = self.local_layout.n,
                 coordinated_n = layout.n,
                 local_padding = self.local_layout.padding_inner_px,
                 coordinated_padding = layout.padding_inner_px,
-                local_outer_left = self.local_layout.outer_left,
-                local_outer_right = self.local_layout.outer_right,
-                coordinated_outer_left = layout.outer_left,
-                coordinated_outer_right = layout.outer_right,
+                local_outer_start = self.local_layout.outer_start,
+                local_outer_end = self.local_layout.outer_end,
+                coordinated_outer_start = layout.outer_start,
+                coordinated_outer_end = layout.outer_end,
                 "FacetCol apply_coordinated_overflow layout coordination"
             );
 
-            self.subplot_width = new_subplot_width;
+            self.subplot_cross_size = new_subplot_cross_size;
         }
 
         // Only do full re-measurement for legend overflow or coordinated domain extents.
-        // Layout coordination (above) only adjusts subplot_width without re-measuring,
+        // Layout coordination (above) only adjusts subplot_cross_size without re-measuring,
         // because re-measurement rebuilds scales from scratch and can change y-domains.
         if !should_remeasure_cells(has_legend_overflow, has_coordinated_extents) {
             return Ok(());
@@ -579,7 +629,7 @@ impl FacetColCoordMeasurement {
         let shared_scale_builder = self.shared_scale_builder.clone();
         for (idx, cell) in self.cells.iter_mut().enumerate() {
             let subplot_layout_spec =
-                fixed_plot_area_layout_spec(self.subplot_width, adjusted_height);
+                fixed_plot_area_layout_spec(self.subplot_cross_size, adjusted_height);
             let mut builder = shared_scale_builder.clone();
             if !cell.coordinated_domain_extents.is_empty() {
                 builder.extend_with_domain_extents(&cell.coordinated_domain_extents);
@@ -601,7 +651,7 @@ impl FacetColCoordMeasurement {
             trace!(
                 cell_index = idx,
                 cell_value = ?cell.plan.value,
-                width = self.subplot_width,
+                width = self.subplot_cross_size,
                 height = adjusted_height,
                 is_empty = cell.plan.is_empty,
                 "FacetCol apply_coordinated_overflow re-measured cell"
@@ -682,6 +732,7 @@ fn derive_padding_inner_px_from_probe(
     pass1_empty_cells: &[bool],
 ) -> f32 {
     let parent_padding = compute_padding_from_overflows(
+        FacetAxis::Column,
         &pass1
             .cell_overflows
             .iter()
@@ -698,14 +749,15 @@ fn empty_facet_col_measurement(
     compiled_subplot: &Arc<CompiledPlot>,
     column_scale: &ConfiguredScaleWithSpec,
 ) -> Box<dyn CoordMeasurement> {
-    Box::new(FacetColCoordMeasurement {
+    Box::new(FacetBandCoordMeasurement {
+        axis: FacetAxis::Column,
         cells: Vec::new(),
         shared_scale_builder: ScaleBuilder::default(),
         coordinated_overflow: CoordinatedOverflow::default(),
         compiled_subplot: compiled_subplot.clone(),
-        subplot_width: 0.0,
+        subplot_cross_size: 0.0,
         facet_depth: facet_path.len() as u8 + 1,
-        original_column_scale: column_scale.configured().clone(),
+        original_band_scale: column_scale.configured().clone(),
         local_layout: CoordinatedLayout::default(),
         coordinated_layout: None,
         coordination_field_identity: "column".to_string(),
@@ -974,13 +1026,13 @@ async fn measure_facet_cell(
 async fn measure_nested_cell(
     cell: &FacetCellPlan,
     data_override: &DataFrame,
-    subplot_width: f32,
+    subplot_cross_size: f32,
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
     nested_ctx: &FacetColNestedMeasureContext<'_>,
 ) -> Result<MeasuredFacetCell, AvengerChartError> {
-    let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_width, plot_height);
+    let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_cross_size, plot_height);
     let mode = FacetCellMeasurementMode::NestedSharing {
         nested_col_sharing: nested_ctx.nested_col_sharing,
         nested_depth: nested_ctx.nested_depth,
@@ -1136,7 +1188,7 @@ fn annotate_domain_extents(
 
 async fn measure_cells_overflow_probe(
     cells: &[FacetCellDraft],
-    subplot_width: f32,
+    subplot_cross_size: f32,
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
@@ -1157,7 +1209,7 @@ async fn measure_cells_overflow_probe(
         let MeasuredFacetCell { measurement, .. } = measure_nested_cell(
             &cell.plan,
             &cell.data_override,
-            subplot_width,
+            subplot_cross_size,
             plot_height,
             compiled_subplot,
             subplot_eval_ctx,
@@ -1171,7 +1223,7 @@ async fn measure_cells_overflow_probe(
         if let Some(child_facet_col) = measurement
             .coord_measurement
             .as_any()
-            .downcast_ref::<FacetColCoordMeasurement>()
+            .downcast_ref::<FacetBandCoordMeasurement>()
         {
             summary.max_child_padding = summary
                 .max_child_padding
@@ -1202,7 +1254,7 @@ async fn measure_cells_overflow_probe(
 
 async fn measure_cells_final_and_extents(
     cells: &mut [FacetCellDraft],
-    subplot_width: f32,
+    subplot_cross_size: f32,
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
@@ -1223,7 +1275,7 @@ async fn measure_cells_final_and_extents(
         } = measure_nested_cell(
             &cell.plan,
             &cell.data_override,
-            subplot_width,
+            subplot_cross_size,
             plot_height,
             compiled_subplot,
             subplot_eval_ctx,
@@ -1234,7 +1286,7 @@ async fn measure_cells_final_and_extents(
         trace!(
             cell_index = idx,
             cell_value = ?cell.plan.value,
-            subplot_width,
+            subplot_cross_size,
             is_empty = cell.plan.is_empty,
             "FacetCol final measure result"
         );
@@ -1428,7 +1480,7 @@ struct FacetColMeasurePipeline<'a> {
 struct FacetColResolvedNode<'a> {
     compiled_subplot: &'a Arc<CompiledPlot>,
     column_scale: &'a ConfiguredScaleWithSpec,
-    subplot_width: f32,
+    subplot_cross_size: f32,
     current_sharing_level: u8,
     coordination_field_identity: String,
 }
@@ -1508,7 +1560,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         let overflow_probe_summary = self
             .probe_overflow(
                 &plan.cells,
-                resolved.subplot_width,
+                resolved.subplot_cross_size,
                 resolved.compiled_subplot,
                 &subplot_eval_ctx,
                 &nested_measure_ctx,
@@ -1518,17 +1570,17 @@ impl<'a> FacetColMeasurePipeline<'a> {
         // Stage 4: derive the local band layout and pass-2 subplot width from the probe.
         let band_layout_plan =
             self.derive_layout_plan(&plan.cells, &plan.cell_values, &overflow_probe_summary);
-        let final_subplot_width = self.build_pass2_scale(
+        let final_subplot_cross_size = self.build_pass2_scale(
             resolved.column_scale,
             &band_layout_plan,
             &plan.cell_values,
-            resolved.subplot_width,
+            resolved.subplot_cross_size,
         )?;
 
         // Stage 5: run final measurement pass and collect local domain extents per non-empty cell.
         self.measure_final_cells(
             &mut plan.cells,
-            final_subplot_width,
+            final_subplot_cross_size,
             resolved.compiled_subplot,
             &subplot_eval_ctx,
             &nested_measure_ctx,
@@ -1541,7 +1593,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             plan.cells,
             plan.shared_scale_builder,
             resolved.compiled_subplot,
-            final_subplot_width,
+            final_subplot_cross_size,
             resolved.column_scale,
             resolved.coordination_field_identity,
         ))
@@ -1568,7 +1620,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             .get("column")
             .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
 
-        let subplot_width = bandwidth(&column_scale.configured().config).map_err(|e| {
+        let subplot_cross_size = bandwidth(&column_scale.configured().config).map_err(|e| {
             AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
         })?;
 
@@ -1599,7 +1651,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         Ok(ResolveNodeOutcome::Ready(FacetColResolvedNode {
             compiled_subplot,
             column_scale,
-            subplot_width,
+            subplot_cross_size,
             current_sharing_level,
             coordination_field_identity: current_node.field.clone(),
         }))
@@ -1644,14 +1696,14 @@ impl<'a> FacetColMeasurePipeline<'a> {
     async fn probe_overflow(
         &self,
         cells: &[FacetCellDraft],
-        subplot_width: f32,
+        subplot_cross_size: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
         nested_measure_ctx: &FacetColNestedMeasureContext<'_>,
     ) -> Result<OverflowProbeSummary, AvengerChartError> {
         measure_cells_overflow_probe(
             cells,
-            subplot_width,
+            subplot_cross_size,
             self.plot_height,
             compiled_subplot,
             subplot_eval_ctx,
@@ -1673,12 +1725,12 @@ impl<'a> FacetColMeasurePipeline<'a> {
         let (first_edge_idx, last_edge_idx) =
             effective_edge_indices(&pass1_empty_cells, pass1.cell_overflows.len())
                 .unwrap_or((0, 0));
-        let outer_left = pass1
+        let outer_start = pass1
             .cell_overflows
             .get(first_edge_idx)
             .map(|(guide, total)| (total.left - guide.left).max(0.0))
             .unwrap_or(0.0);
-        let outer_right = pass1
+        let outer_end = pass1
             .cell_overflows
             .get(last_edge_idx)
             .map(|(guide, total)| (total.right - guide.right).max(0.0))
@@ -1686,8 +1738,8 @@ impl<'a> FacetColMeasurePipeline<'a> {
 
         debug!(
             padding_inner_px,
-            outer_left,
-            outer_right,
+            outer_start,
+            outer_end,
             cell_count = cell_values.len(),
             first_edge_idx,
             last_edge_idx,
@@ -1696,8 +1748,8 @@ impl<'a> FacetColMeasurePipeline<'a> {
 
         FacetBandPlan {
             padding_inner_px,
-            outer_left,
-            outer_right,
+            outer_start,
+            outer_end,
             n: cell_values.len(),
         }
     }
@@ -1707,12 +1759,12 @@ impl<'a> FacetColMeasurePipeline<'a> {
         column_scale: &ConfiguredScaleWithSpec,
         band_plan: &FacetBandPlan,
         cell_values: &[ScalarValue],
-        initial_subplot_width: f32,
+        initial_subplot_cross_size: f32,
     ) -> Result<f32, AvengerChartError> {
         let pass2_layout = CoordinatedLayout {
             padding_inner_px: band_plan.padding_inner_px,
-            outer_left: band_plan.outer_left,
-            outer_right: band_plan.outer_right,
+            outer_start: band_plan.outer_start,
+            outer_end: band_plan.outer_end,
             n: band_plan.n,
         };
 
@@ -1726,30 +1778,30 @@ impl<'a> FacetColMeasurePipeline<'a> {
             },
         );
 
-        let final_subplot_width = bandwidth(&updated_column_scale.config).map_err(|e| {
+        let final_subplot_cross_size = bandwidth(&updated_column_scale.config).map_err(|e| {
             AvengerChartError::InternalError(format!("Failed to get final bandwidth: {}", e))
         })?;
 
         debug!(
-            initial_width = initial_subplot_width,
-            final_width = final_subplot_width,
+            initial_width = initial_subplot_cross_size,
+            final_width = final_subplot_cross_size,
             "FacetCol pass 2 scale bandwidth"
         );
 
-        Ok(final_subplot_width)
+        Ok(final_subplot_cross_size)
     }
 
     async fn measure_final_cells(
         &self,
         cells: &mut [FacetCellDraft],
-        final_subplot_width: f32,
+        final_subplot_cross_size: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
         nested_measure_ctx: &FacetColNestedMeasureContext<'_>,
     ) -> Result<(), AvengerChartError> {
         measure_cells_final_and_extents(
             cells,
-            final_subplot_width,
+            final_subplot_cross_size,
             self.plot_height,
             compiled_subplot,
             subplot_eval_ctx,
@@ -1764,7 +1816,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         cells: Vec<FacetCellDraft>,
         shared_scale_builder: ScaleBuilder,
         compiled_subplot: &Arc<CompiledPlot>,
-        final_subplot_width: f32,
+        final_subplot_cross_size: f32,
         column_scale: &ConfiguredScaleWithSpec,
         coordination_field_identity: String,
     ) -> Box<dyn CoordMeasurement> {
@@ -1783,19 +1835,20 @@ impl<'a> FacetColMeasurePipeline<'a> {
 
         let local_layout = CoordinatedLayout {
             padding_inner_px: band_plan.padding_inner_px,
-            outer_left: band_plan.outer_left,
-            outer_right: band_plan.outer_right,
+            outer_start: band_plan.outer_start,
+            outer_end: band_plan.outer_end,
             n: band_plan.n,
         };
 
-        Box::new(FacetColCoordMeasurement {
+        Box::new(FacetBandCoordMeasurement {
+            axis: FacetAxis::Column,
             cells: cell_runtimes,
             shared_scale_builder,
             coordinated_overflow: CoordinatedOverflow::default(),
             compiled_subplot: compiled_subplot.clone(),
-            subplot_width: final_subplot_width,
+            subplot_cross_size: final_subplot_cross_size,
             facet_depth: self.facet_path.len() as u8 + 1,
-            original_column_scale: column_scale.configured().clone(),
+            original_band_scale: column_scale.configured().clone(),
             local_layout,
             coordinated_layout: None,
             coordination_field_identity,
@@ -1953,26 +2006,26 @@ mod tests {
     fn layout_from_measurement_or_local_prefers_coordinated() {
         let local = CoordinatedLayout {
             padding_inner_px: 4.0,
-            outer_left: 1.0,
-            outer_right: 2.0,
+            outer_start: 1.0,
+            outer_end: 2.0,
             n: 2,
         };
         let coordinated = CoordinatedLayout {
             padding_inner_px: 10.0,
-            outer_left: 5.0,
-            outer_right: 6.0,
+            outer_start: 5.0,
+            outer_end: 6.0,
             n: 4,
         };
         let selected = layout_from_measurement_or_local(&local, Some(&coordinated));
         assert_eq!(selected.padding_inner_px, coordinated.padding_inner_px);
-        assert_eq!(selected.outer_left, coordinated.outer_left);
-        assert_eq!(selected.outer_right, coordinated.outer_right);
+        assert_eq!(selected.outer_start, coordinated.outer_start);
+        assert_eq!(selected.outer_end, coordinated.outer_end);
         assert_eq!(selected.n, coordinated.n);
 
         let fallback = layout_from_measurement_or_local(&local, None);
         assert_eq!(fallback.padding_inner_px, local.padding_inner_px);
-        assert_eq!(fallback.outer_left, local.outer_left);
-        assert_eq!(fallback.outer_right, local.outer_right);
+        assert_eq!(fallback.outer_start, local.outer_start);
+        assert_eq!(fallback.outer_end, local.outer_end);
         assert_eq!(fallback.n, local.n);
     }
 
@@ -1981,8 +2034,8 @@ mod tests {
         let base = make_band_scale((0.0, 300.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 12.0,
-            outer_left: 10.0,
-            outer_right: 20.0,
+            outer_start: 10.0,
+            outer_end: 20.0,
             n: 3,
         };
         let domain_override = vec![
@@ -2021,22 +2074,22 @@ mod tests {
     fn set_coordinated_layout_preserves_local_outer_edges() {
         let local = CoordinatedLayout {
             padding_inner_px: 6.0,
-            outer_left: 11.0,
-            outer_right: 12.0,
+            outer_start: 11.0,
+            outer_end: 12.0,
             n: 2,
         };
         let coordinated = CoordinatedLayout {
             padding_inner_px: 18.0,
-            outer_left: 91.0,
-            outer_right: 92.0,
+            outer_start: 91.0,
+            outer_end: 92.0,
             n: 4,
         };
 
         let merged = coordinated_layout_preserving_outer_edges(&local, coordinated);
         assert_eq!(merged.padding_inner_px, 18.0);
         assert_eq!(merged.n, 4);
-        assert_eq!(merged.outer_left, local.outer_left);
-        assert_eq!(merged.outer_right, local.outer_right);
+        assert_eq!(merged.outer_start, local.outer_start);
+        assert_eq!(merged.outer_end, local.outer_end);
     }
 
     #[test]
@@ -2044,8 +2097,8 @@ mod tests {
         let base = make_band_scale((0.0, 200.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 0.0,
-            outer_left: 0.0,
-            outer_right: 0.0,
+            outer_start: 0.0,
+            outer_end: 0.0,
             n: 2,
         };
 
@@ -2094,8 +2147,8 @@ mod tests {
         let base = make_band_scale((0.0, 300.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 12.0,
-            outer_left: 10.0,
-            outer_right: 20.0,
+            outer_start: 10.0,
+            outer_end: 20.0,
             n: 3,
         };
 
@@ -2117,20 +2170,20 @@ mod tests {
     fn has_coordinated_layout_change_detects_any_dimension_shift() {
         let local = CoordinatedLayout {
             padding_inner_px: 6.0,
-            outer_left: 1.0,
-            outer_right: 2.0,
+            outer_start: 1.0,
+            outer_end: 2.0,
             n: 3,
         };
         let same = CoordinatedLayout {
             padding_inner_px: 6.0,
-            outer_left: 1.0,
-            outer_right: 2.0,
+            outer_start: 1.0,
+            outer_end: 2.0,
             n: 3,
         };
         let changed = CoordinatedLayout {
             padding_inner_px: 6.0,
-            outer_left: 1.0,
-            outer_right: 2.0,
+            outer_start: 1.0,
+            outer_end: 2.0,
             n: 4,
         };
 
