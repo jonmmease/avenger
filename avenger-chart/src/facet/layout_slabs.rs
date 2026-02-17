@@ -35,8 +35,22 @@ impl LayoutSlabs {
     }
 
     #[inline]
+    pub(crate) fn guide_anchor_horizontal(&self, place_at_right: bool) -> f32 {
+        if place_at_right {
+            self.guide.right
+        } else {
+            self.guide.left
+        }
+    }
+
+    #[inline]
     pub(crate) fn legend_vertical(&self) -> (f32, f32) {
         (self.legend.top, self.legend.bottom)
+    }
+
+    #[inline]
+    pub(crate) fn legend_horizontal(&self) -> (f32, f32) {
+        (self.legend.left, self.legend.right)
     }
 }
 

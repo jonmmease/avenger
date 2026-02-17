@@ -55,6 +55,8 @@ pub(crate) struct PreparedLegendGroup {
     pub channels: Vec<LegendChannel>,
     pub legend: Legend,
     pub renderer: Arc<dyn LegendRenderer>,
+    pub effective_sharing_level: u8,
+    pub resolved_position: LegendPosition,
 }
 
 #[derive(Clone, Default)]
@@ -93,28 +95,18 @@ impl CompiledPlot {
             return true;
         }
 
-        let parent_path = &facet_path[..facet_path.len().saturating_sub(1)];
-        if facet_tree.node_at_path(parent_path).is_none() {
-            return true;
-        }
-
-        let Some(indices) = facet_tree.indices_from_path(facet_path) else {
+        let Some(resolved) = facet_tree.resolve_path_info(facet_path) else {
             return true;
         };
 
-        if indices.is_empty() {
-            return true;
-        }
-
-        let level_counts = facet_tree.level_counts();
-        if level_counts.len() < indices.len() {
+        if resolved.indices.is_empty() {
             return true;
         }
 
         sharing_policy::legend_owner_for_position(
-            &indices,
-            &level_counts,
-            indices.len() as u8,
+            &resolved.indices,
+            &resolved.local_level_counts,
+            resolved.indices.len() as u8,
             sharing_level,
             legend_position,
         )
@@ -979,6 +971,8 @@ impl CompiledPlot {
                     channels: channels.clone(),
                     legend: legend.clone(),
                     renderer,
+                    effective_sharing_level,
+                    resolved_position,
                 });
             }
         }

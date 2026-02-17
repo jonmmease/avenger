@@ -104,6 +104,20 @@ pub struct AxisVisibility {
     pub show_title: bool,
 }
 
+/// Resolved geometry metadata for a concrete facet path.
+///
+/// This captures branch-local counts so ownership rules remain correct for
+/// ragged trees where sibling branches have different cardinalities.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedFacetPathInfo {
+    /// Position index at each depth for the provided path.
+    pub indices: Vec<usize>,
+    /// Domain count at each depth on the same concrete branch as `indices`.
+    pub local_level_counts: Vec<usize>,
+    /// Facet direction at the resolved depth.
+    pub direction: FacetDirection,
+}
+
 impl AxisVisibility {
     /// Create visibility with both labels and title shown.
     pub fn visible() -> Self {
@@ -467,12 +481,12 @@ impl EvaluatedFacetTree {
     fn axis_visibility_from_resolved(
         &self,
         position_indices: &[usize],
+        level_counts: &[usize],
         axis_position: AxisPosition,
         sharing_level: u8,
         direction: FacetDirection,
     ) -> AxisVisibility {
-        let counts = self.level_counts_ref();
-        if counts.is_empty() {
+        if level_counts.is_empty() {
             return AxisVisibility::visible();
         }
 
@@ -480,7 +494,7 @@ impl EvaluatedFacetTree {
         AxisVisibility {
             show_labels: sharing_policy::show_axis_labels(
                 position_indices,
-                counts,
+                level_counts,
                 facet_depth,
                 sharing_level,
                 direction,
@@ -488,12 +502,51 @@ impl EvaluatedFacetTree {
             ),
             show_title: sharing_policy::show_axis_title(
                 position_indices,
-                counts,
+                level_counts,
                 facet_depth,
                 direction,
                 axis_position,
             ),
         }
+    }
+
+    /// Resolve branch-local path metadata for a concrete cell path.
+    ///
+    /// Unlike `level_counts()`, this returns counts from the same branch as the
+    /// provided path, which is required for ragged-tree owner checks.
+    pub fn resolve_path_info(&self, path: &[ScalarValue]) -> Option<ResolvedFacetPathInfo> {
+        let mut node = self.root.as_ref()?;
+
+        if path.is_empty() {
+            return Some(ResolvedFacetPathInfo {
+                indices: Vec::new(),
+                local_level_counts: Vec::new(),
+                direction: node.direction,
+            });
+        }
+
+        let mut indices = Vec::with_capacity(path.len());
+        let mut local_level_counts = Vec::with_capacity(path.len());
+
+        for (level, value) in path.iter().enumerate() {
+            local_level_counts.push(node.domain_count());
+
+            let idx = match &node.content {
+                PartitionContent::Leaf { values } => values.iter().position(|v| v == value)?,
+                PartitionContent::Branch { children } => children.get_index_of(value)?,
+            };
+            indices.push(idx);
+
+            if level + 1 < path.len() {
+                node = node.child(value)?;
+            }
+        }
+
+        Some(ResolvedFacetPathInfo {
+            indices,
+            local_level_counts,
+            direction: node.direction,
+        })
     }
 
     /// Convert a path of domain values to position indices.
@@ -504,28 +557,8 @@ impl EvaluatedFacetTree {
     ///
     /// Returns `None` if any value in the path is not found at its level.
     pub fn indices_from_path(&self, path: &[ScalarValue]) -> Option<Vec<usize>> {
-        if path.is_empty() {
-            return Some(Vec::new());
-        }
-
-        let mut indices = Vec::with_capacity(path.len());
-        let mut current_node = self.root.as_ref()?;
-
-        for (level, value) in path.iter().enumerate() {
-            // Find the index of this value at the current level
-            let index = match &current_node.content {
-                PartitionContent::Leaf { values } => values.iter().position(|v| v == value)?,
-                PartitionContent::Branch { children } => children.get_index_of(value)?,
-            };
-            indices.push(index);
-
-            // Navigate to next level if not at end of path
-            if level + 1 < path.len() {
-                current_node = current_node.child(value)?;
-            }
-        }
-
-        Some(indices)
+        self.resolve_path_info(path)
+            .map(|resolved| resolved.indices)
     }
 
     /// Determine axis visibility for a cell at given path in the facet grid.
@@ -552,26 +585,14 @@ impl EvaluatedFacetTree {
             return Some(AxisVisibility::visible());
         }
 
-        let mut indices = Vec::with_capacity(path.len());
-        let mut node = self.root.as_ref()?;
-
-        for (level, value) in path.iter().enumerate() {
-            let idx = match &node.content {
-                PartitionContent::Leaf { values } => values.iter().position(|v| v == value)?,
-                PartitionContent::Branch { children } => children.get_index_of(value)?,
-            };
-            indices.push(idx);
-
-            if level + 1 < path.len() {
-                node = node.child(value)?;
-            }
-        }
+        let resolved = self.resolve_path_info(path)?;
 
         Some(self.axis_visibility_from_resolved(
-            &indices,
+            &resolved.indices,
+            &resolved.local_level_counts,
             axis_position,
             sharing_level,
-            node.direction,
+            resolved.direction,
         ))
     }
 
@@ -661,6 +682,7 @@ impl EvaluatedFacetTree {
 
         self.axis_visibility_from_resolved(
             position_indices,
+            self.level_counts_ref(),
             axis_position,
             sharing_level,
             node.direction,

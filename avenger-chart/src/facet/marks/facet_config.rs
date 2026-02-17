@@ -5,6 +5,7 @@ pub struct FacetRowChannelConfig {
     pub(crate) title: Option<String>,
     pub(crate) spacing: Option<f32>,
     pub(crate) scale_sharing: Option<ScaleSharing>,
+    pub(crate) position: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -69,6 +70,7 @@ impl FacetRowChannelConfig {
         self.title = opts.title;
         self.spacing = opts.spacing;
         self.scale_sharing = opts.scale_sharing;
+        self.position = opts.position;
         self
     }
 }

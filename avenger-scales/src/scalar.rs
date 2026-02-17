@@ -453,11 +453,27 @@ impl Scalar {
                     })?;
                 Ok(Self::from_bool(arr.value(index)))
             }
+            DataType::Int16 => {
+                let arr = array.as_any().downcast_ref::<Int16Array>().ok_or_else(|| {
+                    AvengerScaleError::InternalError("Failed to downcast to Int16Array".to_string())
+                })?;
+                Ok(Self::new(Arc::new(Int16Array::from(
+                    vec![arr.value(index)],
+                ))))
+            }
             DataType::Int32 => {
                 let arr = array.as_any().downcast_ref::<Int32Array>().ok_or_else(|| {
                     AvengerScaleError::InternalError("Failed to downcast to Int32Array".to_string())
                 })?;
                 Ok(Self::from_i32(arr.value(index)))
+            }
+            DataType::Int64 => {
+                let arr = array.as_any().downcast_ref::<Int64Array>().ok_or_else(|| {
+                    AvengerScaleError::InternalError("Failed to downcast to Int64Array".to_string())
+                })?;
+                Ok(Self::new(Arc::new(Int64Array::from(
+                    vec![arr.value(index)],
+                ))))
             }
             DataType::Float32 => {
                 let arr = array
@@ -469,6 +485,19 @@ impl Scalar {
                         )
                     })?;
                 Ok(Self::from_f32(arr.value(index)))
+            }
+            DataType::Float64 => {
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Float64Array".to_string(),
+                        )
+                    })?;
+                Ok(Self::new(Arc::new(Float64Array::from(vec![
+                    arr.value(index)
+                ]))))
             }
             DataType::Utf8 => {
                 let arr = array
