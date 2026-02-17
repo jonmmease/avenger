@@ -274,16 +274,19 @@ fn apply_coordinated_overflow_recursive<'a>(
     Box::pin(async move {
         if let Some(facet_band) = facet_band_mut(measurement) {
             facet_band.apply_coordinated_overflow(eval_ctx).await?;
-            let parent_width = facet_band.coordinated_subplot_cross_size();
+            let parent_cross_size = facet_band.coordinated_subplot_cross_size();
+            let parent_axis = facet_band.axis;
 
             for child in facet_band.child_measurements_iter_mut() {
-                if let Some(width) = parent_width {
+                if let Some(cross_size) = parent_cross_size {
                     if let Some(child_facet_band) = child
                         .coord_measurement
                         .as_any_mut()
                         .downcast_mut::<FacetBandCoordMeasurement>()
                     {
-                        child_facet_band.set_parent_bandwidth_value(width);
+                        if child_facet_band.axis == parent_axis {
+                            child_facet_band.set_parent_bandwidth_value(cross_size);
+                        }
                     }
                 }
                 apply_coordinated_overflow_recursive(child, eval_ctx).await?;
