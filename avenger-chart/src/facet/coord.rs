@@ -271,18 +271,13 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
     }
 
     fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
-        // Apply padding_inner_px, outer edge adjustments, and domain override to the column scale.
-        // The outer_start/outer_end values represent legend space at the outer edges
-        // of the first/last cells. We reduce the scale range width to account for this space.
+        // Apply facet band layout adjustments at render-time:
+        // - domain override from cell_values
+        // - coordinated padding/outer edges
+        // - band_n override when coordinated layout expects more slots than the local domain
         //
-        // The total available width is reduced by BOTH outer_start and outer_end.
-        // The scale start remains at 0 (or the original start), but the end is reduced
-        // so that cells fit within the remaining space after legends are accounted for.
-        //
-        // IMPORTANT: For Level(N) sharing, we also override the column scale domain
-        // to use cell_values from the facet tree (which includes empty cells for uniform layout).
-        // Without this, the scale domain would only contain values from the filtered data,
-        // not the Level(N)-aware enumerated values.
+        // The band_n override preserves equal subplot sizing for ragged nested layouts by
+        // reserving trailing empty slots in branches with fewer local values.
         if let Some(band_scale) = scales.get_mut(self.axis.scale_name()) {
             let has_empty_cells = self.cells.iter().any(|cell| cell.plan.is_empty);
             let has_adjacent_non_empty = self
@@ -296,22 +291,24 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
             } else {
                 Some(cell_values.as_slice())
             };
+            let layout = self.active_layout();
+            let band_n_override = if layout.n > cell_values.len() {
+                Some(layout.n)
+            } else {
+                None
+            };
 
             // Always start from the original measured column scale so repeated
             // coordination passes re-apply the same layout adjustments
             // deterministically without shrinking the range multiple times.
             let base_scale = self.original_band_scale.clone();
 
-            // NOTE: We do NOT set band_n on the column scale here. The band_n option
-            // is only used during measurement (apply_coordinated_overflow) to compute
-            // the correct subplot_cross_size. For rendering, the column scale should position
-            // its actual domain cells evenly across the full allocated width.
             let updated_config = apply_facet_band_scale_layout(
                 self.axis,
                 &base_scale,
-                self.active_layout(),
+                layout,
                 domain_override,
-                None,
+                band_n_override,
                 ScaleLayoutRewriteMode::RenderPass {
                     allow_zero_padding_override: needs_zero_padding_override,
                     side_specific_outer_edges: self.facet_depth > 1,
@@ -560,11 +557,17 @@ impl FacetBandCoordMeasurement {
         // Re-measurement would rebuild scales from scratch, changing y-domains.
         if has_coordinated_layout {
             let layout = self.coordinated_layout.as_ref().unwrap();
+            let cell_values: Vec<ScalarValue> = self.cell_values().cloned().collect();
+            let domain_override = if cell_values.is_empty() {
+                None
+            } else {
+                Some(cell_values.as_slice())
+            };
             let scale = apply_facet_band_scale_layout(
                 self.axis,
                 &self.original_band_scale,
                 layout,
-                None,
+                domain_override,
                 Some(layout.n),
                 ScaleLayoutRewriteMode::RemeasurePass {
                     side_specific_outer_edges: self.facet_depth > 1,
@@ -1667,7 +1670,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         let current_sharing_level: u8 = facet_mark
             .facet_scale_sharing()
             .map(|s| s.to_level())
-            .unwrap_or(255);
+            .unwrap_or(0);
 
         Ok(ResolveNodeOutcome::Ready(FacetColResolvedNode {
             compiled_subplot,
@@ -2053,7 +2056,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         let current_sharing_level: u8 = facet_mark
             .facet_scale_sharing()
             .map(|s| s.to_level())
-            .unwrap_or(255);
+            .unwrap_or(0);
 
         Ok(ResolveRowNodeOutcome::Ready(FacetRowResolvedNode {
             compiled_subplot,
