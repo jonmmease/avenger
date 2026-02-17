@@ -3,7 +3,7 @@
 //! This module handles measurement and rendering of guide elements (axes, labels)
 //! for column-based faceted plots.
 
-use crate::cartesian::axis::CartesianAxis;
+use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::CoordMeasurement;
 use crate::coords::CoordinatedOverflow;
 use crate::error::AvengerChartError;
@@ -258,6 +258,16 @@ fn measure_facet_guide_height(
     measure_facet_label_slab(&measurement_config)
 }
 
+fn facet_title_visible_for_cell(
+    facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet_path: &[datafusion::common::ScalarValue],
+    axis_position: AxisPosition,
+) -> bool {
+    facet_tree
+        .axis_visibility_for_path(facet_path, axis_position, 255)
+        .show_title
+}
+
 #[async_trait::async_trait]
 #[typetag::serde]
 impl CompiledGuide for FacetColGuide {
@@ -318,12 +328,26 @@ impl CompiledGuide for FacetColGuide {
             band_iter.map(|bp| format_scalar_value(&bp.value)).collect()
         };
 
+        let place_at_bottom = self.position.as_deref() == Some("bottom");
+        let title_visible = facet_title_visible_for_cell(
+            facet_tree,
+            facet_path,
+            if place_at_bottom {
+                AxisPosition::Bottom
+            } else {
+                AxisPosition::Top
+            },
+        );
+        let title_for_cell = if title_visible {
+            self.facet_title.as_ref()
+        } else {
+            None
+        };
+
         // Add facet guide space for all nesting levels
         // Each level measures and renders its own labels
-        let facet_guide_height =
-            measure_facet_guide_height(&labels, self.facet_title.as_ref(), theme, params);
+        let facet_guide_height = measure_facet_guide_height(&labels, title_for_cell, theme, params);
 
-        let place_at_bottom = self.position.as_deref() == Some("bottom");
         let local_overflow = coord_measurement
             .and_then(|measurement| {
                 measurement
@@ -364,6 +388,7 @@ impl CompiledGuide for FacetColGuide {
             guide_anchor_top,
             top_legend_clearance,
             effective_top_anchor,
+            title_visible,
             facet_guide_height,
             total_top,
             total_bottom,
@@ -404,8 +429,8 @@ impl CompiledGuide for FacetColGuide {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         _ctx: &SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
-        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_path: &[datafusion::common::ScalarValue],
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
         coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Render facet labels for all nesting levels
@@ -444,8 +469,21 @@ impl CompiledGuide for FacetColGuide {
 
         // Determine position - "bottom" places labels below, default "top" places above
         let place_at_bottom = self.position.as_deref() == Some("bottom");
-        let facet_guide_height =
-            measure_facet_guide_height(&labels, self.facet_title.as_ref(), theme, params);
+        let title_visible = facet_title_visible_for_cell(
+            facet_tree,
+            facet_path,
+            if place_at_bottom {
+                AxisPosition::Bottom
+            } else {
+                AxisPosition::Top
+            },
+        );
+        let title_for_cell = if title_visible {
+            self.facet_title.as_ref()
+        } else {
+            None
+        };
+        let facet_guide_height = measure_facet_guide_height(&labels, title_for_cell, theme, params);
 
         // Anchor facet guide rendering to GUIDE overflow, not total overflow.
         // This preserves outer->inner facet-guide hierarchy under top legends.
@@ -492,6 +530,7 @@ impl CompiledGuide for FacetColGuide {
             local_guide_bottom = local_overflow.as_ref().map(|co| co.guide.bottom),
             local_total_top = local_overflow.as_ref().map(|co| co.total.top),
             local_total_bottom = local_overflow.as_ref().map(|co| co.total.bottom),
+            title_visible,
             labels = ?labels,
             "FacetColGuide evaluate"
         );
@@ -543,10 +582,14 @@ impl CompiledGuide for FacetColGuide {
             place_at_end: place_at_bottom,
             font_family,
             font_size_px: label_font_size,
-            title: self.facet_title.clone(),
+            title: if title_visible {
+                self.facet_title.clone()
+            } else {
+                None
+            },
             title_font_family,
             title_font_size_px: title_font_size,
-            render_title: self.facet_title.is_some(),
+            render_title: title_visible && self.facet_title.is_some(),
         };
 
         Ok(render_facet_label_slab(&render_config, theme, params))

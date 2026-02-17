@@ -3,7 +3,7 @@
 //! This module handles measurement and rendering of guide elements (axes, labels)
 //! for row-based faceted plots.
 
-use crate::cartesian::axis::CartesianAxis;
+use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::CoordMeasurement;
 use crate::coords::CoordinatedOverflow;
 use crate::error::AvengerChartError;
@@ -269,6 +269,16 @@ fn measure_facet_guide_width(
     measure_facet_label_slab(&measurement_config)
 }
 
+fn facet_title_visible_for_cell(
+    facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet_path: &[datafusion::common::ScalarValue],
+    axis_position: AxisPosition,
+) -> bool {
+    facet_tree
+        .axis_visibility_for_path(facet_path, axis_position, 255)
+        .show_title
+}
+
 #[async_trait::async_trait]
 #[typetag::serde]
 impl CompiledGuide for FacetRowGuide {
@@ -317,9 +327,23 @@ impl CompiledGuide for FacetRowGuide {
             band_iter.map(|bp| format_scalar_value(&bp.value)).collect()
         };
 
-        let facet_guide_width =
-            measure_facet_guide_width(&labels, self.facet_title.as_ref(), theme, params);
         let place_at_right = self.position.as_deref() != Some("left");
+        let title_visible = facet_title_visible_for_cell(
+            facet_tree,
+            facet_path,
+            if place_at_right {
+                AxisPosition::Right
+            } else {
+                AxisPosition::Left
+            },
+        );
+        let title_for_cell = if title_visible {
+            self.facet_title.as_ref()
+        } else {
+            None
+        };
+        let facet_guide_width = measure_facet_guide_width(&labels, title_for_cell, theme, params);
+
         let local_overflow = coord_measurement
             .and_then(|measurement| {
                 measurement
@@ -368,6 +392,7 @@ impl CompiledGuide for FacetRowGuide {
             guide_anchor_side,
             side_legend_clearance,
             effective_side_anchor,
+            title_visible,
             facet_guide_width,
             total_left,
             total_right,
@@ -408,8 +433,8 @@ impl CompiledGuide for FacetRowGuide {
         params: &IndexMap<String, datafusion::common::ScalarValue>,
         _ctx: &SessionContext,
         _data_override: Option<&datafusion::dataframe::DataFrame>,
-        _facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        _facet_path: &[datafusion::common::ScalarValue],
+        facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet_path: &[datafusion::common::ScalarValue],
         coord_measurement: &dyn crate::coords::CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let row_scale = scales
@@ -439,8 +464,21 @@ impl CompiledGuide for FacetRowGuide {
         }
 
         let place_at_right = self.position.as_deref() != Some("left");
-        let facet_guide_width =
-            measure_facet_guide_width(&labels, self.facet_title.as_ref(), theme, params);
+        let title_visible = facet_title_visible_for_cell(
+            facet_tree,
+            facet_path,
+            if place_at_right {
+                AxisPosition::Right
+            } else {
+                AxisPosition::Left
+            },
+        );
+        let title_for_cell = if title_visible {
+            self.facet_title.as_ref()
+        } else {
+            None
+        };
+        let facet_guide_width = measure_facet_guide_width(&labels, title_for_cell, theme, params);
 
         let coordinated_overflow = coord_measurement.coordinated_overflow();
         let local_overflow = coord_measurement
@@ -475,6 +513,7 @@ impl CompiledGuide for FacetRowGuide {
             local_guide_right = local_overflow.as_ref().map(|co| co.guide.right),
             local_total_left = local_overflow.as_ref().map(|co| co.total.left),
             local_total_right = local_overflow.as_ref().map(|co| co.total.right),
+            title_visible,
             labels = ?labels,
             "FacetRowGuide evaluate"
         );
@@ -519,10 +558,14 @@ impl CompiledGuide for FacetRowGuide {
             place_at_end: place_at_right,
             font_family,
             font_size_px: label_font_size,
-            title: self.facet_title.clone(),
+            title: if title_visible {
+                self.facet_title.clone()
+            } else {
+                None
+            },
             title_font_family,
             title_font_size_px: title_font_size,
-            render_title: self.facet_title.is_some(),
+            render_title: title_visible && self.facet_title.is_some(),
         };
 
         Ok(render_facet_label_slab(&render_config, theme, params))
