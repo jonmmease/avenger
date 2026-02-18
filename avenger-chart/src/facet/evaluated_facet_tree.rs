@@ -120,6 +120,32 @@ pub struct ResolvedFacetPathInfo {
     pub direction: FacetDirection,
 }
 
+fn scalar_values_equivalent(a: &ScalarValue, b: &ScalarValue) -> bool {
+    if a == b {
+        return true;
+    }
+
+    match (a, b) {
+        (
+            ScalarValue::Utf8(Some(lhs))
+            | ScalarValue::LargeUtf8(Some(lhs))
+            | ScalarValue::Utf8View(Some(lhs)),
+            ScalarValue::Utf8(Some(rhs))
+            | ScalarValue::LargeUtf8(Some(rhs))
+            | ScalarValue::Utf8View(Some(rhs)),
+        ) => lhs == rhs,
+        (
+            ScalarValue::Utf8(None)
+            | ScalarValue::LargeUtf8(None)
+            | ScalarValue::Utf8View(None),
+            ScalarValue::Utf8(None)
+            | ScalarValue::LargeUtf8(None)
+            | ScalarValue::Utf8View(None),
+        ) => true,
+        _ => false,
+    }
+}
+
 impl AxisVisibility {
     /// Create visibility with both labels and title shown.
     pub fn visible() -> Self {
@@ -359,7 +385,11 @@ impl EvaluatedFacetTree {
         let parent_path = &path[..path.len() - 1];
         let target_value = &path[path.len() - 1];
         self.node_at_path(parent_path)
-            .map_or(false, |parent| parent.values().any(|v| v == target_value))
+            .map_or(false, |parent| {
+                parent
+                    .values()
+                    .any(|v| scalar_values_equivalent(v, target_value))
+            })
     }
 
     /// Enumerate facet cell values for a facet at `facet_path` using Level(N) sharing semantics.
@@ -566,8 +596,16 @@ impl EvaluatedFacetTree {
             level_directions.push(node.direction);
 
             let idx = match &node.content {
-                PartitionContent::Leaf { values } => values.iter().position(|v| v == value)?,
-                PartitionContent::Branch { children } => children.get_index_of(value)?,
+                PartitionContent::Leaf { values } => values
+                    .iter()
+                    .position(|v| scalar_values_equivalent(v, value))?,
+                PartitionContent::Branch { children } => children
+                    .get_index_of(value)
+                    .or_else(|| {
+                        children
+                            .keys()
+                            .position(|child_value| scalar_values_equivalent(child_value, value))
+                    })?,
             };
             indices.push(idx);
 
@@ -856,7 +894,14 @@ impl PartitionNode {
     pub fn child(&self, value: &ScalarValue) -> Option<&PartitionNode> {
         match &self.content {
             PartitionContent::Leaf { .. } => None,
-            PartitionContent::Branch { children } => children.get(value).map(|b| b.as_ref()),
+            PartitionContent::Branch { children } => children
+                .get(value)
+                .or_else(|| {
+                    children.iter().find_map(|(child_value, child_node)| {
+                        scalar_values_equivalent(child_value, value).then_some(child_node)
+                    })
+                })
+                .map(|b| b.as_ref()),
         }
     }
 }
@@ -1127,6 +1172,10 @@ mod tests {
 
     fn scalar(s: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(s.to_string()))
+    }
+
+    fn scalar_view(s: &str) -> ScalarValue {
+        ScalarValue::Utf8View(Some(s.to_string()))
     }
 
     #[test]
@@ -1451,6 +1500,45 @@ mod tests {
         let visibility = tree.channel_axis_visibility_for_path(&path, AxisPosition::Bottom, 1);
         assert!(visibility.show_labels);
         assert!(visibility.show_title);
+    }
+
+    #[test]
+    fn test_path_resolution_matches_utf8_and_utf8view_values() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let row_leaf = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "species".to_string(),
+            None,
+            vec![scalar_view("Iris-setosa"), scalar_view("Iris-virginica")],
+        );
+
+        let mut children = IndexMap::new();
+        children.insert(scalar_view("narrow"), Box::new(row_leaf));
+        let root = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "petal_width_bin".to_string(),
+            None,
+            children,
+        );
+
+        let tree = EvaluatedFacetTree::new(Some(root));
+        let utf8_path = vec![scalar("narrow"), scalar("Iris-setosa")];
+
+        let resolved = tree
+            .resolve_path_info(&utf8_path)
+            .expect("Utf8 path should resolve against Utf8View tree values");
+        assert_eq!(resolved.indices, vec![0, 0]);
+        assert!(tree.cell_exists(&utf8_path));
+
+        let visibility =
+            tree.channel_axis_visibility_for_path_checked(&utf8_path, AxisPosition::Left, 255);
+        assert!(
+            visibility.is_some(),
+            "Path-matched cartesian visibility should not fall back to unresolved"
+        );
     }
 
     #[test]
