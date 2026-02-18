@@ -114,6 +114,8 @@ pub struct ResolvedFacetPathInfo {
     pub indices: Vec<usize>,
     /// Domain count at each depth on the same concrete branch as `indices`.
     pub local_level_counts: Vec<usize>,
+    /// Facet direction at each depth for the provided path.
+    pub level_directions: Vec<FacetDirection>,
     /// Facet direction at the resolved depth.
     pub direction: FacetDirection,
 }
@@ -510,6 +512,35 @@ impl EvaluatedFacetTree {
         }
     }
 
+    fn channel_axis_visibility_from_resolved(
+        &self,
+        position_indices: &[usize],
+        level_counts: &[usize],
+        level_directions: &[FacetDirection],
+        axis_position: AxisPosition,
+        sharing_level: u8,
+    ) -> AxisVisibility {
+        if level_counts.is_empty() {
+            return AxisVisibility::visible();
+        }
+
+        AxisVisibility {
+            show_labels: sharing_policy::show_cartesian_axis_labels(
+                position_indices,
+                level_counts,
+                level_directions,
+                axis_position,
+                sharing_level,
+            ),
+            show_title: sharing_policy::show_cartesian_axis_title(
+                position_indices,
+                level_counts,
+                level_directions,
+                axis_position,
+            ),
+        }
+    }
+
     /// Resolve branch-local path metadata for a concrete cell path.
     ///
     /// Unlike `level_counts()`, this returns counts from the same branch as the
@@ -521,15 +552,18 @@ impl EvaluatedFacetTree {
             return Some(ResolvedFacetPathInfo {
                 indices: Vec::new(),
                 local_level_counts: Vec::new(),
+                level_directions: Vec::new(),
                 direction: node.direction,
             });
         }
 
         let mut indices = Vec::with_capacity(path.len());
         let mut local_level_counts = Vec::with_capacity(path.len());
+        let mut level_directions = Vec::with_capacity(path.len());
 
         for (level, value) in path.iter().enumerate() {
             local_level_counts.push(node.domain_count());
+            level_directions.push(node.direction);
 
             let idx = match &node.content {
                 PartitionContent::Leaf { values } => values.iter().position(|v| v == value)?,
@@ -545,6 +579,7 @@ impl EvaluatedFacetTree {
         Some(ResolvedFacetPathInfo {
             indices,
             local_level_counts,
+            level_directions,
             direction: node.direction,
         })
     }
@@ -604,6 +639,44 @@ impl EvaluatedFacetTree {
         sharing_level: u8,
     ) -> AxisVisibility {
         self.axis_visibility_for_path_checked(path, axis_position, sharing_level)
+            .unwrap_or_else(AxisVisibility::visible)
+    }
+
+    /// Determine cartesian axis visibility for a concrete facet cell path.
+    ///
+    /// This applies axis ownership in a way that composes mixed row/column nesting:
+    /// - x axes are controlled by row-facet levels
+    /// - y axes are controlled by column-facet levels
+    /// while preserving orthogonal strip grouping and branch-local ragged counts.
+    pub fn channel_axis_visibility_for_path_checked(
+        &self,
+        path: &[ScalarValue],
+        axis_position: AxisPosition,
+        sharing_level: u8,
+    ) -> Option<AxisVisibility> {
+        if path.is_empty() {
+            return Some(AxisVisibility::visible());
+        }
+
+        let resolved = self.resolve_path_info(path)?;
+
+        Some(self.channel_axis_visibility_from_resolved(
+            &resolved.indices,
+            &resolved.local_level_counts,
+            &resolved.level_directions,
+            axis_position,
+            sharing_level,
+        ))
+    }
+
+    /// Compatibility wrapper that defaults invalid paths to visible.
+    pub fn channel_axis_visibility_for_path(
+        &self,
+        path: &[ScalarValue],
+        axis_position: AxisPosition,
+        sharing_level: u8,
+    ) -> AxisVisibility {
+        self.channel_axis_visibility_for_path_checked(path, axis_position, sharing_level)
             .unwrap_or_else(AxisVisibility::visible)
     }
 
@@ -1343,6 +1416,39 @@ mod tests {
         let tree = build_enumeration_test_tree();
         let path = vec![scalar("North"), scalar("Eng"), scalar("A")];
         let visibility = tree.axis_visibility_for_path(&path, AxisPosition::Left, 0);
+        assert!(visibility.show_labels);
+        assert!(visibility.show_title);
+    }
+
+    #[test]
+    fn test_channel_axis_visibility_for_path_checked_valid_path_returns_some() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("East"), scalar("Eng"), scalar("A")];
+        let visibility =
+            tree.channel_axis_visibility_for_path_checked(&path, AxisPosition::Bottom, 1);
+        assert!(visibility.is_some());
+    }
+
+    #[test]
+    fn test_channel_axis_visibility_for_path_checked_invalid_path_returns_none() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("North"), scalar("Eng"), scalar("A")];
+        let visibility =
+            tree.channel_axis_visibility_for_path_checked(&path, AxisPosition::Bottom, 1);
+        assert!(visibility.is_none());
+    }
+
+    #[test]
+    fn test_channel_axis_visibility_for_path_wrapper_defaults_invalid_to_visible() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_enumeration_test_tree();
+        let path = vec![scalar("North"), scalar("Eng"), scalar("A")];
+        let visibility = tree.channel_axis_visibility_for_path(&path, AxisPosition::Bottom, 1);
         assert!(visibility.show_labels);
         assert!(visibility.show_title);
     }

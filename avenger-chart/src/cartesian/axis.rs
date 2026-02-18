@@ -306,7 +306,7 @@ impl CartesianAxis {
             AxisVisibility::visible()
         } else {
             facet_tree
-                .axis_visibility_for_path_checked(facet_path, position, sharing_level)
+                .channel_axis_visibility_for_path_checked(facet_path, position, sharing_level)
                 .unwrap_or_else(AxisVisibility::visible)
         };
 

@@ -72,6 +72,78 @@ pub(crate) fn show_axis_title(
     }
 }
 
+/// Determine whether cartesian axis labels should be visible for a facet cell.
+///
+/// Visibility is projected to the axis-relevant facet direction while preserving
+/// orthogonal-strip grouping:
+/// - x axes are controlled by row-facet levels
+/// - y axes are controlled by column-facet levels
+pub(crate) fn show_cartesian_axis_labels(
+    position_indices: &[usize],
+    level_counts: &[usize],
+    level_directions: &[FacetDirection],
+    axis_position: AxisPosition,
+    sharing_level: u8,
+) -> bool {
+    let Some((projected_indices, projected_counts, relevant_depth, edge)) =
+        project_levels_for_cartesian_axis(
+            position_indices,
+            level_counts,
+            level_directions,
+            axis_position,
+        )
+    else {
+        return true;
+    };
+
+    if relevant_depth == 0 {
+        return true;
+    }
+
+    let labels_sharing = sharing_level.min(relevant_depth as u8);
+    sharing_kernel::owner_for_edge_with_sharing(
+        edge,
+        &projected_indices,
+        &projected_counts,
+        projected_indices.len() as u8,
+        labels_sharing,
+    )
+}
+
+/// Determine whether cartesian axis titles should be visible for a facet cell.
+///
+/// Titles are shared over axis-relevant levels only, while remaining independent
+/// across orthogonal strips.
+pub(crate) fn show_cartesian_axis_title(
+    position_indices: &[usize],
+    level_counts: &[usize],
+    level_directions: &[FacetDirection],
+    axis_position: AxisPosition,
+) -> bool {
+    let Some((projected_indices, projected_counts, relevant_depth, edge)) =
+        project_levels_for_cartesian_axis(
+            position_indices,
+            level_counts,
+            level_directions,
+            axis_position,
+        )
+    else {
+        return true;
+    };
+
+    if relevant_depth == 0 {
+        return true;
+    }
+
+    sharing_kernel::owner_for_edge_with_sharing(
+        edge,
+        &projected_indices,
+        &projected_counts,
+        projected_indices.len() as u8,
+        relevant_depth as u8,
+    )
+}
+
 #[inline]
 fn axis_edge_for_position(
     direction: FacetDirection,
@@ -84,6 +156,69 @@ fn axis_edge_for_position(
         (FacetDirection::Row, AxisPosition::Bottom) => Some(SharingGroupEdge::End),
         _ => None,
     }
+}
+
+#[inline]
+fn cartesian_axis_edge_for_position(axis_position: AxisPosition) -> SharingGroupEdge {
+    match axis_position {
+        AxisPosition::Top | AxisPosition::Left => SharingGroupEdge::Start,
+        AxisPosition::Bottom | AxisPosition::Right => SharingGroupEdge::End,
+    }
+}
+
+#[inline]
+fn cartesian_relevant_direction_for_axis(axis_position: AxisPosition) -> FacetDirection {
+    match axis_position {
+        AxisPosition::Top | AxisPosition::Bottom => FacetDirection::Row,
+        AxisPosition::Left | AxisPosition::Right => FacetDirection::Column,
+    }
+}
+
+fn project_levels_for_cartesian_axis(
+    position_indices: &[usize],
+    level_counts: &[usize],
+    level_directions: &[FacetDirection],
+    axis_position: AxisPosition,
+) -> Option<(Vec<usize>, Vec<usize>, usize, SharingGroupEdge)> {
+    if position_indices.len() != level_counts.len()
+        || position_indices.len() != level_directions.len()
+    {
+        return None;
+    }
+
+    let edge = cartesian_axis_edge_for_position(axis_position);
+    let relevant_direction = cartesian_relevant_direction_for_axis(axis_position);
+
+    let mut projected_indices = Vec::with_capacity(position_indices.len());
+    let mut projected_counts = Vec::with_capacity(level_counts.len());
+    let mut relevant_depth = 0usize;
+
+    // Keep orthogonal levels first so sharing groups are scoped within strips.
+    for ((&index, &count), &direction) in position_indices
+        .iter()
+        .zip(level_counts.iter())
+        .zip(level_directions.iter())
+    {
+        if direction != relevant_direction {
+            projected_indices.push(index);
+            projected_counts.push(count);
+        }
+    }
+
+    // Append relevant levels last so sharing applies only within those levels.
+    for ((&index, &count), &direction) in position_indices
+        .iter()
+        .zip(level_counts.iter())
+        .zip(level_directions.iter())
+    {
+        if direction == relevant_direction {
+            projected_indices.push(index);
+            projected_counts.push(count);
+            relevant_depth += 1;
+        }
+    }
+
+    Some((projected_indices, projected_counts, relevant_depth, edge))
 }
 
 pub(crate) fn legend_edge_for_position(position: LegendPosition) -> SharingGroupEdge {
@@ -217,6 +352,118 @@ mod tests {
             facet_depth,
             FacetDirection::Column,
             AxisPosition::Right
+        ));
+    }
+
+    #[test]
+    fn cartesian_y_title_shared_per_row_strip() {
+        let counts = vec![3, 2];
+        let directions = vec![FacetDirection::Column, FacetDirection::Row];
+
+        assert!(show_cartesian_axis_title(
+            &[0, 0],
+            &counts,
+            &directions,
+            AxisPosition::Left
+        ));
+        assert!(show_cartesian_axis_title(
+            &[0, 1],
+            &counts,
+            &directions,
+            AxisPosition::Left
+        ));
+        assert!(!show_cartesian_axis_title(
+            &[1, 0],
+            &counts,
+            &directions,
+            AxisPosition::Left
+        ));
+    }
+
+    #[test]
+    fn cartesian_x_bottom_shared_per_column_strip() {
+        let counts = vec![3, 2];
+        let directions = vec![FacetDirection::Column, FacetDirection::Row];
+
+        assert!(!show_cartesian_axis_title(
+            &[0, 0],
+            &counts,
+            &directions,
+            AxisPosition::Bottom
+        ));
+        assert!(show_cartesian_axis_title(
+            &[0, 1],
+            &counts,
+            &directions,
+            AxisPosition::Bottom
+        ));
+        assert!(show_cartesian_axis_title(
+            &[2, 1],
+            &counts,
+            &directions,
+            AxisPosition::Bottom
+        ));
+    }
+
+    #[test]
+    fn cartesian_x_labels_sharing_clamps_to_relevant_depth() {
+        let counts = vec![3, 2];
+        let directions = vec![FacetDirection::Column, FacetDirection::Row];
+
+        assert!(!show_cartesian_axis_labels(
+            &[1, 0],
+            &counts,
+            &directions,
+            AxisPosition::Bottom,
+            255
+        ));
+        assert!(show_cartesian_axis_labels(
+            &[1, 1],
+            &counts,
+            &directions,
+            AxisPosition::Bottom,
+            255
+        ));
+    }
+
+    #[test]
+    fn cartesian_labels_free_show_every_subplot() {
+        let counts = vec![3, 2];
+        let directions = vec![FacetDirection::Column, FacetDirection::Row];
+
+        assert!(show_cartesian_axis_labels(
+            &[1, 0],
+            &counts,
+            &directions,
+            AxisPosition::Bottom,
+            0
+        ));
+        assert!(show_cartesian_axis_labels(
+            &[1, 1],
+            &counts,
+            &directions,
+            AxisPosition::Bottom,
+            0
+        ));
+    }
+
+    #[test]
+    fn cartesian_axis_without_relevant_levels_stays_visible() {
+        let counts = vec![3, 2];
+        let directions = vec![FacetDirection::Column, FacetDirection::Column];
+
+        assert!(show_cartesian_axis_labels(
+            &[2, 1],
+            &counts,
+            &directions,
+            AxisPosition::Bottom,
+            255
+        ));
+        assert!(show_cartesian_axis_title(
+            &[2, 1],
+            &counts,
+            &directions,
+            AxisPosition::Bottom
         ));
     }
 
