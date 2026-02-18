@@ -386,14 +386,10 @@ impl CompiledGuide for CartesianGuide {
         for (channel, axis) in &all_axes {
             if let Some(scale) = scales.get(channel) {
                 // Get sharing level for this channel from the facet tree.
-                // The facet tree stores sharing levels extracted from innermost marks,
-                // which is needed because innermost Cartesian subplots use EmptyCoordMeasurement.
-                // Cartesian axis visibility should follow the channel's effective sharing
-                // when specified. For missing sharing metadata, keep historical
-                // defaults for x while treating y as free so nested row facets with
-                // varying y domains don't suppress labels across sibling columns.
-                let default_sharing = if channel == "y" { 0 } else { 255 };
-                let sharing_level = facet_tree.channel_sharing_level_or(channel, default_sharing);
+                // The facet tree stores sharing levels extracted from innermost marks.
+                // When no explicit sharing is configured, defaults to 255 (Shared),
+                // showing axis labels only on the outer edge of the facet grid.
+                let sharing_level = facet_tree.channel_sharing_level(channel);
                 let axis_mark = axis
                     .evaluate(
                         channel,

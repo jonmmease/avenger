@@ -1196,7 +1196,7 @@ fn annotate_domain_extents(
     raw_extents
         .into_iter()
         .map(|(channel, extent)| {
-            let sharing_level = nested_ctx.facet_tree.channel_sharing_level_or(&channel, 0);
+            let sharing_level = nested_ctx.facet_tree.channel_sharing_level(&channel);
             (
                 channel,
                 ChannelDomainExtent {

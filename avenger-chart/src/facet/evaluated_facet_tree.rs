@@ -457,15 +457,10 @@ impl EvaluatedFacetTree {
     /// if the channel was not found. This is used for axis visibility decisions
     /// when the innermost subplot doesn't have access to CoordMeasurement.
     pub fn channel_sharing_level(&self, channel: &str) -> u8 {
-        self.channel_sharing_level_or(channel, 255)
-    }
-
-    /// Get the sharing level for a channel, using a caller-provided default.
-    pub fn channel_sharing_level_or(&self, channel: &str, default: u8) -> u8 {
         self.channel_sharing_levels
             .get(channel)
             .copied()
-            .unwrap_or(default)
+            .unwrap_or(255)
     }
 
     /// Get level counts (domain count at each nesting level).
