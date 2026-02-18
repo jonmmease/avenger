@@ -135,12 +135,8 @@ fn scalar_values_equivalent(a: &ScalarValue, b: &ScalarValue) -> bool {
             | ScalarValue::Utf8View(Some(rhs)),
         ) => lhs == rhs,
         (
-            ScalarValue::Utf8(None)
-            | ScalarValue::LargeUtf8(None)
-            | ScalarValue::Utf8View(None),
-            ScalarValue::Utf8(None)
-            | ScalarValue::LargeUtf8(None)
-            | ScalarValue::Utf8View(None),
+            ScalarValue::Utf8(None) | ScalarValue::LargeUtf8(None) | ScalarValue::Utf8View(None),
+            ScalarValue::Utf8(None) | ScalarValue::LargeUtf8(None) | ScalarValue::Utf8View(None),
         ) => true,
         _ => false,
     }
@@ -384,12 +380,11 @@ impl EvaluatedFacetTree {
 
         let parent_path = &path[..path.len() - 1];
         let target_value = &path[path.len() - 1];
-        self.node_at_path(parent_path)
-            .map_or(false, |parent| {
-                parent
-                    .values()
-                    .any(|v| scalar_values_equivalent(v, target_value))
-            })
+        self.node_at_path(parent_path).map_or(false, |parent| {
+            parent
+                .values()
+                .any(|v| scalar_values_equivalent(v, target_value))
+        })
     }
 
     /// Enumerate facet cell values for a facet at `facet_path` using Level(N) sharing semantics.
@@ -461,6 +456,73 @@ impl EvaluatedFacetTree {
             .get(channel)
             .copied()
             .unwrap_or(255)
+    }
+
+    /// Check if the tree is actually jagged for a given axis position.
+    ///
+    /// Returns true when sibling branches in the branching direction have
+    /// different child counts at a varying-direction level. This means some
+    /// subplots cannot be covered by edge-only label display.
+    ///
+    /// For y-axis (Left/Right): branching=Column, varying=Row — jagged when
+    /// different columns have different numbers of rows.
+    /// For x-axis (Top/Bottom): branching=Row, varying=Column — jagged when
+    /// different rows have different numbers of columns.
+    pub fn is_jagged_for_axis(&self, axis_position: AxisPosition) -> bool {
+        let Some(root) = &self.root else {
+            return false;
+        };
+        let (varying_direction, branching_direction) = match axis_position {
+            AxisPosition::Left | AxisPosition::Right => {
+                (FacetDirection::Row, FacetDirection::Column)
+            }
+            AxisPosition::Top | AxisPosition::Bottom => {
+                (FacetDirection::Column, FacetDirection::Row)
+            }
+        };
+        Self::check_jagged_in_tree(root, branching_direction, varying_direction)
+    }
+
+    /// Recursively check if any branching-direction node has children whose
+    /// varying-direction descendant counts differ.
+    fn check_jagged_in_tree(
+        node: &PartitionNode,
+        branching_direction: FacetDirection,
+        varying_direction: FacetDirection,
+    ) -> bool {
+        if let PartitionContent::Branch { children } = &node.content {
+            if node.direction == branching_direction {
+                // This node branches in the direction we care about.
+                // Check if children's varying-direction counts differ.
+                let counts: Vec<usize> = children
+                    .values()
+                    .map(|child| Self::count_at_direction(child, varying_direction))
+                    .collect();
+                if counts.windows(2).any(|w| w[0] != w[1]) {
+                    return true;
+                }
+            }
+            // Continue checking deeper levels
+            children.values().any(|child| {
+                Self::check_jagged_in_tree(child, branching_direction, varying_direction)
+            })
+        } else {
+            false
+        }
+    }
+
+    /// Count the domain size at the first level matching the target direction.
+    fn count_at_direction(node: &PartitionNode, target_direction: FacetDirection) -> usize {
+        if node.direction == target_direction {
+            return node.domain_count();
+        }
+        // Recurse into first child to find the target direction level
+        if let PartitionContent::Branch { children } = &node.content
+            && let Some(child) = children.values().next()
+        {
+            return Self::count_at_direction(child, target_direction);
+        }
+        0
     }
 
     /// Get level counts (domain count at each nesting level).
@@ -594,13 +656,13 @@ impl EvaluatedFacetTree {
                 PartitionContent::Leaf { values } => values
                     .iter()
                     .position(|v| scalar_values_equivalent(v, value))?,
-                PartitionContent::Branch { children } => children
-                    .get_index_of(value)
-                    .or_else(|| {
+                PartitionContent::Branch { children } => {
+                    children.get_index_of(value).or_else(|| {
                         children
                             .keys()
                             .position(|child_value| scalar_values_equivalent(child_value, value))
-                    })?,
+                    })?
+                }
             };
             indices.push(idx);
 
