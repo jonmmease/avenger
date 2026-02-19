@@ -4,7 +4,6 @@
 //! for row-based faceted plots.
 
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
-use crate::coords::CoordMeasurement;
 use crate::coords::CoordinatedOverflow;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
@@ -172,63 +171,6 @@ fn preferred_overflow_for_facet_measurement(
     }
 }
 
-fn max_side_legend_delta_subtree(
-    facet_measurement: &FacetBandCoordMeasurement,
-    place_at_right: bool,
-) -> f32 {
-    let own_delta = preferred_overflow_for_facet_measurement(facet_measurement)
-        .as_ref()
-        .map(|overflow| {
-            let legend = LayoutSlabs::from_coordinated(overflow).legend;
-            if place_at_right {
-                legend.right
-            } else {
-                legend.left
-            }
-        })
-        .unwrap_or(0.0);
-
-    let child_delta = facet_measurement
-        .child_measurements_iter()
-        .filter_map(|child| {
-            child
-                .coord_measurement
-                .as_any()
-                .downcast_ref::<FacetBandCoordMeasurement>()
-        })
-        .map(|child| max_side_legend_delta_subtree(child, place_at_right))
-        .fold(0.0f32, f32::max);
-
-    own_delta.max(child_delta)
-}
-
-fn resolve_side_legend_clearance(
-    coord_measurement: Option<&dyn CoordMeasurement>,
-    coordinated_overflow: Option<&CoordinatedOverflow>,
-    local_overflow: Option<&CoordinatedOverflow>,
-    place_at_right: bool,
-) -> f32 {
-    if let Some(facet_measurement) = coord_measurement.and_then(|measurement| {
-        measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-    }) {
-        return max_side_legend_delta_subtree(facet_measurement, place_at_right);
-    }
-
-    coordinated_overflow
-        .or(local_overflow)
-        .map(|overflow| {
-            let legend = LayoutSlabs::from_coordinated(overflow).legend;
-            if place_at_right {
-                legend.right
-            } else {
-                legend.left
-            }
-        })
-        .unwrap_or(0.0)
-}
-
 fn measure_facet_guide_width(
     labels: &[String],
     facet_title: Option<&String>,
@@ -369,18 +311,11 @@ impl CompiledGuide for FacetRowGuide {
                 }
             });
 
-        let side_legend_clearance =
-            resolve_side_legend_clearance(coord_measurement, None, None, place_at_right);
-        let effective_side_anchor = guide_anchor_side + side_legend_clearance;
-
         let (total_left, total_right) = if place_at_right {
-            (
-                subplot_overflow.left,
-                effective_side_anchor + facet_guide_width,
-            )
+            (subplot_overflow.left, guide_anchor_side + facet_guide_width)
         } else {
             (
-                effective_side_anchor + facet_guide_width,
+                guide_anchor_side + facet_guide_width,
                 subplot_overflow.right,
             )
         };
@@ -390,8 +325,6 @@ impl CompiledGuide for FacetRowGuide {
             subplot_overflow_left = subplot_overflow.left,
             subplot_overflow_right = subplot_overflow.right,
             guide_anchor_side,
-            side_legend_clearance,
-            effective_side_anchor,
             title_visible,
             facet_guide_width,
             total_left,
@@ -490,19 +423,11 @@ impl CompiledGuide for FacetRowGuide {
             coordinated_overflow,
             local_overflow.as_ref(),
         );
-        let side_legend_clearance = resolve_side_legend_clearance(
-            Some(coord_measurement),
-            coordinated_overflow,
-            local_overflow.as_ref(),
-            place_at_right,
-        );
-        let subplot_overflow = subplot_overflow + side_legend_clearance;
 
         debug!(
             position = ?self.position,
             plot_bounds_x = plot_bounds.x,
             subplot_overflow,
-            side_legend_clearance,
             facet_guide_width,
             anchor_source = anchor_source.as_str(),
             coordinated_guide_left = coordinated_overflow.map(|co| co.guide.left),
