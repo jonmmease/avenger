@@ -133,17 +133,19 @@ fn resolve_guide_anchor_overflow_horizontal(
     coordinated_overflow: Option<&CoordinatedOverflow>,
     local_overflow: Option<&CoordinatedOverflow>,
 ) -> (f32, GuideAnchorSource) {
-    if let Some(coordinated) = coordinated_overflow {
-        return (
-            LayoutSlabs::from_coordinated(coordinated).guide_anchor_horizontal(place_at_right),
-            GuideAnchorSource::CoordinatedGuide,
-        );
-    }
-
+    // Prefer the local guide anchor so per-branch row guides stay aligned with
+    // their own subplot strip, even when coordinated siblings have wider titles.
     if let Some(local) = local_overflow {
         return (
             LayoutSlabs::from_coordinated(local).guide_anchor_horizontal(place_at_right),
             GuideAnchorSource::LocalGuide,
+        );
+    }
+
+    if let Some(coordinated) = coordinated_overflow {
+        return (
+            LayoutSlabs::from_coordinated(coordinated).guide_anchor_horizontal(place_at_right),
+            GuideAnchorSource::CoordinatedGuide,
         );
     }
 
@@ -697,6 +699,20 @@ mod tests {
             resolve_guide_anchor_overflow_horizontal(true, None, Some(&local));
         let (resolved_left, source_left) =
             resolve_guide_anchor_overflow_horizontal(false, None, Some(&local));
+        assert_eq!(resolved_right, 8.0);
+        assert_eq!(source_right, GuideAnchorSource::LocalGuide);
+        assert_eq!(resolved_left, 12.0);
+        assert_eq!(source_left, GuideAnchorSource::LocalGuide);
+    }
+
+    #[test]
+    fn resolve_guide_anchor_prefers_local_over_coordinated_when_both_present() {
+        let local = coordinated_overflow(12.0, 8.0, 60.0, 40.0);
+        let coordinated = coordinated_overflow(5.0, 39.0, 5.0, 39.0);
+        let (resolved_right, source_right) =
+            resolve_guide_anchor_overflow_horizontal(true, Some(&coordinated), Some(&local));
+        let (resolved_left, source_left) =
+            resolve_guide_anchor_overflow_horizontal(false, Some(&coordinated), Some(&local));
         assert_eq!(resolved_right, 8.0);
         assert_eq!(source_right, GuideAnchorSource::LocalGuide);
         assert_eq!(resolved_left, 12.0);
