@@ -387,26 +387,8 @@ impl CompiledGuide for CartesianGuide {
             if let Some(scale) = scales.get(channel) {
                 // Get sharing level for this channel from the facet tree.
                 // The facet tree stores sharing levels extracted from innermost marks.
-                // When no explicit sharing is configured, defaults to 255 (Shared),
-                // showing axis labels only on the outer edge of the facet grid.
+                // Keep this value intact for ownership/title calculations.
                 let sharing_level = facet_tree.channel_sharing_level(channel);
-
-                // Override sharing to Free (0) when the grid is actually jagged.
-                // In jagged grids, the edge subplot may have fewer rows/columns than
-                // non-edge subplots, leaving some subplots without axis labels.
-                let sharing_level = if sharing_level > 0 {
-                    if let Some(position) = self.axis_position(channel) {
-                        if facet_tree.is_jagged_for_axis(position) {
-                            0
-                        } else {
-                            sharing_level
-                        }
-                    } else {
-                        sharing_level
-                    }
-                } else {
-                    sharing_level
-                };
                 let axis_mark = axis
                     .evaluate(
                         channel,
