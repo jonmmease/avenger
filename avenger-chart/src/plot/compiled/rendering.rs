@@ -32,7 +32,7 @@ use datafusion::{
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
-use tracing::{Level, debug};
+use tracing::{Level, debug, trace};
 
 use crate::{
     channel::{
@@ -84,6 +84,12 @@ impl CompiledPlot {
 
     /// Default margin in pixels when not specified in theme or expression
     const DEFAULT_MARGIN: f32 = 10.0;
+
+    /// Stop canvas refinement once dimensions are effectively stable.
+    const LAYOUT_REFINEMENT_EPSILON: f32 = 0.5;
+
+    /// Safety cap on iterative top-level canvas refinement.
+    const MAX_CANVAS_REFINEMENT_ITERS: usize = 3;
 }
 
 /// Evaluate a SizeMode to get an EvaluatedSizeMode with concrete f32 values
@@ -118,6 +124,717 @@ async fn evaluate_size_mode(
             Ok(EvaluatedSizeMode::Height(h))
         }
         SizeMode::Auto => Ok(EvaluatedSizeMode::Auto),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        coords::CoordinatedOverflow, facet::coord::FacetBandCoordMeasurement,
+        legend::LegendPosition, prelude::*,
+    };
+    use datafusion::{
+        arrow::{
+            array::{Float64Array, StringArray},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        dataframe::DataFrame,
+        prelude::SessionContext,
+    };
+
+    fn deeply_nested_dataframe(ctx: &SessionContext) -> DataFrame {
+        let outer_groups = StringArray::from(vec![
+            "G1", "G1", "G1", "G1", // S1: A,B; S2: B,C
+            "G2", "G2", "G2", "G2", // S1: C,D; S2: A,D
+        ]);
+        let sub_groups = StringArray::from(vec![
+            "S1", "S1", "S2", "S2", // G1
+            "S1", "S1", "S2", "S2", // G2
+        ]);
+        let categories = StringArray::from(vec![
+            "A", "B", "B", "C", // G1 (S1: A,B; S2: B,C)
+            "C", "D", "A", "D", // G2 (S1: C,D; S2: A,D)
+        ]);
+        let values = Float64Array::from(vec![
+            10.0, 20.0, 15.0, 25.0, // G1
+            30.0, 40.0, 35.0, 45.0, // G2
+        ]);
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("outer_group", DataType::Utf8, false),
+            Field::new("sub_group", DataType::Utf8, false),
+            Field::new("category", DataType::Utf8, false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(outer_groups),
+                Arc::new(sub_groups),
+                Arc::new(categories),
+                Arc::new(values),
+            ],
+        )
+        .expect("create deeply nested categorical sharing batch");
+
+        ctx.read_batch(batch)
+            .expect("read deeply nested test batch")
+    }
+
+    fn build_deeply_nested_plot(df: DataFrame) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(700, 500)
+            .mark(
+                Facet::new()
+                    .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("sub_group"), |c| c.facet(|f| f.title("Sub Group")))
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Rect::new()
+                                            .x_with(col("category"), |c| {
+                                                c.scale_with::<Band>(|s| s)
+                                                    .with_scale_sharing(ScaleSharing::Shared)
+                                                    .axis(|a| a.title("Category"))
+                                            })
+                                            .x2_with(col(":x"), |c| c.band(1.0))
+                                            .y(0.0)
+                                            .y2_with(col("value"), |c| {
+                                                c.with_scale_sharing(ScaleSharing::Shared)
+                                                    .axis(|a| a.title("Value"))
+                                            })
+                                            .fill("#4682b4"),
+                                    ),
+                                ),
+                        ),
+                    ),
+            )
+    }
+
+    async fn legend_sharing_dataframe(ctx: &SessionContext) -> DataFrame {
+        ctx.sql(
+            "CREATE TABLE legend_sharing AS VALUES
+            ('DivA', 'Dept1', 1.0, 1.0, 'Low'),
+            ('DivA', 'Dept1', 1.4, 1.3, 'High'),
+            ('DivA', 'Dept2', 2.0, 1.1, 'Low'),
+            ('DivA', 'Dept2', 2.3, 1.4, 'High'),
+            ('DivB', 'Dept1', 3.0, 1.0, 'Low'),
+            ('DivB', 'Dept1', 3.4, 1.3, 'High'),
+            ('DivB', 'Dept2', 4.0, 1.1, 'Low'),
+            ('DivB', 'Dept2', 4.3, 1.4, 'High')",
+        )
+        .await
+        .expect("create legend sharing test data");
+
+        ctx.sql(
+            "SELECT
+                column1 AS division,
+                column2 AS department,
+                column3 AS x_val,
+                column4 AS y_val,
+                column5 AS category
+             FROM legend_sharing",
+        )
+        .await
+        .expect("read legend sharing test data")
+    }
+
+    fn build_level1_fill_legend_symbol(position: LegendPosition) -> Symbol<Cartesian> {
+        Symbol::new()
+            .x_with(col("x_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+            .y_with(col("y_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+            .fill_with(col("category"), move |c| {
+                c.with_scale_sharing(ScaleSharing::Level(1))
+                    .legend(|legend| legend.title("Category").position(position))
+            })
+            .size(70.0)
+    }
+
+    fn build_unshared_fill_legend_symbol(position: LegendPosition) -> Symbol<Cartesian> {
+        Symbol::new()
+            .x(col("x_val"))
+            .y(col("y_val"))
+            .fill_with(col("category"), move |c| {
+                c.legend(|legend| legend.title("Category").position(position))
+            })
+            .size(70.0)
+    }
+
+    fn build_two_level_col_legend_sharing_plot(
+        df: DataFrame,
+        position: LegendPosition,
+    ) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(960.0, 420.0)
+            .mark(
+                Facet::new()
+                    .column(col("division"))
+                    .subplot(
+                        Plot::<FacetColumn>::new().mark(
+                            Facet::new().column(col("department")).subplot(
+                                Plot::<Cartesian>::new()
+                                    .mark(build_level1_fill_legend_symbol(position)),
+                            ),
+                        ),
+                    ),
+            )
+    }
+
+    fn build_single_level_row_legend_plot(
+        df: DataFrame,
+        position: LegendPosition,
+    ) -> Plot<FacetRow> {
+        Plot::<FacetRow>::new()
+            .data(df)
+            .canvas_size(960.0, 420.0)
+            .mark(Facet::new().row(col("department")).subplot(
+                Plot::<Cartesian>::new().mark(build_unshared_fill_legend_symbol(position)),
+            ))
+    }
+
+    fn build_single_level_col_legend_plot(
+        df: DataFrame,
+        position: LegendPosition,
+    ) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(960.0, 420.0)
+            .mark(Facet::new().column(col("division")).subplot(
+                Plot::<Cartesian>::new().mark(build_unshared_fill_legend_symbol(position)),
+            ))
+    }
+
+    async fn compile_two_level_col_legend_sharing_plot(
+        ctx: &SessionContext,
+        position: LegendPosition,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = legend_sharing_dataframe(ctx).await;
+        build_two_level_col_legend_sharing_plot(df, position)
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_single_level_row_legend_plot(
+        ctx: &SessionContext,
+        position: LegendPosition,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = legend_sharing_dataframe(ctx).await;
+        build_single_level_row_legend_plot(df, position)
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_single_level_col_legend_plot(
+        ctx: &SessionContext,
+        position: LegendPosition,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = legend_sharing_dataframe(ctx).await;
+        build_single_level_col_legend_plot(df, position)
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_deeply_nested_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = deeply_nested_dataframe(ctx);
+        let plot = build_deeply_nested_plot(df);
+        plot.compile(ctx).await
+    }
+
+    async fn prepare_top_level_measurement(
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+    ) -> Result<
+        (
+            EvaluationContext,
+            EvaluatedLayoutSpec,
+            crate::scales::ScaleBuilder,
+            ComponentsMeasurement,
+        ),
+        AvengerChartError,
+    > {
+        let merged_params = compiled.get_default_params().clone();
+        let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(compiled, ctx).await?);
+        let evaluated_layout_spec = evaluate_layout_spec(
+            compiled.get_layout_spec(),
+            ctx,
+            &merged_params,
+            compiled.get_theme().as_ref(),
+        )
+        .await?;
+
+        let scale_builder = build_scale_builder_from_marks(
+            &compiled.marks,
+            &compiled.scale_specs,
+            &compiled.coord_transform,
+            &compiled.data,
+            None,
+            ctx,
+            &merged_params,
+            compiled.get_theme().as_ref(),
+        )
+        .await?;
+        let provider = DynamicScaleProvider {
+            builder: &scale_builder,
+            plot: compiled,
+        };
+
+        let eval_ctx = EvaluationContext::new(
+            compiled.get_theme(),
+            Arc::new(ctx.clone()),
+            merged_params,
+            facet_tree,
+        );
+
+        let measurement = compiled
+            .measure_plot_components(&eval_ctx, &evaluated_layout_spec, &provider, None, &[])
+            .await?;
+
+        Ok((eval_ctx, evaluated_layout_spec, scale_builder, measurement))
+    }
+
+    async fn prepare_refined_top_level_measurement(
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+    ) -> Result<
+        (
+            EvaluationContext,
+            EvaluatedLayoutSpec,
+            ComponentsMeasurement,
+        ),
+        AvengerChartError,
+    > {
+        let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
+            prepare_top_level_measurement(compiled, ctx).await?;
+
+        coordinate_overflow_for_guides(&mut measurement, &eval_ctx).await?;
+        let (_, _, is_plot_area_mode) =
+            CompiledPlot::resolve_dimensions_from_spec(&evaluated_layout_spec);
+        if !is_plot_area_mode {
+            let provider = DynamicScaleProvider {
+                builder: &scale_builder,
+                plot: compiled,
+            };
+            compiled
+                .refine_canvas_measurement_after_coordination(
+                    &mut measurement,
+                    &eval_ctx,
+                    &evaluated_layout_spec,
+                    &provider,
+                    None,
+                    &[],
+                )
+                .await?;
+        }
+
+        Ok((eval_ctx, evaluated_layout_spec, measurement))
+    }
+
+    fn max_overflow_abs_delta(a: &OverflowSpaceRequirement, b: &OverflowSpaceRequirement) -> f32 {
+        let top = (a.top - b.top).abs();
+        let right = (a.right - b.right).abs();
+        let bottom = (a.bottom - b.bottom).abs();
+        let left = (a.left - b.left).abs();
+        top.max(right).max(bottom).max(left)
+    }
+
+    fn legend_slab_for_position(overflow: &CoordinatedOverflow, position: LegendPosition) -> f32 {
+        match position {
+            LegendPosition::Top => (overflow.total.top - overflow.guide.top).max(0.0),
+            LegendPosition::Right => (overflow.total.right - overflow.guide.right).max(0.0),
+            LegendPosition::Bottom => (overflow.total.bottom - overflow.guide.bottom).max(0.0),
+            LegendPosition::Left => (overflow.total.left - overflow.guide.left).max(0.0),
+        }
+    }
+
+    fn absolute_origins_for_named_groups(
+        scene_graph: &SceneGraph,
+        prefix: &str,
+    ) -> Vec<(String, [f32; 2])> {
+        let mut groups = scene_graph
+            .group_paths()
+            .into_iter()
+            .filter_map(|path| {
+                let SceneMark::Group(group) = scene_graph.get_mark(&path)? else {
+                    return None;
+                };
+                if !group.name.starts_with(prefix) || group.name.ends_with("_empty") {
+                    return None;
+                }
+                let origin = scene_graph.get_absolute_origin(&path)?;
+                Some((group.name.clone(), origin))
+            })
+            .collect::<Vec<_>>();
+        groups.sort_by(|a, b| a.0.cmp(&b.0));
+        groups
+    }
+
+    #[tokio::test]
+    async fn canvas_mode_measurement_matches_final_layout_bounds() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let compiled = compile_deeply_nested_plot(&ctx).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+        let bounds = measurement.layout.plot_area_bounds();
+        let delta_w = (measurement.plot_area_width - bounds.width).abs();
+        let delta_h = (measurement.plot_area_height - bounds.height).abs();
+        assert!(
+            delta_w <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON,
+            "plot area width mismatch after refinement: measurement={} layout={} delta={}",
+            measurement.plot_area_width,
+            bounds.width,
+            delta_w
+        );
+        assert!(
+            delta_h <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON,
+            "plot area height mismatch after refinement: measurement={} layout={} delta={}",
+            measurement.plot_area_height,
+            bounds.height,
+            delta_h
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn level1_left_legend_slab_stays_on_child_facet() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled =
+            compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Left).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+        let outer_facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("top-level legend sharing test should measure as FacetBandCoordMeasurement");
+        let outer_left_slab =
+            legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Left);
+
+        let first_non_empty = outer_facet
+            .cells
+            .iter()
+            .find(|cell| !cell.plan.is_empty)
+            .expect("expected non-empty outer facet cell");
+        let child_facet = first_non_empty
+            .measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("expected nested child facet measurement");
+        let child_left_slab =
+            legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Left);
+
+        assert!(
+            outer_left_slab <= 0.5,
+            "outer facet should not reserve descendant left legend slab (found {})",
+            outer_left_slab
+        );
+        assert!(
+            child_left_slab > 1.0,
+            "child facet should retain its own left legend slab (found {})",
+            child_left_slab
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn level1_bottom_legend_slab_stays_on_child_facet() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled =
+            compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Bottom).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+        let outer_facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("top-level legend sharing test should measure as FacetBandCoordMeasurement");
+        let outer_bottom_slab =
+            legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Bottom);
+
+        let first_non_empty = outer_facet
+            .cells
+            .iter()
+            .find(|cell| !cell.plan.is_empty)
+            .expect("expected non-empty outer facet cell");
+        let child_facet = first_non_empty
+            .measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("expected nested child facet measurement");
+        let child_bottom_slab =
+            legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Bottom);
+
+        assert!(
+            outer_bottom_slab <= 0.5,
+            "outer facet should not reserve descendant bottom legend slab (found {})",
+            outer_bottom_slab
+        );
+        assert!(
+            child_bottom_slab > 1.0,
+            "child facet should retain its own bottom legend slab (found {})",
+            child_bottom_slab
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn level1_top_legend_slab_stays_on_child_facet() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Top).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+        let outer_facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("top-level legend sharing test should measure as FacetBandCoordMeasurement");
+        let outer_top_slab =
+            legend_slab_for_position(&outer_facet.coordinated_overflow, LegendPosition::Top);
+
+        let first_non_empty = outer_facet
+            .cells
+            .iter()
+            .find(|cell| !cell.plan.is_empty)
+            .expect("expected non-empty outer facet cell");
+        let child_facet = first_non_empty
+            .measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("expected nested child facet measurement");
+        let child_top_slab =
+            legend_slab_for_position(&child_facet.coordinated_overflow, LegendPosition::Top);
+
+        assert!(
+            outer_top_slab <= 0.5,
+            "outer facet should not reserve descendant top legend slab (found {})",
+            outer_top_slab
+        );
+        assert!(
+            child_top_slab > 1.0,
+            "child facet should retain its own top legend slab (found {})",
+            child_top_slab
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn row_left_legend_start_slab_consumed_by_facet_group_origin()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_single_level_row_legend_plot(&ctx, LegendPosition::Left).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+
+        let facet_measurement = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("expected FacetBandCoordMeasurement for row legend slab test");
+        let expected_offset = legend_slab_for_position(
+            &facet_measurement.coordinated_overflow,
+            LegendPosition::Left,
+        );
+        assert!(
+            expected_offset > 1.0,
+            "expected row-left test to reserve a positive left legend slab (found {})",
+            expected_offset
+        );
+
+        let base_x = measurement.layout.plot_area_bounds().x + expected_offset;
+        let row_origins = absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_row_");
+        assert!(
+            !row_origins.is_empty(),
+            "expected non-empty row facet groups in evaluated scene"
+        );
+
+        for (name, origin) in row_origins {
+            assert!(
+                (origin[0] - base_x).abs() <= 1.0,
+                "row facet group {} should consume left legend slab exactly once (origin_x={}, expected={})",
+                name,
+                origin[0],
+                base_x
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn col_top_legend_start_slab_consumed_by_facet_group_origin()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_single_level_col_legend_plot(&ctx, LegendPosition::Top).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+
+        let facet_measurement = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("expected FacetBandCoordMeasurement for col legend slab test");
+        let expected_offset =
+            legend_slab_for_position(&facet_measurement.coordinated_overflow, LegendPosition::Top);
+        assert!(
+            expected_offset > 1.0,
+            "expected col-top test to reserve a positive top legend slab (found {})",
+            expected_offset
+        );
+
+        let base_y = measurement.layout.plot_area_bounds().y + expected_offset;
+        let col_origins = absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_col_");
+        assert!(
+            !col_origins.is_empty(),
+            "expected non-empty col facet groups in evaluated scene"
+        );
+
+        for (name, origin) in col_origins {
+            assert!(
+                (origin[1] - base_y).abs() <= 1.0,
+                "col facet group {} should consume top legend slab exactly once (origin_y={}, expected={})",
+                name,
+                origin[1],
+                base_y
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn nested_plot_area_measurements_use_coord_aware_overflow()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_deeply_nested_plot(&ctx).await?;
+        let (eval_ctx, _, measurement) =
+            prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+        let outer_facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("top-level deeply nested test should measure as FacetBandCoordMeasurement");
+
+        let first_non_empty = outer_facet
+            .cells
+            .iter()
+            .find(|cell| !cell.plan.is_empty)
+            .expect("expected at least one non-empty outer facet cell");
+
+        let child_measurement = &first_non_empty.measurement;
+        let child_layout_spec = EvaluatedLayoutSpec {
+            canvas: EvaluatedSizeMode::Auto,
+            plot_area: EvaluatedSizeMode::Fixed {
+                width: child_measurement.plot_area_width,
+                height: child_measurement.plot_area_height,
+            },
+            margins: EvaluatedMargins {
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            },
+        };
+
+        let child_plot = outer_facet.compiled_subplot.as_ref();
+        let (_, coord_aware_layout, _) = child_plot
+            .rebuild_layout_with_coord_overflow(
+                &child_layout_spec,
+                &child_measurement.scales,
+                child_measurement.plot_area_width,
+                child_measurement.plot_area_height,
+                &child_measurement.params,
+                Some(&first_non_empty.data_override),
+                &eval_ctx.session_context,
+                eval_ctx.facet_tree.as_ref(),
+                &first_non_empty.plan.full_path,
+                Some(child_measurement.coord_measurement.as_ref()),
+            )
+            .await?;
+        let (_, no_coord_layout, _) = child_plot
+            .rebuild_layout_with_coord_overflow(
+                &child_layout_spec,
+                &child_measurement.scales,
+                child_measurement.plot_area_width,
+                child_measurement.plot_area_height,
+                &child_measurement.params,
+                Some(&first_non_empty.data_override),
+                &eval_ctx.session_context,
+                eval_ctx.facet_tree.as_ref(),
+                &first_non_empty.plan.full_path,
+                None,
+            )
+            .await?;
+
+        let guide_delta_coord = max_overflow_abs_delta(
+            &child_measurement.layout.overflow,
+            &coord_aware_layout.overflow,
+        );
+        let total_delta_coord = max_overflow_abs_delta(
+            &child_measurement.layout.total_overflow,
+            &coord_aware_layout.total_overflow,
+        );
+        let guide_delta_no_coord = max_overflow_abs_delta(
+            &child_measurement.layout.overflow,
+            &no_coord_layout.overflow,
+        );
+        let total_delta_no_coord = max_overflow_abs_delta(
+            &child_measurement.layout.total_overflow,
+            &no_coord_layout.total_overflow,
+        );
+        assert!(
+            guide_delta_coord <= 1.0,
+            "nested child measurement guide overflow should come from coord-aware pass (delta={})",
+            guide_delta_coord
+        );
+        assert!(
+            total_delta_coord <= 1.0,
+            "nested child measurement total overflow should come from coord-aware pass (delta={})",
+            total_delta_coord
+        );
+        assert!(
+            guide_delta_no_coord >= guide_delta_coord + 0.5
+                || total_delta_no_coord >= total_delta_coord + 0.5,
+            "coord-aware overflow should be materially closer than coord-agnostic overflow (guide coord={} no_coord={}, total coord={} no_coord={})",
+            guide_delta_coord,
+            guide_delta_no_coord,
+            total_delta_coord,
+            total_delta_no_coord
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn deeply_nested_outer_padding_inner_not_pathological() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_deeply_nested_plot(&ctx).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+        let outer_facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("top-level deeply nested test should measure as FacetBandCoordMeasurement");
+        let active_layout = outer_facet
+            .coordinated_layout
+            .as_ref()
+            .unwrap_or(&outer_facet.local_layout);
+
+        assert!(
+            active_layout.padding_inner_px < 180.0,
+            "outer facet padding_inner_px regressed into pathological range: {}",
+            active_layout.padding_inner_px
+        );
+        Ok(())
     }
 }
 
@@ -788,6 +1505,199 @@ impl CompiledPlot {
         Ok((result, legend_plan))
     }
 
+    #[inline]
+    fn legend_scope_for_facet_path(facet_path: &[ScalarValue]) -> LegendPlanScope {
+        if facet_path.is_empty() {
+            LegendPlanScope::TopLevel
+        } else {
+            LegendPlanScope::FacetCell
+        }
+    }
+
+    async fn measure_overflow_with_coord(
+        &self,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        plot_width: f32,
+        plot_height: f32,
+        params: &IndexMap<String, ScalarValue>,
+        data_override: Option<&DataFrame>,
+        ctx: &SessionContext,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        let Some(compiled_guide) = &self.compiled_guide else {
+            return Ok(OverflowSpaceRequirement::default());
+        };
+
+        let configured_scales: HashMap<String, ConfiguredScale> = scales
+            .iter()
+            .map(|(k, v)| (k.clone(), v.configured().clone()))
+            .collect();
+
+        compiled_guide
+            .measure_overflow(
+                &configured_scales,
+                plot_width,
+                plot_height,
+                self.get_theme().as_ref(),
+                params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+                coord_measurement,
+            )
+            .await
+    }
+
+    async fn rebuild_layout_with_coord_overflow(
+        &self,
+        layout_spec: &EvaluatedLayoutSpec,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        params: &IndexMap<String, ScalarValue>,
+        data_override: Option<&DataFrame>,
+        ctx: &SessionContext,
+        facet_tree: &EvaluatedFacetTree,
+        facet_path: &[ScalarValue],
+        coord_measurement: Option<&dyn CoordMeasurement>,
+    ) -> Result<(OverflowSpaceRequirement, LayoutSolution, PreparedLegendPlan), AvengerChartError>
+    {
+        let overflow = self
+            .measure_overflow_with_coord(
+                scales,
+                plot_area_width,
+                plot_area_height,
+                params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+                coord_measurement,
+            )
+            .await?;
+
+        let (layout, legend_plan) = self
+            .compute_layout_with_precomputed_overflow(
+                &overflow,
+                layout_spec,
+                scales,
+                taffy::Size {
+                    width: plot_area_width,
+                    height: plot_area_height,
+                },
+                ctx,
+                params,
+                facet_tree,
+                facet_path,
+                Self::legend_scope_for_facet_path(facet_path),
+            )
+            .await?;
+
+        Ok((overflow, layout, legend_plan))
+    }
+
+    async fn refine_canvas_measurement_after_coordination(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &EvaluatedLayoutSpec,
+        scale_provider: &dyn ScaleProvider,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+    ) -> Result<(), AvengerChartError> {
+        let ctx = &*eval_ctx.session_context;
+        let facet_tree = eval_ctx.facet_tree.as_ref();
+
+        for iter in 0..=Self::MAX_CANVAS_REFINEMENT_ITERS {
+            let (_, candidate_layout, candidate_legend_plan) = self
+                .rebuild_layout_with_coord_overflow(
+                    layout_spec,
+                    &measurement.scales,
+                    measurement.plot_area_width,
+                    measurement.plot_area_height,
+                    &measurement.params,
+                    data_override,
+                    ctx,
+                    facet_tree,
+                    facet_path,
+                    Some(measurement.coord_measurement.as_ref()),
+                )
+                .await?;
+
+            let candidate_bounds = *candidate_layout.plot_area_bounds();
+            let delta_w = (candidate_bounds.width - measurement.plot_area_width).abs();
+            let delta_h = (candidate_bounds.height - measurement.plot_area_height).abs();
+
+            trace!(
+                iter,
+                current_width = measurement.plot_area_width,
+                current_height = measurement.plot_area_height,
+                candidate_width = candidate_bounds.width,
+                candidate_height = candidate_bounds.height,
+                delta_w,
+                delta_h,
+                "canvas layout refinement candidate"
+            );
+
+            measurement.layout = candidate_layout;
+            measurement.legend_plan = candidate_legend_plan;
+            measurement.canvas_size = measurement.layout.canvas_size;
+
+            if delta_w <= Self::LAYOUT_REFINEMENT_EPSILON
+                && delta_h <= Self::LAYOUT_REFINEMENT_EPSILON
+            {
+                trace!(iter, "canvas layout refinement converged");
+                return Ok(());
+            }
+
+            if iter == Self::MAX_CANVAS_REFINEMENT_ITERS {
+                debug!(
+                    iter,
+                    delta_w,
+                    delta_h,
+                    epsilon = Self::LAYOUT_REFINEMENT_EPSILON,
+                    "canvas layout refinement reached iteration cap"
+                );
+                return Ok(());
+            }
+
+            let next_width = candidate_bounds.width.max(1.0);
+            let next_height = candidate_bounds.height.max(1.0);
+            let params_with_dims = eval_ctx.with_dimension_params(next_width, next_height);
+            let merged_params = params_with_dims.params.clone();
+
+            let mut final_scales = scale_provider
+                .build_scales(next_width, next_height, ctx, &merged_params)
+                .await?;
+            let coord_measurement = self
+                .measure_coord_system(
+                    &final_scales,
+                    next_width,
+                    next_height,
+                    &params_with_dims,
+                    data_override,
+                    facet_path,
+                    ctx,
+                )
+                .await?;
+            coord_measurement.apply_scale_adjustments(&mut final_scales);
+
+            measurement.plot_area_width = next_width;
+            measurement.plot_area_height = next_height;
+            measurement.scales = final_scales;
+            measurement.coord_measurement = coord_measurement;
+            measurement.params = merged_params;
+            measurement.clip = self.get_clip_region(&measurement.scales, next_width, next_height);
+
+            coordinate_overflow_for_guides(measurement, eval_ctx).await?;
+        }
+
+        Ok(())
+    }
+
     /// Extract dimensions and determine layout mode from evaluated layout spec.
     ///
     /// Returns (width, height, is_plot_area_mode) where:
@@ -1027,8 +1937,8 @@ impl CompiledPlot {
         let merged_params = params_with_dims.params.clone();
 
         // Phase 2: Compute layout and determine plot area dimensions
-        let (plot_area_width, plot_area_height, canvas_size, layout, legend_plan) = self
-            .compute_layout_and_dimensions(
+        let (plot_area_width, plot_area_height, mut canvas_size, mut layout, mut legend_plan) =
+            self.compute_layout_and_dimensions(
                 is_plot_area_mode,
                 width,
                 height,
@@ -1063,6 +1973,55 @@ impl CompiledPlot {
         // Apply scale adjustments from coord measurement (stays in main function
         // because it mutates final_scales which is used by later phases)
         coord_measurement.apply_scale_adjustments(&mut final_scales);
+
+        if is_plot_area_mode {
+            let initial_plot_bounds = *layout.plot_area_bounds();
+            let initial_overflow = layout.overflow;
+            let initial_total_overflow = layout.total_overflow;
+            let (_, refined_layout, refined_legend_plan) = self
+                .rebuild_layout_with_coord_overflow(
+                    layout_spec,
+                    &final_scales,
+                    plot_area_width,
+                    plot_area_height,
+                    &merged_params,
+                    data_override,
+                    ctx,
+                    facet_tree,
+                    facet_path,
+                    Some(coord_measurement.as_ref()),
+                )
+                .await?;
+            let refined_plot_bounds = refined_layout.plot_area_bounds();
+            trace!(
+                initial_width = initial_plot_bounds.width,
+                initial_height = initial_plot_bounds.height,
+                refined_width = refined_plot_bounds.width,
+                refined_height = refined_plot_bounds.height,
+                delta_w = (refined_plot_bounds.width - initial_plot_bounds.width).abs(),
+                delta_h = (refined_plot_bounds.height - initial_plot_bounds.height).abs(),
+                initial_overflow_top = initial_overflow.top,
+                initial_overflow_right = initial_overflow.right,
+                initial_overflow_bottom = initial_overflow.bottom,
+                initial_overflow_left = initial_overflow.left,
+                refined_overflow_top = refined_layout.overflow.top,
+                refined_overflow_right = refined_layout.overflow.right,
+                refined_overflow_bottom = refined_layout.overflow.bottom,
+                refined_overflow_left = refined_layout.overflow.left,
+                initial_total_overflow_top = initial_total_overflow.top,
+                initial_total_overflow_right = initial_total_overflow.right,
+                initial_total_overflow_bottom = initial_total_overflow.bottom,
+                initial_total_overflow_left = initial_total_overflow.left,
+                refined_total_overflow_top = refined_layout.total_overflow.top,
+                refined_total_overflow_right = refined_layout.total_overflow.right,
+                refined_total_overflow_bottom = refined_layout.total_overflow.bottom,
+                refined_total_overflow_left = refined_layout.total_overflow.left,
+                "plot-area measurement refined with coord-aware overflow"
+            );
+            layout = refined_layout;
+            legend_plan = refined_legend_plan;
+            canvas_size = layout.canvas_size;
+        }
 
         // Phase 5: Get clip region from guide
         let clip = self.get_clip_region(&final_scales, plot_area_width, plot_area_height);
@@ -1172,76 +2131,8 @@ impl CompiledPlot {
             let layout_initial = layout_solution;
             // Check if this is a top-level plot (canvas mode) or subplot (plot area mode)
             if !dimensions_are_plot_area {
-                // Canvas mode: Full layout with guides, legends, titles
-                // Always re-measure overflow with the final plot-area size and final scales,
-                // then rebuild the outer layout so it matches subplots.
-                let theme = self.get_theme();
-                // Use merged_scales that include facet-driven padding updates
-                let configured_scales: HashMap<String, ConfiguredScale> = merged_scales
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.configured().clone()))
-                    .collect();
-                let pb = layout_initial.plot_area_bounds();
-                debug!(
-                    width = pb.width,
-                    height = pb.height,
-                    "Calling guide measure_overflow"
-                );
-                let overflow_final = if let Some(ref compiled_guide) = self.compiled_guide {
-                    compiled_guide
-                        .measure_overflow(
-                            &configured_scales,
-                            pb.width,
-                            pb.height,
-                            theme.as_ref(),
-                            &merged_params,
-                            data_override,
-                            ctx,
-                            &*eval_ctx.facet_tree,
-                            facet_path,
-                            Some(coord_measurement_ref), // Second pass - provide for efficiency
-                        )
-                        .await?
-                } else {
-                    OverflowSpaceRequirement::default()
-                };
-
-                debug!(
-                    left = overflow_final.left,
-                    right = overflow_final.right,
-                    top = overflow_final.top,
-                    bottom = overflow_final.bottom,
-                    "Second-pass outer overflow"
-                );
-
-                // Rebuild layout unconditionally with the second-pass overflow
-                let evaluated_spec2 = evaluate_layout_spec(
-                    self.get_layout_spec(),
-                    ctx,
-                    &merged_params,
-                    theme.as_ref(),
-                )
-                .await?;
-                let (layout, legend_plan_second_pass) = self
-                    .compute_layout_with_precomputed_overflow(
-                        &overflow_final,
-                        &evaluated_spec2,
-                        &merged_scales,
-                        taffy::Size {
-                            width: plot_area_width,
-                            height: plot_area_height,
-                        },
-                        ctx,
-                        &merged_params,
-                        eval_ctx.facet_tree.as_ref(),
-                        facet_path,
-                        LegendPlanScope::TopLevel,
-                    )
-                    .await?;
-
-                let plot_bounds = layout.plot_area_bounds();
-                // Use original plot area dimensions to stay consistent with evaluated marks
-                // Marks were evaluated with plot_area_width/height from first layout
+                // Canvas mode: measurement already carries the finalized layout/overflow.
+                let plot_bounds = layout_initial.plot_area_bounds();
                 let plot_bounds_struct = LayoutBounds {
                     x: plot_bounds.x,
                     y: plot_bounds.y,
@@ -1266,37 +2157,36 @@ impl CompiledPlot {
 
                 let legend_marks = self
                     .render_legends_from_plan(
-                        &legend_plan_second_pass,
-                        &layout.taffy_layout,
+                        &legend_plan_initial,
+                        &layout_initial.taffy_layout,
                         ctx,
                         &merged_params,
                     )
                     .await?;
 
-                let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
+                let title_marks = if let Some(title_bounds) = &layout_initial.taffy_layout.title {
                     self.create_title(Some(*title_bounds), ctx, &merged_params)
                         .await?
                 } else {
                     Vec::new()
                 };
 
-                let subtitle_marks = if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
-                    self.create_subtitle(Some(*subtitle_bounds), ctx, &merged_params)
-                        .await?
-                } else {
-                    Vec::new()
-                };
+                let subtitle_marks =
+                    if let Some(subtitle_bounds) = &layout_initial.taffy_layout.subtitle {
+                        self.create_subtitle(Some(*subtitle_bounds), ctx, &merged_params)
+                            .await?
+                    } else {
+                        Vec::new()
+                    };
 
                 let mut debug_marks = vec![];
                 if facet_debug::layout_overlay_enabled() {
-                    // Use INITIAL layout for debug visualization - this matches the dimensions used to position marks
-                    // Marks were evaluated with plot_area_width/height from layout_initial
                     debug_marks.extend(create_debug_layout_rects(
-                        &layout_initial.taffy_layout, // Use initial layout that matches mark positioning
-                        None,                         // Use default magenta color
-                        None,                         // Use default stroke width (1.0)
-                        None,                         // Use default z-index (20)
-                        false,                        // Don't flip label alignment
+                        &layout_initial.taffy_layout,
+                        None,
+                        None,
+                        None,
+                        false,
                     ));
                 }
 
@@ -1533,6 +2423,18 @@ impl CompiledPlot {
         // and subplot measurements have correct dimensions accounting for legend overflow
         let mut measurement = measurement;
         coordinate_overflow_for_guides(&mut measurement, &eval_ctx).await?;
+        let (_, _, is_plot_area_mode) = Self::resolve_dimensions_from_spec(&evaluated_layout_spec);
+        if !is_plot_area_mode {
+            self.refine_canvas_measurement_after_coordination(
+                &mut measurement,
+                &eval_ctx,
+                &evaluated_layout_spec,
+                &provider,
+                None,
+                &[],
+            )
+            .await?;
+        }
 
         // Build plot components using measurement
         let components = self

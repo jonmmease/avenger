@@ -312,9 +312,8 @@ impl CartesianAxis {
 
         // Jagged grids can leave some interior subplots without edge labels.
         // Keep sharing-based ownership for titles, but force labels visible.
-        let jagged_labels_override = !facet_path.is_empty()
-            && sharing_level > 0
-            && facet_tree.is_jagged_for_axis(position);
+        let jagged_labels_override =
+            !facet_path.is_empty() && sharing_level > 0 && facet_tree.is_jagged_for_axis(position);
 
         // Combine user-specified show_title with facet visibility
         let show_title = show_title_expr && facet_visibility.show_title;

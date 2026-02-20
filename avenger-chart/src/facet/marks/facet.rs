@@ -6,6 +6,7 @@ use crate::facet::coord::{FacetColumn, FacetRow};
 use crate::facet::dimension_config::{
     ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
+use crate::facet::layout_slabs::LayoutSlabs;
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
 use crate::marks::{
     ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
@@ -20,6 +21,13 @@ use serde_with::serde_as;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::trace;
+
+fn facet_cell_start_offsets(
+    facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
+) -> (f32, f32) {
+    let slabs = LayoutSlabs::from_coordinated(&facet_measurement.coordinated_overflow);
+    (slabs.legend.left, slabs.legend.top)
+}
 
 /// Facet mark for FacetRow or FacetCol outer coordinate system.
 /// Renders a provided inner plot for each band value in the facet channel.
@@ -312,17 +320,24 @@ impl CompiledMark for CompiledFacetRow {
             params.extend(context.eval.params.clone());
             context.eval.with_params(params)
         };
+        let (origin_offset_x, origin_offset_y) = facet_cell_start_offsets(facet_measurement);
+        trace!(
+            legend_start_left = origin_offset_x,
+            legend_start_top = origin_offset_y,
+            "FacetRow render start slab offsets"
+        );
 
         let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
 
         for (idx, cell) in facet_measurement.cells.iter().enumerate() {
             let position = cell_positions[idx];
+            let subplot_origin = [origin_offset_x, position + origin_offset_y];
             let is_empty_cell = cell.plan.is_empty;
 
             if is_empty_cell {
                 let empty_group = SceneGroup {
                     name: format!("facet_row_{}_empty", idx),
-                    origin: [0.0, position],
+                    origin: subplot_origin,
                     clip: avenger_scenegraph::marks::group::Clip::None,
                     marks: Vec::new(),
                     gradients: Vec::new(),
@@ -362,7 +377,7 @@ impl CompiledMark for CompiledFacetRow {
 
             let subplot_group = SceneGroup {
                 name: format!("facet_row_{}", idx),
-                origin: [0.0, position],
+                origin: subplot_origin,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 marks: all_marks,
                 gradients: Vec::new(),
@@ -376,6 +391,8 @@ impl CompiledMark for CompiledFacetRow {
 
             trace!(
                 cell_index = idx,
+                origin_x = subplot_origin[0],
+                origin_y = subplot_origin[1],
                 y = position,
                 height = subplot_height,
                 "FacetRow render position"
@@ -657,6 +674,12 @@ impl CompiledMark for CompiledFacetCol {
             params.extend(context.eval.params.clone());
             context.eval.with_params(params)
         };
+        let (origin_offset_x, origin_offset_y) = facet_cell_start_offsets(facet_measurement);
+        trace!(
+            legend_start_left = origin_offset_x,
+            legend_start_top = origin_offset_y,
+            "FacetCol render start slab offsets"
+        );
 
         let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
 
@@ -665,6 +688,7 @@ impl CompiledMark for CompiledFacetCol {
         // coordinate_overflow_for_guides() before build_plot_components() is called.
         for (idx, cell) in facet_measurement.cells.iter().enumerate() {
             let position = cell_positions[idx];
+            let subplot_origin = [position + origin_offset_x, origin_offset_y];
             let is_empty_cell = cell.plan.is_empty;
 
             // For empty cells (created by Level(N) sharing for uniform layout),
@@ -674,7 +698,7 @@ impl CompiledMark for CompiledFacetCol {
             if is_empty_cell {
                 let empty_group = SceneGroup {
                     name: format!("facet_col_{}_empty", idx),
-                    origin: [position, 0.0],
+                    origin: subplot_origin,
                     clip: avenger_scenegraph::marks::group::Clip::None,
                     marks: Vec::new(),
                     gradients: Vec::new(),
@@ -717,7 +741,7 @@ impl CompiledMark for CompiledFacetCol {
 
             let subplot_group = SceneGroup {
                 name: format!("facet_col_{}", idx),
-                origin: [position, 0.0],
+                origin: subplot_origin,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 marks: all_marks,
                 gradients: Vec::new(),
@@ -731,6 +755,8 @@ impl CompiledMark for CompiledFacetCol {
 
             trace!(
                 cell_index = idx,
+                origin_x = subplot_origin[0],
+                origin_y = subplot_origin[1],
                 x = position,
                 width = subplot_width,
                 "FacetCol render position"

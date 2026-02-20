@@ -539,6 +539,21 @@ impl FacetBandCoordMeasurement {
         // 3. Full re-measurement is reserved for legend overflow and coordinated domain extents.
         let (legend_start, legend_end) =
             legend_axis_overflow(self.axis, &self.coordinated_overflow);
+        let legend_slab_applied = legend_start + legend_end;
+        let legend_slabs = LayoutSlabs::from_coordinated(&self.coordinated_overflow);
+
+        trace!(
+            axis = ?self.axis,
+            facet_depth = self.facet_depth,
+            coordination_field = %self.coordination_field_identity,
+            legend_start,
+            legend_end,
+            legend_top = legend_slabs.legend.top,
+            legend_right = legend_slabs.legend.right,
+            legend_bottom = legend_slabs.legend.bottom,
+            legend_left = legend_slabs.legend.left,
+            "FacetBand apply_coordinated_overflow legend slab sides"
+        );
 
         let has_legend_overflow = legend_start > 0.0 || legend_end > 0.0;
 
@@ -551,6 +566,27 @@ impl FacetBandCoordMeasurement {
         // Check if coordinated layout differs from local layout
         let has_coordinated_layout =
             has_coordinated_layout_change(&self.local_layout, self.coordinated_layout.as_ref());
+
+        trace!(
+            axis = ?self.axis,
+            facet_depth = self.facet_depth,
+            coordination_field = %self.coordination_field_identity,
+            legend_start,
+            legend_end,
+            legend_slab_applied,
+            has_legend_overflow,
+            has_coordinated_extents,
+            has_coordinated_layout,
+            coordinated_guide_top = self.coordinated_overflow.guide.top,
+            coordinated_guide_right = self.coordinated_overflow.guide.right,
+            coordinated_guide_bottom = self.coordinated_overflow.guide.bottom,
+            coordinated_guide_left = self.coordinated_overflow.guide.left,
+            coordinated_total_top = self.coordinated_overflow.total.top,
+            coordinated_total_right = self.coordinated_overflow.total.right,
+            coordinated_total_bottom = self.coordinated_overflow.total.bottom,
+            coordinated_total_left = self.coordinated_overflow.total.left,
+            "FacetBand apply_coordinated_overflow coordinated inputs"
+        );
 
         // If coordinated layout changed, recompute subplot_cross_size using band_n.
         // This only updates the width/padding fields — it does NOT trigger re-measurement.
@@ -620,6 +656,7 @@ impl FacetBandCoordMeasurement {
         // shrinking the plot area by legend overflow at both edges on the facet axis.
         let adjusted_main_size =
             adjusted_size_for_legend_overflow(original_main_size, legend_start, legend_end);
+        let legend_main_axis_shrink = (original_main_size - adjusted_main_size).max(0.0);
 
         debug!(
             axis = ?self.axis,
@@ -627,8 +664,21 @@ impl FacetBandCoordMeasurement {
             adjusted_main_size,
             legend_start,
             legend_end,
+            legend_main_axis_shrink,
             has_coordinated_extents,
             "FacetBand apply_coordinated_overflow size adjustment"
+        );
+        trace!(
+            axis = ?self.axis,
+            facet_depth = self.facet_depth,
+            coordination_field = %self.coordination_field_identity,
+            original_main_size,
+            adjusted_main_size,
+            legend_start,
+            legend_end,
+            legend_slab_applied,
+            legend_main_axis_shrink,
+            "FacetBand apply_coordinated_overflow legend slab application"
         );
 
         // Create subplot EvaluationContext with merged params

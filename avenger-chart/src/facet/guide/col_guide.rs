@@ -4,7 +4,6 @@
 //! for column-based faceted plots.
 
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
-use crate::coords::CoordMeasurement;
 use crate::coords::CoordinatedOverflow;
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
@@ -141,17 +140,19 @@ fn resolve_guide_anchor_overflow(
     coordinated_overflow: Option<&CoordinatedOverflow>,
     local_overflow: Option<&CoordinatedOverflow>,
 ) -> (f32, GuideAnchorSource) {
-    if let Some(coordinated) = coordinated_overflow {
-        return (
-            LayoutSlabs::from_coordinated(coordinated).guide_anchor(place_at_bottom),
-            GuideAnchorSource::CoordinatedGuide,
-        );
-    }
-
+    // Prefer local guide anchors so per-branch facet guides render against
+    // their own subplot strip instead of inheriting wider coordinated siblings.
     if let Some(local) = local_overflow {
         return (
             LayoutSlabs::from_coordinated(local).guide_anchor(place_at_bottom),
             GuideAnchorSource::LocalGuide,
+        );
+    }
+
+    if let Some(coordinated) = coordinated_overflow {
+        return (
+            LayoutSlabs::from_coordinated(coordinated).guide_anchor(place_at_bottom),
+            GuideAnchorSource::CoordinatedGuide,
         );
     }
 
@@ -169,53 +170,12 @@ fn coordinated_overflow_is_zero(overflow: &CoordinatedOverflow) -> bool {
         && overflow.total.right == 0.0
 }
 
-fn preferred_overflow_for_facet_measurement(
-    facet_measurement: &FacetBandCoordMeasurement,
-) -> Option<CoordinatedOverflow> {
-    if !coordinated_overflow_is_zero(&facet_measurement.coordinated_overflow) {
-        Some(facet_measurement.coordinated_overflow.clone())
-    } else {
-        facet_measurement.local_overflow_value()
-    }
-}
-
-fn max_top_legend_delta_subtree(facet_measurement: &FacetBandCoordMeasurement) -> f32 {
-    let own_delta = preferred_overflow_for_facet_measurement(facet_measurement)
-        .as_ref()
-        .map(|overflow| LayoutSlabs::from_coordinated(overflow).legend.top)
-        .unwrap_or(0.0);
-
-    let child_delta = facet_measurement
-        .child_measurements_iter()
-        .filter_map(|child| {
-            child
-                .coord_measurement
-                .as_any()
-                .downcast_ref::<FacetBandCoordMeasurement>()
-        })
-        .map(max_top_legend_delta_subtree)
-        .fold(0.0f32, f32::max);
-
-    own_delta.max(child_delta)
-}
-
-fn resolve_top_legend_clearance(
-    coord_measurement: Option<&dyn CoordMeasurement>,
-    coordinated_overflow: Option<&CoordinatedOverflow>,
-    local_overflow: Option<&CoordinatedOverflow>,
-) -> f32 {
-    if let Some(facet_measurement) = coord_measurement.and_then(|measurement| {
-        measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-    }) {
-        return max_top_legend_delta_subtree(facet_measurement);
-    }
-
-    coordinated_overflow
-        .or(local_overflow)
-        .map(|overflow| LayoutSlabs::from_coordinated(overflow).legend.top)
-        .unwrap_or(0.0)
+fn propagated_subplot_overflow(
+    local_overflow: Option<CoordinatedOverflow>,
+) -> OverflowSpaceRequirement {
+    local_overflow
+        .map(|overflow| overflow.guide)
+        .unwrap_or_default()
 }
 
 fn measure_facet_guide_height(
@@ -290,12 +250,10 @@ impl CompiledGuide for FacetColGuide {
         let subplot_overflow = if let Some(fcm) =
             coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetBandCoordMeasurement>())
         {
-            // Fast path: use pre-computed overflow from coord_measurement
-            // Use total_overflow to include legend space in outer layout calculation,
-            // with the same edge policy used by FacetBandCoordMeasurement::local_overflow.
-            fcm.local_overflow_value()
-                .map(|overflow| overflow.total)
-                .unwrap_or_default()
+            // Fast path: propagate guide-only overflow to parent facet levels.
+            // Legend slabs are reserved where legends render and must not be
+            // recursively re-applied by ancestor facets.
+            propagated_subplot_overflow(fcm.local_overflow_value())
         } else {
             // Slow path: compute subplot overflow (first pass, before coord_measurement exists)
             self.compute_subplot_overflow(
@@ -348,46 +306,50 @@ impl CompiledGuide for FacetColGuide {
         // Each level measures and renders its own labels
         let facet_guide_height = measure_facet_guide_height(&labels, title_for_cell, theme, params);
 
+        let coordinated_overflow = coord_measurement.and_then(|measurement| {
+            let coordinated = measurement.coordinated_overflow()?;
+            if coordinated_overflow_is_zero(coordinated) {
+                None
+            } else {
+                Some(coordinated)
+            }
+        });
         let local_overflow = coord_measurement
             .and_then(|measurement| {
                 measurement
                     .as_any()
                     .downcast_ref::<FacetBandCoordMeasurement>()
             })
-            .and_then(preferred_overflow_for_facet_measurement);
-
-        // Keep facet guides above legend bounds for top-positioned legends.
-        // Use guide-top anchoring plus top legend clearance from this subtree.
-        let guide_anchor_top = local_overflow
-            .as_ref()
-            .map(|overflow| overflow.guide.top)
-            .unwrap_or(subplot_overflow.top);
-        let top_legend_clearance = if place_at_bottom {
-            0.0
+            .and_then(|fcm| fcm.local_overflow_value());
+        let (resolved_anchor, anchor_source) = resolve_guide_anchor_overflow(
+            place_at_bottom,
+            coordinated_overflow,
+            local_overflow.as_ref(),
+        );
+        let default_subplot_anchor = if place_at_bottom {
+            subplot_overflow.bottom
         } else {
-            resolve_top_legend_clearance(coord_measurement, None, None)
+            subplot_overflow.top
         };
-        let effective_top_anchor = guide_anchor_top + top_legend_clearance;
+        let guide_anchor = if matches!(anchor_source, GuideAnchorSource::DefaultZero) {
+            default_subplot_anchor
+        } else {
+            resolved_anchor
+        };
 
         // Add facet guide height to top or bottom overflow depending on position.
         let (total_top, total_bottom) = if place_at_bottom {
-            (
-                subplot_overflow.top,
-                subplot_overflow.bottom + facet_guide_height,
-            )
+            (subplot_overflow.top, guide_anchor + facet_guide_height)
         } else {
-            (
-                effective_top_anchor + facet_guide_height,
-                subplot_overflow.bottom,
-            )
+            (guide_anchor + facet_guide_height, subplot_overflow.bottom)
         };
 
         debug!(
             position = ?self.position,
             subplot_overflow_top = subplot_overflow.top,
-            guide_anchor_top,
-            top_legend_clearance,
-            effective_top_anchor,
+            subplot_overflow_bottom = subplot_overflow.bottom,
+            guide_anchor,
+            anchor_source = anchor_source.as_str(),
             title_visible,
             facet_guide_height,
             total_top,
@@ -500,26 +462,11 @@ impl CompiledGuide for FacetColGuide {
             coordinated_overflow,
             local_overflow.as_ref(),
         );
-        let top_legend_clearance = if place_at_bottom {
-            0.0
-        } else {
-            resolve_top_legend_clearance(
-                Some(coord_measurement),
-                coordinated_overflow,
-                local_overflow.as_ref(),
-            )
-        };
-        let subplot_overflow = if place_at_bottom {
-            subplot_overflow
-        } else {
-            subplot_overflow + top_legend_clearance
-        };
 
         debug!(
             position = ?self.position,
             plot_bounds_y = plot_bounds.y,
             subplot_overflow,
-            top_legend_clearance,
             facet_guide_height,
             anchor_source = anchor_source.as_str(),
             coordinated_guide_top = coordinated_overflow.map(|co| co.guide.top),
@@ -816,9 +763,31 @@ mod tests {
     }
 
     #[test]
+    fn resolve_guide_anchor_prefers_local_over_coordinated_when_both_present() {
+        let local = coordinated_overflow(12.0, 8.0, 60.0, 40.0);
+        let coordinated = coordinated_overflow(5.0, 39.0, 5.0, 39.0);
+        let (resolved_top, source_top) =
+            resolve_guide_anchor_overflow(false, Some(&coordinated), Some(&local));
+        let (resolved_bottom, source_bottom) =
+            resolve_guide_anchor_overflow(true, Some(&coordinated), Some(&local));
+        assert_eq!(resolved_top, 12.0);
+        assert_eq!(source_top, GuideAnchorSource::LocalGuide);
+        assert_eq!(resolved_bottom, 8.0);
+        assert_eq!(source_bottom, GuideAnchorSource::LocalGuide);
+    }
+
+    #[test]
     fn resolve_guide_anchor_defaults_to_zero_without_overflow_context() {
         let (resolved, source) = resolve_guide_anchor_overflow(false, None, None);
         assert_eq!(resolved, 0.0);
         assert_eq!(source, GuideAnchorSource::DefaultZero);
+    }
+
+    #[test]
+    fn propagated_subplot_overflow_uses_guide_not_total() {
+        let local = coordinated_overflow(17.0, 9.0, 53.0, 41.0);
+        let propagated = propagated_subplot_overflow(Some(local));
+        assert_eq!(propagated.top, 17.0);
+        assert_eq!(propagated.bottom, 9.0);
     }
 }

@@ -173,6 +173,14 @@ fn preferred_overflow_for_facet_measurement(
     }
 }
 
+fn propagated_subplot_overflow(
+    local_overflow: Option<CoordinatedOverflow>,
+) -> OverflowSpaceRequirement {
+    local_overflow
+        .map(|overflow| overflow.guide)
+        .unwrap_or_default()
+}
+
 fn measure_facet_guide_width(
     labels: &[String],
     facet_title: Option<&String>,
@@ -242,9 +250,9 @@ impl CompiledGuide for FacetRowGuide {
         let subplot_overflow = if let Some(fcm) =
             coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetBandCoordMeasurement>())
         {
-            fcm.local_overflow_value()
-                .map(|overflow| overflow.total)
-                .unwrap_or_default()
+            // Propagate guide-only overflow through nested facet fast paths.
+            // Legend slabs are applied at the legend-owning facet level only.
+            propagated_subplot_overflow(fcm.local_overflow_value())
         } else {
             self.compute_subplot_overflow(
                 scales,
@@ -724,5 +732,13 @@ mod tests {
         let (resolved, source) = resolve_guide_anchor_overflow_horizontal(true, None, None);
         assert_eq!(resolved, 0.0);
         assert_eq!(source, GuideAnchorSource::DefaultZero);
+    }
+
+    #[test]
+    fn propagated_subplot_overflow_uses_guide_not_total() {
+        let local = coordinated_overflow(11.0, 23.0, 49.0, 65.0);
+        let propagated = propagated_subplot_overflow(Some(local));
+        assert_eq!(propagated.left, 11.0);
+        assert_eq!(propagated.right, 23.0);
     }
 }
