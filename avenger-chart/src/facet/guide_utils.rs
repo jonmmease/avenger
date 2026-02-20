@@ -552,8 +552,17 @@ fn render_facet_title(
         (x_center, y_center, angle, TextBaseline::Middle)
     } else {
         // Col title (horizontal)
-        // Center title over the cell width to align with outer facet labels
-        let x_center = config.plot_bounds.x + 0.5 * config.plot_bounds.width;
+        // Center title over the rendered guide span so title alignment remains
+        // stable when left/right subplot reserves are asymmetric.
+        let x_center = if let (Some(first), Some(last)) =
+            (config.band_positions.first(), config.band_positions.last())
+        {
+            let first_center = config.plot_bounds.x + first.center();
+            let last_center = config.plot_bounds.x + last.center();
+            0.5 * (first_center + last_center)
+        } else {
+            config.plot_bounds.x + 0.5 * config.plot_bounds.width
+        };
         let y_title = if config.place_at_end {
             config.plot_bounds.y + config.plot_bounds.height + max_label_dimension + gap
         } else {
@@ -580,6 +589,102 @@ fn render_facet_title(
             .into(),
         zindex: Some(6),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::facet::band_positions::BandPosition;
+    use avenger_scenegraph::marks::mark::SceneMark;
+
+    fn title_x_from_marks(marks: &[SceneMark], expected_title: &str) -> f32 {
+        marks
+            .iter()
+            .find_map(|mark| {
+                let SceneMark::Text(text_mark) = mark else {
+                    return None;
+                };
+                let text = text_mark.text_iter().next()?;
+                if text == expected_title {
+                    text_mark.x_iter().next().copied()
+                } else {
+                    None
+                }
+            })
+            .expect("expected title text mark")
+    }
+
+    #[test]
+    fn col_title_uses_guide_span_midpoint_when_bands_are_present() {
+        let plot_bounds = LayoutBounds {
+            x: 120.0,
+            y: 80.0,
+            width: 620.0,
+            height: 300.0,
+        };
+        let band_positions = vec![
+            BandPosition::new(ScalarValue::Utf8(Some("A".into())), 75.0, 160.0),
+            BandPosition::new(ScalarValue::Utf8(Some("B".into())), 455.0, 140.0),
+        ];
+        let expected_center = {
+            let first_center = plot_bounds.x + band_positions[0].center();
+            let last_center = plot_bounds.x + band_positions[1].center();
+            0.5 * (first_center + last_center)
+        };
+        let config = FacetLabelRenderConfig {
+            labels: vec!["A".to_string(), "B".to_string()],
+            band_positions,
+            plot_bounds,
+            is_rotated: false,
+            place_at_end: false,
+            font_family: "sans-serif".to_string(),
+            font_size_px: 10.0,
+            title: Some("species".to_string()),
+            title_font_family: "sans-serif".to_string(),
+            title_font_size_px: 12.0,
+            render_title: true,
+        };
+        let marks = render_facet_label_slab(&config, &Theme::light(), &IndexMap::new());
+        let title_x = title_x_from_marks(&marks, "species");
+        assert!(
+            (title_x - expected_center).abs() <= 0.01,
+            "expected title x={} to match guide midpoint {}",
+            title_x,
+            expected_center
+        );
+    }
+
+    #[test]
+    fn col_title_falls_back_to_plot_bounds_center_without_bands() {
+        let plot_bounds = LayoutBounds {
+            x: 140.0,
+            y: 50.0,
+            width: 500.0,
+            height: 280.0,
+        };
+        let expected_center = plot_bounds.x + 0.5 * plot_bounds.width;
+        let config = FacetLabelRenderConfig {
+            labels: vec![],
+            band_positions: vec![],
+            plot_bounds,
+            is_rotated: false,
+            place_at_end: false,
+            font_family: "sans-serif".to_string(),
+            font_size_px: 10.0,
+            title: Some("species".to_string()),
+            title_font_family: "sans-serif".to_string(),
+            title_font_size_px: 12.0,
+            render_title: true,
+        };
+        let marks = render_facet_label_slab(&config, &Theme::light(), &IndexMap::new());
+        let title_x = title_x_from_marks(&marks, "species");
+        assert!(
+            (title_x - expected_center).abs() <= 0.01,
+            "expected fallback title x={} to match plot center {}",
+            title_x,
+            expected_center
+        );
     }
 }
 

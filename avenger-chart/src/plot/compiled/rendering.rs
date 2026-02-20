@@ -131,8 +131,10 @@ async fn evaluate_size_mode(
 mod tests {
     use super::*;
     use crate::{
-        coords::CoordinatedOverflow, facet::coord::FacetBandCoordMeasurement,
-        legend::LegendPosition, prelude::*,
+        coords::CoordinatedOverflow,
+        facet::{band_positions::BandPositionIterator, coord::FacetBandCoordMeasurement},
+        legend::LegendPosition,
+        prelude::*,
     };
     use datafusion::{
         arrow::{
@@ -477,6 +479,36 @@ mod tests {
         groups
     }
 
+    fn collect_text_x_positions(scene_graph: &SceneGraph, text: &str) -> Vec<f32> {
+        fn collect_from_mark(mark: &SceneMark, origin: [f32; 2], text: &str, xs: &mut Vec<f32>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    let next_origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];
+                    for child in &group.marks {
+                        collect_from_mark(child, next_origin, text, xs);
+                    }
+                }
+                SceneMark::Text(text_mark) => {
+                    let matches = text_mark.text_iter().any(|value| value == text);
+                    if !matches {
+                        return;
+                    }
+                    if let Some(x) = text_mark.x_iter().next() {
+                        xs.push(origin[0] + *x);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut xs = Vec::new();
+        for mark in scene_graph.children() {
+            collect_from_mark(mark, [0.0, 0.0], text, &mut xs);
+        }
+        xs.sort_by(f32::total_cmp);
+        xs
+    }
+
     #[tokio::test]
     async fn canvas_mode_measurement_matches_final_layout_bounds() -> Result<(), AvengerChartError>
     {
@@ -629,84 +661,150 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn row_left_legend_start_slab_consumed_by_facet_group_origin()
+    async fn row_facet_group_origins_include_main_axis_legend_start_slab()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = compile_single_level_row_legend_plot(&ctx, LegendPosition::Left).await?;
         let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
         let evaluated = compiled.evaluate(&ctx, None).await?;
 
-        let facet_measurement = measurement
+        let row_facet = measurement
             .coord_measurement
             .as_any()
             .downcast_ref::<FacetBandCoordMeasurement>()
-            .expect("expected FacetBandCoordMeasurement for row legend slab test");
-        let expected_offset = legend_slab_for_position(
-            &facet_measurement.coordinated_overflow,
-            LegendPosition::Left,
-        );
-        assert!(
-            expected_offset > 1.0,
-            "expected row-left test to reserve a positive left legend slab (found {})",
-            expected_offset
-        );
-
-        let base_x = measurement.layout.plot_area_bounds().x + expected_offset;
+            .expect("row facet origin invariant expects FacetBandCoordMeasurement");
+        let legend_start =
+            legend_slab_for_position(&row_facet.coordinated_overflow, LegendPosition::Left);
+        let base_x = measurement.layout.plot_area_bounds().x;
+        let base_y = measurement.layout.plot_area_bounds().y;
+        let row_scale = measurement
+            .scales
+            .get("row")
+            .expect("expected row scale for facet row origin invariant");
+        let expected_y_starts: Vec<f32> = BandPositionIterator::from_scale(row_scale)?
+            .map(|band| base_y + band.start())
+            .collect();
         let row_origins = absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_row_");
         assert!(
             !row_origins.is_empty(),
             "expected non-empty row facet groups in evaluated scene"
         );
+        assert_eq!(
+            row_origins.len(),
+            expected_y_starts.len(),
+            "row facet groups should match row band count"
+        );
 
-        for (name, origin) in row_origins {
+        for ((name, origin), expected_y) in row_origins.iter().zip(expected_y_starts.iter()) {
             assert!(
-                (origin[0] - base_x).abs() <= 1.0,
-                "row facet group {} should consume left legend slab exactly once (origin_x={}, expected={})",
+                (origin[0] - (base_x + legend_start)).abs() <= 1.0,
+                "row facet group {} should include left legend start slab at x (origin_x={}, expected={})",
                 name,
                 origin[0],
-                base_x
+                base_x + legend_start
+            );
+            assert!(
+                (origin[1] - *expected_y).abs() <= 1.0,
+                "row facet group {} should align to row band start y (origin_y={}, expected={})",
+                name,
+                origin[1],
+                expected_y
             );
         }
         Ok(())
     }
 
     #[tokio::test]
-    async fn col_top_legend_start_slab_consumed_by_facet_group_origin()
+    async fn col_facet_group_origins_include_main_axis_legend_start_slab()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = compile_single_level_col_legend_plot(&ctx, LegendPosition::Top).await?;
         let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
         let evaluated = compiled.evaluate(&ctx, None).await?;
 
-        let facet_measurement = measurement
+        let col_facet = measurement
             .coord_measurement
             .as_any()
             .downcast_ref::<FacetBandCoordMeasurement>()
-            .expect("expected FacetBandCoordMeasurement for col legend slab test");
-        let expected_offset =
-            legend_slab_for_position(&facet_measurement.coordinated_overflow, LegendPosition::Top);
-        assert!(
-            expected_offset > 1.0,
-            "expected col-top test to reserve a positive top legend slab (found {})",
-            expected_offset
-        );
-
-        let base_y = measurement.layout.plot_area_bounds().y + expected_offset;
+            .expect("col facet origin invariant expects FacetBandCoordMeasurement");
+        let legend_start =
+            legend_slab_for_position(&col_facet.coordinated_overflow, LegendPosition::Top);
+        let base_x = measurement.layout.plot_area_bounds().x;
+        let base_y = measurement.layout.plot_area_bounds().y;
+        let col_scale = measurement
+            .scales
+            .get("column")
+            .expect("expected column scale for facet col origin invariant");
+        let expected_x_starts: Vec<f32> = BandPositionIterator::from_scale(col_scale)?
+            .map(|band| base_x + band.start())
+            .collect();
         let col_origins = absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_col_");
         assert!(
             !col_origins.is_empty(),
             "expected non-empty col facet groups in evaluated scene"
         );
+        assert_eq!(
+            col_origins.len(),
+            expected_x_starts.len(),
+            "col facet groups should match column band count"
+        );
 
-        for (name, origin) in col_origins {
+        for ((name, origin), expected_x) in col_origins.iter().zip(expected_x_starts.iter()) {
             assert!(
-                (origin[1] - base_y).abs() <= 1.0,
-                "col facet group {} should consume top legend slab exactly once (origin_y={}, expected={})",
+                (origin[1] - (base_y + legend_start)).abs() <= 1.0,
+                "col facet group {} should include top legend start slab at y (origin_y={}, expected={})",
                 name,
                 origin[1],
-                base_y
+                base_y + legend_start
+            );
+            assert!(
+                (origin[0] - *expected_x).abs() <= 1.0,
+                "col facet group {} should align to column band start x (origin_x={}, expected={})",
+                name,
+                origin[0],
+                expected_x
             );
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn level0_right_outer_labels_align_with_child_department_titles()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled =
+            compile_two_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+
+        let mut division_label_centers = Vec::new();
+        for label in ["DivA", "DivB"] {
+            let xs = collect_text_x_positions(&evaluated.scene_graph, label);
+            assert_eq!(xs.len(), 1, "expected exactly one {:?} label", label);
+            division_label_centers.push(xs[0]);
+        }
+        division_label_centers.sort_by(f32::total_cmp);
+
+        let mut department_title_centers =
+            collect_text_x_positions(&evaluated.scene_graph, "department");
+        assert_eq!(
+            department_title_centers.len(),
+            2,
+            "expected one inner 'department' title per outer division"
+        );
+        department_title_centers.sort_by(f32::total_cmp);
+
+        for (division_x, department_x) in division_label_centers
+            .iter()
+            .zip(department_title_centers.iter())
+        {
+            assert!(
+                (division_x - department_x).abs() <= 2.0,
+                "outer division label should align to child department title center (division_x={}, department_x={})",
+                division_x,
+                department_x
+            );
+        }
+
         Ok(())
     }
 

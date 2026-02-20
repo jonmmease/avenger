@@ -311,7 +311,7 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
                 band_n_override,
                 ScaleLayoutRewriteMode::RenderPass {
                     allow_zero_padding_override: needs_zero_padding_override,
-                    side_specific_outer_edges: self.facet_depth > 1,
+                    side_specific_outer_edges: true,
                 },
             );
 
@@ -606,7 +606,7 @@ impl FacetBandCoordMeasurement {
                 domain_override,
                 Some(layout.n),
                 ScaleLayoutRewriteMode::RemeasurePass {
-                    side_specific_outer_edges: self.facet_depth > 1,
+                    side_specific_outer_edges: true,
                 },
             );
 
@@ -1850,7 +1850,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             Some(cell_values),
             None,
             ScaleLayoutRewriteMode::MeasurementPass {
-                side_specific_outer_edges: !self.facet_path.is_empty(),
+                side_specific_outer_edges: true,
             },
         );
 
@@ -2236,7 +2236,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             Some(cell_values),
             None,
             ScaleLayoutRewriteMode::MeasurementPass {
-                side_specific_outer_edges: !self.facet_path.is_empty(),
+                side_specific_outer_edges: true,
             },
         );
 
@@ -2628,7 +2628,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_facet_band_scale_layout_top_level_reserves_edges_on_range_end() {
+    fn apply_facet_band_scale_layout_reserves_start_and_end_edges_independently() {
         let base = make_band_scale((0.0, 300.0));
         let layout = CoordinatedLayout {
             padding_inner_px: 12.0,
@@ -2644,12 +2644,12 @@ mod tests {
             None,
             None,
             ScaleLayoutRewriteMode::MeasurementPass {
-                side_specific_outer_edges: false,
+                side_specific_outer_edges: true,
             },
         );
         let (start, end) = updated.config.numeric_interval_range().unwrap();
-        assert_eq!(start, 0.0);
-        assert_eq!(end, 270.0);
+        assert_eq!(start, 10.0);
+        assert_eq!(end, 280.0);
     }
 
     #[test]

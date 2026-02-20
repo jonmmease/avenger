@@ -22,11 +22,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::trace;
 
-fn facet_cell_start_offsets(
+fn facet_cell_main_axis_start_offset(
     facet_measurement: &crate::facet::coord::FacetBandCoordMeasurement,
 ) -> (f32, f32) {
     let slabs = LayoutSlabs::from_coordinated(&facet_measurement.coordinated_overflow);
-    (slabs.legend.left, slabs.legend.top)
+    match facet_measurement.axis {
+        crate::coords::FacetAxis::Column => (0.0, slabs.legend.top),
+        crate::coords::FacetAxis::Row => (slabs.legend.left, 0.0),
+    }
 }
 
 /// Facet mark for FacetRow or FacetCol outer coordinate system.
@@ -320,11 +323,13 @@ impl CompiledMark for CompiledFacetRow {
             params.extend(context.eval.params.clone());
             context.eval.with_params(params)
         };
-        let (origin_offset_x, origin_offset_y) = facet_cell_start_offsets(facet_measurement);
+        let (origin_offset_x, origin_offset_y) =
+            facet_cell_main_axis_start_offset(facet_measurement);
+
         trace!(
             legend_start_left = origin_offset_x,
             legend_start_top = origin_offset_y,
-            "FacetRow render start slab offsets"
+            "FacetRow render main-axis start slab offset"
         );
 
         let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
@@ -674,11 +679,13 @@ impl CompiledMark for CompiledFacetCol {
             params.extend(context.eval.params.clone());
             context.eval.with_params(params)
         };
-        let (origin_offset_x, origin_offset_y) = facet_cell_start_offsets(facet_measurement);
+        let (origin_offset_x, origin_offset_y) =
+            facet_cell_main_axis_start_offset(facet_measurement);
+
         trace!(
             legend_start_left = origin_offset_x,
             legend_start_top = origin_offset_y,
-            "FacetCol render start slab offsets"
+            "FacetCol render main-axis start slab offset"
         );
 
         let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
