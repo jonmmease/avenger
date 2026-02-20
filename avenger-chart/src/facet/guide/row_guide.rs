@@ -501,6 +501,7 @@ impl CompiledGuide for FacetRowGuide {
             title_font_family,
             title_font_size_px: title_font_size,
             render_title: title_visible && self.facet_title.is_some(),
+            col_title_x_override: None,
         };
 
         Ok(render_facet_label_slab(&render_config, theme, params))

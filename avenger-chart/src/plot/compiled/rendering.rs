@@ -247,12 +247,85 @@ mod tests {
         .expect("read legend sharing test data")
     }
 
+    async fn legend_sharing_three_level_dataframe(ctx: &SessionContext) -> DataFrame {
+        ctx.sql(
+            "CREATE TABLE legend_sharing_three_level AS VALUES
+            ('DivA', 'Dept1', 'Team1', 1.0, 1.0, 'Low'),
+            ('DivA', 'Dept1', 'Team1', 1.4, 1.3, 'High'),
+            ('DivA', 'Dept1', 'Team2', 2.0, 1.1, 'Low'),
+            ('DivA', 'Dept1', 'Team2', 2.3, 1.4, 'High'),
+            ('DivA', 'Dept2', 'Team1', 1.1, 2.0, 'Low'),
+            ('DivA', 'Dept2', 'Team1', 1.5, 2.3, 'High'),
+            ('DivA', 'Dept2', 'Team2', 2.1, 2.1, 'Low'),
+            ('DivA', 'Dept2', 'Team2', 2.4, 2.4, 'High'),
+            ('DivB', 'Dept1', 'Team1', 3.0, 1.0, 'Low'),
+            ('DivB', 'Dept1', 'Team1', 3.4, 1.3, 'High'),
+            ('DivB', 'Dept1', 'Team2', 4.0, 1.1, 'Low'),
+            ('DivB', 'Dept1', 'Team2', 4.3, 1.4, 'High'),
+            ('DivB', 'Dept2', 'Team1', 3.1, 2.0, 'Low'),
+            ('DivB', 'Dept2', 'Team1', 3.5, 2.3, 'High'),
+            ('DivB', 'Dept2', 'Team2', 4.1, 2.1, 'Low'),
+            ('DivB', 'Dept2', 'Team2', 4.4, 2.4, 'High')",
+        )
+        .await
+        .expect("create three-level legend sharing test data");
+
+        ctx.sql(
+            "SELECT
+                column1 AS division,
+                column2 AS department,
+                column3 AS team,
+                column4 AS x_val,
+                column5 AS y_val,
+                column6 AS category
+             FROM legend_sharing_three_level",
+        )
+        .await
+        .expect("read three-level legend sharing test data")
+    }
+
+    async fn nested_sparse_row_dataframe(ctx: &SessionContext) -> DataFrame {
+        ctx.sql(
+            "CREATE TABLE nested_sparse_row AS VALUES
+            ('Iris-setosa', 'narrow', 4.8, 3.1),
+            ('Iris-setosa', 'narrow', 5.1, 3.4),
+            ('Iris-versicolor', 'medium', 5.8, 2.8),
+            ('Iris-versicolor', 'wide', 7.2, 3.0),
+            ('Iris-virginica', 'medium', 6.3, 2.9),
+            ('Iris-virginica', 'wide', 7.8, 3.1)",
+        )
+        .await
+        .expect("create nested sparse row test data");
+
+        ctx.sql(
+            "SELECT
+                column1 AS species,
+                column2 AS petal_width_bin,
+                column3 AS sepal_length,
+                column4 AS sepal_width
+             FROM nested_sparse_row",
+        )
+        .await
+        .expect("read nested sparse row test data")
+    }
+
     fn build_level1_fill_legend_symbol(position: LegendPosition) -> Symbol<Cartesian> {
         Symbol::new()
             .x_with(col("x_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
             .y_with(col("y_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
             .fill_with(col("category"), move |c| {
                 c.with_scale_sharing(ScaleSharing::Level(1))
+                    .legend(|legend| legend.title("Category").position(position))
+            })
+            .size(70.0)
+    }
+
+    fn build_level2_fill_legend_symbol(position: LegendPosition) -> Symbol<Cartesian> {
+        Symbol::new()
+            .x_with(col("x_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+            .y_with(col("y_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
+            .fill_with(col("category"), move |c| {
+                c.with_scale_sharing(ScaleSharing::Level(2))
                     .legend(|legend| legend.title("Category").position(position))
             })
             .size(70.0)
@@ -289,6 +362,44 @@ mod tests {
             )
     }
 
+    fn build_three_level_col_legend_sharing_plot(
+        df: DataFrame,
+        position: LegendPosition,
+    ) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(1500.0, 380.0)
+            .mark(Facet::new().column(col("division")).subplot(
+                Plot::<FacetColumn>::new().mark(Facet::new().column(col("department")).subplot(
+                    Plot::<FacetColumn>::new().mark(Facet::new().column(col("team")).subplot(
+                        Plot::<Cartesian>::new().mark(build_level2_fill_legend_symbol(position)),
+                    )),
+                )),
+            ))
+    }
+
+    fn build_nested_sparse_row_plot(df: DataFrame) -> Plot<FacetRow> {
+        Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<FacetColumn>::new().mark(
+                    Facet::new().column(col("petal_width_bin")).subplot(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Shared)
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_scale_sharing(ScaleSharing::Level(1))
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    }
+
     fn build_single_level_row_legend_plot(
         df: DataFrame,
         position: LegendPosition,
@@ -321,6 +432,23 @@ mod tests {
         build_two_level_col_legend_sharing_plot(df, position)
             .compile(ctx)
             .await
+    }
+
+    async fn compile_three_level_col_legend_sharing_plot(
+        ctx: &SessionContext,
+        position: LegendPosition,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = legend_sharing_three_level_dataframe(ctx).await;
+        build_three_level_col_legend_sharing_plot(df, position)
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_nested_sparse_row_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = nested_sparse_row_dataframe(ctx).await;
+        build_nested_sparse_row_plot(df).compile(ctx).await
     }
 
     async fn compile_single_level_row_legend_plot(
@@ -804,6 +932,91 @@ mod tests {
                 department_x
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn level2_right_outer_labels_align_with_child_department_titles()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled =
+            compile_three_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+
+        let mut division_label_centers = Vec::new();
+        for label in ["DivA", "DivB"] {
+            let xs = collect_text_x_positions(&evaluated.scene_graph, label);
+            assert_eq!(xs.len(), 1, "expected exactly one {:?} label", label);
+            division_label_centers.push(xs[0]);
+        }
+        division_label_centers.sort_by(f32::total_cmp);
+
+        let mut department_title_centers =
+            collect_text_x_positions(&evaluated.scene_graph, "department");
+        assert_eq!(
+            department_title_centers.len(),
+            2,
+            "expected one inner 'department' title per outer division"
+        );
+        department_title_centers.sort_by(f32::total_cmp);
+
+        for (division_x, department_x) in division_label_centers
+            .iter()
+            .zip(department_title_centers.iter())
+        {
+            assert!(
+                (division_x - department_x).abs() <= 2.0,
+                "outer division label should align to child department title center (division_x={}, department_x={})",
+                division_x,
+                department_x
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn nested_sparse_col_title_centers_over_coordinated_slot_span()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_nested_sparse_row_plot(&ctx).await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let title_positions = collect_text_x_positions(&evaluated.scene_graph, "petal_width_bin");
+        assert_eq!(
+            title_positions.len(),
+            1,
+            "expected exactly one visible petal_width_bin title"
+        );
+        let title_x = title_positions[0];
+
+        let narrow_label_positions = collect_text_x_positions(&evaluated.scene_graph, "narrow");
+        assert_eq!(
+            narrow_label_positions.len(),
+            1,
+            "expected exactly one visible narrow label in top sparse row"
+        );
+        let narrow_x = narrow_label_positions[0];
+        let medium_positions = collect_text_x_positions(&evaluated.scene_graph, "medium");
+        let wide_positions = collect_text_x_positions(&evaluated.scene_graph, "wide");
+        assert!(
+            !medium_positions.is_empty() && !wide_positions.is_empty(),
+            "expected visible medium/wide labels to infer coordinated slot pitch"
+        );
+        let slot_step = (wide_positions[0] - medium_positions[0]).abs();
+        assert!(
+            slot_step > 1.0,
+            "expected positive coordinated slot pitch, got {}",
+            slot_step
+        );
+        let expected_title_x = narrow_x + 0.5 * slot_step;
+
+        assert!(
+            (title_x - expected_title_x).abs() <= 2.0,
+            "expected petal_width_bin title x={} to align with coordinated slot midpoint {}",
+            title_x,
+            expected_title_x
+        );
 
         Ok(())
     }

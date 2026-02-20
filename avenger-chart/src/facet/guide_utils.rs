@@ -95,6 +95,11 @@ pub struct FacetLabelRenderConfig {
     pub title_font_size_px: f32,
     /// Whether to render the title (false when nested and title should be edge-only)
     pub render_title: bool,
+    /// Optional absolute x-position override for column facet titles.
+    ///
+    /// When present, `render_facet_title` places horizontal titles at this x
+    /// coordinate instead of deriving midpoint from visible band positions.
+    pub col_title_x_override: Option<f32>,
 }
 
 /// Measure space required for facet label slab (labels + optional title + rule + ticks)
@@ -554,7 +559,9 @@ fn render_facet_title(
         // Col title (horizontal)
         // Center title over the rendered guide span so title alignment remains
         // stable when left/right subplot reserves are asymmetric.
-        let x_center = if let (Some(first), Some(last)) =
+        let x_center = if let Some(override_x) = config.col_title_x_override {
+            override_x
+        } else if let (Some(first), Some(last)) =
             (config.band_positions.first(), config.band_positions.last())
         {
             let first_center = config.plot_bounds.x + first.center();
@@ -644,6 +651,7 @@ mod tests {
             title_font_family: "sans-serif".to_string(),
             title_font_size_px: 12.0,
             render_title: true,
+            col_title_x_override: None,
         };
         let marks = render_facet_label_slab(&config, &Theme::light(), &IndexMap::new());
         let title_x = title_x_from_marks(&marks, "species");
@@ -676,6 +684,7 @@ mod tests {
             title_font_family: "sans-serif".to_string(),
             title_font_size_px: 12.0,
             render_title: true,
+            col_title_x_override: None,
         };
         let marks = render_facet_label_slab(&config, &Theme::light(), &IndexMap::new());
         let title_x = title_x_from_marks(&marks, "species");
@@ -684,6 +693,43 @@ mod tests {
             "expected fallback title x={} to match plot center {}",
             title_x,
             expected_center
+        );
+    }
+
+    #[test]
+    fn col_title_uses_override_midpoint_when_present() {
+        let plot_bounds = LayoutBounds {
+            x: 100.0,
+            y: 50.0,
+            width: 500.0,
+            height: 300.0,
+        };
+        let override_x = 412.5;
+        let config = FacetLabelRenderConfig {
+            labels: vec!["A".to_string()],
+            band_positions: vec![BandPosition::new(
+                ScalarValue::Utf8(Some("A".into())),
+                40.0,
+                180.0,
+            )],
+            plot_bounds,
+            is_rotated: false,
+            place_at_end: false,
+            font_family: "sans-serif".to_string(),
+            font_size_px: 10.0,
+            title: Some("species".to_string()),
+            title_font_family: "sans-serif".to_string(),
+            title_font_size_px: 12.0,
+            render_title: true,
+            col_title_x_override: Some(override_x),
+        };
+        let marks = render_facet_label_slab(&config, &Theme::light(), &IndexMap::new());
+        let title_x = title_x_from_marks(&marks, "species");
+        assert!(
+            (title_x - override_x).abs() <= 0.01,
+            "expected override title x={} but got {}",
+            override_x,
+            title_x
         );
     }
 }
