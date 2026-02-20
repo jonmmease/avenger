@@ -135,6 +135,8 @@ impl GuideAnchorSource {
     }
 }
 
+const HIDDEN_TOP_LOCAL_ANCHOR_EPSILON: f32 = 0.5;
+
 fn resolve_guide_anchor_overflow(
     place_at_bottom: bool,
     title_visible: bool,
@@ -142,8 +144,9 @@ fn resolve_guide_anchor_overflow(
     local_overflow: Option<&CoordinatedOverflow>,
 ) -> (f32, GuideAnchorSource) {
     // Prefer coordinated anchors except for top-positioned hidden titles.
-    // Hidden top titles should follow local anchors so they don't inherit
-    // extra top demand from sibling rows that render visible titles.
+    // Hidden top titles should follow local anchors when they carry real local
+    // top demand (e.g. top-axis labels). If local top demand is effectively
+    // zero, fall back to coordinated anchors to preserve sibling alignment.
     let coordinated_first = place_at_bottom || title_visible;
 
     if coordinated_first {
@@ -161,11 +164,13 @@ fn resolve_guide_anchor_overflow(
             );
         }
     } else {
-        if let Some(local) = local_overflow {
-            return (
-                LayoutSlabs::from_coordinated(local).guide_anchor(place_at_bottom),
-                GuideAnchorSource::LocalGuide,
-            );
+        let local_anchor = local_overflow
+            .map(|local| LayoutSlabs::from_coordinated(local).guide_anchor(place_at_bottom));
+
+        if let Some(local_anchor) =
+            local_anchor.filter(|anchor| anchor.abs() > HIDDEN_TOP_LOCAL_ANCHOR_EPSILON)
+        {
+            return (local_anchor, GuideAnchorSource::LocalGuide);
         }
 
         if let Some(coordinated) = coordinated_overflow {
@@ -173,6 +178,10 @@ fn resolve_guide_anchor_overflow(
                 LayoutSlabs::from_coordinated(coordinated).guide_anchor(place_at_bottom),
                 GuideAnchorSource::CoordinatedGuide,
             );
+        }
+
+        if let Some(local_anchor) = local_anchor {
+            return (local_anchor, GuideAnchorSource::LocalGuide);
         }
     }
 
@@ -501,7 +510,7 @@ impl CompiledGuide for FacetColGuide {
             anchor_policy = if place_at_bottom || title_visible {
                 "coordinated_first"
             } else {
-                "local_first_hidden_top_title"
+                "local_first_hidden_top_title_if_nonzero"
             },
             title_visible,
             facet_guide_height,
@@ -637,7 +646,7 @@ impl CompiledGuide for FacetColGuide {
             anchor_policy = if place_at_bottom || title_visible {
                 "coordinated_first"
             } else {
-                "local_first_hidden_top_title"
+                "local_first_hidden_top_title_if_nonzero"
             },
             labels = ?labels,
             "FacetColGuide evaluate"
@@ -937,6 +946,16 @@ mod tests {
             resolve_guide_anchor_overflow(false, false, Some(&coordinated), Some(&local));
         assert_eq!(resolved, 12.0);
         assert_eq!(source, GuideAnchorSource::LocalGuide);
+    }
+
+    #[test]
+    fn resolve_guide_anchor_top_hidden_title_uses_coordinated_when_local_is_zero() {
+        let local = coordinated_overflow(0.0, 8.0, 0.0, 40.0);
+        let coordinated = coordinated_overflow(7.0, 39.0, 7.0, 39.0);
+        let (resolved, source) =
+            resolve_guide_anchor_overflow(false, false, Some(&coordinated), Some(&local));
+        assert_eq!(resolved, 7.0);
+        assert_eq!(source, GuideAnchorSource::CoordinatedGuide);
     }
 
     #[test]
