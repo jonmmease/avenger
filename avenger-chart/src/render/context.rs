@@ -12,7 +12,9 @@ use indexmap::IndexMap;
 
 use crate::{
     coords::CoordMeasurement,
-    facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet::{
+        evaluated_facet_tree::EvaluatedFacetTree, scale_precompute::FacetScalePrecomputeStore,
+    },
     scales::ConfiguredScaleWithSpec,
     theme::{Theme, ThemeContext, ThemeValue},
 };
@@ -43,6 +45,8 @@ pub struct EvaluationContext {
     /// This is used when rendering placeholder facet slots as empty subplots to avoid
     /// duplicate ownership labels on non-owner paths.
     pub hide_invalid_facet_path_axes: bool,
+    /// Shared cache of facet scale precompute artifacts for the current evaluation run.
+    pub(crate) facet_scale_precompute_store: Arc<FacetScalePrecomputeStore>,
 }
 
 impl EvaluationContext {
@@ -58,6 +62,7 @@ impl EvaluationContext {
             params,
             facet_tree,
             hide_invalid_facet_path_axes: false,
+            facet_scale_precompute_store: Arc::new(FacetScalePrecomputeStore::default()),
         }
     }
 
@@ -69,6 +74,7 @@ impl EvaluationContext {
             params,
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
         }
     }
 
@@ -83,6 +89,7 @@ impl EvaluationContext {
             params,
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
         }
     }
 
@@ -99,6 +106,7 @@ impl EvaluationContext {
             params,
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: hidden,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
         }
     }
 
@@ -115,7 +123,12 @@ impl EvaluationContext {
             params,
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
         }
+    }
+
+    pub(crate) fn facet_scale_precompute_store(&self) -> &Arc<FacetScalePrecomputeStore> {
+        &self.facet_scale_precompute_store
     }
 }
 

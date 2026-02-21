@@ -27,7 +27,12 @@ use crate::{
         },
         layout_slabs::LayoutSlabs,
         marks::facet::{FacetMarkRef, facet_mark_ref},
-        padding_policy, path_math, sharing_policy,
+        padding_policy, path_math,
+        scale_precompute::{
+            FacetScaleNodeArtifacts, FacetScaleNodeKey, build_node_artifacts, canonicalize_path,
+            ensure_subtree_precomputed,
+        },
+        sharing_policy,
     },
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     marks::CompiledMark,
@@ -809,7 +814,8 @@ enum FacetCellMeasurementMode<'a> {
     NestedSharing {
         nested_col_sharing: Option<u8>,
         nested_depth: u8,
-        scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
+        ancestor_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
+        per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
         shared_scale_builder: &'a ScaleBuilder,
         facet_tree: &'a crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
         data_df: &'a DataFrame,
@@ -833,7 +839,10 @@ struct FacetCellDraft {
 
 enum NestedScalePlan<'a> {
     Shared,
-    PerCellBuilder,
+    PerCellCachedBuilder {
+        cached_builder: &'a ScaleBuilder,
+    },
+    PerCellBuilderFallback,
     AncestorCachedBuilder {
         cached_builder: &'a ScaleBuilder,
         ancestor_filtered_df: DataFrame,
@@ -845,17 +854,15 @@ enum NestedScalePlan<'a> {
 struct FacetColMeasurePlan {
     cell_values: Vec<ScalarValue>,
     cells: Vec<FacetCellDraft>,
-    nested_col_sharing: Option<u8>,
-    nested_depth: u8,
-    scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
-    shared_scale_builder: ScaleBuilder,
+    scale_artifacts: Arc<FacetScaleNodeArtifacts>,
 }
 
 /// Shared nested-facet measurement context used by pass 1 and pass 2.
 struct FacetColNestedMeasureContext<'a> {
     nested_col_sharing: Option<u8>,
     nested_depth: u8,
-    scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
+    ancestor_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
+    per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
     shared_scale_builder: &'a ScaleBuilder,
     facet_tree: &'a crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     data_df: &'a DataFrame,
@@ -980,7 +987,8 @@ fn resolve_nested_scale_plan<'a>(
     cell: &FacetCellPlan,
     nested_col_sharing: Option<u8>,
     nested_depth: u8,
-    scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
+    ancestor_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
+    per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     data_df: &DataFrame,
 ) -> Result<NestedScalePlan<'a>, AvengerChartError> {
@@ -989,19 +997,37 @@ fn resolve_nested_scale_plan<'a>(
     }
 
     match nested_col_sharing {
-        Some(0) => Ok(NestedScalePlan::PerCellBuilder),
+        Some(0) => {
+            let canonical_full_path = canonicalize_path(&cell.full_path);
+            if let Some(cached_builder) = per_cell_scale_builder_cache
+                .get(&canonical_full_path)
+                .or_else(|| per_cell_scale_builder_cache.get(&cell.full_path))
+            {
+                Ok(NestedScalePlan::PerCellCachedBuilder { cached_builder })
+            } else {
+                debug!(
+                    full_path = ?cell.full_path,
+                    "Facet nested measurement missing per-cell cached builder; falling back to on-demand build"
+                );
+                Ok(NestedScalePlan::PerCellBuilderFallback)
+            }
+        }
         Some(sharing_level) if sharing_level < nested_depth => {
             let ancestor_key = path_math::nested_measurement_ancestor_key(
                 &cell.full_path,
                 sharing_level,
                 nested_depth,
             );
-            let cached_builder = scale_builder_cache.get(&ancestor_key).ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "Missing cached scale builder for ancestor key {:?}",
-                    ancestor_key
-                ))
-            })?;
+            let canonical_ancestor_key = canonicalize_path(&ancestor_key);
+            let cached_builder = ancestor_scale_builder_cache
+                .get(&canonical_ancestor_key)
+                .or_else(|| ancestor_scale_builder_cache.get(&ancestor_key))
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing cached scale builder for ancestor key {:?}",
+                        ancestor_key
+                    ))
+                })?;
 
             let ancestor_filtered_df = if let Some(pred) = facet_tree.path_predicate(&ancestor_key)
             {
@@ -1053,7 +1079,27 @@ async fn execute_measurement_from_plan(
                 measurement,
                 cell_scale_builder: None,
             }),
-        NestedScalePlan::PerCellBuilder => {
+        NestedScalePlan::PerCellCachedBuilder { cached_builder } => {
+            let cached_scale_provider = DynamicScaleProvider {
+                builder: cached_builder,
+                plot: compiled_subplot,
+            };
+            let measurement = compiled_subplot
+                .measure_plot_components(
+                    subplot_eval_ctx,
+                    subplot_layout_spec,
+                    &cached_scale_provider,
+                    Some(data_override),
+                    &cell.full_path,
+                )
+                .await?;
+
+            Ok(MeasuredFacetCell {
+                measurement,
+                cell_scale_builder: Some(cached_builder.clone()),
+            })
+        }
+        NestedScalePlan::PerCellBuilderFallback => {
             let cell_scale_builder = build_scale_builder_from_marks(
                 &compiled_subplot.marks,
                 &compiled_subplot.scale_specs,
@@ -1143,7 +1189,8 @@ async fn measure_facet_cell(
         FacetCellMeasurementMode::NestedSharing {
             nested_col_sharing,
             nested_depth,
-            scale_builder_cache,
+            ancestor_scale_builder_cache,
+            per_cell_scale_builder_cache,
             shared_scale_builder,
             facet_tree,
             data_df,
@@ -1153,7 +1200,8 @@ async fn measure_facet_cell(
                 cell,
                 nested_col_sharing,
                 nested_depth,
-                scale_builder_cache,
+                ancestor_scale_builder_cache,
+                per_cell_scale_builder_cache,
                 facet_tree,
                 data_df,
             )?;
@@ -1209,7 +1257,8 @@ async fn measure_nested_cell(
     let mode = FacetCellMeasurementMode::NestedSharing {
         nested_col_sharing: nested_ctx.nested_col_sharing,
         nested_depth: nested_ctx.nested_depth,
-        scale_builder_cache: nested_ctx.scale_builder_cache,
+        ancestor_scale_builder_cache: nested_ctx.ancestor_scale_builder_cache,
+        per_cell_scale_builder_cache: nested_ctx.per_cell_scale_builder_cache,
         shared_scale_builder: nested_ctx.shared_scale_builder,
         facet_tree: nested_ctx.facet_tree,
         data_df: nested_ctx.data_df,
@@ -1234,53 +1283,45 @@ async fn build_facet_col_measure_plan(
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
 ) -> Result<FacetColMeasurePlan, AvengerChartError> {
-    // Build ScaleBuilder from FULL data (caches data extents for shared domain computation).
-    let shared_scale_builder = build_scale_builder_from_marks(
-        &compiled_subplot.marks,
-        &compiled_subplot.scale_specs,
-        &compiled_subplot.coord_transform,
-        &compiled_subplot.data,
-        Some(data_df.clone()),
-        &eval_ctx.session_context,
-        &eval_ctx.params,
-        compiled_subplot.get_theme().as_ref(),
-    )
-    .await?;
-
-    // Get nested FacetCol's sharing level for scale builder selection.
-    let nested_depth = (facet_path.len() + 2) as u8; // +1 for current, +1 for nested
-    let nested_col_sharing: Option<u8> = compiled_subplot.marks.iter().find_map(|m| {
-        facet_mark_ref(m.as_ref())
-            .and_then(|facet| facet.facet_scale_sharing())
-            .map(|s| s.to_level())
-    });
-
-    // Build scale builder cache for intermediate sharing levels (0 < level < depth).
-    let scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder> =
-        if let Some(sharing_level) = nested_col_sharing {
-            if sharing_level > 0 && sharing_level < nested_depth {
-                build_ancestor_group_scale_builders(
-                    &cell_values,
-                    sharing_level,
-                    facet_path,
-                    facet_tree,
-                    data_df,
-                    compiled_subplot,
-                    eval_ctx,
-                )
-                .await?
-            } else {
-                HashMap::new()
-            }
-        } else {
-            HashMap::new()
-        };
-
-    if !scale_builder_cache.is_empty() {
+    let node_key = FacetScaleNodeKey::new(compiled_subplot, facet_path);
+    let scale_artifacts = if let Some(artifacts) = eval_ctx
+        .facet_scale_precompute_store()
+        .get_node_artifacts(&node_key)
+    {
+        artifacts
+    } else {
         debug!(
-            scale_builder_count = scale_builder_cache.len(),
-            sharing_level = nested_col_sharing.unwrap_or(255),
-            "FacetCol built cached scale builders"
+            facet_path = ?facet_path,
+            "Facet scale node artifacts missing from precompute store; building fallback artifacts on demand"
+        );
+        let artifacts = Arc::new(
+            build_node_artifacts(
+                &cell_values,
+                facet_path,
+                data_df,
+                compiled_subplot,
+                facet_tree,
+                eval_ctx,
+            )
+            .await?,
+        );
+        eval_ctx
+            .facet_scale_precompute_store()
+            .insert_node_artifacts(node_key, artifacts.clone());
+        artifacts
+    };
+
+    if !scale_artifacts.ancestor_scale_builder_cache.is_empty() {
+        debug!(
+            scale_builder_count = scale_artifacts.ancestor_scale_builder_cache.len(),
+            sharing_level = scale_artifacts.nested_col_sharing.unwrap_or(255),
+            "FacetCol using precomputed ancestor cached scale builders"
+        );
+    }
+    if !scale_artifacts.per_cell_scale_builder_cache.is_empty() {
+        debug!(
+            per_cell_builder_count = scale_artifacts.per_cell_scale_builder_cache.len(),
+            "FacetCol using precomputed per-cell scale builders"
         );
     }
 
@@ -1315,10 +1356,7 @@ async fn build_facet_col_measure_plan(
     Ok(FacetColMeasurePlan {
         cell_values,
         cells,
-        nested_col_sharing,
-        nested_depth,
-        scale_builder_cache,
-        shared_scale_builder,
+        scale_artifacts,
     })
 }
 
@@ -1510,70 +1548,6 @@ async fn measure_cells_final_and_extents(
     Ok(())
 }
 
-/// Build scale builders for each ancestor group based on sharing level.
-///
-/// For Level(N) sharing where 0 < N < depth, cells are grouped by ancestor key
-/// (computed by removing the last N path components). Each group shares a single
-/// scale builder built from the union of data in all cells of that group.
-#[allow(clippy::too_many_arguments)]
-async fn build_ancestor_group_scale_builders(
-    cell_values: &[ScalarValue],
-    sharing_level: u8,
-    parent_path: &[ScalarValue],
-    facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-    data_df: &DataFrame,
-    compiled_subplot: &Arc<CompiledPlot>,
-    eval_ctx: &EvaluationContext,
-) -> Result<HashMap<Vec<ScalarValue>, ScaleBuilder>, AvengerChartError> {
-    let mut cache = HashMap::new();
-
-    let mut groups: HashMap<Vec<ScalarValue>, Vec<ScalarValue>> = HashMap::new();
-    for value in cell_values {
-        let mut full_path = parent_path.to_vec();
-        full_path.push(value.clone());
-
-        let ancestor_key = path_math::nested_measurement_ancestor_key(
-            &full_path,
-            sharing_level,
-            full_path.len() as u8 + 1,
-        );
-
-        groups.entry(ancestor_key).or_default().push(value.clone());
-    }
-
-    // Build one scale builder per group
-    for (ancestor_key, _group_values) in groups {
-        // Get combined filter for all cells in group
-        let group_predicate = facet_tree.path_predicate(&ancestor_key);
-        let filtered_df = if let Some(pred) = group_predicate {
-            data_df.clone().filter(pred).map_err(|e| {
-                AvengerChartError::InternalError(format!(
-                    "Failed to filter data for ancestor key {:?}: {}",
-                    ancestor_key, e
-                ))
-            })?
-        } else {
-            data_df.clone()
-        };
-
-        let scale_builder = build_scale_builder_from_marks(
-            &compiled_subplot.marks,
-            &compiled_subplot.scale_specs,
-            &compiled_subplot.coord_transform,
-            &compiled_subplot.data,
-            Some(filtered_df),
-            &eval_ctx.session_context,
-            &eval_ctx.params,
-            compiled_subplot.get_theme().as_ref(),
-        )
-        .await?;
-
-        cache.insert(ancestor_key, scale_builder);
-    }
-
-    Ok(cache)
-}
-
 /// Union two domain extents.
 ///
 /// Combines the bounds of two extents to form a single extent that covers both.
@@ -1735,6 +1709,15 @@ impl<'a> FacetColMeasurePipeline<'a> {
             AvengerChartError::InternalError("FacetColumn measure requires data".into())
         })?;
 
+        ensure_subtree_precomputed(
+            self.compiled_marks,
+            self.facet_path,
+            data_df,
+            &self.eval_ctx.facet_tree,
+            self.eval_ctx,
+        )
+        .await?;
+
         // Stage 2: build per-cell plan/data overrides and prepare nested measurement context.
         let mut plan = self
             .build_measure_plan(cell_values, data_df, resolved.compiled_subplot)
@@ -1752,10 +1735,11 @@ impl<'a> FacetColMeasurePipeline<'a> {
         };
 
         let nested_measure_ctx = FacetColNestedMeasureContext {
-            nested_col_sharing: plan.nested_col_sharing,
-            nested_depth: plan.nested_depth,
-            scale_builder_cache: &plan.scale_builder_cache,
-            shared_scale_builder: &plan.shared_scale_builder,
+            nested_col_sharing: plan.scale_artifacts.nested_col_sharing,
+            nested_depth: plan.scale_artifacts.nested_depth,
+            ancestor_scale_builder_cache: &plan.scale_artifacts.ancestor_scale_builder_cache,
+            per_cell_scale_builder_cache: &plan.scale_artifacts.per_cell_scale_builder_cache,
+            shared_scale_builder: &plan.scale_artifacts.shared_scale_builder,
             facet_tree: &self.eval_ctx.facet_tree,
             data_df,
             eval_ctx: self.eval_ctx,
@@ -1802,7 +1786,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         Ok(self.build_coord_measurement(
             band_layout_plan,
             plan.cells,
-            plan.shared_scale_builder,
+            plan.scale_artifacts.shared_scale_builder.clone(),
             resolved.compiled_subplot,
             final_subplot_cross_size,
             resolved.column_scale,
@@ -2151,6 +2135,15 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             AvengerChartError::InternalError("FacetRow measure requires data".into())
         })?;
 
+        ensure_subtree_precomputed(
+            self.compiled_marks,
+            self.facet_path,
+            data_df,
+            &self.eval_ctx.facet_tree,
+            self.eval_ctx,
+        )
+        .await?;
+
         let mut plan = self
             .build_measure_plan(cell_values, data_df, resolved.compiled_subplot)
             .await?;
@@ -2167,10 +2160,11 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         };
 
         let nested_measure_ctx = FacetColNestedMeasureContext {
-            nested_col_sharing: plan.nested_col_sharing,
-            nested_depth: plan.nested_depth,
-            scale_builder_cache: &plan.scale_builder_cache,
-            shared_scale_builder: &plan.shared_scale_builder,
+            nested_col_sharing: plan.scale_artifacts.nested_col_sharing,
+            nested_depth: plan.scale_artifacts.nested_depth,
+            ancestor_scale_builder_cache: &plan.scale_artifacts.ancestor_scale_builder_cache,
+            per_cell_scale_builder_cache: &plan.scale_artifacts.per_cell_scale_builder_cache,
+            shared_scale_builder: &plan.scale_artifacts.shared_scale_builder,
             facet_tree: &self.eval_ctx.facet_tree,
             data_df,
             eval_ctx: self.eval_ctx,
@@ -2213,7 +2207,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         Ok(self.build_coord_measurement(
             band_layout_plan,
             plan.cells,
-            plan.shared_scale_builder,
+            plan.scale_artifacts.shared_scale_builder.clone(),
             resolved.compiled_subplot,
             final_subplot_main_size,
             resolved.row_scale,

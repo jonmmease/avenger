@@ -8,7 +8,10 @@
 //! - Domain values for iteration
 //! - Position and count information for layout
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use datafusion::{
     common::ScalarValue,
@@ -55,12 +58,26 @@ type SharedDomainCache = HashMap<String, Vec<ScalarValue>>;
 pub struct EvaluatedFacetTree {
     /// Tree of partition values (handles non-shared domains)
     root: Option<PartitionNode>,
+    /// Cached depth of the partition hierarchy.
+    depth_cache: usize,
     /// Cached domain counts per nesting level.
     level_counts_cache: Vec<usize>,
     /// Channel sharing levels extracted from innermost marks.
     /// Maps channel name (e.g., "x", "y") to sharing level (0=Free, N=Level(N), 255=Shared).
     /// Used for axis visibility decisions when CoordMeasurement is not available.
     channel_sharing_levels: HashMap<String, u8>,
+    /// Cached path metadata for resolved concrete paths.
+    path_info_cache: HashMap<Vec<ScalarValue>, ResolvedFacetPathInfo>,
+    /// Cached predicates for valid, non-empty paths.
+    path_predicate_cache: HashMap<Vec<ScalarValue>, Expr>,
+    /// Cached slot membership by parent path.
+    slot_membership_cache: HashMap<Vec<ScalarValue>, SlotMembership>,
+    /// Cached facet value enumeration keyed by `(facet_path, sharing_level)`.
+    enumeration_cache: HashMap<(Vec<ScalarValue>, u8), Vec<ScalarValue>>,
+    /// Cached jagged-tree checks by axis position.
+    jagged_axis_cache: HashMap<AxisPosition, bool>,
+    /// Sharing levels observed in channels/nodes plus canonical levels `{0, 255}`.
+    used_sharing_levels: Vec<u8>,
 }
 
 /// A node in the partition tree.
@@ -134,6 +151,12 @@ pub struct ResolvedFacetPathInfo {
     pub direction: FacetDirection,
 }
 
+#[derive(Debug, Clone, Default)]
+struct SlotMembership {
+    domain_values: HashSet<ScalarValue>,
+    observed_values: HashSet<ScalarValue>,
+}
+
 fn scalar_values_equivalent(a: &ScalarValue, b: &ScalarValue) -> bool {
     if a == b {
         return true;
@@ -175,20 +198,67 @@ impl AxisVisibility {
 }
 
 impl EvaluatedFacetTree {
+    fn canonical_scalar(value: &ScalarValue) -> ScalarValue {
+        match value {
+            ScalarValue::Utf8(Some(v))
+            | ScalarValue::LargeUtf8(Some(v))
+            | ScalarValue::Utf8View(Some(v)) => ScalarValue::Utf8(Some(v.clone())),
+            ScalarValue::Utf8(None)
+            | ScalarValue::LargeUtf8(None)
+            | ScalarValue::Utf8View(None) => ScalarValue::Utf8(None),
+            _ => value.clone(),
+        }
+    }
+
+    fn canonical_path(path: &[ScalarValue]) -> Vec<ScalarValue> {
+        path.iter().map(Self::canonical_scalar).collect()
+    }
+
+    fn count_depth(node: &PartitionNode) -> usize {
+        match &node.content {
+            PartitionContent::Leaf { .. } => 1,
+            PartitionContent::Branch { children } => {
+                1 + children
+                    .values()
+                    .next()
+                    .map(|b| Self::count_depth(b.as_ref()))
+                    .unwrap_or(0)
+            }
+        }
+    }
+
+    fn init_with_caches(
+        root: Option<PartitionNode>,
+        channel_sharing_levels: HashMap<String, u8>,
+    ) -> Self {
+        let depth_cache = root.as_ref().map(Self::count_depth).unwrap_or(0);
+        let level_counts_cache = root
+            .as_ref()
+            .map(Self::collect_level_counts_first_branch_for_root)
+            .unwrap_or_default();
+
+        let mut tree = Self {
+            root,
+            depth_cache,
+            level_counts_cache,
+            channel_sharing_levels,
+            path_info_cache: HashMap::new(),
+            path_predicate_cache: HashMap::new(),
+            slot_membership_cache: HashMap::new(),
+            enumeration_cache: HashMap::new(),
+            jagged_axis_cache: HashMap::new(),
+            used_sharing_levels: Vec::new(),
+        };
+        tree.rebuild_precalculated_caches();
+        tree
+    }
+
     /// Create a new EvaluatedFacetSpec with the given partition tree.
     ///
     /// Note: All configuration (scale sharing levels, axis positions) is passed
     /// as parameters to query methods like `subplot_visibility`.
     pub fn new(root: Option<PartitionNode>) -> Self {
-        let level_counts_cache = root
-            .as_ref()
-            .map(Self::collect_level_counts_first_branch_for_root)
-            .unwrap_or_default();
-        Self {
-            root,
-            level_counts_cache,
-            channel_sharing_levels: HashMap::new(),
-        }
+        Self::init_with_caches(root, HashMap::new())
     }
 
     /// Create a new EvaluatedFacetSpec with partition tree and channel sharing levels.
@@ -196,24 +266,12 @@ impl EvaluatedFacetTree {
         root: Option<PartitionNode>,
         channel_sharing_levels: HashMap<String, u8>,
     ) -> Self {
-        let level_counts_cache = root
-            .as_ref()
-            .map(Self::collect_level_counts_first_branch_for_root)
-            .unwrap_or_default();
-        Self {
-            root,
-            level_counts_cache,
-            channel_sharing_levels,
-        }
+        Self::init_with_caches(root, channel_sharing_levels)
     }
 
     /// Create an empty spec (no faceting).
     pub fn empty() -> Self {
-        Self {
-            root: None,
-            level_counts_cache: Vec::new(),
-            channel_sharing_levels: HashMap::new(),
-        }
+        Self::init_with_caches(None, HashMap::new())
     }
 
     /// Get the partition tree root, if any.
@@ -223,20 +281,7 @@ impl EvaluatedFacetTree {
 
     /// Get the depth of the partition hierarchy.
     pub fn depth(&self) -> usize {
-        fn count_depth(node: &PartitionNode) -> usize {
-            match &node.content {
-                PartitionContent::Leaf { .. } => 1,
-                PartitionContent::Branch { children } => {
-                    // All children should have same depth, take first
-                    1 + children
-                        .values()
-                        .next()
-                        .map(|b| count_depth(b.as_ref()))
-                        .unwrap_or(0)
-                }
-            }
-        }
-        self.root.as_ref().map(count_depth).unwrap_or(0)
+        self.depth_cache
     }
 
     // ========================================================================
@@ -277,6 +322,276 @@ impl EvaluatedFacetTree {
         Ok(Self::new_with_sharing_levels(root, channel_sharing_levels))
     }
 
+    fn collect_reachable_paths(&self) -> Vec<Vec<ScalarValue>> {
+        let mut paths = vec![Vec::new()];
+        let Some(root) = self.root.as_ref() else {
+            return paths;
+        };
+        let mut prefix = Vec::new();
+        Self::collect_reachable_paths_recursive(root, &mut prefix, &mut paths);
+        paths
+    }
+
+    fn collect_reachable_paths_recursive(
+        node: &PartitionNode,
+        prefix: &mut Vec<ScalarValue>,
+        out: &mut Vec<Vec<ScalarValue>>,
+    ) {
+        let values: Vec<ScalarValue> = node.values().cloned().collect();
+        for value in &values {
+            prefix.push(value.clone());
+            out.push(prefix.clone());
+            if let Some(child) = node.child(value) {
+                Self::collect_reachable_paths_recursive(child, prefix, out);
+            }
+            prefix.pop();
+        }
+    }
+
+    fn collect_node_paths(&self) -> Vec<Vec<ScalarValue>> {
+        let Some(root) = self.root.as_ref() else {
+            return Vec::new();
+        };
+        let mut paths = Vec::new();
+        let mut prefix = Vec::new();
+        Self::collect_node_paths_recursive(root, &mut prefix, &mut paths);
+        paths
+    }
+
+    fn collect_node_paths_recursive(
+        node: &PartitionNode,
+        prefix: &mut Vec<ScalarValue>,
+        out: &mut Vec<Vec<ScalarValue>>,
+    ) {
+        out.push(prefix.clone());
+        if let PartitionContent::Branch { children } = &node.content {
+            for (value, child) in children {
+                prefix.push(value.clone());
+                Self::collect_node_paths_recursive(child, prefix, out);
+                prefix.pop();
+            }
+        }
+    }
+
+    fn collect_node_sharing_levels_recursive(node: &PartitionNode, levels: &mut HashSet<u8>) {
+        levels.insert(node.sharing);
+        if let PartitionContent::Branch { children } = &node.content {
+            for child in children.values() {
+                Self::collect_node_sharing_levels_recursive(child, levels);
+            }
+        }
+    }
+
+    fn collect_used_sharing_levels(&self) -> Vec<u8> {
+        let mut levels: HashSet<u8> = HashSet::new();
+        levels.insert(0);
+        levels.insert(255);
+        for sharing_level in self.channel_sharing_levels.values() {
+            levels.insert(*sharing_level);
+        }
+        if let Some(root) = self.root.as_ref() {
+            Self::collect_node_sharing_levels_recursive(root, &mut levels);
+        }
+        let mut levels: Vec<u8> = levels.into_iter().collect();
+        levels.sort_unstable();
+        levels
+    }
+
+    fn rebuild_precalculated_caches(&mut self) {
+        self.path_info_cache.clear();
+        self.path_predicate_cache.clear();
+        self.slot_membership_cache.clear();
+        self.enumeration_cache.clear();
+        self.jagged_axis_cache.clear();
+        self.used_sharing_levels.clear();
+
+        self.used_sharing_levels = self.collect_used_sharing_levels();
+
+        let reachable_paths = self.collect_reachable_paths();
+        for path in &reachable_paths {
+            if let Some(info) = self.resolve_path_info_uncached(path) {
+                self.path_info_cache
+                    .entry(Self::canonical_path(path))
+                    .or_insert(info);
+            }
+        }
+
+        for path in &reachable_paths {
+            if path.is_empty() {
+                continue;
+            }
+            if let Some(predicate) = self.path_predicate_uncached(path) {
+                self.path_predicate_cache
+                    .entry(Self::canonical_path(path))
+                    .or_insert(predicate);
+            }
+        }
+
+        for node_path in self.collect_node_paths() {
+            let Some(node) = self.node_at_path(&node_path) else {
+                continue;
+            };
+
+            let domain_values: HashSet<ScalarValue> =
+                node.values().map(Self::canonical_scalar).collect();
+            let observed_values: HashSet<ScalarValue> =
+                node.observed_values().map(Self::canonical_scalar).collect();
+
+            self.slot_membership_cache.insert(
+                Self::canonical_path(&node_path),
+                SlotMembership {
+                    domain_values,
+                    observed_values,
+                },
+            );
+        }
+
+        let node_paths = self.collect_node_paths();
+        for node_path in &node_paths {
+            for sharing_level in &self.used_sharing_levels {
+                if let Some(values) =
+                    self.enumerate_values_for_facet_uncached(node_path, *sharing_level)
+                {
+                    self.enumeration_cache
+                        .insert((Self::canonical_path(node_path), *sharing_level), values);
+                }
+            }
+        }
+
+        for axis_position in [
+            AxisPosition::Left,
+            AxisPosition::Right,
+            AxisPosition::Top,
+            AxisPosition::Bottom,
+        ] {
+            self.jagged_axis_cache.insert(
+                axis_position,
+                self.is_jagged_for_axis_uncached(axis_position),
+            );
+        }
+    }
+
+    fn path_predicate_uncached(&self, path: &[ScalarValue]) -> Option<Expr> {
+        if path.is_empty() {
+            return None;
+        }
+
+        let root = self.root.as_ref()?;
+
+        let mut current_node = root;
+        let mut result: Option<Expr> = None;
+
+        for (level_idx, value) in path.iter().enumerate() {
+            let field_expr = current_node.field_expr.clone()?;
+            let eq_expr = field_expr.eq(lit(value.clone()));
+            result = Some(match result {
+                Some(existing) => existing.and(eq_expr),
+                None => eq_expr,
+            });
+
+            if level_idx + 1 < path.len() {
+                current_node = current_node.child(value)?;
+            }
+        }
+
+        result
+    }
+
+    fn resolve_path_info_uncached(&self, path: &[ScalarValue]) -> Option<ResolvedFacetPathInfo> {
+        let mut node = self.root.as_ref()?;
+
+        if path.is_empty() {
+            return Some(ResolvedFacetPathInfo {
+                indices: Vec::new(),
+                local_level_counts: Vec::new(),
+                level_directions: Vec::new(),
+                direction: node.direction,
+            });
+        }
+
+        let mut indices = Vec::with_capacity(path.len());
+        let mut local_level_counts = Vec::with_capacity(path.len());
+        let mut level_directions = Vec::with_capacity(path.len());
+
+        for (level, value) in path.iter().enumerate() {
+            local_level_counts.push(node.domain_count());
+            level_directions.push(node.direction);
+
+            let idx = match &node.content {
+                PartitionContent::Leaf { values } => values
+                    .iter()
+                    .position(|v| scalar_values_equivalent(v, value))?,
+                PartitionContent::Branch { children } => {
+                    children.get_index_of(value).or_else(|| {
+                        children
+                            .keys()
+                            .position(|child_value| scalar_values_equivalent(child_value, value))
+                    })?
+                }
+            };
+            indices.push(idx);
+
+            if level + 1 < path.len() {
+                node = node.child(value)?;
+            }
+        }
+
+        Some(ResolvedFacetPathInfo {
+            indices,
+            local_level_counts,
+            level_directions,
+            direction: node.direction,
+        })
+    }
+
+    fn enumerate_values_for_facet_uncached(
+        &self,
+        facet_path: &[ScalarValue],
+        sharing_level: u8,
+    ) -> Option<Vec<ScalarValue>> {
+        let current_node = if facet_path.is_empty() {
+            self.root.as_ref()?
+        } else {
+            self.node_at_path(facet_path)?
+        };
+
+        if sharing_level == 0 {
+            return Some(current_node.values().cloned().collect());
+        }
+
+        let facet_depth = facet_path.len() as u8 + 1;
+        let enumeration_path =
+            path_math::enumeration_ancestor_path(facet_path, sharing_level, facet_depth);
+
+        let ancestor_node = if enumeration_path.is_empty() {
+            self.root.as_ref()
+        } else {
+            self.node_at_path(&enumeration_path)
+        };
+
+        if let Some(ancestor) = ancestor_node {
+            let levels_to_descend = facet_path.len().saturating_sub(enumeration_path.len());
+            Some(Self::collect_values_at_depth(ancestor, levels_to_descend))
+        } else {
+            Some(current_node.values().cloned().collect())
+        }
+    }
+
+    fn is_jagged_for_axis_uncached(&self, axis_position: AxisPosition) -> bool {
+        let Some(root) = &self.root else {
+            return false;
+        };
+        let (varying_direction, branching_direction) = match axis_position {
+            AxisPosition::Left | AxisPosition::Right => {
+                (FacetDirection::Row, FacetDirection::Column)
+            }
+            AxisPosition::Top | AxisPosition::Bottom => {
+                (FacetDirection::Column, FacetDirection::Row)
+            }
+        };
+        Self::check_jagged_in_tree(root, branching_direction, varying_direction)
+    }
+
     // ========================================================================
     // Query methods
     // ========================================================================
@@ -298,32 +613,11 @@ impl EvaluatedFacetTree {
     /// For path `["Eng", "Backend"]` in a Division > Dept > Team hierarchy:
     /// Returns: `division = "Eng" AND department = "Backend"`
     pub fn path_predicate(&self, path: &[ScalarValue]) -> Option<Expr> {
-        if path.is_empty() {
-            return None;
+        let canonical_path = Self::canonical_path(path);
+        if let Some(predicate) = self.path_predicate_cache.get(&canonical_path) {
+            return Some(predicate.clone());
         }
-
-        let root = self.root.as_ref()?;
-
-        // Walk down the tree, collecting filter expressions for each level
-        let mut current_node = root;
-        let mut result: Option<Expr> = None;
-
-        for (level_idx, value) in path.iter().enumerate() {
-            // Get the field expression for this level
-            let field_expr = current_node.field_expr.clone()?;
-            let eq_expr = field_expr.eq(lit(value.clone()));
-            result = Some(match result {
-                Some(existing) => existing.and(eq_expr),
-                None => eq_expr,
-            });
-
-            // Navigate to next level if not at the end of path
-            if level_idx + 1 < path.len() {
-                current_node = current_node.child(value)?;
-            }
-        }
-
-        result
+        self.path_predicate_uncached(path)
     }
 
     /// Get filter predicate for a cell at the given path, respecting sharing level.
@@ -392,12 +686,19 @@ impl EvaluatedFacetTree {
             return self.root().is_some();
         }
 
-        let parent_path = &path[..path.len() - 1];
-        let target_value = &path[path.len() - 1];
-        self.node_at_path(parent_path).map_or(false, |parent| {
+        let parent_path = Self::canonical_path(&path[..path.len() - 1]);
+        let target_value = Self::canonical_scalar(&path[path.len() - 1]);
+
+        if let Some(membership) = self.slot_membership_cache.get(&parent_path) {
+            return membership.domain_values.contains(&target_value);
+        }
+
+        let parent_path_raw = &path[..path.len() - 1];
+        let target_value_raw = &path[path.len() - 1];
+        self.node_at_path(parent_path_raw).is_some_and(|parent| {
             parent
                 .values()
-                .any(|v| scalar_values_equivalent(v, target_value))
+                .any(|v| scalar_values_equivalent(v, target_value_raw))
         })
     }
 
@@ -407,12 +708,19 @@ impl EvaluatedFacetTree {
             return self.root().is_some();
         }
 
-        let parent_path = &path[..path.len() - 1];
-        let target_value = &path[path.len() - 1];
-        self.node_at_path(parent_path).is_some_and(|parent| {
+        let parent_path = Self::canonical_path(&path[..path.len() - 1]);
+        let target_value = Self::canonical_scalar(&path[path.len() - 1]);
+
+        if let Some(membership) = self.slot_membership_cache.get(&parent_path) {
+            return membership.observed_values.contains(&target_value);
+        }
+
+        let parent_path_raw = &path[..path.len() - 1];
+        let target_value_raw = &path[path.len() - 1];
+        self.node_at_path(parent_path_raw).is_some_and(|parent| {
             parent
                 .observed_values()
-                .any(|v| scalar_values_equivalent(v, target_value))
+                .any(|v| scalar_values_equivalent(v, target_value_raw))
         })
     }
 
@@ -427,35 +735,15 @@ impl EvaluatedFacetTree {
         facet_path: &[ScalarValue],
         sharing_level: u8,
     ) -> Option<Vec<ScalarValue>> {
-        let current_node = if facet_path.is_empty() {
-            self.root.as_ref()?
-        } else {
-            self.node_at_path(facet_path)?
-        };
-
-        if sharing_level == 0 {
-            // Level(0)/Free: values from the current subtree.
-            return Some(current_node.values().cloned().collect());
+        let canonical_path = Self::canonical_path(facet_path);
+        if let Some(values) = self
+            .enumeration_cache
+            .get(&(canonical_path.clone(), sharing_level))
+        {
+            return Some(values.clone());
         }
 
-        let facet_depth = facet_path.len() as u8 + 1;
-        let enumeration_path =
-            path_math::enumeration_ancestor_path(facet_path, sharing_level, facet_depth);
-
-        let ancestor_node = if enumeration_path.is_empty() {
-            self.root.as_ref()
-        } else {
-            self.node_at_path(&enumeration_path)
-        };
-
-        if let Some(ancestor) = ancestor_node {
-            // Descend from the chosen ancestor to the current facet's field level.
-            let levels_to_descend = facet_path.len().saturating_sub(enumeration_path.len());
-            Some(Self::collect_values_at_depth(ancestor, levels_to_descend))
-        } else {
-            // Missing ancestor path: fall back to local subtree values.
-            Some(current_node.values().cloned().collect())
-        }
+        self.enumerate_values_for_facet_uncached(facet_path, sharing_level)
     }
 
     fn collect_values_at_depth(node: &PartitionNode, levels_to_descend: usize) -> Vec<ScalarValue> {
@@ -498,18 +786,10 @@ impl EvaluatedFacetTree {
     /// For x-axis (Top/Bottom): branching=Row, varying=Column — jagged when
     /// different rows have different numbers of columns.
     pub fn is_jagged_for_axis(&self, axis_position: AxisPosition) -> bool {
-        let Some(root) = &self.root else {
-            return false;
-        };
-        let (varying_direction, branching_direction) = match axis_position {
-            AxisPosition::Left | AxisPosition::Right => {
-                (FacetDirection::Row, FacetDirection::Column)
-            }
-            AxisPosition::Top | AxisPosition::Bottom => {
-                (FacetDirection::Column, FacetDirection::Row)
-            }
-        };
-        Self::check_jagged_in_tree(root, branching_direction, varying_direction)
+        self.jagged_axis_cache
+            .get(&axis_position)
+            .copied()
+            .unwrap_or_else(|| self.is_jagged_for_axis_uncached(axis_position))
     }
 
     /// Recursively check if any branching-direction node has children whose
@@ -971,50 +1251,11 @@ impl EvaluatedFacetTree {
     /// Unlike `level_counts()`, this returns counts from the same branch as the
     /// provided path, which is required for ragged-tree owner checks.
     pub fn resolve_path_info(&self, path: &[ScalarValue]) -> Option<ResolvedFacetPathInfo> {
-        let mut node = self.root.as_ref()?;
-
-        if path.is_empty() {
-            return Some(ResolvedFacetPathInfo {
-                indices: Vec::new(),
-                local_level_counts: Vec::new(),
-                level_directions: Vec::new(),
-                direction: node.direction,
-            });
+        let canonical_path = Self::canonical_path(path);
+        if let Some(info) = self.path_info_cache.get(&canonical_path) {
+            return Some(info.clone());
         }
-
-        let mut indices = Vec::with_capacity(path.len());
-        let mut local_level_counts = Vec::with_capacity(path.len());
-        let mut level_directions = Vec::with_capacity(path.len());
-
-        for (level, value) in path.iter().enumerate() {
-            local_level_counts.push(node.domain_count());
-            level_directions.push(node.direction);
-
-            let idx = match &node.content {
-                PartitionContent::Leaf { values } => values
-                    .iter()
-                    .position(|v| scalar_values_equivalent(v, value))?,
-                PartitionContent::Branch { children } => {
-                    children.get_index_of(value).or_else(|| {
-                        children
-                            .keys()
-                            .position(|child_value| scalar_values_equivalent(child_value, value))
-                    })?
-                }
-            };
-            indices.push(idx);
-
-            if level + 1 < path.len() {
-                node = node.child(value)?;
-            }
-        }
-
-        Some(ResolvedFacetPathInfo {
-            indices,
-            local_level_counts,
-            level_directions,
-            direction: node.direction,
-        })
+        self.resolve_path_info_uncached(path)
     }
 
     /// Convert a path of domain values to position indices.
@@ -1642,6 +1883,10 @@ mod tests {
         ScalarValue::Utf8View(Some(s.to_string()))
     }
 
+    fn scalar_large(s: &str) -> ScalarValue {
+        ScalarValue::LargeUtf8(Some(s.to_string()))
+    }
+
     #[test]
     fn test_empty_spec() {
         let spec = EvaluatedFacetTree::empty();
@@ -1990,6 +2235,102 @@ mod tests {
         EvaluatedFacetTree::new(Some(root))
     }
 
+    fn build_predicate_test_tree() -> EvaluatedFacetTree {
+        use datafusion::logical_expr::col;
+
+        let team_leaf = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "team".to_string(),
+            Some(col("team")),
+            vec![scalar("A"), scalar("B")],
+        );
+
+        let mut dept_children = IndexMap::new();
+        dept_children.insert(scalar("Eng"), Box::new(team_leaf.clone()));
+        dept_children.insert(scalar("Ops"), Box::new(team_leaf));
+        let dept_node = PartitionNode::branch(
+            FacetDirection::Row,
+            0,
+            "dept".to_string(),
+            Some(col("dept")),
+            dept_children,
+        );
+
+        let mut region_children = IndexMap::new();
+        region_children.insert(scalar("East"), Box::new(dept_node.clone()));
+        region_children.insert(scalar("West"), Box::new(dept_node));
+        let region_node = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "region".to_string(),
+            Some(col("region")),
+            region_children,
+        );
+
+        EvaluatedFacetTree::new(Some(region_node))
+    }
+
+    fn build_jagged_test_tree() -> EvaluatedFacetTree {
+        // Column -> Row where row counts differ by column branch.
+        let east_rows = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "species".to_string(),
+            None,
+            vec![scalar("A"), scalar("B")],
+        );
+        let west_rows = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "species".to_string(),
+            None,
+            vec![scalar("A")],
+        );
+
+        let mut children = IndexMap::new();
+        children.insert(scalar("East"), Box::new(east_rows));
+        children.insert(scalar("West"), Box::new(west_rows));
+
+        let root = PartitionNode::branch(
+            FacetDirection::Column,
+            0,
+            "region".to_string(),
+            None,
+            children,
+        );
+
+        EvaluatedFacetTree::new(Some(root))
+    }
+
+    fn cell_exists_uncached(tree: &EvaluatedFacetTree, path: &[ScalarValue]) -> bool {
+        if path.is_empty() {
+            return tree.root().is_some();
+        }
+
+        let parent_path = &path[..path.len() - 1];
+        let target_value = &path[path.len() - 1];
+        tree.node_at_path(parent_path).is_some_and(|parent| {
+            parent
+                .values()
+                .any(|v| scalar_values_equivalent(v, target_value))
+        })
+    }
+
+    fn cell_has_data_uncached(tree: &EvaluatedFacetTree, path: &[ScalarValue]) -> bool {
+        if path.is_empty() {
+            return tree.root().is_some();
+        }
+
+        let parent_path = &path[..path.len() - 1];
+        let target_value = &path[path.len() - 1];
+        tree.node_at_path(parent_path).is_some_and(|parent| {
+            parent
+                .observed_values()
+                .any(|v| scalar_values_equivalent(v, target_value))
+        })
+    }
+
     #[test]
     fn test_enumerate_values_for_facet_level0() {
         let tree = build_enumeration_test_tree();
@@ -2028,6 +2369,218 @@ mod tests {
         let tree = build_enumeration_test_tree();
         let path = vec![scalar("North"), scalar("Eng")];
         assert!(tree.enumerate_values_for_facet(&path, 0).is_none());
+    }
+
+    #[test]
+    fn test_cache_parity_resolve_path_info_for_valid_paths() {
+        let tree = build_enumeration_test_tree();
+
+        for path in tree.collect_reachable_paths() {
+            assert_eq!(
+                tree.resolve_path_info(&path),
+                tree.resolve_path_info_uncached(&path),
+                "resolve_path_info mismatch for path: {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_cache_parity_path_predicate_and_cell_predicate_truncation() {
+        let tree = build_predicate_test_tree();
+
+        for path in tree.collect_reachable_paths() {
+            if path.is_empty() {
+                continue;
+            }
+            let cached = tree.path_predicate(&path).map(|expr| expr.to_string());
+            let uncached = tree
+                .path_predicate_uncached(&path)
+                .map(|expr| expr.to_string());
+            assert_eq!(
+                cached, uncached,
+                "path_predicate mismatch for path: {path:?}"
+            );
+        }
+
+        let full_path = vec![scalar("East"), scalar("Eng"), scalar("A")];
+        for sharing_level in [0_u8, 1, 2, 3, 255] {
+            let cached = tree
+                .cell_predicate(&full_path, sharing_level)
+                .map(|expr| expr.to_string());
+            let uncached = if sharing_level == 255 {
+                None
+            } else {
+                let levels_to_include = full_path.len().saturating_sub(sharing_level as usize);
+                if levels_to_include == 0 {
+                    None
+                } else {
+                    tree.path_predicate_uncached(&full_path[..levels_to_include])
+                        .map(|expr| expr.to_string())
+                }
+            };
+            assert_eq!(
+                cached, uncached,
+                "cell_predicate mismatch for sharing={sharing_level}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_cache_parity_cell_exists_and_cell_has_data() {
+        let tree = build_hole_visibility_test_tree();
+        let paths = vec![
+            vec![],
+            vec![scalar("medium")],
+            vec![scalar("narrow")],
+            vec![scalar("wide")],
+            vec![scalar("missing")],
+            vec![scalar("medium"), scalar("Iris-setosa")],
+            vec![scalar("medium"), scalar("Iris-virginica")],
+            vec![scalar("narrow"), scalar("Iris-setosa")],
+            vec![scalar("narrow"), scalar("Iris-virginica")],
+            vec![scalar("wide"), scalar("Iris-setosa")],
+            vec![scalar("wide"), scalar("missing")],
+            vec![scalar("missing"), scalar("Iris-setosa")],
+            vec![scalar("narrow"), scalar("Iris-setosa"), scalar("extra")],
+        ];
+
+        for path in paths {
+            assert_eq!(
+                tree.cell_exists(&path),
+                cell_exists_uncached(&tree, &path),
+                "cell_exists mismatch for path: {path:?}"
+            );
+            assert_eq!(
+                tree.cell_has_data(&path),
+                cell_has_data_uncached(&tree, &path),
+                "cell_has_data mismatch for path: {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_cache_parity_enumerate_values_for_facet_across_sharing_levels() {
+        let tree = build_enumeration_test_tree();
+        for facet_path in tree.collect_node_paths() {
+            for sharing_level in [0_u8, 1, 255] {
+                assert_eq!(
+                    tree.enumerate_values_for_facet(&facet_path, sharing_level),
+                    tree.enumerate_values_for_facet_uncached(&facet_path, sharing_level),
+                    "enumeration mismatch for path={facet_path:?}, sharing={sharing_level}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_cache_lookup_utf8_variant_equivalence() {
+        use datafusion::logical_expr::col;
+
+        let row_leaf = PartitionNode::leaf_with_observed(
+            FacetDirection::Row,
+            0,
+            "species".to_string(),
+            Some(col("species")),
+            vec![scalar_view("Iris-setosa"), scalar_view("Iris-virginica")],
+            vec![scalar_view("Iris-setosa")],
+        );
+
+        let mut children = IndexMap::new();
+        children.insert(scalar_view("narrow"), Box::new(row_leaf));
+        let root = PartitionNode::branch_with_observed(
+            FacetDirection::Column,
+            0,
+            "petal_width_bin".to_string(),
+            Some(col("petal_width_bin")),
+            vec![scalar_view("narrow")],
+            children,
+        );
+        let tree = EvaluatedFacetTree::new(Some(root));
+
+        let utf8_path = vec![scalar("narrow"), scalar("Iris-setosa")];
+        let large_utf8_path = vec![scalar_large("narrow"), scalar_large("Iris-setosa")];
+        let utf8_facet_path = vec![scalar("narrow")];
+        let large_utf8_facet_path = vec![scalar_large("narrow")];
+
+        assert!(tree.resolve_path_info(&utf8_path).is_some());
+        assert!(tree.resolve_path_info(&large_utf8_path).is_some());
+        assert!(tree.path_predicate(&utf8_path).is_some());
+        assert!(tree.path_predicate(&large_utf8_path).is_some());
+        assert!(tree.cell_exists(&utf8_path));
+        assert!(tree.cell_exists(&large_utf8_path));
+        assert!(tree.cell_has_data(&utf8_path));
+        assert!(tree.cell_has_data(&large_utf8_path));
+        assert_eq!(
+            tree.enumerate_values_for_facet(&utf8_facet_path, 0),
+            tree.enumerate_values_for_facet(&large_utf8_facet_path, 0),
+        );
+    }
+
+    #[test]
+    fn test_cache_parity_is_jagged_for_axis() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_jagged_test_tree();
+        for axis_position in [
+            AxisPosition::Left,
+            AxisPosition::Right,
+            AxisPosition::Top,
+            AxisPosition::Bottom,
+        ] {
+            assert_eq!(
+                tree.is_jagged_for_axis(axis_position),
+                tree.is_jagged_for_axis_uncached(axis_position),
+                "jagged mismatch for axis: {axis_position:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_cache_precompute_constructor_coverage() {
+        let root = PartitionNode::leaf(
+            FacetDirection::Row,
+            0,
+            "department".to_string(),
+            None,
+            vec![scalar("Eng"), scalar("Ops")],
+        );
+
+        let with_new = EvaluatedFacetTree::new(Some(root.clone()));
+        assert_eq!(with_new.depth(), 1);
+        assert!(with_new.used_sharing_levels.contains(&0));
+        assert!(with_new.used_sharing_levels.contains(&255));
+        assert!(
+            with_new
+                .path_info_cache
+                .contains_key(&Vec::<ScalarValue>::new())
+        );
+        assert!(with_new.path_info_cache.contains_key(&vec![scalar("Eng")]));
+        assert!(
+            with_new
+                .slot_membership_cache
+                .contains_key(&Vec::<ScalarValue>::new())
+        );
+        assert!(!with_new.enumeration_cache.is_empty());
+        assert_eq!(with_new.jagged_axis_cache.len(), 4);
+
+        let mut channel_sharing = HashMap::new();
+        channel_sharing.insert("x".to_string(), 2);
+        let with_levels = EvaluatedFacetTree::new_with_sharing_levels(Some(root), channel_sharing);
+        assert_eq!(with_levels.channel_sharing_level("x"), 2);
+        assert!(with_levels.used_sharing_levels.contains(&0));
+        assert!(with_levels.used_sharing_levels.contains(&2));
+        assert!(with_levels.used_sharing_levels.contains(&255));
+
+        let empty = EvaluatedFacetTree::empty();
+        assert_eq!(empty.depth(), 0);
+        assert!(empty.path_info_cache.is_empty());
+        assert!(empty.path_predicate_cache.is_empty());
+        assert!(empty.slot_membership_cache.is_empty());
+        assert!(empty.enumeration_cache.is_empty());
+        assert_eq!(empty.jagged_axis_cache.len(), 4);
+        assert!(empty.jagged_axis_cache.values().all(|value| !*value));
+        assert!(empty.used_sharing_levels.contains(&0));
+        assert!(empty.used_sharing_levels.contains(&255));
     }
 
     #[test]

@@ -19,5 +19,6 @@ pub mod marks;
 pub mod padding_policy;
 pub mod path_math;
 pub mod scalar_cmp;
+pub(crate) mod scale_precompute;
 pub mod sharing_kernel;
 pub mod sharing_policy;
