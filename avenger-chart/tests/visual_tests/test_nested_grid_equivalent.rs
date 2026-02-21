@@ -1216,6 +1216,58 @@ fn test_nested_shared_row_shared_both() {
     });
 }
 
+/// Port of test_grid_facet_shared_both with shared row domain and EmptySubplot policy
+#[test]
+fn test_nested_shared_row_shared_both_empty_subplot() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().column(col("petal_width_bin")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new()
+                            .row_with(col("species"), |c| {
+                                c.facet(|f| {
+                                    f.share_scale()
+                                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                                })
+                            })
+                            .subplot(
+                                Plot::<Cartesian>::new().mark(
+                                    Symbol::new()
+                                        .x_with(col("sepal_length"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Shared)
+                                        })
+                                        .y_with(col("sepal_width"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Shared)
+                                        })
+                                        .size(25.0)
+                                        .fill("#4682b4"),
+                                ),
+                            ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested shared row shared both empty subplot");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid_empty_subplot",
+            "nested_shared_row_shared_both",
+        )
+        .await;
+    });
+}
+
 /// Port of test_grid_facet_free_scales with shared row domain
 #[test]
 fn test_nested_shared_row_free_scales() {
@@ -1457,6 +1509,56 @@ fn test_nested_shared_row_x_axis_top() {
     });
 }
 
+/// Port of test_grid_facet_x_axis_top with shared row domain and EmptySubplot policy
+#[test]
+fn test_nested_shared_row_x_axis_top_empty_subplot() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().column(col("petal_width_bin")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new()
+                            .row_with(col("species"), |c| {
+                                c.facet(|f| {
+                                    f.share_scale()
+                                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                                })
+                            })
+                            .subplot(
+                                Plot::<Cartesian>::new().mark(
+                                    Symbol::new()
+                                        .x_with(col("sepal_length"), |c| {
+                                            c.axis(|a| a.position("top"))
+                                        })
+                                        .y(col("sepal_width"))
+                                        .size(25.0)
+                                        .fill("#4682b4"),
+                                ),
+                            ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested shared row x axis top empty subplot");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid_empty_subplot",
+            "nested_shared_row_x_axis_top",
+        )
+        .await;
+    });
+}
+
 /// Port of test_grid_facet_y_axis_right with shared row domain
 #[test]
 fn test_nested_shared_row_y_axis_right() {
@@ -1496,6 +1598,56 @@ fn test_nested_shared_row_y_axis_right() {
             &ctx,
             None,
             "nested_grid",
+            "nested_shared_row_y_axis_right",
+        )
+        .await;
+    });
+}
+
+/// Port of test_grid_facet_y_axis_right with shared row domain and EmptySubplot policy
+#[test]
+fn test_nested_shared_row_y_axis_right_empty_subplot() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().column(col("petal_width_bin")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new()
+                            .row_with(col("species"), |c| {
+                                c.facet(|f| {
+                                    f.share_scale()
+                                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                                })
+                            })
+                            .subplot(
+                                Plot::<Cartesian>::new().mark(
+                                    Symbol::new()
+                                        .x(col("sepal_length"))
+                                        .y_with(col("sepal_width"), |c| {
+                                            c.axis(|a| a.position("right"))
+                                        })
+                                        .size(25.0)
+                                        .fill("#4682b4"),
+                                ),
+                            ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested shared row y axis right empty subplot");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid_empty_subplot",
             "nested_shared_row_y_axis_right",
         )
         .await;
@@ -1637,6 +1789,58 @@ fn test_nested_shared_row_hybrid_sharing() {
     });
 }
 
+/// Port of test_grid_facet_hybrid_sharing with shared row domain and EmptySubplot policy
+#[test]
+fn test_nested_shared_row_hybrid_sharing_empty_subplot() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Facet::new().column(col("petal_width_bin")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new()
+                            .row_with(col("species"), |c| {
+                                c.facet(|f| {
+                                    f.share_scale()
+                                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                                })
+                            })
+                            .subplot(
+                                Plot::<Cartesian>::new().mark(
+                                    Symbol::new()
+                                        .x_with(col("sepal_length"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Shared)
+                                        })
+                                        .y_with(col("sepal_width"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Free)
+                                        })
+                                        .size(25.0)
+                                        .fill("#4682b4"),
+                                ),
+                            ),
+                    ),
+                ),
+            );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested shared row hybrid sharing empty subplot");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid_empty_subplot",
+            "nested_shared_row_hybrid_sharing",
+        )
+        .await;
+    });
+}
+
 // =============================================================================
 // Milestone 12: Row(Column) Pattern - Inverted Nesting Order
 // =============================================================================
@@ -1693,6 +1897,55 @@ fn test_nested_shared_col_shared_both() {
             &ctx,
             None,
             "nested_grid",
+            "nested_shared_col_shared_both",
+        )
+        .await;
+    });
+}
+
+/// Test Row(Column(Cartesian)) with shared column scale and EmptySubplot policy
+#[test]
+fn test_nested_shared_col_shared_both_empty_subplot() {
+    run_with_large_stack(|| async {
+        let ctx = SessionContext::new();
+        let df = iris_with_binned_petal_width().await;
+
+        let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
+            Facet::new().row(col("species")).subplot(
+                Plot::<FacetColumn>::new().mark(
+                    Facet::new()
+                        .col_with(col("petal_width_bin"), |c| {
+                            c.facet(|f| {
+                                f.share_scale()
+                                    .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                            })
+                        })
+                        .subplot(
+                            Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_scale_sharing(ScaleSharing::Shared)
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        ),
+                ),
+            ),
+        );
+
+        let compiled = outer
+            .compile(&ctx)
+            .await
+            .expect("compile nested shared col shared both empty subplot");
+        assert_visual_match_default(
+            &compiled,
+            &ctx,
+            None,
+            "nested_grid_empty_subplot",
             "nested_shared_col_shared_both",
         )
         .await;

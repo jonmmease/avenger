@@ -881,6 +881,25 @@ mod tests {
             .count()
     }
 
+    fn count_groups_with_prefix_excluding_suffix(
+        scene_graph: &SceneGraph,
+        prefix: &str,
+        excluded_suffix: &str,
+    ) -> usize {
+        scene_graph
+            .group_paths()
+            .into_iter()
+            .filter_map(|path| scene_graph.get_mark(&path))
+            .filter_map(|mark| match mark {
+                SceneMark::Group(group) => Some(group),
+                _ => None,
+            })
+            .filter(|group| {
+                group.name.starts_with(prefix) && !group.name.ends_with(excluded_suffix)
+            })
+            .count()
+    }
+
     fn collect_text_x_positions(scene_graph: &SceneGraph, text: &str) -> Vec<f32> {
         fn collect_from_mark(mark: &SceneMark, origin: [f32; 2], text: &str, xs: &mut Vec<f32>) {
             match mark {
@@ -1315,6 +1334,55 @@ mod tests {
         assert_eq!(
             auto_empty_groups, hole_empty_groups,
             "auto policy should resolve to hole in this release"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn empty_subplot_policy_renders_structural_subplot_groups_for_empty_slots()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let hole_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+            &ctx,
+            FacetEmptyCellPolicy::Hole,
+        )
+        .await?;
+        let hole_scene = hole_plot.evaluate(&ctx, None).await?;
+
+        let ctx = SessionContext::new();
+        let empty_subplot_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+            &ctx,
+            FacetEmptyCellPolicy::EmptySubplot,
+        )
+        .await?;
+        let empty_subplot_scene = empty_subplot_plot.evaluate(&ctx, None).await?;
+
+        let hole_empty_groups =
+            count_groups_with_name(&hole_scene.scene_graph, "facet_row_", "_empty");
+        let hole_subplot_groups = count_groups_with_prefix_excluding_suffix(
+            &hole_scene.scene_graph,
+            "facet_row_",
+            "_empty",
+        );
+        let empty_subplot_groups = count_groups_with_prefix_excluding_suffix(
+            &empty_subplot_scene.scene_graph,
+            "facet_row_",
+            "_empty",
+        );
+
+        assert!(
+            hole_empty_groups > 0,
+            "fixture should include hole placeholders so policy replacement can be validated"
+        );
+        assert!(
+            empty_subplot_groups > hole_subplot_groups,
+            "empty subplot policy should add subplot groups in slots that are holes under hole policy"
+        );
+        assert_eq!(
+            empty_subplot_groups,
+            hole_subplot_groups + hole_empty_groups,
+            "empty subplot policy should replace each hole placeholder with a structural subplot group"
         );
 
         Ok(())

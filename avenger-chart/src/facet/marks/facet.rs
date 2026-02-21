@@ -331,7 +331,10 @@ impl CompiledMark for CompiledFacetRow {
             AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
         })?;
 
-        let has_holes = facet_measurement.cells.iter().any(|cell| cell.plan.is_empty);
+        let has_holes = facet_measurement
+            .cells
+            .iter()
+            .any(|cell| cell.plan.is_empty);
         let axis_owner_ignore_empty_cells = self
             .facet_empty_cell_policy
             .axis_owner_ignore_empty_cells(has_holes);
@@ -712,7 +715,10 @@ impl CompiledMark for CompiledFacetCol {
         })?;
 
         // Create subplot EvaluationContext with merged params
-        let has_holes = facet_measurement.cells.iter().any(|cell| cell.plan.is_empty);
+        let has_holes = facet_measurement
+            .cells
+            .iter()
+            .any(|cell| cell.plan.is_empty);
         let axis_owner_ignore_empty_cells = self
             .facet_empty_cell_policy
             .axis_owner_ignore_empty_cells(has_holes);
