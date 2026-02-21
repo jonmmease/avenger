@@ -331,10 +331,16 @@ impl CompiledMark for CompiledFacetRow {
             AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
         })?;
 
+        let has_holes = facet_measurement.cells.iter().any(|cell| cell.plan.is_empty);
+        let axis_owner_ignore_empty_cells = self
+            .facet_empty_cell_policy
+            .axis_owner_ignore_empty_cells(has_holes);
+        let effective_empty_policy = self.facet_empty_cell_policy.effective();
         let subplot_eval_ctx = {
             let mut params = self.compiled_subplot.get_default_params().clone();
             params.extend(context.eval.params.clone());
-            context.eval.with_params(params)
+            let eval_ctx = context.eval.with_params(params);
+            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
         };
         let (origin_offset_x, origin_offset_y) =
             facet_cell_main_axis_start_offset(facet_measurement);
@@ -344,7 +350,6 @@ impl CompiledMark for CompiledFacetRow {
             legend_start_top = origin_offset_y,
             "FacetRow render main-axis start slab offset"
         );
-        let effective_empty_policy = self.facet_empty_cell_policy.effective();
 
         let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
 
@@ -707,10 +712,16 @@ impl CompiledMark for CompiledFacetCol {
         })?;
 
         // Create subplot EvaluationContext with merged params
+        let has_holes = facet_measurement.cells.iter().any(|cell| cell.plan.is_empty);
+        let axis_owner_ignore_empty_cells = self
+            .facet_empty_cell_policy
+            .axis_owner_ignore_empty_cells(has_holes);
+        let effective_empty_policy = self.facet_empty_cell_policy.effective();
         let subplot_eval_ctx = {
             let mut params = self.compiled_subplot.get_default_params().clone();
             params.extend(context.eval.params.clone());
-            context.eval.with_params(params)
+            let eval_ctx = context.eval.with_params(params);
+            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
         };
         let (origin_offset_x, origin_offset_y) =
             facet_cell_main_axis_start_offset(facet_measurement);
@@ -720,7 +731,6 @@ impl CompiledMark for CompiledFacetCol {
             legend_start_top = origin_offset_y,
             "FacetCol render main-axis start slab offset"
         );
-        let effective_empty_policy = self.facet_empty_cell_policy.effective();
 
         let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
 

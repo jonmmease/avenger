@@ -15,7 +15,7 @@ use serde_with::serde_as;
 use crate::{
     axis::Axis,
     error::AvengerChartError,
-    facet::evaluated_facet_tree::{AxisVisibility, EvaluatedFacetTree},
+    facet::evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility, EvaluatedFacetTree},
     layout::LayoutBounds,
     maybe::{Maybe, MaybeOptionalExpr},
     plot::{
@@ -24,7 +24,9 @@ use crate::{
             evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
         },
     },
-    render::context::INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
+    render::context::{
+        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
+    },
     serialization::LogicalExprNodeExt,
     theme::Theme,
 };
@@ -310,11 +312,28 @@ impl CartesianAxis {
                 _ => None,
             })
             .unwrap_or(false);
+        let axis_owner_ignore_empty_cells = params
+            .get(AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM)
+            .and_then(|value| match value {
+                datafusion::common::ScalarValue::Boolean(Some(v)) => Some(*v),
+                _ => None,
+            })
+            .unwrap_or(false);
+        let ownership_mode = if axis_owner_ignore_empty_cells {
+            AxisOwnershipMode::NonEmptySlots
+        } else {
+            AxisOwnershipMode::DomainSlots
+        };
         let facet_visibility = if facet_path.is_empty() {
             AxisVisibility::visible()
         } else {
             facet_tree
-                .channel_axis_visibility_for_path_checked(facet_path, position, sharing_level)
+                .channel_axis_visibility_for_path_checked_with_mode(
+                    facet_path,
+                    position,
+                    sharing_level,
+                    ownership_mode,
+                )
                 .unwrap_or_else(|| {
                     if hide_invalid_facet_path_axes {
                         AxisVisibility::hidden()

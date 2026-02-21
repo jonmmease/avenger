@@ -42,7 +42,8 @@ use crate::{
     coords::{CoordMeasurement, coordinate_overflow_for_guides},
     error::AvengerChartError,
     facet::{
-        debug as facet_debug, empty_cell_policy::FacetEmptyCellPolicy,
+        debug as facet_debug,
+        empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::EvaluatedFacetTree,
         marks::facet::{FacetMarkRef, facet_mark_ref},
     },
@@ -100,16 +101,20 @@ impl CompiledPlot {
             if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
                 return match facet_mark {
                     FacetMarkRef::Row(facet_row) => {
-                        matches!(facet_row.facet_empty_cell_policy(), FacetEmptyCellPolicy::Auto)
-                            || Self::marks_use_auto_empty_cell_policy(
-                                &facet_row.compiled_subplot().marks,
-                            )
+                        matches!(
+                            facet_row.facet_empty_cell_policy(),
+                            FacetEmptyCellPolicy::Auto
+                        ) || Self::marks_use_auto_empty_cell_policy(
+                            &facet_row.compiled_subplot().marks,
+                        )
                     }
                     FacetMarkRef::Col(facet_col) => {
-                        matches!(facet_col.facet_empty_cell_policy(), FacetEmptyCellPolicy::Auto)
-                            || Self::marks_use_auto_empty_cell_policy(
-                                &facet_col.compiled_subplot().marks,
-                            )
+                        matches!(
+                            facet_col.facet_empty_cell_policy(),
+                            FacetEmptyCellPolicy::Auto
+                        ) || Self::marks_use_auto_empty_cell_policy(
+                            &facet_col.compiled_subplot().marks,
+                        )
                     }
                 };
             }
@@ -683,7 +688,9 @@ mod tests {
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = shared_row_basic_dataframe(ctx).await;
-        build_nested_shared_row_shared_both_plot(df).compile(ctx).await
+        build_nested_shared_row_shared_both_plot(df)
+            .compile(ctx)
+            .await
     }
 
     async fn compile_nested_shared_row_shared_both_plot_with_empty_policy(

@@ -28,6 +28,7 @@ use crate::{
         marks::facet::{FacetMarkRef, facet_mark_ref},
         path_math,
         scalar_cmp::scalar_total_cmp,
+        sharing_kernel::{self, SharingGroupEdge},
         sharing_policy,
     },
     guide::FacetDirection,
@@ -101,12 +102,20 @@ pub enum PartitionContent {
 ///
 /// Determines whether tick labels and title should be shown for an axis
 /// based on the cell's position in the facet grid.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AxisVisibility {
     /// Whether to show tick labels on this axis
     pub show_labels: bool,
     /// Whether to show the axis title
     pub show_title: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AxisOwnershipMode {
+    /// Compute owners against the full domain slot geometry (existing behavior).
+    DomainSlots,
+    /// Compute owners against non-empty cells only (hole-aware behavior).
+    NonEmptySlots,
 }
 
 /// Resolved geometry metadata for a concrete facet path.
@@ -631,6 +640,9 @@ impl EvaluatedFacetTree {
             return AxisVisibility::visible();
         }
 
+        let title_level_counts =
+            self.cartesian_title_level_counts(position_indices.len(), level_counts);
+
         AxisVisibility {
             show_labels: sharing_policy::show_cartesian_axis_labels(
                 position_indices,
@@ -641,10 +653,316 @@ impl EvaluatedFacetTree {
             ),
             show_title: sharing_policy::show_cartesian_axis_title(
                 position_indices,
-                level_counts,
+                &title_level_counts,
                 level_directions,
                 axis_position,
             ),
+        }
+    }
+
+    fn cartesian_title_level_counts(
+        &self,
+        depth: usize,
+        local_level_counts: &[usize],
+    ) -> Vec<usize> {
+        let mut title_level_counts = local_level_counts.to_vec();
+        if title_level_counts.len() < depth {
+            title_level_counts.resize(depth, 0);
+        } else if title_level_counts.len() > depth {
+            title_level_counts.truncate(depth);
+        }
+
+        for (idx, count) in title_level_counts.iter_mut().enumerate().take(depth) {
+            if let Some(global_count) = self.level_counts_ref().get(idx) {
+                *count = (*count).max(*global_count);
+            }
+        }
+
+        title_level_counts
+    }
+
+    fn cartesian_axis_edge_for_position(axis_position: AxisPosition) -> SharingGroupEdge {
+        match axis_position {
+            AxisPosition::Top | AxisPosition::Left => SharingGroupEdge::Start,
+            AxisPosition::Bottom | AxisPosition::Right => SharingGroupEdge::End,
+        }
+    }
+
+    fn cartesian_relevant_direction_for_axis(axis_position: AxisPosition) -> FacetDirection {
+        match axis_position {
+            AxisPosition::Top | AxisPosition::Bottom => FacetDirection::Row,
+            AxisPosition::Left | AxisPosition::Right => FacetDirection::Column,
+        }
+    }
+
+    fn project_indices_for_cartesian_axis(
+        position_indices: &[usize],
+        level_directions: &[FacetDirection],
+        axis_position: AxisPosition,
+    ) -> Option<(Vec<usize>, usize, SharingGroupEdge)> {
+        if position_indices.len() != level_directions.len() {
+            return None;
+        }
+
+        let edge = Self::cartesian_axis_edge_for_position(axis_position);
+        let relevant_direction = Self::cartesian_relevant_direction_for_axis(axis_position);
+
+        let mut projected_indices = Vec::with_capacity(position_indices.len());
+        let mut relevant_depth = 0usize;
+
+        for (&index, &direction) in position_indices.iter().zip(level_directions.iter()) {
+            if direction != relevant_direction {
+                projected_indices.push(index);
+            }
+        }
+
+        for (&index, &direction) in position_indices.iter().zip(level_directions.iter()) {
+            if direction == relevant_direction {
+                projected_indices.push(index);
+                relevant_depth += 1;
+            }
+        }
+
+        Some((projected_indices, relevant_depth, edge))
+    }
+
+    fn collect_non_empty_paths_for_axis_strip(
+        &self,
+        path: &[ScalarValue],
+        level_directions: &[FacetDirection],
+        axis_position: AxisPosition,
+    ) -> Vec<Vec<ScalarValue>> {
+        let Some(root) = self.root.as_ref() else {
+            return Vec::new();
+        };
+
+        if path.len() != level_directions.len() {
+            return Vec::new();
+        }
+
+        let relevant_direction = Self::cartesian_relevant_direction_for_axis(axis_position);
+        let mut candidates = Vec::new();
+        let mut prefix = Vec::with_capacity(path.len());
+        Self::collect_non_empty_paths_for_axis_strip_recursive(
+            root,
+            path,
+            level_directions,
+            relevant_direction,
+            0,
+            &mut prefix,
+            &mut candidates,
+        );
+        candidates
+    }
+
+    fn collect_non_empty_paths_for_axis_strip_recursive(
+        node: &PartitionNode,
+        path: &[ScalarValue],
+        level_directions: &[FacetDirection],
+        relevant_direction: FacetDirection,
+        depth: usize,
+        prefix: &mut Vec<ScalarValue>,
+        out: &mut Vec<Vec<ScalarValue>>,
+    ) {
+        if depth >= path.len() || depth >= level_directions.len() {
+            return;
+        }
+
+        let direction = level_directions[depth];
+        if direction != relevant_direction {
+            let value = &path[depth];
+            let is_observed = node
+                .observed_values()
+                .any(|observed| scalar_values_equivalent(observed, value));
+            if !is_observed {
+                return;
+            }
+
+            prefix.push(value.clone());
+            if depth + 1 == path.len() {
+                out.push(prefix.clone());
+                prefix.pop();
+                return;
+            }
+
+            if let Some(child) = node.child(value) {
+                Self::collect_non_empty_paths_for_axis_strip_recursive(
+                    child,
+                    path,
+                    level_directions,
+                    relevant_direction,
+                    depth + 1,
+                    prefix,
+                    out,
+                );
+            }
+            prefix.pop();
+            return;
+        }
+
+        let observed_values: Vec<ScalarValue> = node.observed_values().cloned().collect();
+        for observed_value in &observed_values {
+            prefix.push(observed_value.clone());
+            if depth + 1 == path.len() {
+                out.push(prefix.clone());
+                prefix.pop();
+                continue;
+            }
+
+            if let Some(child) = node.child(observed_value) {
+                Self::collect_non_empty_paths_for_axis_strip_recursive(
+                    child,
+                    path,
+                    level_directions,
+                    relevant_direction,
+                    depth + 1,
+                    prefix,
+                    out,
+                );
+            }
+            prefix.pop();
+        }
+    }
+
+    fn non_empty_owner_visible_for_cartesian_axis(
+        &self,
+        path: &[ScalarValue],
+        resolved: &ResolvedFacetPathInfo,
+        axis_position: AxisPosition,
+        sharing_level: u8,
+        fallback_visible: bool,
+    ) -> bool {
+        let Some((current_projected, relevant_depth, edge)) =
+            Self::project_indices_for_cartesian_axis(
+                &resolved.indices,
+                &resolved.level_directions,
+                axis_position,
+            )
+        else {
+            return fallback_visible;
+        };
+
+        if relevant_depth == 0 {
+            return true;
+        }
+
+        let sharing_level = sharing_level.min(relevant_depth as u8);
+        let boundary = sharing_kernel::group_boundary(current_projected.len() as u8, sharing_level);
+        let current_prefix = &current_projected[..boundary];
+        let current_suffix = &current_projected[boundary..];
+
+        let candidate_paths = self.collect_non_empty_paths_for_axis_strip(
+            path,
+            &resolved.level_directions,
+            axis_position,
+        );
+        if candidate_paths.is_empty() {
+            return fallback_visible;
+        }
+
+        let mut best_suffix: Option<Vec<usize>> = None;
+        for candidate_path in &candidate_paths {
+            let Some(candidate_resolved) = self.resolve_path_info(candidate_path) else {
+                continue;
+            };
+            let Some((candidate_projected, _, _)) = Self::project_indices_for_cartesian_axis(
+                &candidate_resolved.indices,
+                &candidate_resolved.level_directions,
+                axis_position,
+            ) else {
+                continue;
+            };
+
+            if candidate_projected.len() != current_projected.len() {
+                continue;
+            }
+            if &candidate_projected[..boundary] != current_prefix {
+                continue;
+            }
+
+            let candidate_suffix = &candidate_projected[boundary..];
+            match &mut best_suffix {
+                None => best_suffix = Some(candidate_suffix.to_vec()),
+                Some(best) => {
+                    let replace = match edge {
+                        SharingGroupEdge::Start => candidate_suffix < best.as_slice(),
+                        SharingGroupEdge::End => candidate_suffix > best.as_slice(),
+                    };
+                    if replace {
+                        *best = candidate_suffix.to_vec();
+                    }
+                }
+            }
+        }
+
+        best_suffix
+            .map(|best| current_suffix == best.as_slice())
+            .unwrap_or(fallback_visible)
+    }
+
+    fn channel_axis_visibility_from_resolved_with_mode(
+        &self,
+        path: &[ScalarValue],
+        resolved: &ResolvedFacetPathInfo,
+        axis_position: AxisPosition,
+        sharing_level: u8,
+        ownership_mode: AxisOwnershipMode,
+    ) -> AxisVisibility {
+        if resolved.local_level_counts.is_empty() {
+            return AxisVisibility::visible();
+        }
+
+        if matches!(ownership_mode, AxisOwnershipMode::DomainSlots) {
+            return self.channel_axis_visibility_from_resolved(
+                &resolved.indices,
+                &resolved.local_level_counts,
+                &resolved.level_directions,
+                axis_position,
+                sharing_level,
+            );
+        }
+
+        let Some((_, relevant_depth, _)) = Self::project_indices_for_cartesian_axis(
+            &resolved.indices,
+            &resolved.level_directions,
+            axis_position,
+        ) else {
+            return AxisVisibility::visible();
+        };
+
+        if relevant_depth == 0 {
+            return AxisVisibility::visible();
+        }
+
+        let labels_sharing = sharing_level.min(relevant_depth as u8);
+        let labels_fallback = sharing_policy::show_cartesian_axis_labels(
+            &resolved.indices,
+            &resolved.local_level_counts,
+            &resolved.level_directions,
+            axis_position,
+            labels_sharing,
+        );
+        let title_level_counts =
+            self.cartesian_title_level_counts(resolved.indices.len(), &resolved.local_level_counts);
+        let title_fallback = sharing_policy::show_cartesian_axis_title(
+            &resolved.indices,
+            &title_level_counts,
+            &resolved.level_directions,
+            axis_position,
+        );
+
+        AxisVisibility {
+            show_labels: self.non_empty_owner_visible_for_cartesian_axis(
+                path,
+                resolved,
+                axis_position,
+                labels_sharing,
+                labels_fallback,
+            ),
+            // Keep title ownership geometric (domain-slot edge owner) even in
+            // NonEmptySlots mode. This avoids relocating titles into interior
+            // cells when edge owners are holes.
+            show_title: title_fallback,
         }
     }
 
@@ -769,18 +1087,33 @@ impl EvaluatedFacetTree {
         axis_position: AxisPosition,
         sharing_level: u8,
     ) -> Option<AxisVisibility> {
+        self.channel_axis_visibility_for_path_checked_with_mode(
+            path,
+            axis_position,
+            sharing_level,
+            AxisOwnershipMode::DomainSlots,
+        )
+    }
+
+    pub(crate) fn channel_axis_visibility_for_path_checked_with_mode(
+        &self,
+        path: &[ScalarValue],
+        axis_position: AxisPosition,
+        sharing_level: u8,
+        ownership_mode: AxisOwnershipMode,
+    ) -> Option<AxisVisibility> {
         if path.is_empty() {
             return Some(AxisVisibility::visible());
         }
 
         let resolved = self.resolve_path_info(path)?;
 
-        Some(self.channel_axis_visibility_from_resolved(
-            &resolved.indices,
-            &resolved.local_level_counts,
-            &resolved.level_directions,
+        Some(self.channel_axis_visibility_from_resolved_with_mode(
+            path,
+            &resolved,
             axis_position,
             sharing_level,
+            ownership_mode,
         ))
     }
 
@@ -1556,6 +1889,107 @@ mod tests {
         EvaluatedFacetTree::new(Some(region_node))
     }
 
+    fn build_hole_visibility_test_tree() -> EvaluatedFacetTree {
+        // Column (petal_width_bin) > Row (species)
+        //
+        // Shared row domain values exist in every column slot, but observed values
+        // differ by column, creating hole cells when empty policy is Hole.
+        let all_species = vec![
+            scalar("Iris-setosa"),
+            scalar("Iris-versicolor"),
+            scalar("Iris-virginica"),
+        ];
+
+        let medium_leaf = PartitionNode::leaf_with_observed(
+            FacetDirection::Row,
+            255,
+            "species".to_string(),
+            None,
+            all_species.clone(),
+            vec![scalar("Iris-versicolor"), scalar("Iris-virginica")],
+        );
+        let narrow_leaf = PartitionNode::leaf_with_observed(
+            FacetDirection::Row,
+            255,
+            "species".to_string(),
+            None,
+            all_species.clone(),
+            vec![scalar("Iris-setosa")],
+        );
+        let wide_leaf = PartitionNode::leaf_with_observed(
+            FacetDirection::Row,
+            255,
+            "species".to_string(),
+            None,
+            all_species,
+            vec![scalar("Iris-virginica")],
+        );
+
+        let mut children = IndexMap::new();
+        children.insert(scalar("medium"), Box::new(medium_leaf));
+        children.insert(scalar("narrow"), Box::new(narrow_leaf));
+        children.insert(scalar("wide"), Box::new(wide_leaf));
+
+        let root = PartitionNode::branch_with_observed(
+            FacetDirection::Column,
+            255,
+            "petal_width_bin".to_string(),
+            None,
+            vec![scalar("medium"), scalar("narrow"), scalar("wide")],
+            children,
+        );
+
+        EvaluatedFacetTree::new(Some(root))
+    }
+
+    fn build_free_row_title_test_tree() -> EvaluatedFacetTree {
+        // Column (petal_width_bin) > Row (species), non-shared row domains.
+        //
+        // Medium/Wide have two local row slots, Narrow has one. Title ownership
+        // should still respect geometric strip edges and not relocate into
+        // Narrow's single local row.
+        let medium_leaf = PartitionNode::leaf_with_observed(
+            FacetDirection::Row,
+            0,
+            "species".to_string(),
+            None,
+            vec![scalar("Iris-versicolor"), scalar("Iris-virginica")],
+            vec![scalar("Iris-versicolor"), scalar("Iris-virginica")],
+        );
+        let narrow_leaf = PartitionNode::leaf_with_observed(
+            FacetDirection::Row,
+            0,
+            "species".to_string(),
+            None,
+            vec![scalar("Iris-setosa")],
+            vec![scalar("Iris-setosa")],
+        );
+        let wide_leaf = PartitionNode::leaf_with_observed(
+            FacetDirection::Row,
+            0,
+            "species".to_string(),
+            None,
+            vec![scalar("Iris-versicolor"), scalar("Iris-virginica")],
+            vec![scalar("Iris-versicolor"), scalar("Iris-virginica")],
+        );
+
+        let mut children = IndexMap::new();
+        children.insert(scalar("medium"), Box::new(medium_leaf));
+        children.insert(scalar("narrow"), Box::new(narrow_leaf));
+        children.insert(scalar("wide"), Box::new(wide_leaf));
+
+        let root = PartitionNode::branch_with_observed(
+            FacetDirection::Column,
+            255,
+            "petal_width_bin".to_string(),
+            None,
+            vec![scalar("medium"), scalar("narrow"), scalar("wide")],
+            children,
+        );
+
+        EvaluatedFacetTree::new(Some(root))
+    }
+
     #[test]
     fn test_enumerate_values_for_facet_level0() {
         let tree = build_enumeration_test_tree();
@@ -1658,6 +2092,106 @@ mod tests {
         let visibility = tree.channel_axis_visibility_for_path(&path, AxisPosition::Bottom, 1);
         assert!(visibility.show_labels);
         assert!(visibility.show_title);
+    }
+
+    #[test]
+    fn test_channel_axis_visibility_non_empty_mode_relocates_bottom_owner() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_hole_visibility_test_tree();
+        let path = vec![scalar("narrow"), scalar("Iris-setosa")];
+
+        let domain_visibility = tree
+            .channel_axis_visibility_for_path_checked_with_mode(
+                &path,
+                AxisPosition::Bottom,
+                255,
+                AxisOwnershipMode::DomainSlots,
+            )
+            .unwrap();
+        assert!(!domain_visibility.show_labels);
+        assert!(!domain_visibility.show_title);
+
+        let non_empty_visibility = tree
+            .channel_axis_visibility_for_path_checked_with_mode(
+                &path,
+                AxisPosition::Bottom,
+                255,
+                AxisOwnershipMode::NonEmptySlots,
+            )
+            .unwrap();
+        assert!(non_empty_visibility.show_labels);
+        assert!(!non_empty_visibility.show_title);
+    }
+
+    #[test]
+    fn test_channel_axis_visibility_non_empty_mode_relocates_right_owner() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_hole_visibility_test_tree();
+        let path = vec![scalar("narrow"), scalar("Iris-setosa")];
+
+        let domain_visibility = tree
+            .channel_axis_visibility_for_path_checked_with_mode(
+                &path,
+                AxisPosition::Right,
+                255,
+                AxisOwnershipMode::DomainSlots,
+            )
+            .unwrap();
+        assert!(!domain_visibility.show_labels);
+        assert!(!domain_visibility.show_title);
+
+        let non_empty_visibility = tree
+            .channel_axis_visibility_for_path_checked_with_mode(
+                &path,
+                AxisPosition::Right,
+                255,
+                AxisOwnershipMode::NonEmptySlots,
+            )
+            .unwrap();
+        assert!(non_empty_visibility.show_labels);
+        assert!(!non_empty_visibility.show_title);
+    }
+
+    #[test]
+    fn test_channel_axis_visibility_domain_mode_matches_default_path() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_hole_visibility_test_tree();
+        let path = vec![scalar("wide"), scalar("Iris-virginica")];
+
+        let default_visibility =
+            tree.channel_axis_visibility_for_path_checked(&path, AxisPosition::Bottom, 255);
+        let explicit_domain_visibility = tree.channel_axis_visibility_for_path_checked_with_mode(
+            &path,
+            AxisPosition::Bottom,
+            255,
+            AxisOwnershipMode::DomainSlots,
+        );
+
+        assert_eq!(default_visibility, explicit_domain_visibility);
+    }
+
+    #[test]
+    fn test_channel_axis_title_uses_geometric_slot_owner_not_local_branch_owner() {
+        use crate::cartesian::axis::AxisPosition;
+
+        let tree = build_free_row_title_test_tree();
+
+        let narrow_top = vec![scalar("narrow"), scalar("Iris-setosa")];
+        let medium_bottom = vec![scalar("medium"), scalar("Iris-virginica")];
+
+        let narrow_visibility =
+            tree.channel_axis_visibility_for_path_checked(&narrow_top, AxisPosition::Bottom, 0);
+        let medium_visibility =
+            tree.channel_axis_visibility_for_path_checked(&medium_bottom, AxisPosition::Bottom, 0);
+
+        let narrow_visibility = narrow_visibility.unwrap();
+        let medium_visibility = medium_visibility.unwrap();
+
+        assert!(!narrow_visibility.show_title);
+        assert!(medium_visibility.show_title);
     }
 
     #[test]

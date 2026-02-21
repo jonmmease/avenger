@@ -19,6 +19,7 @@ use crate::{
 
 pub const INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM: &str =
     "__avenger_hide_invalid_facet_path_axes";
+pub const AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM: &str = "__avenger_axis_owner_ignore_empty_cells";
 
 /// Immutable context built once at evaluate() entry.
 ///
@@ -98,6 +99,22 @@ impl EvaluationContext {
             params,
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: hidden,
+        }
+    }
+
+    /// Create a new context overriding whether axis ownership should ignore empty cells.
+    pub fn with_axis_owner_ignore_empty_cells(&self, ignore_empty_cells: bool) -> Self {
+        let mut params = self.params.clone();
+        params.insert(
+            AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM.to_string(),
+            ScalarValue::Boolean(Some(ignore_empty_cells)),
+        );
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params,
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
         }
     }
 }

@@ -156,7 +156,9 @@ impl FacetBandCoordMeasurement {
         }
 
         let first_idx = *renderable_indices.first().unwrap_or(&0);
-        let last_idx = *renderable_indices.last().unwrap_or(&cell_count.saturating_sub(1));
+        let last_idx = *renderable_indices
+            .last()
+            .unwrap_or(&cell_count.saturating_sub(1));
 
         let first_layout = &self.cells[first_idx].measurement.layout;
         let last_layout = &self.cells[last_idx].measurement.layout;
@@ -296,18 +298,18 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
         if let Some(band_scale) = scales.get_mut(self.axis.scale_name()) {
             let has_hole_cells = self.cells.iter().any(|cell| {
                 !cell.plan.has_data_rows
-                    && !renderable_for_empty_policy(self.empty_cell_policy, !cell.plan.has_data_rows)
+                    && !renderable_for_empty_policy(
+                        self.empty_cell_policy,
+                        !cell.plan.has_data_rows,
+                    )
             });
-            let has_adjacent_non_empty = self
-                .cells
-                .windows(2)
-                .any(|pair| {
-                    renderable_for_empty_policy(self.empty_cell_policy, !pair[0].plan.has_data_rows)
-                        && renderable_for_empty_policy(
-                            self.empty_cell_policy,
-                            !pair[1].plan.has_data_rows,
-                        )
-                });
+            let has_adjacent_non_empty = self.cells.windows(2).any(|pair| {
+                renderable_for_empty_policy(self.empty_cell_policy, !pair[0].plan.has_data_rows)
+                    && renderable_for_empty_policy(
+                        self.empty_cell_policy,
+                        !pair[1].plan.has_data_rows,
+                    )
+            });
             let needs_zero_padding_override = has_hole_cells && !has_adjacent_non_empty;
             let cell_values: Vec<ScalarValue> = self.cell_values().cloned().collect();
             let domain_override = if cell_values.is_empty() {
@@ -746,10 +748,15 @@ impl FacetBandCoordMeasurement {
         );
 
         // Create subplot EvaluationContext with merged params
+        let has_holes = self.cells.iter().any(|cell| cell.plan.is_empty);
+        let axis_owner_ignore_empty_cells = self
+            .empty_cell_policy
+            .axis_owner_ignore_empty_cells(has_holes);
         let subplot_eval_ctx = {
             let mut params = self.compiled_subplot.get_default_params().clone();
             params.extend(eval_ctx.params.clone());
-            eval_ctx.with_params(params)
+            let eval_ctx = eval_ctx.with_params(params);
+            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
         };
 
         let compiled_subplot = self.compiled_subplot.clone();
@@ -887,7 +894,8 @@ fn renderable_for_empty_policy(policy: FacetEmptyCellPolicy, is_empty: bool) -> 
 }
 
 fn renderable_mask_for_cells(cells: &[FacetCellDraft], policy: FacetEmptyCellPolicy) -> Vec<bool> {
-    cells.iter()
+    cells
+        .iter()
         .map(|cell| renderable_for_empty_policy(policy, !cell.plan.has_data_rows))
         .collect()
 }
@@ -1732,10 +1740,15 @@ impl<'a> FacetColMeasurePipeline<'a> {
             .build_measure_plan(cell_values, data_df, resolved.compiled_subplot)
             .await?;
 
+        let has_holes = plan.cells.iter().any(|cell| cell.plan.is_empty);
+        let axis_owner_ignore_empty_cells = resolved
+            .empty_cell_policy
+            .axis_owner_ignore_empty_cells(has_holes);
         let subplot_eval_ctx = {
             let mut params = resolved.compiled_subplot.get_default_params().clone();
             params.extend(self.eval_ctx.params.clone());
-            self.eval_ctx.with_params(params)
+            let eval_ctx = self.eval_ctx.with_params(params);
+            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
         };
 
         let nested_measure_ctx = FacetColNestedMeasureContext {
@@ -1925,11 +1938,8 @@ impl<'a> FacetColMeasurePipeline<'a> {
     ) -> FacetBandPlan {
         let pass1_renderable_cells = renderable_mask_for_cells(cells, empty_cell_policy);
 
-        let padding_inner_px = derive_padding_inner_px_from_probe(
-            FacetAxis::Column,
-            pass1,
-            &pass1_renderable_cells,
-        );
+        let padding_inner_px =
+            derive_padding_inner_px_from_probe(FacetAxis::Column, pass1, &pass1_renderable_cells);
 
         let (first_edge_idx, last_edge_idx) =
             effective_edge_indices(&pass1_renderable_cells, pass1.cell_overflows.len())
@@ -2145,10 +2155,15 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             .build_measure_plan(cell_values, data_df, resolved.compiled_subplot)
             .await?;
 
+        let has_holes = plan.cells.iter().any(|cell| cell.plan.is_empty);
+        let axis_owner_ignore_empty_cells = resolved
+            .empty_cell_policy
+            .axis_owner_ignore_empty_cells(has_holes);
         let subplot_eval_ctx = {
             let mut params = resolved.compiled_subplot.get_default_params().clone();
             params.extend(self.eval_ctx.params.clone());
-            self.eval_ctx.with_params(params)
+            let eval_ctx = self.eval_ctx.with_params(params);
+            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
         };
 
         let nested_measure_ctx = FacetColNestedMeasureContext {
@@ -2933,13 +2948,22 @@ mod tests {
 
     #[test]
     fn renderable_for_empty_policy_respects_hole_vs_empty_subplot() {
-        assert!(renderable_for_empty_policy(FacetEmptyCellPolicy::Hole, false));
-        assert!(!renderable_for_empty_policy(FacetEmptyCellPolicy::Hole, true));
+        assert!(renderable_for_empty_policy(
+            FacetEmptyCellPolicy::Hole,
+            false
+        ));
+        assert!(!renderable_for_empty_policy(
+            FacetEmptyCellPolicy::Hole,
+            true
+        ));
         assert!(renderable_for_empty_policy(
             FacetEmptyCellPolicy::EmptySubplot,
             true
         ));
-        assert!(!renderable_for_empty_policy(FacetEmptyCellPolicy::Auto, true));
+        assert!(!renderable_for_empty_policy(
+            FacetEmptyCellPolicy::Auto,
+            true
+        ));
     }
 
     #[test]
@@ -2954,13 +2978,8 @@ mod tests {
         );
         let mut children = IndexMap::new();
         children.insert(s("Group"), Box::new(child));
-        let root = PartitionNode::branch(
-            FacetDirection::Row,
-            255,
-            "dept".to_string(),
-            None,
-            children,
-        );
+        let root =
+            PartitionNode::branch(FacetDirection::Row, 255, "dept".to_string(), None, children);
         let tree = crate::facet::evaluated_facet_tree::EvaluatedFacetTree::new(Some(root));
 
         let data_empty = build_facet_cell(&tree, &[s("Group")], &s("B")).unwrap();
@@ -2973,6 +2992,9 @@ mod tests {
         assert!(!placeholder.in_domain_slot);
         assert!(!placeholder.has_data_rows);
         assert!(placeholder.is_empty);
-        assert_eq!(placeholder.empty_kind, FacetCellEmptyKind::DomainPlaceholder);
+        assert_eq!(
+            placeholder.empty_kind,
+            FacetCellEmptyKind::DomainPlaceholder
+        );
     }
 }

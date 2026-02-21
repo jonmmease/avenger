@@ -27,6 +27,20 @@ impl FacetEmptyCellPolicy {
             mode => mode,
         }
     }
+
+    /// Determine whether cartesian axis owner resolution should ignore empty cells.
+    ///
+    /// This can differ from `effective()`:
+    /// - `Hole` always ignores empty cells
+    /// - `EmptySubplot` never ignores empty cells
+    /// - `Auto` ignores empty cells only when the current facet level actually has holes
+    pub fn axis_owner_ignore_empty_cells(self, has_holes: bool) -> bool {
+        match self {
+            Self::Hole => true,
+            Self::EmptySubplot => false,
+            Self::Auto => has_holes,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -53,5 +67,13 @@ mod tests {
             FacetEmptyCellPolicy::Auto.effective(),
             FacetEmptyCellPolicy::Hole
         );
+    }
+
+    #[test]
+    fn axis_owner_ignore_empty_cells_behaves_by_policy() {
+        assert!(FacetEmptyCellPolicy::Hole.axis_owner_ignore_empty_cells(false));
+        assert!(!FacetEmptyCellPolicy::EmptySubplot.axis_owner_ignore_empty_cells(true));
+        assert!(!FacetEmptyCellPolicy::Auto.axis_owner_ignore_empty_cells(false));
+        assert!(FacetEmptyCellPolicy::Auto.axis_owner_ignore_empty_cells(true));
     }
 }
