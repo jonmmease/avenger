@@ -145,6 +145,29 @@ mod tests {
         dataframe::DataFrame,
         prelude::SessionContext,
     };
+    use std::future::Future;
+
+    fn run_with_large_stack<F, Fut>(f: F)
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(), AvengerChartError>> + Send + 'static,
+    {
+        std::thread::Builder::new()
+            .name("rendering-test-large-stack".to_string())
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("build tokio runtime for large-stack rendering test");
+                runtime
+                    .block_on(f())
+                    .expect("large-stack rendering test future should succeed");
+            })
+            .expect("spawn large-stack rendering test thread")
+            .join()
+            .expect("join large-stack rendering test thread");
+    }
 
     fn deeply_nested_dataframe(ctx: &SessionContext) -> DataFrame {
         let outer_groups = StringArray::from(vec![
@@ -309,6 +332,62 @@ mod tests {
         .expect("read nested sparse row test data")
     }
 
+    async fn shared_row_basic_dataframe(ctx: &SessionContext) -> DataFrame {
+        ctx.sql(
+            "CREATE TABLE shared_row_basic AS VALUES
+            ('C1', 'R1', 1.0, 1.0),
+            ('C1', 'R2', 1.2, 1.3),
+            ('C2', 'R1', 2.0, 1.1),
+            ('C2', 'R3', 2.3, 1.4),
+            ('C3', 'R2', 3.0, 1.2),
+            ('C3', 'R3', 3.4, 1.5)",
+        )
+        .await
+        .expect("create shared row basic test data");
+
+        ctx.sql(
+            "SELECT
+                column1 AS col_group,
+                column2 AS row_group,
+                column3 AS x_val,
+                column4 AS y_val
+             FROM shared_row_basic",
+        )
+        .await
+        .expect("read shared row basic test data")
+    }
+
+    async fn jagged_group_local_dataframe(ctx: &SessionContext) -> DataFrame {
+        ctx.sql(
+            "CREATE TABLE jagged_group_local AS VALUES
+            ('A', 'C1', 'A1', 1.0, 1.0),
+            ('A', 'C1', 'A2', 1.2, 1.2),
+            ('A', 'C1', 'A3', 1.4, 1.4),
+            ('A', 'C2', 'A1', 2.0, 1.1),
+            ('A', 'C2', 'A2', 2.2, 1.3),
+            ('A', 'C3', 'A2', 3.0, 1.2),
+            ('A', 'C3', 'A3', 3.2, 1.4),
+            ('B', 'C1', 'B1', 1.0, 2.0),
+            ('B', 'C1', 'B2', 1.3, 2.2),
+            ('B', 'C2', 'B1', 2.0, 2.1),
+            ('B', 'C2', 'B2', 2.3, 2.3)",
+        )
+        .await
+        .expect("create jagged group-local test data");
+
+        ctx.sql(
+            "SELECT
+                column1 AS outer_group,
+                column2 AS inner_col,
+                column3 AS row_group,
+                column4 AS x_val,
+                column5 AS y_val
+             FROM jagged_group_local",
+        )
+        .await
+        .expect("read jagged group-local test data")
+    }
+
     fn build_level1_fill_legend_symbol(position: LegendPosition) -> Symbol<Cartesian> {
         Symbol::new()
             .x_with(col("x_val"), |c| c.with_scale_sharing(ScaleSharing::Shared))
@@ -400,6 +479,60 @@ mod tests {
         )
     }
 
+    fn build_nested_shared_row_basic_plot(df: DataFrame) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(760.0, 560.0)
+            .mark(
+                Facet::new().column(col("col_group")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new()
+                            .row_with(col("row_group"), |c| {
+                                c.facet(|f| {
+                                    f.with_scale_sharing(ScaleSharing::Shared).position("right")
+                                })
+                            })
+                            .subplot(
+                                Plot::<Cartesian>::new()
+                                    .mark(Symbol::new().x(col("x_val")).y(col("y_val")).size(35.0)),
+                            ),
+                    ),
+                ),
+            )
+    }
+
+    fn build_jagged_group_local_shared_row_plot(df: DataFrame) -> Plot<FacetRow> {
+        Plot::<FacetRow>::new()
+            .data(df)
+            .canvas_size(980.0, 700.0)
+            .mark(
+                Facet::new().row(col("outer_group")).subplot(
+                    Plot::<FacetColumn>::new().mark(
+                        Facet::new().column(col("inner_col")).subplot(
+                            Plot::<FacetRow>::new().mark(
+                                Facet::new()
+                                    .row_with(col("row_group"), |c| {
+                                        c.facet(|f| {
+                                            f.with_scale_sharing(ScaleSharing::Level(1))
+                                                .position("right")
+                                        })
+                                    })
+                                    .subplot(
+                                        Plot::<Cartesian>::new().mark(
+                                            Symbol::new()
+                                                .x(col("x_val"))
+                                                .y(col("y_val"))
+                                                .size(25.0)
+                                                .fill("#4682b4"),
+                                        ),
+                                    ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+    }
+
     fn build_single_level_row_legend_plot(
         df: DataFrame,
         position: LegendPosition,
@@ -449,6 +582,22 @@ mod tests {
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = nested_sparse_row_dataframe(ctx).await;
         build_nested_sparse_row_plot(df).compile(ctx).await
+    }
+
+    async fn compile_nested_shared_row_basic_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = shared_row_basic_dataframe(ctx).await;
+        build_nested_shared_row_basic_plot(df).compile(ctx).await
+    }
+
+    async fn compile_jagged_group_local_shared_row_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = jagged_group_local_dataframe(ctx).await;
+        build_jagged_group_local_shared_row_plot(df)
+            .compile(ctx)
+            .await
     }
 
     async fn compile_single_level_row_legend_plot(
@@ -974,6 +1123,79 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn shared_row_basic_right_owner_renders_each_row_label_once_globally()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_nested_shared_row_basic_plot(&ctx).await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+
+        for label in ["R1", "R2", "R3"] {
+            let xs = collect_text_x_positions(&evaluated.scene_graph, label);
+            assert_eq!(
+                xs.len(),
+                1,
+                "expected shared-row label {:?} to render exactly once on owning column",
+                label
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn jagged_group_local_shared_row_keeps_one_owner_column_per_group() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled = compile_jagged_group_local_shared_row_plot(&ctx).await?;
+            let evaluated = compiled.evaluate(&ctx, None).await?;
+
+            let mut a_owner_xs = Vec::new();
+            for label in ["A1", "A2", "A3"] {
+                let xs = collect_text_x_positions(&evaluated.scene_graph, label);
+                assert_eq!(
+                    xs.len(),
+                    1,
+                    "expected group-A label {:?} to render once on group-local owner column",
+                    label
+                );
+                a_owner_xs.push(xs[0]);
+            }
+
+            let mut b_owner_xs = Vec::new();
+            for label in ["B1", "B2"] {
+                let xs = collect_text_x_positions(&evaluated.scene_graph, label);
+                assert_eq!(
+                    xs.len(),
+                    1,
+                    "expected group-B label {:?} to render once on group-local owner column",
+                    label
+                );
+                b_owner_xs.push(xs[0]);
+            }
+
+            let a_owner_x = a_owner_xs[0];
+            for x in &a_owner_xs {
+                assert!(
+                    (*x - a_owner_x).abs() <= 1.0,
+                    "expected group-A row labels to share one owner column x (got {:?})",
+                    a_owner_xs
+                );
+            }
+
+            let b_owner_x = b_owner_xs[0];
+            for x in &b_owner_xs {
+                assert!(
+                    (*x - b_owner_x).abs() <= 1.0,
+                    "expected group-B row labels to share one owner column x (got {:?})",
+                    b_owner_xs
+                );
+            }
+
+            Ok(())
+        });
     }
 
     #[tokio::test]

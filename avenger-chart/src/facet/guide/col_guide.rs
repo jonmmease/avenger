@@ -9,8 +9,8 @@ use crate::error::AvengerChartError;
 use crate::facet::band_positions::{BandPosition, BandPositionIterator};
 use crate::facet::coord::FacetBandCoordMeasurement;
 use crate::facet::guide_utils::{
-    FacetLabelMeasurementConfig, FacetLabelRenderConfig, format_scalar_value,
-    measure_facet_label_slab, render_facet_label_slab,
+    FacetLabelMeasurementConfig, FacetLabelRenderConfig, facet_guide_labels_visible_for_cell,
+    format_scalar_value, measure_facet_label_slab, render_facet_label_slab,
 };
 use crate::facet::layout_plan::effective_edge_indices_for_values_at_path;
 use crate::facet::layout_slabs::LayoutSlabs;
@@ -44,6 +44,8 @@ pub struct FacetColGuideConfig {
     facet_data_plan: Option<LogicalPlanNode>,
     /// Position of facet labels ("top" or "bottom")
     position: Option<String>,
+    /// Scale-sharing level for the column facet variable (0=Free, N=Level(N), 255=Shared)
+    sharing_level: u8,
 }
 
 impl FacetColGuideConfig {
@@ -81,6 +83,10 @@ impl CoordinateGuide for FacetColGuideConfig {
                 self.facet_title = facet_col.facet_title().map(|s| s.to_string());
                 // Extract the facet position from the mark
                 self.position = facet_col.facet_position().map(|s| s.to_string());
+                self.sharing_level = facet_col
+                    .facet_scale_sharing()
+                    .map(|sharing| sharing.to_level())
+                    .unwrap_or(0);
                 break;
             }
         }
@@ -96,6 +102,7 @@ impl CoordinateGuide for FacetColGuideConfig {
             compiled_subplot: self.compiled_subplot,
             facet_data_plan: self.facet_data_plan,
             position: self.position,
+            sharing_level: self.sharing_level,
         })
     }
 }
@@ -116,6 +123,9 @@ pub struct FacetColGuide {
     facet_data_plan: Option<LogicalPlanNode>,
     /// Position of facet labels ("top" or "bottom")
     position: Option<String>,
+    /// Scale-sharing level for the column facet variable (0=Free, N=Level(N), 255=Shared)
+    #[serde(default)]
+    sharing_level: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -443,15 +453,29 @@ impl CompiledGuide for FacetColGuide {
         };
 
         let place_at_bottom = self.position.as_deref() == Some("bottom");
-        let title_visible = facet_title_visible_for_cell(
+        let axis_position = if place_at_bottom {
+            AxisPosition::Bottom
+        } else {
+            AxisPosition::Top
+        };
+        let guide_visible = facet_guide_labels_visible_for_cell(
             facet_tree,
             facet_path,
-            if place_at_bottom {
-                AxisPosition::Bottom
-            } else {
-                AxisPosition::Top
-            },
+            axis_position,
+            self.sharing_level,
         );
+        if !guide_visible {
+            debug!(
+                position = ?self.position,
+                sharing_level = self.sharing_level,
+                subplot_overflow_top = subplot_overflow.top,
+                subplot_overflow_bottom = subplot_overflow.bottom,
+                "FacetColGuide hidden by ownership; returning subplot overflow only"
+            );
+            return Ok(subplot_overflow);
+        }
+
+        let title_visible = facet_title_visible_for_cell(facet_tree, facet_path, axis_position);
         let title_for_cell = if title_visible {
             self.facet_title.as_ref()
         } else {
@@ -512,7 +536,9 @@ impl CompiledGuide for FacetColGuide {
             } else {
                 "local_first_hidden_top_title_if_nonzero"
             },
+            guide_visible,
             title_visible,
+            sharing_level = self.sharing_level,
             facet_guide_height,
             total_top,
             total_bottom,
@@ -559,6 +585,26 @@ impl CompiledGuide for FacetColGuide {
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Render facet labels for all nesting levels
         // Each level renders its own labels in its local coordinate system
+        let place_at_bottom = self.position.as_deref() == Some("bottom");
+        let axis_position = if place_at_bottom {
+            AxisPosition::Bottom
+        } else {
+            AxisPosition::Top
+        };
+        let guide_visible = facet_guide_labels_visible_for_cell(
+            facet_tree,
+            facet_path,
+            axis_position,
+            self.sharing_level,
+        );
+        if !guide_visible {
+            debug!(
+                position = ?self.position,
+                sharing_level = self.sharing_level,
+                "FacetColGuide evaluate hidden by ownership; skipping marks"
+            );
+            return Ok(vec![]);
+        }
 
         // Get column scale for band positions
         let column_scale = scales
@@ -593,17 +639,7 @@ impl CompiledGuide for FacetColGuide {
         let band_positions =
             align_bands_to_nested_child_col_spans(&band_positions, coord_measurement);
 
-        // Determine position - "bottom" places labels below, default "top" places above
-        let place_at_bottom = self.position.as_deref() == Some("bottom");
-        let title_visible = facet_title_visible_for_cell(
-            facet_tree,
-            facet_path,
-            if place_at_bottom {
-                AxisPosition::Bottom
-            } else {
-                AxisPosition::Top
-            },
-        );
+        let title_visible = facet_title_visible_for_cell(facet_tree, facet_path, axis_position);
         let title_for_cell = if title_visible {
             self.facet_title.as_ref()
         } else {
@@ -642,7 +678,9 @@ impl CompiledGuide for FacetColGuide {
             local_guide_bottom = local_overflow.as_ref().map(|co| co.guide.bottom),
             local_total_top = local_overflow.as_ref().map(|co| co.total.top),
             local_total_bottom = local_overflow.as_ref().map(|co| co.total.bottom),
+            guide_visible,
             title_visible,
+            sharing_level = self.sharing_level,
             anchor_policy = if place_at_bottom || title_visible {
                 "coordinated_first"
             } else {
@@ -907,6 +945,38 @@ impl FacetColGuide {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::facet::evaluated_facet_tree::{EvaluatedFacetTree, PartitionNode};
+    use crate::guide::FacetDirection;
+    use indexmap::IndexMap;
+
+    fn s(value: &str) -> datafusion::common::ScalarValue {
+        datafusion::common::ScalarValue::Utf8(Some(value.to_string()))
+    }
+
+    fn row_then_column_tree() -> EvaluatedFacetTree {
+        let make_leaf = || {
+            PartitionNode::leaf(
+                FacetDirection::Column,
+                255,
+                "species".to_string(),
+                None,
+                vec![s("setosa"), s("versicolor"), s("virginica")],
+            )
+        };
+
+        let mut children = IndexMap::new();
+        children.insert(s("short"), Box::new(make_leaf()));
+        children.insert(s("medium"), Box::new(make_leaf()));
+        children.insert(s("long"), Box::new(make_leaf()));
+
+        EvaluatedFacetTree::new(Some(PartitionNode::branch(
+            FacetDirection::Row,
+            255,
+            "length_bin".to_string(),
+            None,
+            children,
+        )))
+    }
 
     fn coordinated_overflow(
         guide_top: f32,
@@ -1008,5 +1078,64 @@ mod tests {
         let propagated = propagated_subplot_overflow(Some(local));
         assert_eq!(propagated.top, 17.0);
         assert_eq!(propagated.bottom, 9.0);
+    }
+
+    #[test]
+    fn shared_top_owner_visibility_only_far_top_row_shows_labels() {
+        let tree = row_then_column_tree();
+        assert!(facet_guide_labels_visible_for_cell(
+            &tree,
+            &[s("short")],
+            AxisPosition::Top,
+            255
+        ));
+        assert!(!facet_guide_labels_visible_for_cell(
+            &tree,
+            &[s("medium")],
+            AxisPosition::Top,
+            255
+        ));
+        assert!(!facet_guide_labels_visible_for_cell(
+            &tree,
+            &[s("long")],
+            AxisPosition::Top,
+            255
+        ));
+    }
+
+    #[test]
+    fn shared_bottom_owner_visibility_only_far_bottom_row_shows_labels() {
+        let tree = row_then_column_tree();
+        assert!(!facet_guide_labels_visible_for_cell(
+            &tree,
+            &[s("short")],
+            AxisPosition::Bottom,
+            255
+        ));
+        assert!(!facet_guide_labels_visible_for_cell(
+            &tree,
+            &[s("medium")],
+            AxisPosition::Bottom,
+            255
+        ));
+        assert!(facet_guide_labels_visible_for_cell(
+            &tree,
+            &[s("long")],
+            AxisPosition::Bottom,
+            255
+        ));
+    }
+
+    #[test]
+    fn free_sharing_visibility_shows_labels_in_all_rows() {
+        let tree = row_then_column_tree();
+        for path in ["short", "medium", "long"] {
+            assert!(facet_guide_labels_visible_for_cell(
+                &tree,
+                &[s(path)],
+                AxisPosition::Bottom,
+                0
+            ));
+        }
     }
 }
