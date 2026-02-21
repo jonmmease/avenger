@@ -13,8 +13,17 @@ use tracing::trace;
 pub(crate) struct FacetCellPlan {
     pub value: ScalarValue,
     pub full_path: Vec<ScalarValue>,
+    pub in_domain_slot: bool,
+    pub has_data_rows: bool,
+    pub empty_kind: FacetCellEmptyKind,
     pub is_empty: bool,
     pub filter_predicate: Option<Expr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FacetCellEmptyKind {
+    DomainPlaceholder,
+    DataEmpty,
 }
 
 /// Resolved band-level facet layout values for a single FacetCol node.
@@ -27,8 +36,8 @@ pub(crate) struct FacetBandPlan {
 }
 
 #[inline]
-pub(crate) fn is_renderable_slot(is_empty: bool) -> bool {
-    !is_empty
+pub(crate) fn is_renderable_slot(renderable: bool) -> bool {
+    renderable
 }
 
 /// Compute `padding_inner_px` from interior edge demand maxima.
@@ -42,10 +51,10 @@ pub(crate) fn is_renderable_slot(is_empty: bool) -> bool {
 pub(crate) fn compute_padding_from_overflows(
     axis: FacetAxis,
     overflows: &[OverflowSpaceRequirement],
-    empty_cells: &[bool],
+    renderable_cells: &[bool],
 ) -> f32 {
     let Some((first_renderable_idx, last_renderable_idx)) =
-        effective_edge_indices(empty_cells, overflows.len())
+        effective_edge_indices(renderable_cells, overflows.len())
     else {
         return 0.0;
     };
@@ -58,8 +67,8 @@ pub(crate) fn compute_padding_from_overflows(
     let mut outgoing_max = 0.0f32;
 
     for i in first_renderable_idx..=last_renderable_idx {
-        let is_empty = empty_cells.get(i).copied().unwrap_or(false);
-        if !is_renderable_slot(is_empty) {
+        let renderable = renderable_cells.get(i).copied().unwrap_or(false);
+        if !is_renderable_slot(renderable) {
             continue;
         }
 
@@ -99,17 +108,20 @@ pub(crate) fn compute_padding_from_overflows(
 
 /// Compute effective first/last cell indices for outer-edge overflow routing.
 ///
-/// Prefer first/last non-empty cells; fall back to raw edges if all are empty.
-pub(crate) fn effective_edge_indices(empty_cells: &[bool], count: usize) -> Option<(usize, usize)> {
+/// Prefer first/last renderable cells; fall back to raw edges if none are renderable.
+pub(crate) fn effective_edge_indices(
+    renderable_cells: &[bool],
+    count: usize,
+) -> Option<(usize, usize)> {
     if count == 0 {
         return None;
     }
 
-    let first_non_empty =
-        (0..count).find(|&idx| is_renderable_slot(empty_cells.get(idx).copied().unwrap_or(false)));
+    let first_non_empty = (0..count)
+        .find(|&idx| is_renderable_slot(renderable_cells.get(idx).copied().unwrap_or(false)));
     let last_non_empty = (0..count)
         .rev()
-        .find(|&idx| is_renderable_slot(empty_cells.get(idx).copied().unwrap_or(false)));
+        .find(|&idx| is_renderable_slot(renderable_cells.get(idx).copied().unwrap_or(false)));
 
     match (first_non_empty, last_non_empty) {
         (Some(first), Some(last)) => Some((first, last)),
@@ -117,7 +129,7 @@ pub(crate) fn effective_edge_indices(empty_cells: &[bool], count: usize) -> Opti
     }
 }
 
-fn empty_mask_for_values_at_path(
+fn renderable_mask_for_values_at_path(
     facet_tree: &EvaluatedFacetTree,
     facet_path: &[ScalarValue],
     values: &[ScalarValue],
@@ -127,7 +139,7 @@ fn empty_mask_for_values_at_path(
         .map(|value| {
             let mut path = facet_path.to_vec();
             path.push(value.clone());
-            !facet_tree.cell_exists(&path)
+            facet_tree.cell_exists(&path)
         })
         .collect()
 }
@@ -137,8 +149,8 @@ pub(crate) fn effective_edge_indices_for_values_at_path(
     facet_path: &[ScalarValue],
     values: &[ScalarValue],
 ) -> Option<(usize, usize)> {
-    let empty_cells = empty_mask_for_values_at_path(facet_tree, facet_path, values);
-    effective_edge_indices(&empty_cells, values.len())
+    let renderable_cells = renderable_mask_for_values_at_path(facet_tree, facet_path, values);
+    effective_edge_indices(&renderable_cells, values.len())
 }
 
 #[cfg(test)]
@@ -168,8 +180,9 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let empty_cells = vec![true, true, false, false];
-        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
+        let renderable_cells = vec![false, false, true, true];
+        let padding =
+            compute_padding_from_overflows(FacetAxis::Column, &overflows, &renderable_cells);
         assert_eq!(padding, 0.0);
     }
 
@@ -195,8 +208,9 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let empty_cells = vec![false, false, false, false];
-        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
+        let renderable_cells = vec![true, true, true, true];
+        let padding =
+            compute_padding_from_overflows(FacetAxis::Column, &overflows, &renderable_cells);
         assert_eq!(padding, 70.0);
     }
 
@@ -219,8 +233,9 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let empty_cells = vec![false, false, false];
-        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
+        let renderable_cells = vec![true, true, true];
+        let padding =
+            compute_padding_from_overflows(FacetAxis::Column, &overflows, &renderable_cells);
         assert_eq!(padding, 24.0);
     }
 
@@ -246,8 +261,9 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let empty_cells = vec![false, true, false, false];
-        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
+        let renderable_cells = vec![true, false, true, true];
+        let padding =
+            compute_padding_from_overflows(FacetAxis::Column, &overflows, &renderable_cells);
         assert_eq!(padding, 15.0);
     }
 
@@ -268,8 +284,9 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let empty_cells = vec![true, true, true];
-        let padding = compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells);
+        let renderable_cells = vec![false, false, false];
+        let padding =
+            compute_padding_from_overflows(FacetAxis::Column, &overflows, &renderable_cells);
         assert_eq!(padding, 0.0);
     }
 
@@ -295,8 +312,8 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let empty_cells = vec![false, false, false, false];
-        let padding = compute_padding_from_overflows(FacetAxis::Row, &overflows, &empty_cells);
+        let renderable_cells = vec![true, true, true, true];
+        let padding = compute_padding_from_overflows(FacetAxis::Row, &overflows, &renderable_cells);
         assert_eq!(padding, 60.0);
     }
 
@@ -316,27 +333,27 @@ mod tests {
                 bottom: 5.0,
             },
         ];
-        let empty_cells = vec![true, false];
+        let renderable_cells = vec![false, true];
         assert_eq!(
-            compute_padding_from_overflows(FacetAxis::Column, &overflows, &empty_cells),
+            compute_padding_from_overflows(FacetAxis::Column, &overflows, &renderable_cells),
             0.0
         );
         assert_eq!(
-            compute_padding_from_overflows(FacetAxis::Row, &overflows, &empty_cells),
+            compute_padding_from_overflows(FacetAxis::Row, &overflows, &renderable_cells),
             0.0
         );
     }
 
     #[test]
     fn effective_edge_indices_prefers_non_empty_cells() {
-        let empty_cells = vec![true, true, false, false];
-        assert_eq!(effective_edge_indices(&empty_cells, 4), Some((2, 3)));
+        let renderable_cells = vec![false, false, true, true];
+        assert_eq!(effective_edge_indices(&renderable_cells, 4), Some((2, 3)));
     }
 
     #[test]
     fn effective_edge_indices_falls_back_when_all_empty() {
-        let empty_cells = vec![true, true, true];
-        assert_eq!(effective_edge_indices(&empty_cells, 3), Some((0, 2)));
+        let renderable_cells = vec![false, false, false];
+        assert_eq!(effective_edge_indices(&renderable_cells, 3), Some((0, 2)));
     }
 
     #[test]
@@ -358,8 +375,8 @@ mod tests {
             vec![s("A"), s("B")],
         )));
         let values = vec![s("X"), s("A"), s("B")];
-        let empty_mask = empty_mask_for_values_at_path(&tree, &[], &values);
-        assert_eq!(empty_mask, vec![true, false, false]);
+        let renderable_mask = renderable_mask_for_values_at_path(&tree, &[], &values);
+        assert_eq!(renderable_mask, vec![false, true, true]);
         assert_eq!(
             effective_edge_indices_for_values_at_path(&tree, &[], &values),
             Some((1, 2))

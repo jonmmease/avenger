@@ -8,6 +8,7 @@ pub mod coord_row;
 pub mod coordination;
 pub mod debug;
 pub mod dimension_config;
+pub mod empty_cell_policy;
 pub mod evaluated_facet_tree;
 pub mod guide;
 pub mod guide_utils;

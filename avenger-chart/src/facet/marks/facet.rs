@@ -6,6 +6,7 @@ use crate::facet::coord::{FacetColumn, FacetRow};
 use crate::facet::dimension_config::{
     ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
+use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
 use crate::facet::layout_slabs::LayoutSlabs;
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
 use crate::marks::{
@@ -45,6 +46,8 @@ pub struct Facet<InnerC: CoordinateSystem> {
     pub(crate) facet_col_scale_sharing: Option<ScaleSharing>,
     pub(crate) facet_row_position: Option<String>,
     pub(crate) facet_col_position: Option<String>,
+    pub(crate) facet_row_empty_cell_policy: Option<FacetEmptyCellPolicy>,
+    pub(crate) facet_col_empty_cell_policy: Option<FacetEmptyCellPolicy>,
 }
 
 impl<InnerC: CoordinateSystem> Facet<InnerC> {
@@ -65,6 +68,8 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
             facet_col_scale_sharing: None,
             facet_row_position: None,
             facet_col_position: None,
+            facet_row_empty_cell_policy: None,
+            facet_col_empty_cell_policy: None,
         }
     }
 
@@ -102,6 +107,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s.facet_spacing = cfg.spacing;
         s.facet_row_scale_sharing = cfg.scale_sharing;
         s.facet_row_position = cfg.position;
+        s.facet_row_empty_cell_policy = cfg.empty_cell_policy;
         s
     }
 
@@ -127,6 +133,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s.facet_spacing = cfg.spacing;
         s.facet_col_scale_sharing = cfg.scale_sharing;
         s.facet_col_position = cfg.position;
+        s.facet_col_empty_cell_policy = cfg.empty_cell_policy;
         s
     }
 
@@ -147,6 +154,8 @@ pub struct CompiledFacetRow {
     pub(crate) facet_spacing: Option<f32>,
     pub(crate) facet_scale_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
+    #[serde(default)]
+    pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
 }
 
 impl CompiledFacetRow {
@@ -167,6 +176,9 @@ impl CompiledFacetRow {
     }
     pub fn facet_position(&self) -> Option<&str> {
         self.facet_position.as_deref()
+    }
+    pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
+        self.facet_empty_cell_policy
     }
 }
 
@@ -234,6 +246,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             facet_spacing: self.facet_spacing,
             facet_scale_sharing: self.facet_row_scale_sharing,
             facet_position: self.facet_row_position.clone(),
+            facet_empty_cell_policy: self.facet_row_empty_cell_policy.unwrap_or_default(),
         }))
     }
 }
@@ -331,6 +344,7 @@ impl CompiledMark for CompiledFacetRow {
             legend_start_top = origin_offset_y,
             "FacetRow render main-axis start slab offset"
         );
+        let effective_empty_policy = self.facet_empty_cell_policy.effective();
 
         let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
 
@@ -339,7 +353,7 @@ impl CompiledMark for CompiledFacetRow {
             let subplot_origin = [origin_offset_x, position + origin_offset_y];
             let is_empty_cell = cell.plan.is_empty;
 
-            if is_empty_cell {
+            if is_empty_cell && matches!(effective_empty_policy, FacetEmptyCellPolicy::Hole) {
                 let empty_group = SceneGroup {
                     name: format!("facet_row_{}_empty", idx),
                     origin: subplot_origin,
@@ -356,10 +370,16 @@ impl CompiledMark for CompiledFacetRow {
                 continue;
             }
 
+            let cell_eval_ctx = if is_empty_cell && !cell.plan.in_domain_slot {
+                subplot_eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
+            } else {
+                subplot_eval_ctx.clone()
+            };
+
             let components = self
                 .compiled_subplot
                 .build_plot_components(
-                    &subplot_eval_ctx,
+                    &cell_eval_ctx,
                     &cell.measurement,
                     Some(&cell.data_override),
                     true,
@@ -461,6 +481,8 @@ pub struct CompiledFacetCol {
     pub(crate) facet_spacing: Option<f32>,
     pub(crate) facet_scale_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
+    #[serde(default)]
+    pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
 }
 
 impl CompiledFacetCol {
@@ -482,6 +504,9 @@ impl CompiledFacetCol {
     pub fn facet_position(&self) -> Option<&str> {
         self.facet_position.as_deref()
     }
+    pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
+        self.facet_empty_cell_policy
+    }
 }
 
 /// Typed view over compiled facet marks.
@@ -502,6 +527,13 @@ impl<'a> FacetMarkRef<'a> {
         match self {
             Self::Row(mark) => mark.facet_scale_sharing(),
             Self::Col(mark) => mark.facet_scale_sharing(),
+        }
+    }
+
+    pub fn facet_empty_cell_policy(self) -> FacetEmptyCellPolicy {
+        match self {
+            Self::Row(mark) => mark.facet_empty_cell_policy(),
+            Self::Col(mark) => mark.facet_empty_cell_policy(),
         }
     }
 }
@@ -584,6 +616,7 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
             facet_spacing: self.facet_spacing,
             facet_scale_sharing: self.facet_col_scale_sharing,
             facet_position: self.facet_col_position.clone(),
+            facet_empty_cell_policy: self.facet_col_empty_cell_policy.unwrap_or_default(),
         }))
     }
 }
@@ -687,6 +720,7 @@ impl CompiledMark for CompiledFacetCol {
             legend_start_top = origin_offset_y,
             "FacetCol render main-axis start slab offset"
         );
+        let effective_empty_policy = self.facet_empty_cell_policy.effective();
 
         let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
 
@@ -702,7 +736,7 @@ impl CompiledMark for CompiledFacetCol {
             // render an empty group at the correct position to preserve layout.
             // Don't call build_plot_components which would trigger guide rendering
             // with potentially invalid scale domains (causing NaN/Inf errors).
-            if is_empty_cell {
+            if is_empty_cell && matches!(effective_empty_policy, FacetEmptyCellPolicy::Hole) {
                 let empty_group = SceneGroup {
                     name: format!("facet_col_{}_empty", idx),
                     origin: subplot_origin,
@@ -719,11 +753,17 @@ impl CompiledMark for CompiledFacetCol {
                 continue;
             }
 
+            let cell_eval_ctx = if is_empty_cell && !cell.plan.in_domain_slot {
+                subplot_eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
+            } else {
+                subplot_eval_ctx.clone()
+            };
+
             // Build plot components using pre-computed measurement
             let components = self
                 .compiled_subplot
                 .build_plot_components(
-                    &subplot_eval_ctx,
+                    &cell_eval_ctx,
                     &cell.measurement,
                     Some(&cell.data_override),
                     true, // dimensions_are_plot_area

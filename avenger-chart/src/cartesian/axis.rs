@@ -24,6 +24,7 @@ use crate::{
             evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
         },
     },
+    render::context::INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
     serialization::LogicalExprNodeExt,
     theme::Theme,
 };
@@ -302,12 +303,25 @@ impl CartesianAxis {
             };
 
         // Query facet-aware visibility based on cell path, axis position, and sharing level
+        let hide_invalid_facet_path_axes = params
+            .get(INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM)
+            .and_then(|value| match value {
+                datafusion::common::ScalarValue::Boolean(Some(v)) => Some(*v),
+                _ => None,
+            })
+            .unwrap_or(false);
         let facet_visibility = if facet_path.is_empty() {
             AxisVisibility::visible()
         } else {
             facet_tree
                 .channel_axis_visibility_for_path_checked(facet_path, position, sharing_level)
-                .unwrap_or_else(AxisVisibility::visible)
+                .unwrap_or_else(|| {
+                    if hide_invalid_facet_path_axes {
+                        AxisVisibility::hidden()
+                    } else {
+                        AxisVisibility::visible()
+                    }
+                })
         };
 
         // Jagged grids can leave some interior subplots without edge labels.

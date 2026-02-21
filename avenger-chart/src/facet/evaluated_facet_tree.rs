@@ -76,6 +76,11 @@ pub struct PartitionNode {
     pub field: String,
     /// Field expression for filtering (e.g., col("department"))
     pub field_expr: Option<Expr>,
+    /// Values observed under the concrete parent-path filter for this node.
+    ///
+    /// This differs from `content` values when domain sharing expands slot
+    /// enumeration from an ancestor context.
+    pub observed_values: Vec<ScalarValue>,
     /// Content: either leaf values or branch with children
     pub content: PartitionContent,
 }
@@ -383,6 +388,21 @@ impl EvaluatedFacetTree {
         self.node_at_path(parent_path).map_or(false, |parent| {
             parent
                 .values()
+                .any(|v| scalar_values_equivalent(v, target_value))
+        })
+    }
+
+    /// Check whether a full cell path has any observed rows after full facet filtering.
+    pub fn cell_has_data(&self, path: &[ScalarValue]) -> bool {
+        if path.is_empty() {
+            return self.root().is_some();
+        }
+
+        let parent_path = &path[..path.len() - 1];
+        let target_value = &path[path.len() - 1];
+        self.node_at_path(parent_path).is_some_and(|parent| {
+            parent
+                .observed_values()
                 .any(|v| scalar_values_equivalent(v, target_value))
         })
     }
@@ -905,6 +925,26 @@ impl PartitionNode {
             sharing,
             field,
             field_expr,
+            observed_values: values.clone(),
+            content: PartitionContent::Leaf { values },
+        }
+    }
+
+    /// Create a new leaf partition node with explicit observed values.
+    pub fn leaf_with_observed(
+        direction: FacetDirection,
+        sharing: u8,
+        field: String,
+        field_expr: Option<Expr>,
+        values: Vec<ScalarValue>,
+        observed_values: Vec<ScalarValue>,
+    ) -> Self {
+        Self {
+            direction,
+            sharing,
+            field,
+            field_expr,
+            observed_values,
             content: PartitionContent::Leaf { values },
         }
     }
@@ -922,6 +962,26 @@ impl PartitionNode {
             sharing,
             field,
             field_expr,
+            observed_values: children.keys().cloned().collect(),
+            content: PartitionContent::Branch { children },
+        }
+    }
+
+    /// Create a new branch partition node with explicit observed values.
+    pub fn branch_with_observed(
+        direction: FacetDirection,
+        sharing: u8,
+        field: String,
+        field_expr: Option<Expr>,
+        observed_values: Vec<ScalarValue>,
+        children: IndexMap<ScalarValue, Box<PartitionNode>>,
+    ) -> Self {
+        Self {
+            direction,
+            sharing,
+            field,
+            field_expr,
+            observed_values,
             content: PartitionContent::Branch { children },
         }
     }
@@ -937,6 +997,10 @@ impl PartitionNode {
             PartitionContent::Leaf { values } => Box::new(values.iter()),
             PartitionContent::Branch { children } => Box::new(children.keys()),
         }
+    }
+
+    pub fn observed_values(&self) -> impl Iterator<Item = &ScalarValue> {
+        self.observed_values.iter()
     }
 
     /// Get the number of domain values at this level.
@@ -1131,6 +1195,13 @@ async fn build_partition_node(
     // If sharing level < current depth (including Free/0), domain varies per parent (use filtered)
     let use_shared_domain = sharing >= current_depth;
 
+    let observed_values = if let Some(parent_filter) = parent_filter.clone() {
+        let df_filtered = df.clone().filter(parent_filter)?;
+        FacetKeyExtractor::extract_keys(&df_filtered, &field_expr).await?
+    } else {
+        FacetKeyExtractor::extract_keys(df, &field_expr).await?
+    };
+
     // Get distinct values, using cache for shared domains
     let values = if use_shared_domain {
         // For shared domains, check cache first (keyed by field name since we use unfiltered data)
@@ -1195,30 +1266,33 @@ async fn build_partition_node(
 
         if children.is_empty() {
             // No valid children - make leaf
-            Ok(Some(PartitionNode::leaf(
+            Ok(Some(PartitionNode::leaf_with_observed(
                 spec.direction,
                 sharing,
                 field,
                 Some(field_expr),
                 values,
+                observed_values,
             )))
         } else {
-            Ok(Some(PartitionNode::branch(
+            Ok(Some(PartitionNode::branch_with_observed(
                 spec.direction,
                 sharing,
                 field,
                 Some(field_expr),
+                observed_values,
                 children,
             )))
         }
     } else {
         // No nested facets - leaf node
-        Ok(Some(PartitionNode::leaf(
+        Ok(Some(PartitionNode::leaf_with_observed(
             spec.direction,
             sharing,
             field,
             Some(field_expr),
             values,
+            observed_values,
         )))
     }
 }
@@ -1377,6 +1451,33 @@ mod tests {
         assert!(tree.cell_exists(&[scalar("Eng"), scalar("A")]));
         assert!(!tree.cell_exists(&[scalar("Ops")]));
         assert!(!tree.cell_exists(&[scalar("Eng"), scalar("Z")]));
+    }
+
+    #[test]
+    fn test_cell_has_data_can_differ_from_cell_exists_for_shared_domain() {
+        let team_leaf = PartitionNode::leaf_with_observed(
+            FacetDirection::Row,
+            255,
+            "team".to_string(),
+            None,
+            vec![scalar("A"), scalar("B")],
+            vec![scalar("A")],
+        );
+
+        let mut dept_children = IndexMap::new();
+        dept_children.insert(scalar("Eng"), Box::new(team_leaf));
+        let dept_node = PartitionNode::branch(
+            FacetDirection::Column,
+            255,
+            "dept".to_string(),
+            None,
+            dept_children,
+        );
+
+        let tree = EvaluatedFacetTree::new(Some(dept_node));
+        assert!(tree.cell_exists(&[scalar("Eng"), scalar("B")]));
+        assert!(!tree.cell_has_data(&[scalar("Eng"), scalar("B")]));
+        assert!(tree.cell_has_data(&[scalar("Eng"), scalar("A")]));
     }
 
     fn build_enumeration_test_tree() -> EvaluatedFacetTree {

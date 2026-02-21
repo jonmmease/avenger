@@ -17,6 +17,9 @@ use crate::{
     theme::{Theme, ThemeContext, ThemeValue},
 };
 
+pub const INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM: &str =
+    "__avenger_hide_invalid_facet_path_axes";
+
 /// Immutable context built once at evaluate() entry.
 ///
 /// Contains all state that remains constant throughout the entire evaluation:
@@ -34,6 +37,11 @@ pub struct EvaluationContext {
     pub params: IndexMap<String, ScalarValue>,
     /// Pre-computed facet structure for efficient domain lookups and visibility decisions.
     pub facet_tree: Arc<EvaluatedFacetTree>,
+    /// Whether invalid facet paths should hide axis labels/titles instead of showing them.
+    ///
+    /// This is used when rendering placeholder facet slots as empty subplots to avoid
+    /// duplicate ownership labels on non-owner paths.
+    pub hide_invalid_facet_path_axes: bool,
 }
 
 impl EvaluationContext {
@@ -48,6 +56,7 @@ impl EvaluationContext {
             session_context,
             params,
             facet_tree,
+            hide_invalid_facet_path_axes: false,
         }
     }
 
@@ -58,6 +67,7 @@ impl EvaluationContext {
             session_context: self.session_context.clone(),
             params,
             facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
         }
     }
 
@@ -71,6 +81,23 @@ impl EvaluationContext {
             session_context: self.session_context.clone(),
             params,
             facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+        }
+    }
+
+    /// Create a new context overriding invalid facet-path axis fallback behavior.
+    pub fn with_invalid_facet_path_axis_fallback_hidden(&self, hidden: bool) -> Self {
+        let mut params = self.params.clone();
+        params.insert(
+            INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM.to_string(),
+            ScalarValue::Boolean(Some(hidden)),
+        );
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params,
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: hidden,
         }
     }
 }

@@ -41,7 +41,11 @@ use crate::{
     },
     coords::{CoordMeasurement, coordinate_overflow_for_guides},
     error::AvengerChartError,
-    facet::{debug as facet_debug, evaluated_facet_tree::EvaluatedFacetTree},
+    facet::{
+        debug as facet_debug, empty_cell_policy::FacetEmptyCellPolicy,
+        evaluated_facet_tree::EvaluatedFacetTree,
+        marks::facet::{FacetMarkRef, facet_mark_ref},
+    },
     guide::OverflowSpaceRequirement,
     layout::{
         ChartLayout, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, LayoutBounds,
@@ -90,6 +94,28 @@ impl CompiledPlot {
 
     /// Safety cap on iterative top-level canvas refinement.
     const MAX_CANVAS_REFINEMENT_ITERS: usize = 3;
+
+    fn marks_use_auto_empty_cell_policy(marks: &[Arc<dyn CompiledMark>]) -> bool {
+        marks.iter().any(|mark| {
+            if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
+                return match facet_mark {
+                    FacetMarkRef::Row(facet_row) => {
+                        matches!(facet_row.facet_empty_cell_policy(), FacetEmptyCellPolicy::Auto)
+                            || Self::marks_use_auto_empty_cell_policy(
+                                &facet_row.compiled_subplot().marks,
+                            )
+                    }
+                    FacetMarkRef::Col(facet_col) => {
+                        matches!(facet_col.facet_empty_cell_policy(), FacetEmptyCellPolicy::Auto)
+                            || Self::marks_use_auto_empty_cell_policy(
+                                &facet_col.compiled_subplot().marks,
+                            )
+                    }
+                };
+            }
+            false
+        })
+    }
 }
 
 /// Evaluate a SizeMode to get an EvaluatedSizeMode with concrete f32 values
@@ -529,6 +555,40 @@ mod tests {
             )
     }
 
+    fn build_nested_shared_row_shared_both_plot_with_empty_policy(
+        df: DataFrame,
+        policy: FacetEmptyCellPolicy,
+    ) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(760.0, 560.0)
+            .mark(
+                Facet::new().column(col("col_group")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new()
+                            .row_with(col("row_group"), move |c| {
+                                c.facet(|f| {
+                                    f.with_scale_sharing(ScaleSharing::Shared)
+                                        .empty_cell_policy(policy)
+                                })
+                            })
+                            .subplot(
+                                Plot::<Cartesian>::new().mark(
+                                    Symbol::new()
+                                        .x_with(col("x_val"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Shared)
+                                        })
+                                        .y_with(col("y_val"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Shared)
+                                        })
+                                        .size(35.0),
+                                ),
+                            ),
+                    ),
+                ),
+            )
+    }
+
     fn build_jagged_group_local_shared_row_plot(df: DataFrame) -> Plot<FacetRow> {
         Plot::<FacetRow>::new()
             .data(df)
@@ -624,6 +684,16 @@ mod tests {
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = shared_row_basic_dataframe(ctx).await;
         build_nested_shared_row_shared_both_plot(df).compile(ctx).await
+    }
+
+    async fn compile_nested_shared_row_shared_both_plot_with_empty_policy(
+        ctx: &SessionContext,
+        policy: FacetEmptyCellPolicy,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = shared_row_basic_dataframe(ctx).await;
+        build_nested_shared_row_shared_both_plot_with_empty_policy(df, policy)
+            .compile(ctx)
+            .await
     }
 
     async fn compile_jagged_group_local_shared_row_plot(
@@ -789,6 +859,19 @@ mod tests {
             .collect::<Vec<_>>();
         groups.sort_by(|a, b| a.0.cmp(&b.0));
         groups
+    }
+
+    fn count_groups_with_name(scene_graph: &SceneGraph, prefix: &str, ends_with: &str) -> usize {
+        scene_graph
+            .group_paths()
+            .into_iter()
+            .filter_map(|path| scene_graph.get_mark(&path))
+            .filter_map(|mark| match mark {
+                SceneMark::Group(group) => Some(group),
+                _ => None,
+            })
+            .filter(|group| group.name.starts_with(prefix) && group.name.ends_with(ends_with))
+            .count()
     }
 
     fn collect_text_x_positions(scene_graph: &SceneGraph, text: &str) -> Vec<f32> {
@@ -1176,6 +1259,56 @@ mod tests {
                 label
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn empty_cell_policy_controls_whether_empty_slots_render_subplots()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let hole_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+            &ctx,
+            FacetEmptyCellPolicy::Hole,
+        )
+        .await?;
+        let hole_scene = hole_plot.evaluate(&ctx, None).await?;
+
+        let ctx = SessionContext::new();
+        let empty_subplot_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+            &ctx,
+            FacetEmptyCellPolicy::EmptySubplot,
+        )
+        .await?;
+        let empty_subplot_scene = empty_subplot_plot.evaluate(&ctx, None).await?;
+
+        let ctx = SessionContext::new();
+        let auto_plot = compile_nested_shared_row_shared_both_plot_with_empty_policy(
+            &ctx,
+            FacetEmptyCellPolicy::Auto,
+        )
+        .await?;
+        let auto_scene = auto_plot.evaluate(&ctx, None).await?;
+
+        let hole_empty_groups =
+            count_groups_with_name(&hole_scene.scene_graph, "facet_row_", "_empty");
+        let empty_subplot_empty_groups =
+            count_groups_with_name(&empty_subplot_scene.scene_graph, "facet_row_", "_empty");
+        let auto_empty_groups =
+            count_groups_with_name(&auto_scene.scene_graph, "facet_row_", "_empty");
+
+        assert!(
+            hole_empty_groups > 0,
+            "hole policy should render explicit empty groups for empty slots"
+        );
+        assert_eq!(
+            empty_subplot_empty_groups, 0,
+            "empty subplot policy should render full subplot groups instead of *_empty placeholders"
+        );
+        assert_eq!(
+            auto_empty_groups, hole_empty_groups,
+            "auto policy should resolve to hole in this release"
+        );
 
         Ok(())
     }
@@ -3021,6 +3154,10 @@ impl CompiledPlot {
             merged_params,
             facet_tree.clone(),
         );
+
+        if Self::marks_use_auto_empty_cell_policy(&self.marks) {
+            trace!("Facet empty-cell policy `auto` resolved to `hole` for this evaluation");
+        }
 
         // Measure plot components
         let measurement = self
