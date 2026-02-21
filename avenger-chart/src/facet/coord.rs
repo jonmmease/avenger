@@ -858,15 +858,18 @@ struct FacetColMeasurePlan {
 }
 
 /// Shared nested-facet measurement context used by pass 1 and pass 2.
-struct FacetColNestedMeasureContext<'a> {
-    nested_col_sharing: Option<u8>,
-    nested_depth: u8,
-    ancestor_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
-    per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
-    shared_scale_builder: &'a ScaleBuilder,
-    facet_tree: &'a crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-    data_df: &'a DataFrame,
-    eval_ctx: &'a EvaluationContext,
+struct FacetColNestedMeasureContext {
+    scale_artifacts: Arc<FacetScaleNodeArtifacts>,
+    facet_tree: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
+    data_df: DataFrame,
+    eval_ctx: EvaluationContext,
+}
+
+/// Phase-4 geometry-independent preparation outputs shared by Stage-5+ measurement.
+struct FacetPhase4Prep {
+    plan: FacetColMeasurePlan,
+    subplot_eval_ctx: EvaluationContext,
+    nested_measure_ctx: FacetColNestedMeasureContext,
 }
 
 #[derive(Default)]
@@ -967,6 +970,21 @@ fn build_facet_cell(
         is_empty,
         filter_predicate,
     })
+}
+
+/// Build canonical per-cell facet plans for the current node path.
+///
+/// This phase is geometry-independent and depends only on the evaluated facet tree
+/// semantics plus the enumerated cell values for this node.
+fn build_facet_cell_plans(
+    facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
+    facet_path: &[ScalarValue],
+    cell_values: &[ScalarValue],
+) -> Result<Vec<FacetCellPlan>, AvengerChartError> {
+    cell_values
+        .iter()
+        .map(|value| build_facet_cell(facet_tree, facet_path, value))
+        .collect::<Result<_, _>>()
 }
 
 /// Build a fixed-plot-area layout spec for subplot measurement.
@@ -1251,18 +1269,18 @@ async fn measure_nested_cell(
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
-    nested_ctx: &FacetColNestedMeasureContext<'_>,
+    nested_ctx: &FacetColNestedMeasureContext,
 ) -> Result<MeasuredFacetCell, AvengerChartError> {
     let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_cross_size, plot_height);
     let mode = FacetCellMeasurementMode::NestedSharing {
-        nested_col_sharing: nested_ctx.nested_col_sharing,
-        nested_depth: nested_ctx.nested_depth,
-        ancestor_scale_builder_cache: nested_ctx.ancestor_scale_builder_cache,
-        per_cell_scale_builder_cache: nested_ctx.per_cell_scale_builder_cache,
-        shared_scale_builder: nested_ctx.shared_scale_builder,
-        facet_tree: nested_ctx.facet_tree,
-        data_df: nested_ctx.data_df,
-        eval_ctx: nested_ctx.eval_ctx,
+        nested_col_sharing: nested_ctx.scale_artifacts.nested_col_sharing,
+        nested_depth: nested_ctx.scale_artifacts.nested_depth,
+        ancestor_scale_builder_cache: &nested_ctx.scale_artifacts.ancestor_scale_builder_cache,
+        per_cell_scale_builder_cache: &nested_ctx.scale_artifacts.per_cell_scale_builder_cache,
+        shared_scale_builder: &nested_ctx.scale_artifacts.shared_scale_builder,
+        facet_tree: nested_ctx.facet_tree.as_ref(),
+        data_df: &nested_ctx.data_df,
+        eval_ctx: &nested_ctx.eval_ctx,
     };
     measure_facet_cell(
         cell,
@@ -1276,13 +1294,15 @@ async fn measure_nested_cell(
 }
 
 async fn build_facet_col_measure_plan(
-    cell_values: Vec<ScalarValue>,
+    cell_plans: Vec<FacetCellPlan>,
     facet_path: &[ScalarValue],
     data_df: &DataFrame,
     compiled_subplot: &Arc<CompiledPlot>,
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
 ) -> Result<FacetColMeasurePlan, AvengerChartError> {
+    let cell_values: Vec<ScalarValue> = cell_plans.iter().map(|plan| plan.value.clone()).collect();
+
     let node_key = FacetScaleNodeKey::new(compiled_subplot, facet_path);
     let scale_artifacts = if let Some(artifacts) = eval_ctx
         .facet_scale_precompute_store()
@@ -1325,11 +1345,6 @@ async fn build_facet_col_measure_plan(
         );
     }
 
-    // Build canonical per-cell contexts once and reuse across pass 1/pass 2.
-    let cell_plans: Vec<FacetCellPlan> = cell_values
-        .iter()
-        .map(|value| build_facet_cell(facet_tree, facet_path, value))
-        .collect::<Result<_, _>>()?;
     let cells: Vec<FacetCellDraft> = cell_plans
         .into_iter()
         .map(|plan| {
@@ -1360,10 +1375,52 @@ async fn build_facet_col_measure_plan(
     })
 }
 
+async fn prepare_phase4_measurement_inputs(
+    cell_plans: Vec<FacetCellPlan>,
+    facet_path: &[ScalarValue],
+    data_df: &DataFrame,
+    compiled_subplot: &Arc<CompiledPlot>,
+    empty_cell_policy: FacetEmptyCellPolicy,
+    eval_ctx: &EvaluationContext,
+) -> Result<FacetPhase4Prep, AvengerChartError> {
+    let plan = build_facet_col_measure_plan(
+        cell_plans,
+        facet_path,
+        data_df,
+        compiled_subplot,
+        &eval_ctx.facet_tree,
+        eval_ctx,
+    )
+    .await?;
+
+    let has_holes = plan.cells.iter().any(|cell| cell.plan.is_empty);
+    let axis_owner_ignore_empty_cells = empty_cell_policy.axis_owner_ignore_empty_cells(has_holes);
+
+    let subplot_eval_ctx = {
+        let mut params = compiled_subplot.get_default_params().clone();
+        params.extend(eval_ctx.params.clone());
+        let eval_ctx = eval_ctx.with_params(params);
+        eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
+    };
+
+    let nested_measure_ctx = FacetColNestedMeasureContext {
+        scale_artifacts: plan.scale_artifacts.clone(),
+        facet_tree: eval_ctx.facet_tree.clone(),
+        data_df: data_df.clone(),
+        eval_ctx: eval_ctx.clone(),
+    };
+
+    Ok(FacetPhase4Prep {
+        plan,
+        subplot_eval_ctx,
+        nested_measure_ctx,
+    })
+}
+
 async fn build_extent_builder_for_cell(
     data_override: &DataFrame,
     compiled_subplot: &Arc<CompiledPlot>,
-    nested_ctx: &FacetColNestedMeasureContext<'_>,
+    nested_ctx: &FacetColNestedMeasureContext,
 ) -> Result<ScaleBuilder, AvengerChartError> {
     build_scale_builder_from_marks(
         &compiled_subplot.marks,
@@ -1380,7 +1437,7 @@ async fn build_extent_builder_for_cell(
 
 fn annotate_domain_extents(
     raw_extents: HashMap<String, DomainExtent>,
-    nested_ctx: &FacetColNestedMeasureContext<'_>,
+    nested_ctx: &FacetColNestedMeasureContext,
 ) -> HashMap<String, ChannelDomainExtent> {
     raw_extents
         .into_iter()
@@ -1403,7 +1460,7 @@ async fn measure_cells_overflow_probe(
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
-    nested_ctx: &FacetColNestedMeasureContext<'_>,
+    nested_ctx: &FacetColNestedMeasureContext,
     empty_cell_policy: FacetEmptyCellPolicy,
 ) -> Result<OverflowProbeSummary, AvengerChartError> {
     let mut summary = OverflowProbeSummary::default();
@@ -1481,7 +1538,7 @@ async fn measure_cells_final_and_extents(
     plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
-    nested_ctx: &FacetColNestedMeasureContext<'_>,
+    nested_ctx: &FacetColNestedMeasureContext,
     empty_cell_policy: FacetEmptyCellPolicy,
 ) -> Result<(), AvengerChartError> {
     for (idx, cell) in cells.iter_mut().enumerate() {
@@ -1709,6 +1766,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             AvengerChartError::InternalError("FacetColumn measure requires data".into())
         })?;
 
+        // Stage 2: precompute subtree scale builders used by nested sharing measurement.
         ensure_subtree_precomputed(
             self.compiled_marks,
             self.facet_path,
@@ -1718,34 +1776,24 @@ impl<'a> FacetColMeasurePipeline<'a> {
         )
         .await?;
 
-        // Stage 2: build per-cell plan/data overrides and prepare nested measurement context.
-        let mut plan = self
-            .build_measure_plan(cell_values, data_df, resolved.compiled_subplot)
+        // Stage 3: build geometry-independent per-cell facet plans for this node.
+        let cell_plans = self.build_cell_plans(&cell_values)?;
+
+        // Stage 4: geometry-independent measurement prep (plan, filtered data, nested context).
+        let FacetPhase4Prep {
+            mut plan,
+            subplot_eval_ctx,
+            nested_measure_ctx,
+        } = self
+            .prepare_phase4_measurement_inputs(
+                cell_plans,
+                data_df,
+                resolved.compiled_subplot,
+                resolved.empty_cell_policy,
+            )
             .await?;
 
-        let has_holes = plan.cells.iter().any(|cell| cell.plan.is_empty);
-        let axis_owner_ignore_empty_cells = resolved
-            .empty_cell_policy
-            .axis_owner_ignore_empty_cells(has_holes);
-        let subplot_eval_ctx = {
-            let mut params = resolved.compiled_subplot.get_default_params().clone();
-            params.extend(self.eval_ctx.params.clone());
-            let eval_ctx = self.eval_ctx.with_params(params);
-            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
-        };
-
-        let nested_measure_ctx = FacetColNestedMeasureContext {
-            nested_col_sharing: plan.scale_artifacts.nested_col_sharing,
-            nested_depth: plan.scale_artifacts.nested_depth,
-            ancestor_scale_builder_cache: &plan.scale_artifacts.ancestor_scale_builder_cache,
-            per_cell_scale_builder_cache: &plan.scale_artifacts.per_cell_scale_builder_cache,
-            shared_scale_builder: &plan.scale_artifacts.shared_scale_builder,
-            facet_tree: &self.eval_ctx.facet_tree,
-            data_df,
-            eval_ctx: self.eval_ctx,
-        };
-
-        // Stage 3: probe cell overflow (guide + total) to drive band padding/outer-edge layout.
+        // Stage 5: geometry-dependent overflow probe (guide + total) for band layout.
         let overflow_probe_summary = self
             .probe_overflow(
                 &plan.cells,
@@ -1757,7 +1805,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             )
             .await?;
 
-        // Stage 4: derive the local band layout and pass-2 subplot width from the probe.
+        // Stage 6: derive the local band layout and pass-2 subplot width from the probe.
         let band_layout_plan = self.derive_layout_plan(
             &plan.cells,
             &plan.cell_values,
@@ -1771,7 +1819,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             resolved.subplot_cross_size,
         )?;
 
-        // Stage 5: run final measurement pass and collect local domain extents per non-empty cell.
+        // Stage 7: run final measurement pass and collect local domain extents per non-empty cell.
         self.measure_final_cells(
             &mut plan.cells,
             final_subplot_cross_size,
@@ -1782,7 +1830,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         )
         .await?;
 
-        // Stage 6: package runtime cell state for rendering + later coordination phases.
+        // Stage 8: package runtime cell state for rendering + later coordination phases.
         Ok(self.build_coord_measurement(
             band_layout_plan,
             plan.cells,
@@ -1875,18 +1923,26 @@ impl<'a> FacetColMeasurePipeline<'a> {
             .unwrap_or_else(fallback)
     }
 
-    async fn build_measure_plan(
+    fn build_cell_plans(
         &self,
-        cell_values: Vec<ScalarValue>,
+        cell_values: &[ScalarValue],
+    ) -> Result<Vec<FacetCellPlan>, AvengerChartError> {
+        build_facet_cell_plans(&self.eval_ctx.facet_tree, self.facet_path, cell_values)
+    }
+
+    async fn prepare_phase4_measurement_inputs(
+        &self,
+        cell_plans: Vec<FacetCellPlan>,
         data_df: &DataFrame,
         compiled_subplot: &Arc<CompiledPlot>,
-    ) -> Result<FacetColMeasurePlan, AvengerChartError> {
-        build_facet_col_measure_plan(
-            cell_values,
+        empty_cell_policy: FacetEmptyCellPolicy,
+    ) -> Result<FacetPhase4Prep, AvengerChartError> {
+        prepare_phase4_measurement_inputs(
+            cell_plans,
             self.facet_path,
             data_df,
             compiled_subplot,
-            &self.eval_ctx.facet_tree,
+            empty_cell_policy,
             self.eval_ctx,
         )
         .await
@@ -1898,7 +1954,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         subplot_cross_size: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
-        nested_measure_ctx: &FacetColNestedMeasureContext<'_>,
+        nested_measure_ctx: &FacetColNestedMeasureContext,
         empty_cell_policy: FacetEmptyCellPolicy,
     ) -> Result<OverflowProbeSummary, AvengerChartError> {
         measure_cells_overflow_probe(
@@ -2001,7 +2057,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         final_subplot_cross_size: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
-        nested_measure_ctx: &FacetColNestedMeasureContext<'_>,
+        nested_measure_ctx: &FacetColNestedMeasureContext,
         empty_cell_policy: FacetEmptyCellPolicy,
     ) -> Result<(), AvengerChartError> {
         measure_cells_final_and_extents(
@@ -2109,6 +2165,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
     }
 
     async fn run(&self) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+        // Stage 1: resolve this facet node and enumerate row values for the current path.
         let resolved = match self.resolve_node_or_empty()? {
             ResolveRowNodeOutcome::Empty(measurement) => return Ok(measurement),
             ResolveRowNodeOutcome::Ready(resolved) => resolved,
@@ -2135,6 +2192,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             AvengerChartError::InternalError("FacetRow measure requires data".into())
         })?;
 
+        // Stage 2: precompute subtree scale builders used by nested sharing measurement.
         ensure_subtree_precomputed(
             self.compiled_marks,
             self.facet_path,
@@ -2144,32 +2202,24 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         )
         .await?;
 
-        let mut plan = self
-            .build_measure_plan(cell_values, data_df, resolved.compiled_subplot)
+        // Stage 3: build geometry-independent per-cell facet plans for this node.
+        let cell_plans = self.build_cell_plans(&cell_values)?;
+
+        // Stage 4: geometry-independent measurement prep (plan, filtered data, nested context).
+        let FacetPhase4Prep {
+            mut plan,
+            subplot_eval_ctx,
+            nested_measure_ctx,
+        } = self
+            .prepare_phase4_measurement_inputs(
+                cell_plans,
+                data_df,
+                resolved.compiled_subplot,
+                resolved.empty_cell_policy,
+            )
             .await?;
 
-        let has_holes = plan.cells.iter().any(|cell| cell.plan.is_empty);
-        let axis_owner_ignore_empty_cells = resolved
-            .empty_cell_policy
-            .axis_owner_ignore_empty_cells(has_holes);
-        let subplot_eval_ctx = {
-            let mut params = resolved.compiled_subplot.get_default_params().clone();
-            params.extend(self.eval_ctx.params.clone());
-            let eval_ctx = self.eval_ctx.with_params(params);
-            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
-        };
-
-        let nested_measure_ctx = FacetColNestedMeasureContext {
-            nested_col_sharing: plan.scale_artifacts.nested_col_sharing,
-            nested_depth: plan.scale_artifacts.nested_depth,
-            ancestor_scale_builder_cache: &plan.scale_artifacts.ancestor_scale_builder_cache,
-            per_cell_scale_builder_cache: &plan.scale_artifacts.per_cell_scale_builder_cache,
-            shared_scale_builder: &plan.scale_artifacts.shared_scale_builder,
-            facet_tree: &self.eval_ctx.facet_tree,
-            data_df,
-            eval_ctx: self.eval_ctx,
-        };
-
+        // Stage 5: geometry-dependent overflow probe (guide + total) for band layout.
         let overflow_probe_summary = self
             .probe_overflow(
                 &plan.cells,
@@ -2181,6 +2231,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             )
             .await?;
 
+        // Stage 6: derive the local band layout and pass-2 subplot height from the probe.
         let band_layout_plan = self.derive_layout_plan(
             &plan.cells,
             &plan.cell_values,
@@ -2194,6 +2245,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             resolved.subplot_main_size,
         )?;
 
+        // Stage 7: run final measurement pass and collect local domain extents per non-empty cell.
         self.measure_final_cells(
             &mut plan.cells,
             final_subplot_main_size,
@@ -2204,6 +2256,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         )
         .await?;
 
+        // Stage 8: package runtime cell state for rendering + later coordination phases.
         Ok(self.build_coord_measurement(
             band_layout_plan,
             plan.cells,
@@ -2296,18 +2349,26 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             .unwrap_or_else(fallback)
     }
 
-    async fn build_measure_plan(
+    fn build_cell_plans(
         &self,
-        cell_values: Vec<ScalarValue>,
+        cell_values: &[ScalarValue],
+    ) -> Result<Vec<FacetCellPlan>, AvengerChartError> {
+        build_facet_cell_plans(&self.eval_ctx.facet_tree, self.facet_path, cell_values)
+    }
+
+    async fn prepare_phase4_measurement_inputs(
+        &self,
+        cell_plans: Vec<FacetCellPlan>,
         data_df: &DataFrame,
         compiled_subplot: &Arc<CompiledPlot>,
-    ) -> Result<FacetColMeasurePlan, AvengerChartError> {
-        build_facet_col_measure_plan(
-            cell_values,
+        empty_cell_policy: FacetEmptyCellPolicy,
+    ) -> Result<FacetPhase4Prep, AvengerChartError> {
+        prepare_phase4_measurement_inputs(
+            cell_plans,
             self.facet_path,
             data_df,
             compiled_subplot,
-            &self.eval_ctx.facet_tree,
+            empty_cell_policy,
             self.eval_ctx,
         )
         .await
@@ -2319,7 +2380,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         subplot_main_size: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
-        nested_measure_ctx: &FacetColNestedMeasureContext<'_>,
+        nested_measure_ctx: &FacetColNestedMeasureContext,
         empty_cell_policy: FacetEmptyCellPolicy,
     ) -> Result<OverflowProbeSummary, AvengerChartError> {
         measure_cells_overflow_probe(
@@ -2422,7 +2483,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         final_subplot_main_size: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
-        nested_measure_ctx: &FacetColNestedMeasureContext<'_>,
+        nested_measure_ctx: &FacetColNestedMeasureContext,
         empty_cell_policy: FacetEmptyCellPolicy,
     ) -> Result<(), AvengerChartError> {
         measure_cells_final_and_extents(
@@ -2658,6 +2719,22 @@ mod tests {
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))
+    }
+
+    fn sample_tree_for_cell_plan_tests() -> crate::facet::evaluated_facet_tree::EvaluatedFacetTree {
+        let child = PartitionNode::leaf_with_observed(
+            FacetDirection::Column,
+            255,
+            "team".to_string(),
+            None,
+            vec![s("A"), s("B")],
+            vec![s("A")],
+        );
+        let mut children = IndexMap::new();
+        children.insert(s("Group"), Box::new(child));
+        let root =
+            PartitionNode::branch(FacetDirection::Row, 255, "dept".to_string(), None, children);
+        crate::facet::evaluated_facet_tree::EvaluatedFacetTree::new(Some(root))
     }
 
     #[test]
@@ -2962,19 +3039,7 @@ mod tests {
 
     #[test]
     fn build_facet_cell_distinguishes_domain_placeholder_and_data_empty() {
-        let child = PartitionNode::leaf_with_observed(
-            FacetDirection::Column,
-            255,
-            "team".to_string(),
-            None,
-            vec![s("A"), s("B")],
-            vec![s("A")],
-        );
-        let mut children = IndexMap::new();
-        children.insert(s("Group"), Box::new(child));
-        let root =
-            PartitionNode::branch(FacetDirection::Row, 255, "dept".to_string(), None, children);
-        let tree = crate::facet::evaluated_facet_tree::EvaluatedFacetTree::new(Some(root));
+        let tree = sample_tree_for_cell_plan_tests();
 
         let data_empty = build_facet_cell(&tree, &[s("Group")], &s("B")).unwrap();
         assert!(data_empty.in_domain_slot);
@@ -2990,5 +3055,49 @@ mod tests {
             placeholder.empty_kind,
             FacetCellEmptyKind::DomainPlaceholder
         );
+    }
+
+    #[test]
+    fn build_facet_cell_plans_preserves_enumeration_order() {
+        let tree = sample_tree_for_cell_plan_tests();
+        let cell_values = vec![s("B"), s("C"), s("A")];
+        let plans = build_facet_cell_plans(&tree, &[s("Group")], &cell_values).unwrap();
+        let planned_values: Vec<ScalarValue> = plans.into_iter().map(|p| p.value).collect();
+        assert_eq!(planned_values, cell_values);
+    }
+
+    #[test]
+    fn build_facet_cell_plans_preserves_empty_kind_classification() {
+        let tree = sample_tree_for_cell_plan_tests();
+        let plans = build_facet_cell_plans(&tree, &[s("Group")], &[s("B"), s("C")]).unwrap();
+
+        let data_empty = &plans[0];
+        assert!(data_empty.in_domain_slot);
+        assert!(!data_empty.has_data_rows);
+        assert_eq!(data_empty.empty_kind, FacetCellEmptyKind::DataEmpty);
+
+        let placeholder = &plans[1];
+        assert!(!placeholder.in_domain_slot);
+        assert!(!placeholder.has_data_rows);
+        assert_eq!(
+            placeholder.empty_kind,
+            FacetCellEmptyKind::DomainPlaceholder
+        );
+    }
+
+    #[test]
+    fn build_facet_cell_plans_preserves_predicate_parity_for_slots() {
+        let tree = sample_tree_for_cell_plan_tests();
+        let plans = build_facet_cell_plans(&tree, &[s("Group")], &[s("A"), s("C")]).unwrap();
+
+        let in_domain_from_helper = &plans[0];
+        let in_domain_direct = build_facet_cell(&tree, &[s("Group")], &s("A")).unwrap();
+        assert_eq!(
+            in_domain_from_helper.filter_predicate,
+            in_domain_direct.filter_predicate
+        );
+
+        let out_of_domain_from_helper = &plans[1];
+        assert_eq!(out_of_domain_from_helper.filter_predicate, Some(lit(false)));
     }
 }
