@@ -14,7 +14,7 @@ use indexmap::IndexMap;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 
-use crate::{error::AvengerChartError, plot::CompiledPlot};
+use crate::{error::AvengerChartError, plot::CompiledPlot, render::EvaluationOptions};
 
 /// Renderer that uses the WGPU backend to rasterize plots.
 #[derive(Clone)]
@@ -56,7 +56,19 @@ impl WgpuRenderer {
         ctx: &SessionContext,
         params: Option<IndexMap<String, ScalarValue>>,
     ) -> Result<RgbaImage, AvengerChartError> {
-        let evaluated_plot = compiled.evaluate(ctx, params).await?;
+        self.render_with_options(compiled, ctx, params, EvaluationOptions::default())
+            .await
+    }
+
+    /// Render a compiled plot to an in-memory `RgbaImage` with explicit evaluation options.
+    pub async fn render_with_options(
+        &self,
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        options: EvaluationOptions,
+    ) -> Result<RgbaImage, AvengerChartError> {
+        let evaluated_plot = compiled.evaluate_with_options(ctx, params, options).await?;
 
         let dimensions = CanvasDimensions {
             size: [
@@ -83,7 +95,22 @@ impl WgpuRenderer {
         params: Option<IndexMap<String, ScalarValue>>,
         output: P,
     ) -> Result<(), AvengerChartError> {
-        let image = self.render(compiled, ctx, params).await?;
+        self.write_png_with_options(compiled, ctx, params, output, EvaluationOptions::default())
+            .await
+    }
+
+    /// Render a compiled plot directly to a PNG file with explicit evaluation options.
+    pub async fn write_png_with_options<P: AsRef<Path>>(
+        &self,
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        output: P,
+        options: EvaluationOptions,
+    ) -> Result<(), AvengerChartError> {
+        let image = self
+            .render_with_options(compiled, ctx, params, options)
+            .await?;
         save_png(image, output)
     }
 }

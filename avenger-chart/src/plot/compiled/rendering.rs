@@ -56,8 +56,8 @@ use crate::{
     marks::CompiledMark,
     maybe::Maybe,
     render::{
-        EvaluatedPlot, EvaluationContext, LayoutSolution, RenderContext, RenderState,
-        debug::create_debug_layout_rects,
+        EvaluatedPlot, EvaluationContext, EvaluationOptions, LayoutSnapshot, LayoutSolution,
+        RenderContext, RenderState, debug::create_debug_layout_rects,
     },
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
@@ -928,6 +928,224 @@ mod tests {
         }
         xs.sort_by(f32::total_cmp);
         xs
+    }
+
+    #[tokio::test]
+    async fn evaluate_default_matches_with_options_final() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_deeply_nested_plot(&ctx).await?;
+
+        let default_eval = compiled.evaluate(&ctx, None).await?;
+        let options_eval = compiled
+            .evaluate_with_options(
+                &ctx,
+                None,
+                EvaluationOptions {
+                    layout_snapshot: LayoutSnapshot::Final,
+                    debug_layout_lines: false,
+                },
+            )
+            .await?;
+
+        assert_eq!(
+            default_eval.scene_graph.width,
+            options_eval.scene_graph.width
+        );
+        assert_eq!(
+            default_eval.scene_graph.height,
+            options_eval.scene_graph.height
+        );
+
+        let default_col_origins =
+            absolute_origins_for_named_groups(&default_eval.scene_graph, "facet_col_");
+        let options_col_origins =
+            absolute_origins_for_named_groups(&options_eval.scene_graph, "facet_col_");
+        assert_eq!(default_col_origins, options_col_origins);
+
+        let default_row_origins =
+            absolute_origins_for_named_groups(&default_eval.scene_graph, "facet_row_");
+        let options_row_origins =
+            absolute_origins_for_named_groups(&options_eval.scene_graph, "facet_row_");
+        assert_eq!(default_row_origins, options_row_origins);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn evaluate_with_options_initial_and_coordinated_execute_for_nested_facets()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_deeply_nested_plot(&ctx).await?;
+
+        let initial_eval = compiled
+            .evaluate_with_options(
+                &ctx,
+                None,
+                EvaluationOptions {
+                    layout_snapshot: LayoutSnapshot::Initial,
+                    debug_layout_lines: false,
+                },
+            )
+            .await?;
+        let coordinated_eval = compiled
+            .evaluate_with_options(
+                &ctx,
+                None,
+                EvaluationOptions {
+                    layout_snapshot: LayoutSnapshot::Coordinated,
+                    debug_layout_lines: false,
+                },
+            )
+            .await?;
+
+        assert!(initial_eval.scene_graph.width > 0.0);
+        assert!(initial_eval.scene_graph.height > 0.0);
+        assert!(coordinated_eval.scene_graph.width > 0.0);
+        assert!(coordinated_eval.scene_graph.height > 0.0);
+
+        let initial_col_origins =
+            absolute_origins_for_named_groups(&initial_eval.scene_graph, "facet_col_");
+        let coordinated_col_origins =
+            absolute_origins_for_named_groups(&coordinated_eval.scene_graph, "facet_col_");
+        let initial_row_origins =
+            absolute_origins_for_named_groups(&initial_eval.scene_graph, "facet_row_");
+        let coordinated_row_origins =
+            absolute_origins_for_named_groups(&coordinated_eval.scene_graph, "facet_row_");
+
+        assert!(
+            initial_col_origins != coordinated_col_origins
+                || initial_row_origins != coordinated_row_origins,
+            "expected coordinated snapshot to differ from initial on at least one facet band axis"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn evaluate_with_options_coordinated_vs_final_canvas_mode()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_deeply_nested_plot(&ctx).await?;
+        let coordinated_eval = compiled
+            .evaluate_with_options(
+                &ctx,
+                None,
+                EvaluationOptions {
+                    layout_snapshot: LayoutSnapshot::Coordinated,
+                    debug_layout_lines: false,
+                },
+            )
+            .await?;
+        let final_eval = compiled
+            .evaluate_with_options(
+                &ctx,
+                None,
+                EvaluationOptions {
+                    layout_snapshot: LayoutSnapshot::Final,
+                    debug_layout_lines: false,
+                },
+            )
+            .await?;
+
+        assert!(coordinated_eval.scene_graph.width > 0.0);
+        assert!(coordinated_eval.scene_graph.height > 0.0);
+        assert!(final_eval.scene_graph.width > 0.0);
+        assert!(final_eval.scene_graph.height > 0.0);
+
+        let (eval_ctx, evaluated_layout_spec, scale_builder, mut coordinated_measurement) =
+            prepare_top_level_measurement(&compiled, &ctx).await?;
+        let provider = DynamicScaleProvider {
+            builder: &scale_builder,
+            plot: &compiled,
+        };
+        compiled
+            .apply_layout_snapshot(
+                LayoutSnapshot::Coordinated,
+                &mut coordinated_measurement,
+                &eval_ctx,
+                &evaluated_layout_spec,
+                &provider,
+            )
+            .await?;
+
+        let coordinated_bounds = coordinated_measurement.layout.plot_area_bounds();
+        let coordinated_delta_w =
+            (coordinated_measurement.plot_area_width - coordinated_bounds.width).abs();
+        let coordinated_delta_h =
+            (coordinated_measurement.plot_area_height - coordinated_bounds.height).abs();
+
+        let (eval_ctx, evaluated_layout_spec, scale_builder, mut final_measurement) =
+            prepare_top_level_measurement(&compiled, &ctx).await?;
+        let provider = DynamicScaleProvider {
+            builder: &scale_builder,
+            plot: &compiled,
+        };
+        compiled
+            .apply_layout_snapshot(
+                LayoutSnapshot::Final,
+                &mut final_measurement,
+                &eval_ctx,
+                &evaluated_layout_spec,
+                &provider,
+            )
+            .await?;
+
+        let final_bounds = final_measurement.layout.plot_area_bounds();
+        let final_delta_w = (final_measurement.plot_area_width - final_bounds.width).abs();
+        let final_delta_h = (final_measurement.plot_area_height - final_bounds.height).abs();
+
+        assert!(final_delta_w <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON);
+        assert!(final_delta_h <= CompiledPlot::LAYOUT_REFINEMENT_EPSILON);
+        assert!(final_delta_w <= coordinated_delta_w + 1e-6);
+        assert!(final_delta_h <= coordinated_delta_h + 1e-6);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn debug_layout_lines_option_enables_overlay_without_env() -> Result<(), AvengerChartError>
+    {
+        if crate::facet::debug::env_layout_overlay_enabled() {
+            return Ok(());
+        }
+
+        let ctx = SessionContext::new();
+        let compiled = compile_deeply_nested_plot(&ctx).await?;
+        let base_eval = compiled
+            .evaluate_with_options(
+                &ctx,
+                None,
+                EvaluationOptions {
+                    layout_snapshot: LayoutSnapshot::Final,
+                    debug_layout_lines: false,
+                },
+            )
+            .await?;
+        let debug_eval = compiled
+            .evaluate_with_options(
+                &ctx,
+                None,
+                EvaluationOptions {
+                    layout_snapshot: LayoutSnapshot::Final,
+                    debug_layout_lines: true,
+                },
+            )
+            .await?;
+
+        let base_plot_area_labels = collect_text_x_positions(&base_eval.scene_graph, "plot-area");
+        let debug_plot_area_labels = collect_text_x_positions(&debug_eval.scene_graph, "plot-area");
+
+        assert_eq!(
+            base_plot_area_labels.len(),
+            0,
+            "baseline evaluation unexpectedly has layout debug labels"
+        );
+        assert!(
+            !debug_plot_area_labels.is_empty(),
+            "debug option should enable layout overlay labels"
+        );
+
+        Ok(())
     }
 
     #[tokio::test]
@@ -3003,7 +3221,7 @@ impl CompiledPlot {
                     };
 
                 let mut debug_marks = vec![];
-                if facet_debug::layout_overlay_enabled() {
+                if eval_ctx.debug_layout_lines_enabled() {
                     debug_marks.extend(create_debug_layout_rects(
                         &layout_initial.taffy_layout,
                         None,
@@ -3088,7 +3306,7 @@ impl CompiledPlot {
                 // (Subplots typically don't have titles, but the layout might include them)
 
                 let mut debug_marks = vec![];
-                if facet_debug::layout_overlay_enabled() {
+                if eval_ctx.debug_layout_lines_enabled() {
                     // Use the actual computed layout which includes legends
                     // The layout has plot area at an offset due to overflow/legends
                     // We need to translate it to (0,0) for subplot coordinates
@@ -3175,11 +3393,59 @@ impl CompiledPlot {
         })
     }
 
+    async fn apply_layout_snapshot(
+        &self,
+        snapshot: LayoutSnapshot,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        provider: &dyn ScaleProvider,
+    ) -> Result<(), AvengerChartError> {
+        if !matches!(
+            snapshot,
+            LayoutSnapshot::Coordinated | LayoutSnapshot::Final
+        ) {
+            return Ok(());
+        }
+
+        coordinate_overflow_for_guides(measurement, eval_ctx).await?;
+
+        if !matches!(snapshot, LayoutSnapshot::Final) {
+            return Ok(());
+        }
+
+        let (_, _, is_plot_area_mode) = Self::resolve_dimensions_from_spec(evaluated_layout_spec);
+        if !is_plot_area_mode {
+            self.refine_canvas_measurement_after_coordination(
+                measurement,
+                eval_ctx,
+                evaluated_layout_spec,
+                provider,
+                None,
+                &[],
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
     /// Evaluate the plot to a scene graph
     pub async fn evaluate(
         &self,
         ctx: &SessionContext,
         params: Option<IndexMap<String, ScalarValue>>,
+    ) -> Result<EvaluatedPlot, AvengerChartError> {
+        self.evaluate_with_options(ctx, params, EvaluationOptions::default())
+            .await
+    }
+
+    /// Evaluate the plot to a scene graph with explicit layout snapshot and debug options.
+    pub async fn evaluate_with_options(
+        &self,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
@@ -3228,7 +3494,10 @@ impl CompiledPlot {
             Arc::new(ctx.clone()),
             merged_params,
             facet_tree.clone(),
-        );
+        )
+        .with_debug_layout_lines(facet_debug::resolve_layout_overlay_enabled(
+            options.debug_layout_lines,
+        ));
 
         if Self::marks_use_auto_empty_cell_policy(&self.marks) {
             trace!("Facet empty-cell policy `auto` resolved to `hole` for this evaluation");
@@ -3245,23 +3514,15 @@ impl CompiledPlot {
             )
             .await?;
 
-        // Coordinate nested facet overflow values globally and re-measure affected subplots
-        // This ensures all facet labels at the same nesting depth are aligned
-        // and subplot measurements have correct dimensions accounting for legend overflow
         let mut measurement = measurement;
-        coordinate_overflow_for_guides(&mut measurement, &eval_ctx).await?;
-        let (_, _, is_plot_area_mode) = Self::resolve_dimensions_from_spec(&evaluated_layout_spec);
-        if !is_plot_area_mode {
-            self.refine_canvas_measurement_after_coordination(
-                &mut measurement,
-                &eval_ctx,
-                &evaluated_layout_spec,
-                &provider,
-                None,
-                &[],
-            )
-            .await?;
-        }
+        self.apply_layout_snapshot(
+            options.layout_snapshot,
+            &mut measurement,
+            &eval_ctx,
+            &evaluated_layout_spec,
+            &provider,
+        )
+        .await?;
 
         // Build plot components using measurement
         let components = self

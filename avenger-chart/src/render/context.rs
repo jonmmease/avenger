@@ -47,6 +47,8 @@ pub struct EvaluationContext {
     pub hide_invalid_facet_path_axes: bool,
     /// Shared cache of facet scale precompute artifacts for the current evaluation run.
     pub(crate) facet_scale_precompute_store: Arc<FacetScalePrecomputeStore>,
+    /// Effective debug overlay toggle for layout bounds.
+    pub(crate) debug_layout_lines: bool,
 }
 
 impl EvaluationContext {
@@ -63,6 +65,7 @@ impl EvaluationContext {
             facet_tree,
             hide_invalid_facet_path_axes: false,
             facet_scale_precompute_store: Arc::new(FacetScalePrecomputeStore::default()),
+            debug_layout_lines: false,
         }
     }
 
@@ -75,6 +78,7 @@ impl EvaluationContext {
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            debug_layout_lines: self.debug_layout_lines,
         }
     }
 
@@ -90,6 +94,7 @@ impl EvaluationContext {
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            debug_layout_lines: self.debug_layout_lines,
         }
     }
 
@@ -107,6 +112,7 @@ impl EvaluationContext {
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: hidden,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            debug_layout_lines: self.debug_layout_lines,
         }
     }
 
@@ -124,7 +130,24 @@ impl EvaluationContext {
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            debug_layout_lines: self.debug_layout_lines,
         }
+    }
+
+    pub(crate) fn with_debug_layout_lines(&self, enabled: bool) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            debug_layout_lines: enabled,
+        }
+    }
+
+    pub(crate) fn debug_layout_lines_enabled(&self) -> bool {
+        self.debug_layout_lines
     }
 
     pub(crate) fn facet_scale_precompute_store(&self) -> &Arc<FacetScalePrecomputeStore> {

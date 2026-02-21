@@ -2,6 +2,7 @@
 
 use crate::tracing::try_init_tracing;
 use avenger_chart::plot::CompiledPlot;
+use avenger_chart::render::EvaluationOptions;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::common::ScalarValue;
@@ -98,6 +99,83 @@ async fn render_compiled_plot_with_serialization(
         .expect("Failed to render direct image");
 
     // Create serialized image
+    let mut canvas_serialized = PngCanvas::new(dimensions_serialized, CanvasConfig::default())
+        .await
+        .expect("Failed to create serialized canvas");
+    canvas_serialized
+        .set_scene(&bincode_result.scene_graph)
+        .expect("Failed to set serialized scene");
+    let serialized_image = canvas_serialized
+        .render()
+        .await
+        .expect("Failed to render serialized image");
+
+    (direct_image, serialized_image)
+}
+
+/// Render a CompiledPlot with params and explicit evaluation options to an image.
+/// This version performs a serialization round-trip through bincode to test serialization.
+async fn render_compiled_plot_with_serialization_and_options(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    options: EvaluationOptions,
+) -> (RgbaImage, RgbaImage) {
+    let direct_result = compiled
+        .evaluate_with_options(ctx, params.clone(), options)
+        .await
+        .expect("Failed to evaluate plot directly with options");
+
+    let serialized =
+        bincode::serialize(&compiled).expect("Failed to serialize CompiledPlot with bincode");
+
+    let deserialized: CompiledPlot =
+        bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode");
+
+    let bincode_result = deserialized
+        .evaluate_with_options(ctx, params, options)
+        .await
+        .expect("Failed to evaluate plot after bincode deserialization with options");
+
+    if direct_result.scene_graph.width != bincode_result.scene_graph.width
+        || direct_result.scene_graph.height != bincode_result.scene_graph.height
+    {
+        tracing::warn!(
+            direct_width = direct_result.scene_graph.width,
+            direct_height = direct_result.scene_graph.height,
+            bincode_width = bincode_result.scene_graph.width,
+            bincode_height = bincode_result.scene_graph.height,
+            "Serialization round-trip changed scene dimensions with options"
+        );
+    }
+
+    let dimensions_direct = CanvasDimensions {
+        size: [
+            direct_result.scene_graph.width,
+            direct_result.scene_graph.height,
+        ],
+        scale: DEFAULT_SCALE,
+    };
+
+    let dimensions_serialized = CanvasDimensions {
+        size: [
+            bincode_result.scene_graph.width,
+            bincode_result.scene_graph.height,
+        ],
+        scale: DEFAULT_SCALE,
+    };
+
+    let mut canvas_direct = PngCanvas::new(dimensions_direct, CanvasConfig::default())
+        .await
+        .expect("Failed to create direct canvas");
+    canvas_direct
+        .set_scene(&direct_result.scene_graph)
+        .expect("Failed to set direct scene");
+    let direct_image = canvas_direct
+        .render()
+        .await
+        .expect("Failed to render direct image");
+
     let mut canvas_serialized = PngCanvas::new(dimensions_serialized, CanvasConfig::default())
         .await
         .expect("Failed to create serialized canvas");
@@ -304,4 +382,72 @@ pub async fn assert_visual_match_default(
     baseline_name: &str,
 ) {
     assert_visual_match(compiled, ctx, params, category, baseline_name, 0.9999).await
+}
+
+/// Test a CompiledPlot against its baseline with explicit evaluation options.
+pub async fn assert_visual_match_with_options(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    options: EvaluationOptions,
+    category: &str,
+    baseline_name: &str,
+    tolerance: f64,
+) {
+    try_init_tracing();
+
+    let (direct_image, serialized_image) =
+        render_compiled_plot_with_serialization_and_options(compiled, ctx, params, options).await;
+    let baseline_path = get_baseline_path(category, baseline_name);
+
+    let config = VisualTestConfig {
+        threshold: tolerance,
+        save_diff_on_failure: true,
+    };
+
+    if let Err(msg) = compare_images(&baseline_path, direct_image.clone(), &config) {
+        panic!(
+            "Visual test '{}' failed (direct rendering): {}",
+            baseline_name, msg
+        );
+    }
+
+    if let Err(msg) = compare_images(&baseline_path, serialized_image.clone(), &config) {
+        panic!(
+            "Visual test '{}' failed (after serialization): {}",
+            baseline_name, msg
+        );
+    }
+
+    let comparison = image_compare::rgba_hybrid_compare(&direct_image, &serialized_image)
+        .expect("Failed to compare direct and serialized renders");
+
+    if comparison.score < 0.99999 {
+        tracing::warn!(
+            baseline_name = baseline_name,
+            similarity = comparison.score,
+            "Serialization round-trip changed rendering with options"
+        );
+    }
+}
+
+/// Test a CompiledPlot against its baseline with options and default tolerance (99.99%).
+pub async fn assert_visual_match_default_with_options(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    options: EvaluationOptions,
+    category: &str,
+    baseline_name: &str,
+) {
+    assert_visual_match_with_options(
+        compiled,
+        ctx,
+        params,
+        options,
+        category,
+        baseline_name,
+        0.9999,
+    )
+    .await
 }

@@ -12,6 +12,35 @@ use crate::{
     legend::LegendPosition,
 };
 
+/// Selects which layout snapshot to render during evaluation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutSnapshot {
+    /// Initial local measurement snapshot before global coordination.
+    Initial,
+    /// Snapshot after global coordination, before optional canvas refinement.
+    Coordinated,
+    /// Final snapshot used by the default render pipeline.
+    Final,
+}
+
+/// Runtime evaluation options for selecting layout snapshots and debug overlays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EvaluationOptions {
+    /// Which layout snapshot to render.
+    pub layout_snapshot: LayoutSnapshot,
+    /// Whether to draw layout debug overlays when no env override is set.
+    pub debug_layout_lines: bool,
+}
+
+impl Default for EvaluationOptions {
+    fn default() -> Self {
+        Self {
+            layout_snapshot: LayoutSnapshot::Final,
+            debug_layout_lines: false,
+        }
+    }
+}
+
 /// Measurement and layout information for a single legend
 #[derive(Debug, Clone)]
 pub struct LegendMeasurement {

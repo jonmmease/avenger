@@ -75,6 +75,7 @@ pub use crate::polar::PolarAxis;
 
 // Re-export rendering types
 pub use crate::render::CanvasExt;
+pub use crate::render::{EvaluationOptions, LayoutSnapshot};
 
 // Re-export error type
 pub use crate::error::AvengerChartError;
