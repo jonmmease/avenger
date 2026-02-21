@@ -103,6 +103,12 @@ pub struct FacetBandCoordMeasurement {
     pub local_layout: CoordinatedLayout,
     /// Coordinated layout values (post-coordination). None before coordination.
     pub coordinated_layout: Option<CoordinatedLayout>,
+    /// Channel sharing levels observed in non-empty child local extents.
+    ///
+    /// Data-empty cells may have no local domain extents; this map preserves
+    /// per-channel sharing metadata so those cells can still inherit coordinated
+    /// shared domains.
+    pub channel_sharing_levels: HashMap<String, u8>,
 }
 
 impl FacetBandCoordMeasurement {
@@ -467,6 +473,18 @@ fn adjusted_size_for_legend_overflow(
     (original_size - legend_start - legend_end).max(1.0)
 }
 
+fn collect_channel_sharing_levels(cells: &[FacetCellDraft]) -> HashMap<String, u8> {
+    let mut sharing_levels = HashMap::new();
+    for cell in cells {
+        for (channel, annotated) in &cell.local_domain_extents {
+            sharing_levels
+                .entry(channel.clone())
+                .or_insert(annotated.sharing_level);
+        }
+    }
+    sharing_levels
+}
+
 #[cfg(test)]
 fn layout_from_measurement_or_local(
     local_layout: &CoordinatedLayout,
@@ -524,6 +542,34 @@ impl FacetBandCoordMeasurement {
                 if let Some(unified_extent) = unified.get(&(channel.clone(), ancestor_key)) {
                     cell.coordinated_domain_extents
                         .insert(channel.clone(), unified_extent.clone());
+                }
+            }
+
+            // Data-empty cells can have no local domain extents even when channel
+            // sharing is enabled. Fill coordinated extents from saved sharing levels
+            // so owner cells without local data still render shared domains.
+            for (channel, sharing_level) in &self.channel_sharing_levels {
+                if *sharing_level == 0 || cell.coordinated_domain_extents.contains_key(channel) {
+                    continue;
+                }
+
+                let ancestor_key = sharing_policy::domain_group_key(
+                    &cell.plan.full_path,
+                    *sharing_level,
+                    self.facet_depth,
+                );
+
+                if let Some(unified_extent) = unified.get(&(channel.clone(), ancestor_key)) {
+                    cell.coordinated_domain_extents
+                        .insert(channel.clone(), unified_extent.clone());
+                    trace!(
+                        axis = ?self.axis,
+                        facet_depth = self.facet_depth,
+                        channel = %channel,
+                        sharing_level,
+                        cell_path = ?cell.plan.full_path,
+                        "FacetBand distributed coordinated extents via empty-cell fallback"
+                    );
                 }
             }
         }
@@ -833,6 +879,7 @@ fn empty_facet_band_measurement(
         local_layout: CoordinatedLayout::default(),
         coordinated_layout: None,
         coordination_field_identity: axis.scale_name().to_string(),
+        channel_sharing_levels: HashMap::new(),
     })
 }
 
@@ -1896,6 +1943,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         column_scale: &ConfiguredScaleWithSpec,
         coordination_field_identity: String,
     ) -> Box<dyn CoordMeasurement> {
+        let channel_sharing_levels = collect_channel_sharing_levels(&cells);
         let cell_runtimes: Vec<FacetCellRuntime> = cells
             .into_iter()
             .map(|cell| FacetCellRuntime {
@@ -1928,6 +1976,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
             local_layout,
             coordinated_layout: None,
             coordination_field_identity,
+            channel_sharing_levels,
         })
     }
 }
@@ -2282,6 +2331,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         row_scale: &ConfiguredScaleWithSpec,
         coordination_field_identity: String,
     ) -> Box<dyn CoordMeasurement> {
+        let channel_sharing_levels = collect_channel_sharing_levels(&cells);
         let cell_runtimes: Vec<FacetCellRuntime> = cells
             .into_iter()
             .map(|cell| FacetCellRuntime {
@@ -2314,6 +2364,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             local_layout,
             coordinated_layout: None,
             coordination_field_identity,
+            channel_sharing_levels,
         })
     }
 }

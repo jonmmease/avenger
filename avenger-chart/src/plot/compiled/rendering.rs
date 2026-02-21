@@ -501,6 +501,34 @@ mod tests {
             )
     }
 
+    fn build_nested_shared_row_shared_both_plot(df: DataFrame) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(760.0, 560.0)
+            .mark(
+                Facet::new().column(col("col_group")).subplot(
+                    Plot::<FacetRow>::new().mark(
+                        Facet::new()
+                            .row_with(col("row_group"), |c| {
+                                c.facet(|f| f.with_scale_sharing(ScaleSharing::Shared))
+                            })
+                            .subplot(
+                                Plot::<Cartesian>::new().mark(
+                                    Symbol::new()
+                                        .x_with(col("x_val"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Shared)
+                                        })
+                                        .y_with(col("y_val"), |c| {
+                                            c.with_scale_sharing(ScaleSharing::Shared)
+                                        })
+                                        .size(35.0),
+                                ),
+                            ),
+                    ),
+                ),
+            )
+    }
+
     fn build_jagged_group_local_shared_row_plot(df: DataFrame) -> Plot<FacetRow> {
         Plot::<FacetRow>::new()
             .data(df)
@@ -589,6 +617,13 @@ mod tests {
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = shared_row_basic_dataframe(ctx).await;
         build_nested_shared_row_basic_plot(df).compile(ctx).await
+    }
+
+    async fn compile_nested_shared_row_shared_both_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = shared_row_basic_dataframe(ctx).await;
+        build_nested_shared_row_shared_both_plot(df).compile(ctx).await
     }
 
     async fn compile_jagged_group_local_shared_row_plot(
@@ -1141,6 +1176,53 @@ mod tests {
                 label
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn data_empty_shared_cells_receive_coordinated_domain_extents()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_nested_shared_row_shared_both_plot(&ctx).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+
+        let outer_facet = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .expect("expected top-level FacetBandCoordMeasurement for shared-both probe");
+
+        let mut fallback_cell_count = 0usize;
+        for outer_cell in &outer_facet.cells {
+            let inner_row = outer_cell
+                .measurement
+                .coord_measurement
+                .as_any()
+                .downcast_ref::<FacetBandCoordMeasurement>()
+                .expect("expected nested row FacetBandCoordMeasurement");
+
+            for cell in &inner_row.cells {
+                if !cell.plan.is_empty && cell.local_domain_extents.is_empty() {
+                    fallback_cell_count += 1;
+                    assert!(
+                        cell.coordinated_domain_extents.contains_key("x"),
+                        "data-empty shared cell {:?} missing coordinated x extent",
+                        cell.plan.full_path
+                    );
+                    assert!(
+                        cell.coordinated_domain_extents.contains_key("y"),
+                        "data-empty shared cell {:?} missing coordinated y extent",
+                        cell.plan.full_path
+                    );
+                }
+            }
+        }
+
+        assert!(
+            fallback_cell_count > 0,
+            "expected at least one data-empty shared cell requiring coordinated extents fallback"
+        );
 
         Ok(())
     }
