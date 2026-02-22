@@ -3408,6 +3408,9 @@ impl CompiledPlot {
             return Ok(());
         }
 
+        // `coordinate_overflow_for_guides` currently maps to top-level phases 7-10:
+        // global aggregate/distribution, coordinated apply/remeasure,
+        // post-remeasure reconciliation, and scale retarget/adjustment propagation.
         coordinate_overflow_for_guides(measurement, eval_ctx).await?;
 
         if !matches!(snapshot, LayoutSnapshot::Final) {

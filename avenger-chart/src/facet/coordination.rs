@@ -83,21 +83,21 @@ pub async fn coordinate_facet_measurement_tree(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    // Invariants for facet coordination:
-    // 1. Initial phase coordinates overflow/layout/domain extents across equivalent nodes.
-    // 2. Remeasure can replace child measurements, so overflow/layout must be recollected.
-    // 3. Final scale adjustment pass propagates coordinated widths to descendants.
-    run_initial_coordination_phase(measurement);
-    debug!("coordinate_facet_measurement_tree initial phase complete");
+    // Phase 7: Global aggregate + distribution (overflow/layout/domain extents).
+    run_phase7_global_aggregate_and_distribution(measurement);
+    debug!("coordinate_facet_measurement_tree phase 7 complete");
 
-    apply_coordinated_overflow_recursive(measurement, eval_ctx).await?;
-    debug!("coordinate_facet_measurement_tree remeasure phase complete");
+    // Phase 8: Coordinated apply + selective remeasure.
+    run_phase8_apply_coordinated_overflow_and_remeasure(measurement, eval_ctx).await?;
+    debug!("coordinate_facet_measurement_tree phase 8 complete");
 
-    run_post_remeasure_coordination_phase(measurement);
-    debug!("coordinate_facet_measurement_tree post-remeasure phase complete");
+    // Phase 9: Post-remeasure reconciliation.
+    run_phase9_post_remeasure_reconciliation(measurement);
+    debug!("coordinate_facet_measurement_tree phase 9 complete");
 
-    reapply_scale_adjustments_recursive(measurement);
-    trace!("facet coordination complete");
+    // Phase 10: Scale retarget + adjustment propagation.
+    run_phase10_scale_retarget_and_adjustments(measurement);
+    trace!("coordinate_facet_measurement_tree phase 10 complete");
 
     Ok(())
 }
@@ -189,7 +189,7 @@ fn aggregate_snapshot(
     }
 }
 
-fn run_initial_coordination_phase(measurement: &mut ComponentsMeasurement) {
+fn run_phase7_global_aggregate_and_distribution(measurement: &mut ComponentsMeasurement) {
     let initial_snapshot = collect_coordination_snapshot(measurement, true);
     let initial_aggregates = aggregate_snapshot(initial_snapshot, true);
 
@@ -197,20 +197,20 @@ fn run_initial_coordination_phase(measurement: &mut ComponentsMeasurement) {
         overflow_groups = initial_aggregates.merged_overflow_by_key.len(),
         layout_groups = initial_aggregates.merged_layout_by_key.len(),
         domain_groups = initial_aggregates.unified_domain_extents.len(),
-        "coordinate_facet_measurement_tree initial coordination phase"
+        "coordinate_facet_measurement_tree phase 7 global aggregate + distribution"
     );
 
     apply_aggregates(measurement, &initial_aggregates, true);
 }
 
-fn run_post_remeasure_coordination_phase(measurement: &mut ComponentsMeasurement) {
+fn run_phase9_post_remeasure_reconciliation(measurement: &mut ComponentsMeasurement) {
     let post_snapshot = collect_coordination_snapshot(measurement, false);
     let post_aggregates = aggregate_snapshot(post_snapshot, false);
 
     debug!(
         overflow_groups = post_aggregates.merged_overflow_by_key.len(),
         layout_groups = post_aggregates.merged_layout_by_key.len(),
-        "coordinate_facet_measurement_tree post-remeasure coordination phase"
+        "coordinate_facet_measurement_tree phase 9 post-remeasure reconciliation"
     );
 
     apply_aggregates(measurement, &post_aggregates, false);
@@ -267,7 +267,7 @@ fn aggregate_domain_extents(
         .collect()
 }
 
-fn apply_coordinated_overflow_recursive<'a>(
+fn run_phase8_apply_coordinated_overflow_and_remeasure<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
 ) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>> {
@@ -289,7 +289,7 @@ fn apply_coordinated_overflow_recursive<'a>(
                         }
                     }
                 }
-                apply_coordinated_overflow_recursive(child, eval_ctx).await?;
+                run_phase8_apply_coordinated_overflow_and_remeasure(child, eval_ctx).await?;
             }
         }
 
@@ -297,7 +297,7 @@ fn apply_coordinated_overflow_recursive<'a>(
     })
 }
 
-fn reapply_scale_adjustments_recursive(measurement: &mut ComponentsMeasurement) {
+fn run_phase10_scale_retarget_and_adjustments(measurement: &mut ComponentsMeasurement) {
     measurement
         .coord_measurement
         .apply_scale_adjustments(&mut measurement.scales);
@@ -352,7 +352,7 @@ fn reapply_scale_adjustments_recursive(measurement: &mut ComponentsMeasurement) 
                     old_plot_area_height,
                 );
             }
-            reapply_scale_adjustments_recursive(child);
+            run_phase10_scale_retarget_and_adjustments(child);
         }
     }
 }
@@ -449,4 +449,357 @@ fn retarget_interval_preserving_anchor(range: (f32, f32), target_span: f32) -> O
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        coords::{CoordinatedLayout, CoordinatedOverflow, FacetAxis},
+        facet::evaluated_facet_tree::EvaluatedFacetTree,
+        layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
+        plot::compiled::{
+            ComponentsMeasurement, scale_provider::DynamicScaleProvider,
+            scales::build_scale_builder_from_marks,
+        },
+        prelude::*,
+        render::EvaluationContext,
+        theme::Theme,
+    };
+    use datafusion::{dataframe::DataFrame, prelude::SessionContext};
+    use indexmap::IndexMap;
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct Depth1State {
+        key: CoordinationGroupKey,
+        local_layout: CoordinatedLayout,
+        coordinated_layout: Option<CoordinatedLayout>,
+        coordinated_overflow: CoordinatedOverflow,
+    }
+
+    fn approx_eq_within(lhs: f32, rhs: f32, tolerance: f32) -> bool {
+        (lhs - rhs).abs() <= tolerance
+    }
+
+    fn assert_layout_close(actual: &CoordinatedLayout, expected: &CoordinatedLayout) {
+        assert!(approx_eq_within(
+            actual.padding_inner_px,
+            expected.padding_inner_px,
+            0.01
+        ));
+        assert!(approx_eq_within(
+            actual.outer_start,
+            expected.outer_start,
+            0.01
+        ));
+        assert!(approx_eq_within(actual.outer_end, expected.outer_end, 0.01));
+        assert_eq!(actual.n, expected.n);
+    }
+
+    fn assert_overflow_close(actual: &CoordinatedOverflow, expected: &CoordinatedOverflow) {
+        assert!(approx_eq_within(actual.guide.top, expected.guide.top, 0.01));
+        assert!(approx_eq_within(
+            actual.guide.right,
+            expected.guide.right,
+            0.01
+        ));
+        assert!(approx_eq_within(
+            actual.guide.bottom,
+            expected.guide.bottom,
+            0.01
+        ));
+        assert!(approx_eq_within(
+            actual.guide.left,
+            expected.guide.left,
+            0.01
+        ));
+        assert!(approx_eq_within(actual.total.top, expected.total.top, 0.01));
+        assert!(approx_eq_within(
+            actual.total.right,
+            expected.total.right,
+            0.01
+        ));
+        assert!(approx_eq_within(
+            actual.total.bottom,
+            expected.total.bottom,
+            0.01
+        ));
+        assert!(approx_eq_within(
+            actual.total.left,
+            expected.total.left,
+            0.01
+        ));
+    }
+
+    fn depth1_states(measurement: &ComponentsMeasurement) -> Vec<Depth1State> {
+        let mut states = Vec::new();
+        visit_facet_bands(measurement, 0, &mut |depth, facet_band| {
+            if depth == 1 {
+                states.push(Depth1State {
+                    key: facet_band.coordination_group_key_for_depth(depth),
+                    local_layout: facet_band.local_layout.clone(),
+                    coordinated_layout: facet_band.coordinated_layout.clone(),
+                    coordinated_overflow: facet_band.coordinated_overflow.clone(),
+                });
+            }
+        });
+        states
+    }
+
+    fn build_nested_plot(df: DataFrame) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new()
+            .data(df)
+            .canvas_size(640, 420)
+            .mark(
+                Facet::new()
+                    .col_with(col("outer_group"), |c| c.facet(|f| f.title("Outer Group")))
+                    .subplot(
+                        Plot::<FacetRow>::new().mark(
+                            Facet::new()
+                                .row_with(col("inner_group"), |c| {
+                                    c.facet(|f| f.title("Inner Group"))
+                                })
+                                .subplot(
+                                    Plot::<Cartesian>::new().mark(
+                                        Symbol::new()
+                                            .x(col("x"))
+                                            .y(col("y"))
+                                            .fill("#4682b4")
+                                            .size(42.0),
+                                    ),
+                                ),
+                        ),
+                    ),
+            )
+    }
+
+    async fn nested_fixture()
+    -> Result<(ComponentsMeasurement, EvaluationContext), AvengerChartError> {
+        let session = SessionContext::new();
+        let data_df = session
+            .sql(
+                "SELECT * FROM (VALUES \
+                 ('A', 'X', 1.0, 10.0), \
+                 ('A', 'Y', 2.0, 12.0), \
+                 ('B', 'X', 3.0, 14.0), \
+                 ('B', 'Y', 4.0, 16.0), \
+                 ('B', 'Y', 5.0, 18.0) \
+                 ) AS t(outer_group, inner_group, x, y)",
+            )
+            .await
+            .map_err(|e| AvengerChartError::InternalError(e.to_string()))?;
+
+        let plot = build_nested_plot(data_df);
+        let compiled_plot = plot.compile(&session).await?;
+
+        let facet_tree =
+            Arc::new(EvaluatedFacetTree::from_compiled_plot(&compiled_plot, &session).await?);
+        let eval_ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(session.clone()),
+            IndexMap::new(),
+            facet_tree,
+        );
+
+        let theme = compiled_plot.get_theme();
+        let scale_builder = build_scale_builder_from_marks(
+            &compiled_plot.marks,
+            &compiled_plot.scale_specs,
+            &compiled_plot.coord_transform,
+            &compiled_plot.data,
+            None,
+            &session,
+            &eval_ctx.params,
+            theme.as_ref(),
+        )
+        .await?;
+
+        let provider = DynamicScaleProvider {
+            builder: &scale_builder,
+            plot: &compiled_plot,
+        };
+
+        let evaluated_layout_spec = EvaluatedLayoutSpec {
+            canvas: EvaluatedSizeMode::Fixed {
+                width: 640.0,
+                height: 420.0,
+            },
+            plot_area: EvaluatedSizeMode::Auto,
+            margins: EvaluatedMargins {
+                top: 10.0,
+                right: 10.0,
+                bottom: 10.0,
+                left: 10.0,
+            },
+        };
+
+        let measurement = compiled_plot
+            .measure_plot_components(&eval_ctx, &evaluated_layout_spec, &provider, None, &[])
+            .await?;
+
+        Ok((measurement, eval_ctx))
+    }
+
+    #[tokio::test]
+    async fn phase7_applies_initial_aggregates_to_all_matching_groups()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, _) = nested_fixture().await?;
+
+        run_phase7_global_aggregate_and_distribution(&mut measurement);
+
+        let states = depth1_states(&measurement);
+        assert!(
+            states.len() >= 2,
+            "fixture should yield at least two depth-1 facet bands"
+        );
+
+        let first = states.first().expect("at least one depth-1 state");
+        let expected_layout = first
+            .coordinated_layout
+            .as_ref()
+            .expect("phase 7 should set coordinated layout");
+        for state in states.iter().skip(1) {
+            assert_eq!(state.key, first.key);
+            assert_overflow_close(&state.coordinated_overflow, &first.coordinated_overflow);
+            let actual_layout = state
+                .coordinated_layout
+                .as_ref()
+                .expect("phase 7 should set coordinated layout");
+            assert_layout_close(actual_layout, expected_layout);
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase8_can_mutate_measurements_via_apply_coordinated_overflow()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
+
+        let before_cross_size = facet_band_ref(&measurement)
+            .expect("fixture should produce root facet-band measurement")
+            .subplot_cross_size;
+        {
+            let root = facet_band_mut(&mut measurement)
+                .expect("fixture should produce root facet-band measurement");
+            let mut forced_layout = root.local_layout.clone();
+            forced_layout.n = forced_layout.n.saturating_add(8);
+            forced_layout.padding_inner_px += 12.0;
+            root.set_coordinated_layout_value(forced_layout);
+        }
+
+        run_phase8_apply_coordinated_overflow_and_remeasure(&mut measurement, &eval_ctx).await?;
+
+        let after_cross_size = facet_band_ref(&measurement)
+            .expect("fixture should produce root facet-band measurement")
+            .subplot_cross_size;
+        assert!(
+            (after_cross_size - before_cross_size).abs() > 0.01,
+            "phase 8 should mutate subplot cross size when coordinated layout differs"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase9_reconciles_layout_after_phase8_remeasure() -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
+
+        run_phase7_global_aggregate_and_distribution(&mut measurement);
+        run_phase8_apply_coordinated_overflow_and_remeasure(&mut measurement, &eval_ctx).await?;
+
+        let mut bumped_one = false;
+        visit_facet_bands_mut(&mut measurement, 0, &mut |depth, facet_band| {
+            if depth == 1 {
+                facet_band.coordinated_layout = None;
+                if !bumped_one {
+                    facet_band.local_layout.padding_inner_px += 11.0;
+                    facet_band.local_layout.n = facet_band.local_layout.n.saturating_add(2);
+                    bumped_one = true;
+                }
+            }
+        });
+        assert!(bumped_one, "fixture should have a depth-1 band to perturb");
+
+        let expected_states = depth1_states(&measurement);
+        let expected_padding = expected_states
+            .iter()
+            .map(|state| state.local_layout.padding_inner_px)
+            .fold(0.0f32, f32::max);
+        let expected_n = expected_states
+            .iter()
+            .map(|state| state.local_layout.n)
+            .max()
+            .unwrap_or(0);
+
+        run_phase9_post_remeasure_reconciliation(&mut measurement);
+
+        let states = depth1_states(&measurement);
+        assert!(
+            states.len() >= 2,
+            "fixture should yield at least two depth-1 facet bands"
+        );
+        for state in states {
+            let coordinated = state
+                .coordinated_layout
+                .as_ref()
+                .expect("phase 9 should set coordinated layout");
+            assert!(approx_eq_within(
+                coordinated.padding_inner_px,
+                expected_padding,
+                0.01
+            ));
+            assert_eq!(coordinated.n, expected_n);
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase10_retargets_child_scales_when_parent_cross_size_changes()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, _) = nested_fixture().await?;
+
+        let (target_cross_size, old_child_width) = {
+            let root = facet_band_mut(&mut measurement)
+                .expect("fixture should produce root facet-band measurement");
+            assert_eq!(root.axis, FacetAxis::Column);
+            root.subplot_cross_size += 40.0;
+            let old_child_width = root
+                .child_measurements_iter()
+                .next()
+                .expect("fixture should have child measurements")
+                .plot_area_width;
+            (root.subplot_cross_size, old_child_width)
+        };
+
+        run_phase10_scale_retarget_and_adjustments(&mut measurement);
+
+        let root = facet_band_ref(&measurement)
+            .expect("fixture should produce root facet-band measurement");
+        let first_child = root
+            .child_measurements_iter()
+            .next()
+            .expect("fixture should have child measurements");
+
+        assert!(approx_eq_within(
+            first_child.plot_area_width,
+            target_cross_size,
+            0.01
+        ));
+        assert!(
+            (first_child.plot_area_width - old_child_width).abs() > 0.01,
+            "phase 10 should retarget child plot width when parent cross size changes"
+        );
+
+        if let Some(scale_with_spec) = first_child.scales.get(root.axis.scale_name()) {
+            if let Ok((start, end)) = scale_with_spec.configured().numeric_interval_range() {
+                let span = (end - start).abs();
+                assert!(approx_eq_within(span, target_cross_size, 2.0));
+            }
+        }
+
+        Ok(())
+    }
 }
