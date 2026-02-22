@@ -872,6 +872,18 @@ struct FacetPhase4Prep {
     nested_measure_ctx: FacetColNestedMeasureContext,
 }
 
+/// Phase-5 output: geometry-dependent overflow probe summary.
+struct FacetPhase5OverflowProbe {
+    overflow_probe_summary: OverflowProbeSummary,
+}
+
+/// Phase-6 output: local layout finalization (layout + final pass-2 cell measurements).
+struct FacetPhase6LocalFinalization {
+    band_layout_plan: FacetBandPlan,
+    final_subplot_main_or_cross_size: f32,
+    cells: Vec<FacetCellDraft>,
+}
+
 #[derive(Default)]
 struct OverflowProbeSummary {
     cell_overflows: Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>,
@@ -1532,6 +1544,31 @@ async fn measure_cells_overflow_probe(
     Ok(summary)
 }
 
+async fn run_phase5_overflow_probe(
+    cells: &[FacetCellDraft],
+    subplot_cross_size: f32,
+    plot_height: f32,
+    compiled_subplot: &Arc<CompiledPlot>,
+    subplot_eval_ctx: &EvaluationContext,
+    nested_ctx: &FacetColNestedMeasureContext,
+    empty_cell_policy: FacetEmptyCellPolicy,
+) -> Result<FacetPhase5OverflowProbe, AvengerChartError> {
+    let overflow_probe_summary = measure_cells_overflow_probe(
+        cells,
+        subplot_cross_size,
+        plot_height,
+        compiled_subplot,
+        subplot_eval_ctx,
+        nested_ctx,
+        empty_cell_policy,
+    )
+    .await?;
+
+    Ok(FacetPhase5OverflowProbe {
+        overflow_probe_summary,
+    })
+}
+
 async fn measure_cells_final_and_extents(
     cells: &mut [FacetCellDraft],
     subplot_cross_size: f32,
@@ -1781,7 +1818,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
 
         // Stage 4: geometry-independent measurement prep (plan, filtered data, nested context).
         let FacetPhase4Prep {
-            mut plan,
+            plan,
             subplot_eval_ctx,
             nested_measure_ctx,
         } = self
@@ -1793,9 +1830,9 @@ impl<'a> FacetColMeasurePipeline<'a> {
             )
             .await?;
 
-        // Stage 5: geometry-dependent overflow probe (guide + total) for band layout.
-        let overflow_probe_summary = self
-            .probe_overflow(
+        // Stage 5: Phase 5 overflow probe (non-mutating, estimated slot size).
+        let phase5 = self
+            .run_phase5_overflow_probe(
                 &plan.cells,
                 resolved.subplot_cross_size,
                 resolved.compiled_subplot,
@@ -1805,38 +1842,28 @@ impl<'a> FacetColMeasurePipeline<'a> {
             )
             .await?;
 
-        // Stage 6: derive the local band layout and pass-2 subplot width from the probe.
-        let band_layout_plan = self.derive_layout_plan(
-            &plan.cells,
-            &plan.cell_values,
-            &overflow_probe_summary,
-            resolved.empty_cell_policy,
-        );
-        let final_subplot_cross_size = self.build_pass2_scale(
-            resolved.column_scale,
-            &band_layout_plan,
-            &plan.cell_values,
-            resolved.subplot_cross_size,
-        )?;
+        // Stage 6: Phase 6 Local Layout Finalization.
+        let shared_scale_builder = plan.scale_artifacts.shared_scale_builder.clone();
+        let phase6 = self
+            .run_phase6_local_layout_finalization(
+                plan,
+                &phase5,
+                resolved.subplot_cross_size,
+                resolved.compiled_subplot,
+                &subplot_eval_ctx,
+                &nested_measure_ctx,
+                resolved.column_scale,
+                resolved.empty_cell_policy,
+            )
+            .await?;
 
-        // Stage 7: run final measurement pass and collect local domain extents per non-empty cell.
-        self.measure_final_cells(
-            &mut plan.cells,
-            final_subplot_cross_size,
-            resolved.compiled_subplot,
-            &subplot_eval_ctx,
-            &nested_measure_ctx,
-            resolved.empty_cell_policy,
-        )
-        .await?;
-
-        // Stage 8: package runtime cell state for rendering + later coordination phases.
+        // Stage 7: package runtime cell state for coordination/rendering.
         Ok(self.build_coord_measurement(
-            band_layout_plan,
-            plan.cells,
-            plan.scale_artifacts.shared_scale_builder.clone(),
+            phase6.band_layout_plan,
+            phase6.cells,
+            shared_scale_builder,
             resolved.compiled_subplot,
-            final_subplot_cross_size,
+            phase6.final_subplot_main_or_cross_size,
             resolved.column_scale,
             resolved.coordination_field_identity,
             resolved.empty_cell_policy,
@@ -1948,7 +1975,7 @@ impl<'a> FacetColMeasurePipeline<'a> {
         .await
     }
 
-    async fn probe_overflow(
+    async fn run_phase5_overflow_probe(
         &self,
         cells: &[FacetCellDraft],
         subplot_cross_size: f32,
@@ -1956,8 +1983,8 @@ impl<'a> FacetColMeasurePipeline<'a> {
         subplot_eval_ctx: &EvaluationContext,
         nested_measure_ctx: &FacetColNestedMeasureContext,
         empty_cell_policy: FacetEmptyCellPolicy,
-    ) -> Result<OverflowProbeSummary, AvengerChartError> {
-        measure_cells_overflow_probe(
+    ) -> Result<FacetPhase5OverflowProbe, AvengerChartError> {
+        run_phase5_overflow_probe(
             cells,
             subplot_cross_size,
             self.plot_height,
@@ -2051,17 +2078,32 @@ impl<'a> FacetColMeasurePipeline<'a> {
         Ok(final_subplot_cross_size)
     }
 
-    async fn measure_final_cells(
+    async fn run_phase6_local_layout_finalization(
         &self,
-        cells: &mut [FacetCellDraft],
-        final_subplot_cross_size: f32,
+        mut plan: FacetColMeasurePlan,
+        phase5: &FacetPhase5OverflowProbe,
+        initial_subplot_cross_size: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
         nested_measure_ctx: &FacetColNestedMeasureContext,
+        column_scale: &ConfiguredScaleWithSpec,
         empty_cell_policy: FacetEmptyCellPolicy,
-    ) -> Result<(), AvengerChartError> {
+    ) -> Result<FacetPhase6LocalFinalization, AvengerChartError> {
+        let band_layout_plan = self.derive_layout_plan(
+            &plan.cells,
+            &plan.cell_values,
+            &phase5.overflow_probe_summary,
+            empty_cell_policy,
+        );
+        let final_subplot_cross_size = self.build_pass2_scale(
+            column_scale,
+            &band_layout_plan,
+            &plan.cell_values,
+            initial_subplot_cross_size,
+        )?;
+
         measure_cells_final_and_extents(
-            cells,
+            &mut plan.cells,
             final_subplot_cross_size,
             self.plot_height,
             compiled_subplot,
@@ -2069,7 +2111,13 @@ impl<'a> FacetColMeasurePipeline<'a> {
             nested_measure_ctx,
             empty_cell_policy,
         )
-        .await
+        .await?;
+
+        Ok(FacetPhase6LocalFinalization {
+            band_layout_plan,
+            final_subplot_main_or_cross_size: final_subplot_cross_size,
+            cells: plan.cells,
+        })
     }
 
     fn build_coord_measurement(
@@ -2207,7 +2255,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
 
         // Stage 4: geometry-independent measurement prep (plan, filtered data, nested context).
         let FacetPhase4Prep {
-            mut plan,
+            plan,
             subplot_eval_ctx,
             nested_measure_ctx,
         } = self
@@ -2219,9 +2267,9 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             )
             .await?;
 
-        // Stage 5: geometry-dependent overflow probe (guide + total) for band layout.
-        let overflow_probe_summary = self
-            .probe_overflow(
+        // Stage 5: Phase 5 overflow probe (non-mutating, estimated slot size).
+        let phase5 = self
+            .run_phase5_overflow_probe(
                 &plan.cells,
                 resolved.subplot_main_size,
                 resolved.compiled_subplot,
@@ -2231,38 +2279,28 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             )
             .await?;
 
-        // Stage 6: derive the local band layout and pass-2 subplot height from the probe.
-        let band_layout_plan = self.derive_layout_plan(
-            &plan.cells,
-            &plan.cell_values,
-            &overflow_probe_summary,
-            resolved.empty_cell_policy,
-        );
-        let final_subplot_main_size = self.build_pass2_scale(
-            resolved.row_scale,
-            &band_layout_plan,
-            &plan.cell_values,
-            resolved.subplot_main_size,
-        )?;
+        // Stage 6: Phase 6 Local Layout Finalization.
+        let shared_scale_builder = plan.scale_artifacts.shared_scale_builder.clone();
+        let phase6 = self
+            .run_phase6_local_layout_finalization(
+                plan,
+                &phase5,
+                resolved.subplot_main_size,
+                resolved.compiled_subplot,
+                &subplot_eval_ctx,
+                &nested_measure_ctx,
+                resolved.row_scale,
+                resolved.empty_cell_policy,
+            )
+            .await?;
 
-        // Stage 7: run final measurement pass and collect local domain extents per non-empty cell.
-        self.measure_final_cells(
-            &mut plan.cells,
-            final_subplot_main_size,
-            resolved.compiled_subplot,
-            &subplot_eval_ctx,
-            &nested_measure_ctx,
-            resolved.empty_cell_policy,
-        )
-        .await?;
-
-        // Stage 8: package runtime cell state for rendering + later coordination phases.
+        // Stage 7: package runtime cell state for coordination/rendering.
         Ok(self.build_coord_measurement(
-            band_layout_plan,
-            plan.cells,
-            plan.scale_artifacts.shared_scale_builder.clone(),
+            phase6.band_layout_plan,
+            phase6.cells,
+            shared_scale_builder,
             resolved.compiled_subplot,
-            final_subplot_main_size,
+            phase6.final_subplot_main_or_cross_size,
             resolved.row_scale,
             resolved.coordination_field_identity,
             resolved.empty_cell_policy,
@@ -2374,7 +2412,7 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         .await
     }
 
-    async fn probe_overflow(
+    async fn run_phase5_overflow_probe(
         &self,
         cells: &[FacetCellDraft],
         subplot_main_size: f32,
@@ -2382,8 +2420,8 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         subplot_eval_ctx: &EvaluationContext,
         nested_measure_ctx: &FacetColNestedMeasureContext,
         empty_cell_policy: FacetEmptyCellPolicy,
-    ) -> Result<OverflowProbeSummary, AvengerChartError> {
-        measure_cells_overflow_probe(
+    ) -> Result<FacetPhase5OverflowProbe, AvengerChartError> {
+        run_phase5_overflow_probe(
             cells,
             self.plot_width,
             subplot_main_size,
@@ -2477,17 +2515,32 @@ impl<'a> FacetRowMeasurePipeline<'a> {
         Ok(final_subplot_main_size)
     }
 
-    async fn measure_final_cells(
+    async fn run_phase6_local_layout_finalization(
         &self,
-        cells: &mut [FacetCellDraft],
-        final_subplot_main_size: f32,
+        mut plan: FacetColMeasurePlan,
+        phase5: &FacetPhase5OverflowProbe,
+        initial_subplot_main_size: f32,
         compiled_subplot: &Arc<CompiledPlot>,
         subplot_eval_ctx: &EvaluationContext,
         nested_measure_ctx: &FacetColNestedMeasureContext,
+        row_scale: &ConfiguredScaleWithSpec,
         empty_cell_policy: FacetEmptyCellPolicy,
-    ) -> Result<(), AvengerChartError> {
+    ) -> Result<FacetPhase6LocalFinalization, AvengerChartError> {
+        let band_layout_plan = self.derive_layout_plan(
+            &plan.cells,
+            &plan.cell_values,
+            &phase5.overflow_probe_summary,
+            empty_cell_policy,
+        );
+        let final_subplot_main_size = self.build_pass2_scale(
+            row_scale,
+            &band_layout_plan,
+            &plan.cell_values,
+            initial_subplot_main_size,
+        )?;
+
         measure_cells_final_and_extents(
-            cells,
+            &mut plan.cells,
             self.plot_width,
             final_subplot_main_size,
             compiled_subplot,
@@ -2495,7 +2548,13 @@ impl<'a> FacetRowMeasurePipeline<'a> {
             nested_measure_ctx,
             empty_cell_policy,
         )
-        .await
+        .await?;
+
+        Ok(FacetPhase6LocalFinalization {
+            band_layout_plan,
+            final_subplot_main_or_cross_size: final_subplot_main_size,
+            cells: plan.cells,
+        })
     }
 
     fn build_coord_measurement(
@@ -2702,8 +2761,12 @@ mod tests {
     use super::*;
     use crate::facet::evaluated_facet_tree::PartitionNode;
     use crate::guide::FacetDirection;
+    use crate::prelude::*;
+    use crate::theme::Theme;
     use avenger_scales::scales::band::BandScale;
+    use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;
+    use std::sync::Arc;
 
     fn make_band_scale(range: (f32, f32)) -> ConfiguredScale {
         let domain = ScalarValue::iter_to_array(
@@ -2735,6 +2798,52 @@ mod tests {
         let root =
             PartitionNode::branch(FacetDirection::Row, 255, "dept".to_string(), None, children);
         crate::facet::evaluated_facet_tree::EvaluatedFacetTree::new(Some(root))
+    }
+
+    async fn build_phase_measurement_fixture()
+    -> Result<(Arc<CompiledPlot>, FacetPhase4Prep), AvengerChartError> {
+        let session = SessionContext::new();
+        let data_df = session
+            .sql(
+                "SELECT * FROM (VALUES \
+                 ('Group', 'A', 1.0, 10.0), \
+                 ('Group', 'A', 2.0, 20.0) \
+                 ) AS t(dept, team, x, y)",
+            )
+            .await
+            .map_err(|e| AvengerChartError::InternalError(e.to_string()))?;
+
+        let subplot_plot = Plot::<Cartesian>::new().data(data_df.clone()).mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .fill("#4682b4")
+                .size(42.0),
+        );
+        let compiled_subplot = Arc::new(subplot_plot.compile(&session).await?);
+
+        let facet_tree = Arc::new(sample_tree_for_cell_plan_tests());
+        let eval_ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(session.clone()),
+            IndexMap::new(),
+            facet_tree.clone(),
+        );
+
+        let facet_path = vec![s("Group")];
+        let cell_plans =
+            build_facet_cell_plans(&facet_tree, &facet_path, &[s("A"), s("B"), s("C")])?;
+        let phase4 = prepare_phase4_measurement_inputs(
+            cell_plans,
+            &facet_path,
+            &data_df,
+            &compiled_subplot,
+            FacetEmptyCellPolicy::Hole,
+            &eval_ctx,
+        )
+        .await?;
+
+        Ok((compiled_subplot, phase4))
     }
 
     #[test]
@@ -3099,5 +3208,72 @@ mod tests {
 
         let out_of_domain_from_helper = &plans[1];
         assert_eq!(out_of_domain_from_helper.filter_predicate, Some(lit(false)));
+    }
+
+    #[tokio::test]
+    async fn phase5_overflow_probe_does_not_mutate_cell_drafts() -> Result<(), AvengerChartError> {
+        let (compiled_subplot, phase4) = build_phase_measurement_fixture().await?;
+
+        let before: Vec<(bool, usize)> = phase4
+            .plan
+            .cells
+            .iter()
+            .map(|cell| (cell.measurement.is_none(), cell.local_domain_extents.len()))
+            .collect();
+
+        let phase5 = run_phase5_overflow_probe(
+            &phase4.plan.cells,
+            140.0,
+            140.0,
+            &compiled_subplot,
+            &phase4.subplot_eval_ctx,
+            &phase4.nested_measure_ctx,
+            FacetEmptyCellPolicy::Hole,
+        )
+        .await?;
+
+        assert_eq!(phase5.overflow_probe_summary.cell_overflows.len(), 3);
+
+        let after: Vec<(bool, usize)> = phase4
+            .plan
+            .cells
+            .iter()
+            .map(|cell| (cell.measurement.is_none(), cell.local_domain_extents.len()))
+            .collect();
+        assert_eq!(before, after);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase6_local_layout_finalization_populates_measurements_and_extents()
+    -> Result<(), AvengerChartError> {
+        let (compiled_subplot, phase4) = build_phase_measurement_fixture().await?;
+        let FacetPhase4Prep {
+            mut plan,
+            subplot_eval_ctx,
+            nested_measure_ctx,
+        } = phase4;
+
+        measure_cells_final_and_extents(
+            &mut plan.cells,
+            140.0,
+            140.0,
+            &compiled_subplot,
+            &subplot_eval_ctx,
+            &nested_measure_ctx,
+            FacetEmptyCellPolicy::Hole,
+        )
+        .await?;
+
+        assert!(plan.cells.iter().all(|cell| cell.measurement.is_some()));
+        assert!(
+            plan.cells
+                .iter()
+                .filter(|cell| cell.plan.has_data_rows)
+                .all(|cell| !cell.local_domain_extents.is_empty())
+        );
+
+        Ok(())
     }
 }
