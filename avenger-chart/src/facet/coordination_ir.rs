@@ -10,6 +10,7 @@ use crate::{
         coord::{FacetBandCoordApplyPlan, union_domain_extents},
         coordination::CoordinationGroupKey,
         coordination_remeasure::FacetCoordRemeasurePlan,
+        sharing_level::SharingLevel,
         sharing_policy,
     },
     scales::domain_extent::DomainExtent,
@@ -229,7 +230,7 @@ fn aggregate_domain_extents(
     for info in infos {
         let ancestor_key = sharing_policy::domain_group_key(
             &info.full_cell_path,
-            info.sharing_level,
+            SharingLevel::from_raw(info.sharing_level),
             info.facet_depth,
         );
         groups
@@ -485,12 +486,12 @@ mod tests {
 
         let key_ab = sharing_policy::domain_group_key(
             &info_a.full_cell_path,
-            info_a.sharing_level,
+            SharingLevel::from_raw(info_a.sharing_level),
             info_a.facet_depth,
         );
         let key_c = sharing_policy::domain_group_key(
             &info_c.full_cell_path,
-            info_c.sharing_level,
+            SharingLevel::from_raw(info_c.sharing_level),
             info_c.facet_depth,
         );
         assert_eq!(ir.aggregates.unified_domain_extents.len(), 2);

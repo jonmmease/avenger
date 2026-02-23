@@ -9,7 +9,10 @@ use datafusion::common::ScalarValue;
 
 use crate::{
     cartesian::axis::AxisPosition,
-    facet::sharing_kernel::{self, SharingGroupEdge},
+    facet::{
+        sharing_kernel::{self, SharingGroupEdge},
+        sharing_level::SharingLevel,
+    },
     guide::FacetDirection,
     legend::LegendPosition,
 };
@@ -20,7 +23,7 @@ use crate::{
 /// remain consistent.
 pub(crate) fn domain_group_key(
     full_cell_path: &[ScalarValue],
-    sharing_level: u8,
+    sharing_level: SharingLevel,
     facet_depth: u8,
 ) -> Vec<ScalarValue> {
     sharing_kernel::domain_group_key(full_cell_path, sharing_level, facet_depth)
@@ -31,7 +34,7 @@ pub(crate) fn show_axis_labels(
     position_indices: &[usize],
     level_counts: &[usize],
     facet_depth: u8,
-    sharing_level: u8,
+    sharing_level: SharingLevel,
     direction: FacetDirection,
     axis_position: AxisPosition,
 ) -> bool {
@@ -58,7 +61,7 @@ pub(crate) fn show_axis_title(
     direction: FacetDirection,
     axis_position: AxisPosition,
 ) -> bool {
-    let shared_level = 255;
+    let shared_level = SharingLevel::GLOBAL;
     if let Some(edge) = axis_edge_for_position(direction, axis_position) {
         sharing_kernel::owner_for_edge_with_sharing(
             edge,
@@ -83,7 +86,7 @@ pub(crate) fn show_cartesian_axis_labels(
     level_counts: &[usize],
     level_directions: &[FacetDirection],
     axis_position: AxisPosition,
-    sharing_level: u8,
+    sharing_level: SharingLevel,
 ) -> bool {
     let Some((projected_indices, projected_counts, relevant_depth, edge)) =
         project_levels_for_cartesian_axis(
@@ -100,7 +103,7 @@ pub(crate) fn show_cartesian_axis_labels(
         return true;
     }
 
-    let labels_sharing = sharing_level.min(relevant_depth as u8);
+    let labels_sharing = sharing_level.clamp_to_depth(relevant_depth as u8);
     sharing_kernel::owner_for_edge_with_sharing(
         edge,
         &projected_indices,
@@ -140,7 +143,7 @@ pub(crate) fn show_cartesian_axis_title(
         &projected_indices,
         &projected_counts,
         projected_indices.len() as u8,
-        relevant_depth as u8,
+        SharingLevel::from_raw(relevant_depth as u8),
     )
 }
 
@@ -232,7 +235,7 @@ pub(crate) fn legend_owner_for_position(
     position_indices: &[usize],
     level_counts: &[usize],
     facet_depth: u8,
-    sharing_level: u8,
+    sharing_level: SharingLevel,
     legend_position: LegendPosition,
 ) -> bool {
     let edge = legend_edge_for_position(legend_position);
@@ -256,10 +259,16 @@ mod tests {
     #[test]
     fn domain_group_key_matches_ancestor_semantics() {
         let path = vec![s("A"), s("B"), s("C"), s("D")];
-        assert_eq!(domain_group_key(&path, 0, 4), path);
-        assert_eq!(domain_group_key(&path, 1, 4), vec![s("A"), s("B"), s("C")]);
-        assert_eq!(domain_group_key(&path, 2, 4), vec![s("A"), s("B")]);
-        assert!(domain_group_key(&path, 4, 4).is_empty());
+        assert_eq!(domain_group_key(&path, SharingLevel::from_raw(0), 4), path);
+        assert_eq!(
+            domain_group_key(&path, SharingLevel::from_raw(1), 4),
+            vec![s("A"), s("B"), s("C")]
+        );
+        assert_eq!(
+            domain_group_key(&path, SharingLevel::from_raw(2), 4),
+            vec![s("A"), s("B")]
+        );
+        assert!(domain_group_key(&path, SharingLevel::from_raw(4), 4).is_empty());
     }
 
     #[test]
@@ -273,7 +282,7 @@ mod tests {
             &[0, 0, 1, 0],
             &counts,
             facet_depth,
-            1,
+            SharingLevel::from_raw(1),
             FacetDirection::Column,
             AxisPosition::Left
         ));
@@ -281,7 +290,7 @@ mod tests {
             &[0, 0, 1, 1],
             &counts,
             facet_depth,
-            1,
+            SharingLevel::from_raw(1),
             FacetDirection::Column,
             AxisPosition::Left
         ));
@@ -296,7 +305,7 @@ mod tests {
             &[0],
             &counts,
             facet_depth,
-            255,
+            SharingLevel::GLOBAL,
             FacetDirection::Column,
             AxisPosition::Left
         ));
@@ -304,7 +313,7 @@ mod tests {
             &[1],
             &counts,
             facet_depth,
-            255,
+            SharingLevel::GLOBAL,
             FacetDirection::Column,
             AxisPosition::Left
         ));
@@ -313,7 +322,7 @@ mod tests {
             &[1],
             &counts,
             facet_depth,
-            255,
+            SharingLevel::GLOBAL,
             FacetDirection::Column,
             AxisPosition::Right
         ));
@@ -321,7 +330,7 @@ mod tests {
             &[2],
             &counts,
             facet_depth,
-            255,
+            SharingLevel::GLOBAL,
             FacetDirection::Column,
             AxisPosition::Right
         ));
@@ -415,14 +424,14 @@ mod tests {
             &counts,
             &directions,
             AxisPosition::Bottom,
-            255
+            SharingLevel::GLOBAL
         ));
         assert!(show_cartesian_axis_labels(
             &[1, 1],
             &counts,
             &directions,
             AxisPosition::Bottom,
-            255
+            SharingLevel::GLOBAL
         ));
     }
 
@@ -436,14 +445,14 @@ mod tests {
             &counts,
             &directions,
             AxisPosition::Bottom,
-            0
+            SharingLevel::FREE
         ));
         assert!(show_cartesian_axis_labels(
             &[1, 1],
             &counts,
             &directions,
             AxisPosition::Bottom,
-            0
+            SharingLevel::FREE
         ));
     }
 
@@ -457,7 +466,7 @@ mod tests {
             &counts,
             &directions,
             AxisPosition::Bottom,
-            255
+            SharingLevel::GLOBAL
         ));
         assert!(show_cartesian_axis_title(
             &[2, 1],
@@ -470,7 +479,7 @@ mod tests {
     #[test]
     fn domain_group_key_supports_null_values() {
         let path = vec![ScalarValue::Null, s("B"), ScalarValue::Int64(Some(5))];
-        let key = domain_group_key(&path, 1, 3);
+        let key = domain_group_key(&path, SharingLevel::from_raw(1), 3);
         assert_eq!(key, vec![ScalarValue::Null, s("B")]);
     }
 
@@ -485,28 +494,28 @@ mod tests {
             &idx_start,
             &counts,
             facet_depth,
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Top
         ));
         assert!(legend_owner_for_position(
             &idx_end,
             &counts,
             facet_depth,
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Bottom
         ));
         assert!(legend_owner_for_position(
             &idx_start,
             &counts,
             facet_depth,
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Left
         ));
         assert!(legend_owner_for_position(
             &idx_end,
             &counts,
             facet_depth,
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Right
         ));
     }

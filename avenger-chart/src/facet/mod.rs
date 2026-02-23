@@ -25,4 +25,5 @@ pub mod path_math;
 pub mod scalar_cmp;
 pub(crate) mod scale_precompute;
 pub mod sharing_kernel;
+pub(crate) mod sharing_level;
 pub mod sharing_policy;

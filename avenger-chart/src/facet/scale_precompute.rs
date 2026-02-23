@@ -12,6 +12,7 @@ use crate::{
         evaluated_facet_tree::EvaluatedFacetTree,
         marks::facet::{FacetMarkRef, facet_mark_ref},
         path_math,
+        sharing_level::SharingLevel,
     },
     marks::CompiledMark,
     plot::compiled::{CompiledPlot, scales::build_scale_builder_from_marks},
@@ -54,7 +55,7 @@ impl FacetScaleSubtreeKey {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FacetScaleNodeArtifacts {
-    pub(crate) nested_col_sharing: Option<u8>,
+    pub(crate) nested_col_sharing: Option<SharingLevel>,
     pub(crate) nested_depth: u8,
     pub(crate) shared_scale_builder: ScaleBuilder,
     pub(crate) ancestor_scale_builder_cache: HashMap<Vec<ScalarValue>, ScaleBuilder>,
@@ -132,7 +133,7 @@ pub(crate) fn canonicalize_path(path: &[ScalarValue]) -> Vec<ScalarValue> {
 
 fn resolve_current_facet_node<'a>(
     compiled_marks: &'a [Arc<dyn CompiledMark>],
-) -> Option<(&'a Arc<CompiledPlot>, u8)> {
+) -> Option<(&'a Arc<CompiledPlot>, SharingLevel)> {
     for mark in compiled_marks {
         if let Some(facet_mark) = facet_mark_ref(mark.as_ref()) {
             match facet_mark {
@@ -141,8 +142,8 @@ fn resolve_current_facet_node<'a>(
                         facet_row.compiled_subplot(),
                         facet_row
                             .facet_scale_sharing()
-                            .map(|sharing| sharing.to_level())
-                            .unwrap_or(0),
+                            .map(SharingLevel::from)
+                            .unwrap_or(SharingLevel::FREE),
                     ));
                 }
                 FacetMarkRef::Col(facet_col) => {
@@ -150,8 +151,8 @@ fn resolve_current_facet_node<'a>(
                         facet_col.compiled_subplot(),
                         facet_col
                             .facet_scale_sharing()
-                            .map(|sharing| sharing.to_level())
-                            .unwrap_or(0),
+                            .map(SharingLevel::from)
+                            .unwrap_or(SharingLevel::FREE),
                     ));
                 }
             }
@@ -161,11 +162,11 @@ fn resolve_current_facet_node<'a>(
     None
 }
 
-fn nested_facet_sharing_level(compiled_subplot: &Arc<CompiledPlot>) -> Option<u8> {
+fn nested_facet_sharing_level(compiled_subplot: &Arc<CompiledPlot>) -> Option<SharingLevel> {
     compiled_subplot.marks.iter().find_map(|mark| {
         facet_mark_ref(mark.as_ref()).and_then(|facet_mark| match facet_mark {
-            FacetMarkRef::Row(facet_row) => facet_row.facet_scale_sharing().map(|s| s.to_level()),
-            FacetMarkRef::Col(facet_col) => facet_col.facet_scale_sharing().map(|s| s.to_level()),
+            FacetMarkRef::Row(facet_row) => facet_row.facet_scale_sharing().map(SharingLevel::from),
+            FacetMarkRef::Col(facet_col) => facet_col.facet_scale_sharing().map(SharingLevel::from),
         })
     })
 }
@@ -173,7 +174,7 @@ fn nested_facet_sharing_level(compiled_subplot: &Arc<CompiledPlot>) -> Option<u8
 fn enumerate_cell_values_for_node(
     facet_tree: &EvaluatedFacetTree,
     facet_path: &[ScalarValue],
-    current_sharing_level: u8,
+    current_sharing_level: SharingLevel,
 ) -> Vec<ScalarValue> {
     let current_node = if facet_path.is_empty() {
         facet_tree.root()
@@ -188,13 +189,13 @@ fn enumerate_cell_values_for_node(
     };
 
     facet_tree
-        .enumerate_values_for_facet(facet_path, current_sharing_level)
+        .enumerate_values_for_facet(facet_path, current_sharing_level.raw())
         .unwrap_or_else(fallback)
 }
 
 async fn build_ancestor_group_scale_builders(
     cell_values: &[ScalarValue],
-    sharing_level: u8,
+    sharing_level: SharingLevel,
     parent_path: &[ScalarValue],
     facet_tree: &EvaluatedFacetTree,
     data_df: &DataFrame,
@@ -334,7 +335,8 @@ pub(crate) async fn build_node_artifacts(
         HashMap::new()
     };
 
-    let per_cell_scale_builder_cache = if matches!(nested_col_sharing, Some(0)) {
+    let per_cell_scale_builder_cache = if matches!(nested_col_sharing, Some(level) if level.is_free())
+    {
         build_per_cell_scale_builders(
             cell_values,
             facet_path,

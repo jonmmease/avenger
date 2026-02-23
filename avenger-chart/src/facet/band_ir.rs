@@ -14,6 +14,7 @@ use crate::{
         evaluated_facet_tree::EvaluatedFacetTree,
         layout_plan::{FacetBandPlan, FacetCellEmptyKind},
         scale_precompute::{FacetScaleNodeArtifacts, FacetScaleNodeKey},
+        sharing_level::SharingLevel,
     },
     plot::compiled::{CompiledPlot, ComponentsMeasurement},
     render::EvaluationContext,
@@ -70,7 +71,7 @@ pub(crate) struct FacetBandPhase6Ir {
     pub(crate) phase5: FacetBandPhase5Ir,
     pub(crate) band_layout_plan: FacetBandPlan,
     pub(crate) final_subplot_cross_size: f32,
-    pub(crate) channel_sharing_levels: HashMap<String, u8>,
+    pub(crate) channel_sharing_levels: HashMap<String, SharingLevel>,
 }
 
 pub(crate) struct FacetBandPhase4Sidecars {
@@ -122,7 +123,7 @@ impl FacetBandPhase3Ir {
                     FacetCellEmptyKind::DataEmpty
                 };
                 let filter_predicate = if in_domain_slot {
-                    facet_tree.cell_predicate(&full_path, 0)
+                    facet_tree.cell_predicate(&full_path, SharingLevel::FREE.raw())
                 } else {
                     Some(lit(false))
                 };

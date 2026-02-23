@@ -32,6 +32,7 @@ use crate::{
         path_math,
         scalar_cmp::scalar_total_cmp,
         sharing_kernel::{self, SharingGroupEdge},
+        sharing_level::SharingLevel,
         sharing_policy,
     },
     guide::FacetDirection,
@@ -65,7 +66,7 @@ pub struct EvaluatedFacetTree {
     /// Channel sharing levels extracted from innermost marks.
     /// Maps channel name (e.g., "x", "y") to sharing level (0=Free, N=Level(N), 255=Shared).
     /// Used for axis visibility decisions when CoordMeasurement is not available.
-    channel_sharing_levels: HashMap<String, u8>,
+    channel_sharing_levels: HashMap<String, SharingLevel>,
     /// Cached path metadata for resolved concrete paths.
     path_info_cache: HashMap<Vec<ScalarValue>, ResolvedFacetPathInfo>,
     /// Cached predicates for valid, non-empty paths.
@@ -73,11 +74,11 @@ pub struct EvaluatedFacetTree {
     /// Cached slot membership by parent path.
     slot_membership_cache: HashMap<Vec<ScalarValue>, SlotMembership>,
     /// Cached facet value enumeration keyed by `(facet_path, sharing_level)`.
-    enumeration_cache: HashMap<(Vec<ScalarValue>, u8), Vec<ScalarValue>>,
+    enumeration_cache: HashMap<(Vec<ScalarValue>, SharingLevel), Vec<ScalarValue>>,
     /// Cached jagged-tree checks by axis position.
     jagged_axis_cache: HashMap<AxisPosition, bool>,
     /// Sharing levels observed in channels/nodes plus canonical levels `{0, 255}`.
-    used_sharing_levels: Vec<u8>,
+    used_sharing_levels: Vec<SharingLevel>,
 }
 
 /// A node in the partition tree.
@@ -229,7 +230,7 @@ impl EvaluatedFacetTree {
 
     fn init_with_caches(
         root: Option<PartitionNode>,
-        channel_sharing_levels: HashMap<String, u8>,
+        channel_sharing_levels: HashMap<String, SharingLevel>,
     ) -> Self {
         let depth_cache = root.as_ref().map(Self::count_depth).unwrap_or(0);
         let level_counts_cache = root
@@ -266,7 +267,13 @@ impl EvaluatedFacetTree {
         root: Option<PartitionNode>,
         channel_sharing_levels: HashMap<String, u8>,
     ) -> Self {
-        Self::init_with_caches(root, channel_sharing_levels)
+        Self::init_with_caches(
+            root,
+            channel_sharing_levels
+                .into_iter()
+                .map(|(channel, level)| (channel, SharingLevel::from_raw(level)))
+                .collect(),
+        )
     }
 
     /// Create an empty spec (no faceting).
@@ -373,8 +380,11 @@ impl EvaluatedFacetTree {
         }
     }
 
-    fn collect_node_sharing_levels_recursive(node: &PartitionNode, levels: &mut HashSet<u8>) {
-        levels.insert(node.sharing);
+    fn collect_node_sharing_levels_recursive(
+        node: &PartitionNode,
+        levels: &mut HashSet<SharingLevel>,
+    ) {
+        levels.insert(SharingLevel::from_raw(node.sharing));
         if let PartitionContent::Branch { children } = &node.content {
             for child in children.values() {
                 Self::collect_node_sharing_levels_recursive(child, levels);
@@ -382,18 +392,18 @@ impl EvaluatedFacetTree {
         }
     }
 
-    fn collect_used_sharing_levels(&self) -> Vec<u8> {
-        let mut levels: HashSet<u8> = HashSet::new();
-        levels.insert(0);
-        levels.insert(255);
+    fn collect_used_sharing_levels(&self) -> Vec<SharingLevel> {
+        let mut levels: HashSet<SharingLevel> = HashSet::new();
+        levels.insert(SharingLevel::FREE);
+        levels.insert(SharingLevel::GLOBAL);
         for sharing_level in self.channel_sharing_levels.values() {
             levels.insert(*sharing_level);
         }
         if let Some(root) = self.root.as_ref() {
             Self::collect_node_sharing_levels_recursive(root, &mut levels);
         }
-        let mut levels: Vec<u8> = levels.into_iter().collect();
-        levels.sort_unstable();
+        let mut levels: Vec<SharingLevel> = levels.into_iter().collect();
+        levels.sort_by_key(|level| level.raw());
         levels
     }
 
@@ -547,7 +557,7 @@ impl EvaluatedFacetTree {
     fn enumerate_values_for_facet_uncached(
         &self,
         facet_path: &[ScalarValue],
-        sharing_level: u8,
+        sharing_level: SharingLevel,
     ) -> Option<Vec<ScalarValue>> {
         let current_node = if facet_path.is_empty() {
             self.root.as_ref()?
@@ -555,7 +565,7 @@ impl EvaluatedFacetTree {
             self.node_at_path(facet_path)?
         };
 
-        if sharing_level == 0 {
+        if sharing_level.is_free() {
             return Some(current_node.values().cloned().collect());
         }
 
@@ -642,13 +652,14 @@ impl EvaluatedFacetTree {
     /// - sharing_level=2: `region="East"` (skip last 2)
     /// - sharing_level=3+: `None` (use full data)
     pub fn cell_predicate(&self, path: &[ScalarValue], sharing_level: u8) -> Option<Expr> {
+        let sharing_level = SharingLevel::from_raw(sharing_level);
         // Shared (255) means use full data - no filter needed
-        if sharing_level == 255 {
+        if sharing_level.is_global() {
             return None;
         }
 
         // Compute how many levels to include
-        let levels_to_include = path.len().saturating_sub(sharing_level as usize);
+        let levels_to_include = path.len().saturating_sub(sharing_level.raw() as usize);
         if levels_to_include == 0 {
             return None;
         }
@@ -735,6 +746,7 @@ impl EvaluatedFacetTree {
         facet_path: &[ScalarValue],
         sharing_level: u8,
     ) -> Option<Vec<ScalarValue>> {
+        let sharing_level = SharingLevel::from_raw(sharing_level);
         let canonical_path = Self::canonical_path(facet_path);
         if let Some(values) = self
             .enumeration_cache
@@ -769,10 +781,14 @@ impl EvaluatedFacetTree {
     /// if the channel was not found. This is used for axis visibility decisions
     /// when the innermost subplot doesn't have access to CoordMeasurement.
     pub fn channel_sharing_level(&self, channel: &str) -> u8 {
+        self.channel_sharing_level_typed(channel).raw()
+    }
+
+    pub(crate) fn channel_sharing_level_typed(&self, channel: &str) -> SharingLevel {
         self.channel_sharing_levels
             .get(channel)
             .copied()
-            .unwrap_or(255)
+            .unwrap_or(SharingLevel::GLOBAL)
     }
 
     /// Check if the tree is actually jagged for a given axis position.
@@ -881,7 +897,7 @@ impl EvaluatedFacetTree {
         position_indices: &[usize],
         level_counts: &[usize],
         axis_position: AxisPosition,
-        sharing_level: u8,
+        sharing_level: SharingLevel,
         direction: FacetDirection,
     ) -> AxisVisibility {
         if level_counts.is_empty() {
@@ -914,7 +930,7 @@ impl EvaluatedFacetTree {
         level_counts: &[usize],
         level_directions: &[FacetDirection],
         axis_position: AxisPosition,
-        sharing_level: u8,
+        sharing_level: SharingLevel,
     ) -> AxisVisibility {
         if level_counts.is_empty() {
             return AxisVisibility::visible();
@@ -1109,7 +1125,7 @@ impl EvaluatedFacetTree {
         path: &[ScalarValue],
         resolved: &ResolvedFacetPathInfo,
         axis_position: AxisPosition,
-        sharing_level: u8,
+        sharing_level: SharingLevel,
         fallback_visible: bool,
     ) -> bool {
         let Some((current_projected, relevant_depth, edge)) =
@@ -1126,7 +1142,7 @@ impl EvaluatedFacetTree {
             return true;
         }
 
-        let sharing_level = sharing_level.min(relevant_depth as u8);
+        let sharing_level = sharing_level.clamp_to_depth(relevant_depth as u8);
         let boundary = sharing_kernel::group_boundary(current_projected.len() as u8, sharing_level);
         let current_prefix = &current_projected[..boundary];
         let current_suffix = &current_projected[boundary..];
@@ -1185,7 +1201,7 @@ impl EvaluatedFacetTree {
         path: &[ScalarValue],
         resolved: &ResolvedFacetPathInfo,
         axis_position: AxisPosition,
-        sharing_level: u8,
+        sharing_level: SharingLevel,
         ownership_mode: AxisOwnershipMode,
     ) -> AxisVisibility {
         if resolved.local_level_counts.is_empty() {
@@ -1214,7 +1230,7 @@ impl EvaluatedFacetTree {
             return AxisVisibility::visible();
         }
 
-        let labels_sharing = sharing_level.min(relevant_depth as u8);
+        let labels_sharing = sharing_level.clamp_to_depth(relevant_depth as u8);
         let labels_fallback = sharing_policy::show_cartesian_axis_labels(
             &resolved.indices,
             &resolved.local_level_counts,
@@ -1290,6 +1306,7 @@ impl EvaluatedFacetTree {
         axis_position: AxisPosition,
         sharing_level: u8,
     ) -> Option<AxisVisibility> {
+        let sharing_level = SharingLevel::from_raw(sharing_level);
         if path.is_empty() {
             return Some(AxisVisibility::visible());
         }
@@ -1343,6 +1360,7 @@ impl EvaluatedFacetTree {
         sharing_level: u8,
         ownership_mode: AxisOwnershipMode,
     ) -> Option<AxisVisibility> {
+        let sharing_level = SharingLevel::from_raw(sharing_level);
         if path.is_empty() {
             return Some(AxisVisibility::visible());
         }
@@ -1407,6 +1425,7 @@ impl EvaluatedFacetTree {
         axis_position: AxisPosition,
         sharing_level: u8,
     ) -> AxisVisibility {
+        let sharing_level = SharingLevel::from_raw(sharing_level);
         // If no facets, always show
         let Some(root) = &self.root else {
             return AxisVisibility::visible();
@@ -1415,7 +1434,7 @@ impl EvaluatedFacetTree {
         debug!(
             position = ?position_indices,
             axis = ?axis_position,
-            sharing_level,
+            sharing_level = sharing_level.raw(),
             counts = ?self.level_counts_ref(),
             "axis_visibility"
         );
@@ -2465,7 +2484,10 @@ mod tests {
             for sharing_level in [0_u8, 1, 255] {
                 assert_eq!(
                     tree.enumerate_values_for_facet(&facet_path, sharing_level),
-                    tree.enumerate_values_for_facet_uncached(&facet_path, sharing_level),
+                    tree.enumerate_values_for_facet_uncached(
+                        &facet_path,
+                        SharingLevel::from_raw(sharing_level),
+                    ),
                     "enumeration mismatch for path={facet_path:?}, sharing={sharing_level}"
                 );
             }
@@ -2547,8 +2569,8 @@ mod tests {
 
         let with_new = EvaluatedFacetTree::new(Some(root.clone()));
         assert_eq!(with_new.depth(), 1);
-        assert!(with_new.used_sharing_levels.contains(&0));
-        assert!(with_new.used_sharing_levels.contains(&255));
+        assert!(with_new.used_sharing_levels.contains(&SharingLevel::FREE));
+        assert!(with_new.used_sharing_levels.contains(&SharingLevel::GLOBAL));
         assert!(
             with_new
                 .path_info_cache
@@ -2567,9 +2589,21 @@ mod tests {
         channel_sharing.insert("x".to_string(), 2);
         let with_levels = EvaluatedFacetTree::new_with_sharing_levels(Some(root), channel_sharing);
         assert_eq!(with_levels.channel_sharing_level("x"), 2);
-        assert!(with_levels.used_sharing_levels.contains(&0));
-        assert!(with_levels.used_sharing_levels.contains(&2));
-        assert!(with_levels.used_sharing_levels.contains(&255));
+        assert!(
+            with_levels
+                .used_sharing_levels
+                .contains(&SharingLevel::FREE)
+        );
+        assert!(
+            with_levels
+                .used_sharing_levels
+                .contains(&SharingLevel::from_raw(2))
+        );
+        assert!(
+            with_levels
+                .used_sharing_levels
+                .contains(&SharingLevel::GLOBAL)
+        );
 
         let empty = EvaluatedFacetTree::empty();
         assert_eq!(empty.depth(), 0);
@@ -2579,8 +2613,8 @@ mod tests {
         assert!(empty.enumeration_cache.is_empty());
         assert_eq!(empty.jagged_axis_cache.len(), 4);
         assert!(empty.jagged_axis_cache.values().all(|value| !*value));
-        assert!(empty.used_sharing_levels.contains(&0));
-        assert!(empty.used_sharing_levels.contains(&255));
+        assert!(empty.used_sharing_levels.contains(&SharingLevel::FREE));
+        assert!(empty.used_sharing_levels.contains(&SharingLevel::GLOBAL));
     }
 
     #[test]

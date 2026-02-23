@@ -5,7 +5,7 @@
 
 use datafusion::common::ScalarValue;
 
-use crate::facet::path_math;
+use crate::facet::{path_math, sharing_level::SharingLevel};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SharingGroupEdge {
@@ -14,7 +14,7 @@ pub(crate) enum SharingGroupEdge {
 }
 
 #[inline]
-pub(crate) fn group_boundary(facet_depth: u8, sharing_level: u8) -> usize {
+pub(crate) fn group_boundary(facet_depth: u8, sharing_level: SharingLevel) -> usize {
     path_math::sharing_group_boundary(facet_depth, sharing_level)
 }
 
@@ -65,7 +65,7 @@ pub(crate) fn owner_for_edge_with_sharing(
     position_indices: &[usize],
     level_counts: &[usize],
     facet_depth: u8,
-    sharing_level: u8,
+    sharing_level: SharingLevel,
 ) -> bool {
     let boundary = group_boundary(facet_depth, sharing_level);
     owner_for_edge(edge, position_indices, level_counts, boundary)
@@ -74,7 +74,7 @@ pub(crate) fn owner_for_edge_with_sharing(
 #[inline]
 pub(crate) fn domain_group_key(
     full_cell_path: &[ScalarValue],
-    sharing_level: u8,
+    sharing_level: SharingLevel,
     facet_depth: u8,
 ) -> Vec<ScalarValue> {
     path_math::ancestor_key(full_cell_path, sharing_level, facet_depth)

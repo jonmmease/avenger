@@ -6,6 +6,7 @@ use crate::cartesian::axis::CartesianAxis;
 use crate::error::AvengerChartError;
 use crate::facet::guide::band_guide_engine::{self, ColGuideAxisOps, FacetGuideState};
 use crate::facet::marks::facet::CompiledFacetCol;
+use crate::facet::sharing_level::SharingLevel;
 use crate::guide::{CompiledGuide, CoordinateGuide, MeasurementResult, OverflowSpaceRequirement};
 use crate::layout::LayoutBounds;
 use crate::marks::CompiledMark;
@@ -233,7 +234,7 @@ impl FacetColGuide {
             compiled_subplot: self.compiled_subplot.clone(),
             facet_data_plan: self.facet_data_plan.clone(),
             position: self.position.clone(),
-            sharing_level: self.sharing_level,
+            sharing_level: SharingLevel::from_raw(self.sharing_level),
         }
     }
 }

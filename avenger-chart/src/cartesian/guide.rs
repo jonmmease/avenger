@@ -388,7 +388,7 @@ impl CompiledGuide for CartesianGuide {
                 // Get sharing level for this channel from the facet tree.
                 // The facet tree stores sharing levels extracted from innermost marks.
                 // Keep this value intact for ownership/title calculations.
-                let sharing_level = facet_tree.channel_sharing_level(channel);
+                let sharing_level = facet_tree.channel_sharing_level_typed(channel);
                 let axis_mark = axis
                     .evaluate(
                         channel,
@@ -401,7 +401,7 @@ impl CompiledGuide for CartesianGuide {
                         ctx,
                         facet_tree,
                         facet_path,
-                        sharing_level,
+                        sharing_level.raw(),
                     )
                     .await?;
                 marks.push(axis_mark);

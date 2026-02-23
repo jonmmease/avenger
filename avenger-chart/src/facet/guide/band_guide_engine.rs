@@ -25,6 +25,7 @@ use crate::{
         },
         layout_plan::effective_edge_indices_for_values_at_path,
         layout_slabs::LayoutSlabs,
+        sharing_level::SharingLevel,
     },
     layout::LayoutBounds,
     plot::compiled::CompiledPlot,
@@ -41,7 +42,7 @@ pub(crate) struct FacetGuideState {
     pub(crate) compiled_subplot: Option<Arc<CompiledPlot>>,
     pub(crate) facet_data_plan: Option<LogicalPlanNode>,
     pub(crate) position: Option<String>,
-    pub(crate) sharing_level: u8,
+    pub(crate) sharing_level: SharingLevel,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -460,13 +461,13 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         facet_tree,
         facet_path,
         axis_position,
-        state.sharing_level,
+        state.sharing_level.raw(),
     );
     if !guide_visible {
         debug!(
             guide = O::log_name(),
             position = ?state.position,
-            sharing_level = state.sharing_level,
+            sharing_level = state.sharing_level.raw(),
             subplot_overflow_left = subplot_overflow.left,
             subplot_overflow_right = subplot_overflow.right,
             subplot_overflow_top = subplot_overflow.top,
@@ -505,7 +506,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         anchor_policy = O::anchor_policy_label(place_at_end, title_visible),
         guide_visible,
         title_visible,
-        sharing_level = state.sharing_level,
+        sharing_level = state.sharing_level.raw(),
         facet_guide_slab_size,
         total_left = total.left,
         total_right = total.right,
@@ -533,13 +534,13 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
         facet_tree,
         facet_path,
         axis_position,
-        state.sharing_level,
+        state.sharing_level.raw(),
     );
     if !guide_visible {
         debug!(
             guide = O::log_name(),
             position = ?state.position,
-            sharing_level = state.sharing_level,
+            sharing_level = state.sharing_level.raw(),
             "facet guide evaluate hidden by ownership; skipping marks"
         );
         return Ok(vec![]);
@@ -576,7 +577,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
         anchor_source = anchor_source.as_str(),
         guide_visible,
         title_visible,
-        sharing_level = state.sharing_level,
+        sharing_level = state.sharing_level.raw(),
         anchor_policy = O::anchor_policy_label(place_at_end, title_visible),
         labels = ?labels,
         "facet guide evaluate"
@@ -826,7 +827,7 @@ fn facet_title_visible_for_cell(
     axis_position: AxisPosition,
 ) -> bool {
     facet_tree
-        .axis_visibility_for_path(facet_path, axis_position, 255)
+        .axis_visibility_for_path(facet_path, axis_position, SharingLevel::GLOBAL.raw())
         .show_title
 }
 

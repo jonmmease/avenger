@@ -12,7 +12,9 @@ use crate::{
     channel::value::ChannelValue,
     coords::{EmptyCoordMeasurement, extract_channel_title_from_marks},
     error::AvengerChartError,
-    facet::{evaluated_facet_tree::EvaluatedFacetTree, sharing_policy},
+    facet::{
+        evaluated_facet_tree::EvaluatedFacetTree, sharing_level::SharingLevel, sharing_policy,
+    },
     layout::LayoutResult,
     layout::legend::measure_legend_size_with_channels,
     legend::{
@@ -55,7 +57,7 @@ pub(crate) struct PreparedLegendGroup {
     pub channels: Vec<LegendChannel>,
     pub legend: Legend,
     pub renderer: Arc<dyn LegendRenderer>,
-    pub effective_sharing_level: u8,
+    pub effective_sharing_level: SharingLevel,
     pub resolved_position: LegendPosition,
 }
 
@@ -69,25 +71,26 @@ impl CompiledPlot {
     fn effective_group_sharing_level(
         facet_tree: &EvaluatedFacetTree,
         channels: &[LegendChannel],
-    ) -> u8 {
+    ) -> SharingLevel {
         channels
             .iter()
             .map(|channel| {
-                channel
-                    .sharing_level
-                    .unwrap_or_else(|| facet_tree.channel_sharing_level(channel.name.as_str()))
+                channel.sharing_level.map_or_else(
+                    || facet_tree.channel_sharing_level_typed(channel.name.as_str()),
+                    SharingLevel::from_raw,
+                )
             })
             .min()
-            .unwrap_or(255)
+            .unwrap_or(SharingLevel::GLOBAL)
     }
 
     fn legend_visible_for_facet_cell(
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
-        sharing_level: u8,
+        sharing_level: SharingLevel,
         legend_position: LegendPosition,
     ) -> bool {
-        if sharing_level == 0 {
+        if sharing_level.is_free() {
             return true;
         }
 
@@ -649,7 +652,7 @@ impl CompiledPlot {
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
         resolved_position: LegendPosition,
-        effective_sharing_level: u8,
+        effective_sharing_level: SharingLevel,
         _configured_scales: &HashMap<String, ConfiguredScaleWithSpec>,
         _params: &IndexMap<String, ScalarValue>,
     ) -> bool {
@@ -954,7 +957,7 @@ impl CompiledPlot {
                     height = size.height,
                     flexible,
                     position = ?resolved_position,
-                    sharing = effective_sharing_level,
+                    sharing = effective_sharing_level.raw(),
                     "Legend measure"
                 );
                 legend_measurements.insert(
@@ -1057,7 +1060,10 @@ mod tests {
     use indexmap::IndexMap;
     use std::collections::HashMap;
 
-    use crate::{facet::evaluated_facet_tree::PartitionNode, guide::FacetDirection};
+    use crate::{
+        facet::{evaluated_facet_tree::PartitionNode, sharing_level::SharingLevel},
+        guide::FacetDirection,
+    };
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))
@@ -1110,7 +1116,7 @@ mod tests {
         let visible = CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivA"), s("Dept1")],
-            0,
+            SharingLevel::FREE,
             LegendPosition::Right,
         );
         assert!(visible);
@@ -1122,19 +1128,19 @@ mod tests {
         assert!(!CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivA"), s("Dept1")],
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Right,
         ));
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivA"), s("Dept2")],
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Right,
         ));
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept2")],
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Right,
         ));
     }
@@ -1145,13 +1151,13 @@ mod tests {
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivA"), s("Dept1")],
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Left,
         ));
         assert!(!CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivA"), s("Dept2")],
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Left,
         ));
     }
@@ -1162,13 +1168,13 @@ mod tests {
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept1")],
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Top,
         ));
         assert!(!CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept2")],
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Top,
         ));
     }
@@ -1179,13 +1185,13 @@ mod tests {
         assert!(!CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept1")],
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Bottom,
         ));
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept2")],
-            1,
+            SharingLevel::from_raw(1),
             LegendPosition::Bottom,
         ));
     }
@@ -1196,13 +1202,13 @@ mod tests {
         assert!(!CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivA"), s("Dept2")],
-            2,
+            SharingLevel::from_raw(2),
             LegendPosition::Right,
         ));
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept2")],
-            2,
+            SharingLevel::from_raw(2),
             LegendPosition::Right,
         ));
     }
@@ -1213,13 +1219,13 @@ mod tests {
         assert!(CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivA"), s("Dept1")],
-            3,
+            SharingLevel::from_raw(3),
             LegendPosition::Left,
         ));
         assert!(!CompiledPlot::legend_visible_for_facet_cell(
             &tree,
             &[s("DivB"), s("Dept1")],
-            3,
+            SharingLevel::from_raw(3),
             LegendPosition::Left,
         ));
     }
@@ -1233,7 +1239,7 @@ mod tests {
         let channels = vec![make_legend_channel("fill"), make_legend_channel("stroke")];
         assert_eq!(
             CompiledPlot::effective_group_sharing_level(&tree, &channels),
-            1
+            SharingLevel::from_raw(1)
         );
     }
 }
