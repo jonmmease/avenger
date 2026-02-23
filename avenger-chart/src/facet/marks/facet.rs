@@ -1,8 +1,8 @@
 use crate::channel::config_traits::ScaleSharing;
-use crate::coords::CoordinateSystem;
+use crate::coords::{CoordinateSystem, FacetAxis};
 use crate::error::AvengerChartError;
 use crate::facet::band_positions::BandPositionIterator;
-use crate::facet::coord::{FacetColumn, FacetRow};
+use crate::facet::coord::{FacetBandCoordMeasurement, FacetColumn, FacetRow};
 use crate::facet::dimension_config::{
     ColumnDimensionConfig, FacetDimensionConfig, RowDimensionConfig,
 };
@@ -17,7 +17,10 @@ use crate::marks::{
     ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
 };
 use crate::plot::{CompiledPlot, Plot};
-use crate::render::RenderContext;
+use crate::render::{EvaluationContext, RenderContext};
+use avenger_scales::scales::ConfiguredScale;
+use avenger_scales::scales::band::bandwidth;
+use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
@@ -35,6 +38,230 @@ fn facet_cell_main_axis_start_offset(
         crate::coords::FacetAxis::Column => (0.0, slabs.legend.top),
         crate::coords::FacetAxis::Row => (slabs.legend.left, 0.0),
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FacetBandRenderOps {
+    axis: FacetAxis,
+    scale_name: &'static str,
+    label: &'static str,
+    group_prefix: &'static str,
+}
+
+impl FacetBandRenderOps {
+    fn row() -> Self {
+        Self {
+            axis: FacetAxis::Row,
+            scale_name: "row",
+            label: "FacetRow",
+            group_prefix: "facet_row_",
+        }
+    }
+
+    fn col() -> Self {
+        Self {
+            axis: FacetAxis::Column,
+            scale_name: "column",
+            label: "FacetCol",
+            group_prefix: "facet_col_",
+        }
+    }
+
+    fn subplot_origin(self, position: f32, origin_offset_x: f32, origin_offset_y: f32) -> [f32; 2] {
+        match self.axis {
+            FacetAxis::Column => [position + origin_offset_x, origin_offset_y],
+            FacetAxis::Row => [origin_offset_x, position + origin_offset_y],
+        }
+    }
+
+    fn group_name(self, idx: usize, is_empty: bool) -> String {
+        if is_empty {
+            format!("{}{idx}_empty", self.group_prefix)
+        } else {
+            format!("{}{idx}", self.group_prefix)
+        }
+    }
+
+    fn resolve_positions(
+        self,
+        configured: &ConfiguredScale,
+        cell_values: &[ScalarValue],
+    ) -> Result<Vec<f32>, AvengerChartError> {
+        match self.axis {
+            FacetAxis::Column => resolve_facet_col_positions(configured, cell_values),
+            FacetAxis::Row => resolve_facet_row_positions(configured, cell_values),
+        }
+    }
+
+    fn trace_main_axis_start_offset(self, origin_offset_x: f32, origin_offset_y: f32) {
+        trace!(
+            legend_start_left = origin_offset_x,
+            legend_start_top = origin_offset_y,
+            "{} render main-axis start slab offset",
+            self.label
+        );
+    }
+
+    fn trace_position(self, idx: usize, subplot_origin: [f32; 2], position: f32, band_size: f32) {
+        match self.axis {
+            FacetAxis::Column => trace!(
+                cell_index = idx,
+                origin_x = subplot_origin[0],
+                origin_y = subplot_origin[1],
+                x = position,
+                width = band_size,
+                "{} render position",
+                self.label
+            ),
+            FacetAxis::Row => trace!(
+                cell_index = idx,
+                origin_x = subplot_origin[0],
+                origin_y = subplot_origin[1],
+                y = position,
+                height = band_size,
+                "{} render position",
+                self.label
+            ),
+        }
+    }
+}
+
+fn facet_subplot_eval_ctx(
+    compiled_subplot: &Arc<CompiledPlot>,
+    context: &RenderContext,
+    axis_owner_ignore_empty_cells: bool,
+) -> EvaluationContext {
+    let mut params = compiled_subplot.get_default_params().clone();
+    params.extend(context.eval.params.clone());
+    let eval_ctx = context.eval.with_params(params);
+    eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
+}
+
+async fn render_facet_band_common(
+    ops: FacetBandRenderOps,
+    compiled_subplot: &Arc<CompiledPlot>,
+    facet_empty_cell_policy: FacetEmptyCellPolicy,
+    context: &RenderContext<'_>,
+) -> Result<Vec<SceneMark>, AvengerChartError> {
+    let facet_measurement = context
+        .coord_measurement()
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurement>()
+        .ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Expected FacetBandCoordMeasurement in coord_measurement".into(),
+            )
+        })?;
+
+    if facet_measurement.cells.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let band_scale = context.scales().get(ops.scale_name).ok_or_else(|| {
+        AvengerChartError::InternalError(format!("No {} scale found", ops.scale_name))
+    })?;
+    let cell_values: Vec<ScalarValue> = facet_measurement.cell_values().cloned().collect();
+    let configured = band_scale.configured();
+    let cell_positions = ops.resolve_positions(configured, &cell_values)?;
+
+    let band_size = bandwidth(&configured.config)
+        .map_err(|e| AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e)))?;
+
+    let ownership_policy = resolve_facet_ownership_policy(
+        facet_empty_cell_policy,
+        has_holes_from_cells(
+            facet_measurement
+                .cells
+                .iter()
+                .map(|cell| cell.plan.is_empty),
+        ),
+    );
+    let subplot_eval_ctx = facet_subplot_eval_ctx(
+        compiled_subplot,
+        context,
+        ownership_policy.axis_owner_ignore_empty_cells,
+    );
+
+    let (origin_offset_x, origin_offset_y) = facet_cell_main_axis_start_offset(facet_measurement);
+    ops.trace_main_axis_start_offset(origin_offset_x, origin_offset_y);
+
+    let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
+    for (idx, cell) in facet_measurement.cells.iter().enumerate() {
+        let position = cell_positions[idx];
+        let subplot_origin = ops.subplot_origin(position, origin_offset_x, origin_offset_y);
+        let is_empty_cell = cell.plan.is_empty;
+
+        if is_empty_cell
+            && matches!(
+                ownership_policy.effective_empty_cell_policy,
+                FacetEmptyCellPolicy::Hole
+            )
+        {
+            let empty_group = SceneGroup {
+                name: ops.group_name(idx, true),
+                origin: subplot_origin,
+                clip: avenger_scenegraph::marks::group::Clip::None,
+                marks: Vec::new(),
+                gradients: Vec::new(),
+                fill: None,
+                stroke: None,
+                stroke_width: None,
+                stroke_offset: None,
+                zindex: None,
+            };
+            scene_marks.push(SceneMark::Group(empty_group));
+            continue;
+        }
+
+        let cell_eval_ctx = if cell_requires_invalid_path_axis_fallback_hidden(
+            is_empty_cell,
+            cell.plan.in_domain_slot,
+        ) {
+            subplot_eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
+        } else {
+            subplot_eval_ctx.clone()
+        };
+
+        let components = compiled_subplot
+            .build_plot_components(
+                &cell_eval_ctx,
+                &cell.measurement,
+                Some(&cell.data_override),
+                true,
+                &cell.plan.full_path,
+            )
+            .await?;
+
+        let data_marks_group = SceneGroup {
+            origin: [0.0, 0.0],
+            marks: components.data_marks,
+            clip: components.clip,
+            zindex: Some(0),
+            ..Default::default()
+        };
+        let mut all_marks = vec![SceneMark::Group(data_marks_group)];
+        all_marks.extend(components.guide_marks);
+        all_marks.extend(components.legend_marks);
+        all_marks.extend(components.title_marks);
+        all_marks.extend(components.subtitle_marks);
+
+        let subplot_group = SceneGroup {
+            name: ops.group_name(idx, false),
+            origin: subplot_origin,
+            clip: avenger_scenegraph::marks::group::Clip::None,
+            marks: all_marks,
+            gradients: Vec::new(),
+            fill: None,
+            stroke: None,
+            stroke_width: None,
+            stroke_offset: None,
+            zindex: None,
+        };
+        scene_marks.push(SceneMark::Group(subplot_group));
+        ops.trace_position(idx, subplot_origin, position, band_size);
+    }
+
+    Ok(scene_marks)
 }
 
 /// Facet mark for FacetRow or FacetCol outer coordinate system.
@@ -304,149 +531,13 @@ impl CompiledMark for CompiledFacetRow {
         context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::facet::coord::FacetBandCoordMeasurement;
-        use avenger_scales::scales::band::bandwidth;
-        use avenger_scenegraph::marks::group::SceneGroup;
-
-        let facet_measurement = context
-            .coord_measurement()
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(
-                    "Expected FacetBandCoordMeasurement in coord_measurement".into(),
-                )
-            })?;
-
-        if facet_measurement.cells.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let row_scale = context
-            .scales()
-            .get("row")
-            .ok_or_else(|| AvengerChartError::InternalError("No row scale found".into()))?;
-
-        let cell_values: Vec<ScalarValue> = facet_measurement.cell_values().cloned().collect();
-        let configured = row_scale.configured();
-        let cell_positions = resolve_facet_row_positions(configured, &cell_values)?;
-
-        let subplot_height = bandwidth(&configured.config).map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
-        })?;
-
-        let ownership_policy = resolve_facet_ownership_policy(
+        render_facet_band_common(
+            FacetBandRenderOps::row(),
+            &self.compiled_subplot,
             self.facet_empty_cell_policy,
-            has_holes_from_cells(
-                facet_measurement
-                    .cells
-                    .iter()
-                    .map(|cell| cell.plan.is_empty),
-            ),
-        );
-        let subplot_eval_ctx = {
-            let mut params = self.compiled_subplot.get_default_params().clone();
-            params.extend(context.eval.params.clone());
-            let eval_ctx = context.eval.with_params(params);
-            eval_ctx
-                .with_axis_owner_ignore_empty_cells(ownership_policy.axis_owner_ignore_empty_cells)
-        };
-        let (origin_offset_x, origin_offset_y) =
-            facet_cell_main_axis_start_offset(facet_measurement);
-
-        trace!(
-            legend_start_left = origin_offset_x,
-            legend_start_top = origin_offset_y,
-            "FacetRow render main-axis start slab offset"
-        );
-
-        let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
-
-        for (idx, cell) in facet_measurement.cells.iter().enumerate() {
-            let position = cell_positions[idx];
-            let subplot_origin = [origin_offset_x, position + origin_offset_y];
-            let is_empty_cell = cell.plan.is_empty;
-
-            if is_empty_cell
-                && matches!(
-                    ownership_policy.effective_empty_cell_policy,
-                    FacetEmptyCellPolicy::Hole
-                )
-            {
-                let empty_group = SceneGroup {
-                    name: format!("facet_row_{}_empty", idx),
-                    origin: subplot_origin,
-                    clip: avenger_scenegraph::marks::group::Clip::None,
-                    marks: Vec::new(),
-                    gradients: Vec::new(),
-                    fill: None,
-                    stroke: None,
-                    stroke_width: None,
-                    stroke_offset: None,
-                    zindex: None,
-                };
-                scene_marks.push(SceneMark::Group(empty_group));
-                continue;
-            }
-
-            let cell_eval_ctx = if cell_requires_invalid_path_axis_fallback_hidden(
-                is_empty_cell,
-                cell.plan.in_domain_slot,
-            ) {
-                subplot_eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
-            } else {
-                subplot_eval_ctx.clone()
-            };
-
-            let components = self
-                .compiled_subplot
-                .build_plot_components(
-                    &cell_eval_ctx,
-                    &cell.measurement,
-                    Some(&cell.data_override),
-                    true,
-                    &cell.plan.full_path,
-                )
-                .await?;
-
-            let data_marks_group = SceneGroup {
-                origin: [0.0, 0.0],
-                marks: components.data_marks,
-                clip: components.clip,
-                zindex: Some(0),
-                ..Default::default()
-            };
-            let mut all_marks = vec![SceneMark::Group(data_marks_group)];
-            all_marks.extend(components.guide_marks);
-            all_marks.extend(components.legend_marks);
-            all_marks.extend(components.title_marks);
-            all_marks.extend(components.subtitle_marks);
-
-            let subplot_group = SceneGroup {
-                name: format!("facet_row_{}", idx),
-                origin: subplot_origin,
-                clip: avenger_scenegraph::marks::group::Clip::None,
-                marks: all_marks,
-                gradients: Vec::new(),
-                fill: None,
-                stroke: None,
-                stroke_width: None,
-                stroke_offset: None,
-                zindex: None,
-            };
-            scene_marks.push(SceneMark::Group(subplot_group));
-
-            trace!(
-                cell_index = idx,
-                origin_x = subplot_origin[0],
-                origin_y = subplot_origin[1],
-                y = position,
-                height = subplot_height,
-                "FacetRow render position"
-            );
-        }
-
-        Ok(scene_marks)
+            context,
+        )
+        .await
     }
 
     fn preferred_scale_type(
@@ -693,164 +784,13 @@ impl CompiledMark for CompiledFacetCol {
         context: &RenderContext,
         _coord: Box<dyn crate::coords::CoordinateSystemTransform>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::facet::coord::FacetBandCoordMeasurement;
-        use avenger_scales::scales::band::bandwidth;
-        use avenger_scenegraph::marks::group::SceneGroup;
-
-        // Get coord_measurement from context and downcast to FacetBandCoordMeasurement
-        let facet_measurement = context
-            .coord_measurement()
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(
-                    "Expected FacetBandCoordMeasurement in coord_measurement".into(),
-                )
-            })?;
-
-        if facet_measurement.cells.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Get the column scale (already has padding_inner_px from ComponentsMeasurement)
-        let column_scale = context
-            .scales()
-            .get("column")
-            .ok_or_else(|| AvengerChartError::InternalError("No column scale found".into()))?;
-
-        // Compute positions from the scale
-        let cell_values: Vec<ScalarValue> = facet_measurement.cell_values().cloned().collect();
-        let configured = column_scale.configured();
-        let cell_positions = resolve_facet_col_positions(configured, &cell_values)?;
-
-        // Get subplot width from scale (used for debug logging)
-        let subplot_width = bandwidth(&configured.config).map_err(|e| {
-            AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
-        })?;
-
-        // Create subplot EvaluationContext with merged params
-        let ownership_policy = resolve_facet_ownership_policy(
+        render_facet_band_common(
+            FacetBandRenderOps::col(),
+            &self.compiled_subplot,
             self.facet_empty_cell_policy,
-            has_holes_from_cells(
-                facet_measurement
-                    .cells
-                    .iter()
-                    .map(|cell| cell.plan.is_empty),
-            ),
-        );
-        let subplot_eval_ctx = {
-            let mut params = self.compiled_subplot.get_default_params().clone();
-            params.extend(context.eval.params.clone());
-            let eval_ctx = context.eval.with_params(params);
-            eval_ctx
-                .with_axis_owner_ignore_empty_cells(ownership_policy.axis_owner_ignore_empty_cells)
-        };
-        let (origin_offset_x, origin_offset_y) =
-            facet_cell_main_axis_start_offset(facet_measurement);
-
-        trace!(
-            legend_start_left = origin_offset_x,
-            legend_start_top = origin_offset_y,
-            "FacetCol render main-axis start slab offset"
-        );
-
-        let mut scene_marks = Vec::with_capacity(facet_measurement.cells.len());
-
-        // Render each subplot using pre-computed measurements from coord.measure()
-        // Note: Measurements have already been adjusted for legend overflow by
-        // coordinate_overflow_for_guides() before build_plot_components() is called.
-        for (idx, cell) in facet_measurement.cells.iter().enumerate() {
-            let position = cell_positions[idx];
-            let subplot_origin = [position + origin_offset_x, origin_offset_y];
-            let is_empty_cell = cell.plan.is_empty;
-
-            // For empty cells (created by Level(N) sharing for uniform layout),
-            // render an empty group at the correct position to preserve layout.
-            // Don't call build_plot_components which would trigger guide rendering
-            // with potentially invalid scale domains (causing NaN/Inf errors).
-            if is_empty_cell
-                && matches!(
-                    ownership_policy.effective_empty_cell_policy,
-                    FacetEmptyCellPolicy::Hole
-                )
-            {
-                let empty_group = SceneGroup {
-                    name: format!("facet_col_{}_empty", idx),
-                    origin: subplot_origin,
-                    clip: avenger_scenegraph::marks::group::Clip::None,
-                    marks: Vec::new(),
-                    gradients: Vec::new(),
-                    fill: None,
-                    stroke: None,
-                    stroke_width: None,
-                    stroke_offset: None,
-                    zindex: None,
-                };
-                scene_marks.push(SceneMark::Group(empty_group));
-                continue;
-            }
-
-            let cell_eval_ctx = if cell_requires_invalid_path_axis_fallback_hidden(
-                is_empty_cell,
-                cell.plan.in_domain_slot,
-            ) {
-                subplot_eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
-            } else {
-                subplot_eval_ctx.clone()
-            };
-
-            // Build plot components using pre-computed measurement
-            let components = self
-                .compiled_subplot
-                .build_plot_components(
-                    &cell_eval_ctx,
-                    &cell.measurement,
-                    Some(&cell.data_override),
-                    true, // dimensions_are_plot_area
-                    &cell.plan.full_path,
-                )
-                .await?;
-
-            // Mirror top-level plot composition: only data marks are clipped to plot area.
-            // Guides/legends/titles must render outside the plot clip region.
-            let data_marks_group = SceneGroup {
-                origin: [0.0, 0.0],
-                marks: components.data_marks,
-                clip: components.clip,
-                zindex: Some(0),
-                ..Default::default()
-            };
-            let mut all_marks = vec![SceneMark::Group(data_marks_group)];
-            all_marks.extend(components.guide_marks);
-            all_marks.extend(components.legend_marks);
-            all_marks.extend(components.title_marks);
-            all_marks.extend(components.subtitle_marks);
-
-            let subplot_group = SceneGroup {
-                name: format!("facet_col_{}", idx),
-                origin: subplot_origin,
-                clip: avenger_scenegraph::marks::group::Clip::None,
-                marks: all_marks,
-                gradients: Vec::new(),
-                fill: None,
-                stroke: None,
-                stroke_width: None,
-                stroke_offset: None,
-                zindex: None,
-            };
-            scene_marks.push(SceneMark::Group(subplot_group));
-
-            trace!(
-                cell_index = idx,
-                origin_x = subplot_origin[0],
-                origin_y = subplot_origin[1],
-                x = position,
-                width = subplot_width,
-                "FacetCol render position"
-            );
-        }
-
-        Ok(scene_marks)
+            context,
+        )
+        .await
     }
 
     fn preferred_scale_type(
@@ -893,14 +833,15 @@ impl CompiledMark for CompiledFacetCol {
     }
 }
 
-fn resolve_facet_col_positions(
+fn resolve_facet_band_positions(
     configured: &avenger_scales::scales::ConfiguredScale,
     cell_values: &[ScalarValue],
+    axis_label: &str,
 ) -> Result<Vec<f32>, AvengerChartError> {
     let bands: Vec<_> = BandPositionIterator::from_configured_scale(configured)?.collect();
     if bands.len() != cell_values.len() {
         return Err(AvengerChartError::InternalError(format!(
-            "FacetCol render: band positions length {} did not match facet cell count {}",
+            "{axis_label} render: band positions length {} did not match facet cell count {}",
             bands.len(),
             cell_values.len()
         )));
@@ -911,37 +852,25 @@ fn resolve_facet_col_positions(
         .zip(cell_values.iter())
         .all(|(band, value)| band.value == *value)
     {
-        return Err(AvengerChartError::InternalError(
-            "FacetCol render: band position order did not align with facet cell order".into(),
-        ));
+        return Err(AvengerChartError::InternalError(format!(
+            "{axis_label} render: band position order did not align with facet cell order"
+        )));
     }
     Ok(bands.into_iter().map(|band| band.start()).collect())
+}
+
+fn resolve_facet_col_positions(
+    configured: &avenger_scales::scales::ConfiguredScale,
+    cell_values: &[ScalarValue],
+) -> Result<Vec<f32>, AvengerChartError> {
+    resolve_facet_band_positions(configured, cell_values, "FacetCol")
 }
 
 fn resolve_facet_row_positions(
     configured: &avenger_scales::scales::ConfiguredScale,
     cell_values: &[ScalarValue],
 ) -> Result<Vec<f32>, AvengerChartError> {
-    let bands: Vec<_> = BandPositionIterator::from_configured_scale(configured)?.collect();
-    if bands.len() != cell_values.len() {
-        return Err(AvengerChartError::InternalError(format!(
-            "FacetRow render: band positions length {} did not match facet cell count {}",
-            bands.len(),
-            cell_values.len()
-        )));
-    }
-
-    if !bands
-        .iter()
-        .zip(cell_values.iter())
-        .all(|(band, value)| band.value == *value)
-    {
-        return Err(AvengerChartError::InternalError(
-            "FacetRow render: band position order did not align with facet cell order".into(),
-        ));
-    }
-
-    Ok(bands.into_iter().map(|band| band.start()).collect())
+    resolve_facet_band_positions(configured, cell_values, "FacetRow")
 }
 
 // ============================================================================
@@ -1027,20 +956,20 @@ mod tests {
     }
 
     #[test]
-    fn resolve_facet_col_positions_returns_aligned_band_positions() {
+    fn resolve_facet_band_positions_returns_aligned_band_positions() {
         let scale = make_band_scale((0.0, 100.0));
         let cell_values = vec![
             ScalarValue::Utf8(Some("a".to_string())),
             ScalarValue::Utf8(Some("b".to_string())),
         ];
 
-        let positions = resolve_facet_col_positions(&scale, &cell_values).unwrap();
+        let positions = resolve_facet_band_positions(&scale, &cell_values, "FacetCol").unwrap();
         assert_eq!(positions.len(), 2);
         assert!(positions[0] < positions[1]);
     }
 
     #[test]
-    fn resolve_facet_col_positions_errors_on_count_mismatch() {
+    fn resolve_facet_band_positions_errors_on_count_mismatch() {
         let scale = make_band_scale((0.0, 100.0));
         let cell_values = vec![
             ScalarValue::Utf8(Some("a".to_string())),
@@ -1048,23 +977,64 @@ mod tests {
             ScalarValue::Utf8(Some("c".to_string())),
         ];
 
-        let err = resolve_facet_col_positions(&scale, &cell_values).unwrap_err();
+        let err = resolve_facet_band_positions(&scale, &cell_values, "FacetCol").unwrap_err();
         let message = format!("{}", err);
         assert!(message.contains("band positions length"));
         assert!(message.contains("facet cell count"));
     }
 
     #[test]
-    fn resolve_facet_col_positions_errors_on_order_mismatch() {
+    fn resolve_facet_band_positions_errors_on_order_mismatch() {
         let scale = make_band_scale((0.0, 100.0));
         let cell_values = vec![
             ScalarValue::Utf8(Some("b".to_string())),
             ScalarValue::Utf8(Some("a".to_string())),
         ];
 
-        let err = resolve_facet_col_positions(&scale, &cell_values).unwrap_err();
+        let err = resolve_facet_band_positions(&scale, &cell_values, "FacetCol").unwrap_err();
         let message = format!("{}", err);
         assert!(message.contains("band position order"));
         assert!(message.contains("facet cell order"));
+    }
+
+    #[test]
+    fn resolve_facet_row_and_col_wrappers_delegate_to_shared_resolver() {
+        let scale = make_band_scale((0.0, 100.0));
+        let cell_values = vec![
+            ScalarValue::Utf8(Some("a".to_string())),
+            ScalarValue::Utf8(Some("b".to_string())),
+        ];
+        let col = resolve_facet_col_positions(&scale, &cell_values).unwrap();
+        let row = resolve_facet_row_positions(&scale, &cell_values).unwrap();
+        assert_eq!(col, row);
+    }
+
+    #[test]
+    fn facet_band_render_ops_origin_mapping_row_vs_col() {
+        let row_ops = FacetBandRenderOps::row();
+        let col_ops = FacetBandRenderOps::col();
+        let position = 25.0;
+        let origin_offset_x = 10.0;
+        let origin_offset_y = 5.0;
+
+        assert_eq!(
+            row_ops.subplot_origin(position, origin_offset_x, origin_offset_y),
+            [10.0, 30.0]
+        );
+        assert_eq!(
+            col_ops.subplot_origin(position, origin_offset_x, origin_offset_y),
+            [35.0, 5.0]
+        );
+    }
+
+    #[test]
+    fn facet_band_render_ops_group_name_prefixes_row_vs_col() {
+        let row_ops = FacetBandRenderOps::row();
+        let col_ops = FacetBandRenderOps::col();
+
+        assert_eq!(row_ops.group_name(3, false), "facet_row_3");
+        assert_eq!(row_ops.group_name(3, true), "facet_row_3_empty");
+        assert_eq!(col_ops.group_name(4, false), "facet_col_4");
+        assert_eq!(col_ops.group_name(4, true), "facet_col_4_empty");
     }
 }
