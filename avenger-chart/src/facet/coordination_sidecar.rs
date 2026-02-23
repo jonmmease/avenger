@@ -13,6 +13,7 @@ use crate::{
             CoordPhase10Derivation, CoordPhase10Ir, CoordPhase10NodeDerivation,
             CoordPhase10NodeResult,
         },
+        coordination_remeasure::derive_facet_coord_remeasure_plan,
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
@@ -162,10 +163,18 @@ fn derive_phase8_recursive(
         let node_id = CoordNodeId::new(node_path.clone());
         let apply_plan = facet_band.derive_coordinated_apply_plan();
         let child_count = facet_band.child_measurements_iter().count();
+        let remeasure_plan = apply_plan.remeasure_required.then(|| {
+            derive_facet_coord_remeasure_plan(
+                &facet_band.cells,
+                &apply_plan,
+                facet_band.subplot_cross_size,
+            )
+        });
 
         node_derivations.push(CoordPhase8NodeDerivation {
             node_id,
             axis: apply_plan.axis,
+            remeasure_plan,
             has_legend_overflow: apply_plan.has_legend_overflow,
             has_coordinated_extents: apply_plan.has_coordinated_extents,
             remeasure_triggered: apply_plan.remeasure_required,
@@ -219,7 +228,11 @@ fn run_phase8_apply_recursive<'a>(
                 ))
             })?;
             let outcome = facet_band
-                .apply_coordinated_overflow_with_plan(eval_ctx, &derived.apply_plan)
+                .apply_coordinated_overflow_with_plan_and_remeasure_plan(
+                    eval_ctx,
+                    &derived.apply_plan,
+                    derived.remeasure_plan.as_ref(),
+                )
                 .await?;
             let parent_cross_size = facet_band.coordinated_subplot_cross_size();
             let parent_axis = facet_band.axis;

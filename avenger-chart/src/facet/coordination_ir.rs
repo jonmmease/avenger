@@ -9,6 +9,7 @@ use crate::{
     facet::{
         coord::{FacetBandCoordApplyPlan, union_domain_extents},
         coordination::CoordinationGroupKey,
+        coordination_remeasure::FacetCoordRemeasurePlan,
         sharing_policy,
     },
     scales::domain_extent::DomainExtent,
@@ -102,6 +103,7 @@ pub(crate) struct CoordPhase8NodeDerivation {
     pub(crate) node_id: CoordNodeId,
     pub(crate) axis: FacetAxis,
     pub(crate) apply_plan: FacetBandCoordApplyPlan,
+    pub(crate) remeasure_plan: Option<FacetCoordRemeasurePlan>,
     pub(crate) has_legend_overflow: bool,
     pub(crate) has_coordinated_extents: bool,
     pub(crate) remeasure_triggered: bool,

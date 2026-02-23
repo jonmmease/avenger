@@ -357,8 +357,36 @@ fn debug_assert_phase8_trace_alignment(derivation: &CoordPhase8Derivation, trace
             trace_result.remeasure_triggered,
             derived.remeasure_triggered
         );
+        debug_assert_eq!(
+            derived.remeasure_triggered,
+            derived.remeasure_plan.is_some(),
+            "phase 8 derivation must carry per-cell remeasure plan iff remeasure is required"
+        );
         debug_assert_eq!(trace_result.derived_child_count, derived.child_count);
-        if !trace_result.remeasure_triggered {
+        if let Some(remeasure_plan) = derived.remeasure_plan.as_ref() {
+            let derived_cell_count = remeasure_plan.cell_intents.len();
+            let derived_non_empty_count = remeasure_plan
+                .cell_intents
+                .iter()
+                .filter(|intent| intent.has_data_rows)
+                .count();
+            let derived_with_coordinated_extents_count = remeasure_plan
+                .cell_intents
+                .iter()
+                .filter(|intent| intent.use_coordinated_extents)
+                .count();
+            debug_assert!(trace_result.remeasure_triggered);
+            debug_assert_eq!(trace_result.remeasured_cell_count, derived_cell_count);
+            debug_assert_eq!(
+                trace_result.remeasured_non_empty_cell_count,
+                derived_non_empty_count
+            );
+            debug_assert_eq!(
+                trace_result.remeasured_with_coordinated_extents_count,
+                derived_with_coordinated_extents_count
+            );
+        } else {
+            debug_assert!(!trace_result.remeasure_triggered);
             debug_assert_eq!(trace_result.remeasured_cell_count, 0);
             debug_assert_eq!(trace_result.remeasured_non_empty_cell_count, 0);
             debug_assert_eq!(trace_result.remeasured_with_coordinated_extents_count, 0);
@@ -926,6 +954,11 @@ mod tests {
             .iter()
             .find(|result| result.node_id.path.is_empty())
             .expect("phase 8 should include a root node trace");
+        let root_derivation = phase8_derivation
+            .node_derivations
+            .iter()
+            .find(|node| node.node_id.path.is_empty())
+            .expect("phase 8 derivation should include a root node");
         assert!(root_result.parent_cross_size_propagated);
         assert!(root_result.remeasure_triggered);
         assert!(root_result.derived_has_coordinated_extents);
@@ -934,6 +967,22 @@ mod tests {
         assert!(
             root_result.remeasured_with_coordinated_extents_count
                 <= root_result.remeasured_cell_count
+        );
+        let root_remeasure_plan = root_derivation
+            .remeasure_plan
+            .as_ref()
+            .expect("root derivation should include remeasure plan");
+        assert_eq!(
+            root_result.remeasured_cell_count,
+            root_remeasure_plan.cell_intents.len()
+        );
+        assert_eq!(
+            root_result.remeasured_with_coordinated_extents_count,
+            root_remeasure_plan
+                .cell_intents
+                .iter()
+                .filter(|intent| intent.use_coordinated_extents)
+                .count()
         );
         Ok(())
     }
@@ -1038,8 +1087,16 @@ mod tests {
         for node in &derivation.node_derivations {
             assert_eq!(node.axis, node.apply_plan.axis);
             assert_eq!(node.remeasure_triggered, node.apply_plan.remeasure_required);
+            assert_eq!(node.remeasure_triggered, node.remeasure_plan.is_some());
             if node.has_legend_overflow {
                 assert!(node.apply_plan.legend_slab_applied > 0.0);
+            }
+            if let Some(remeasure_plan) = node.remeasure_plan.as_ref() {
+                assert_eq!(remeasure_plan.request.axis, node.axis);
+                assert_eq!(
+                    remeasure_plan.request.axis_owner_ignore_empty_cells,
+                    node.apply_plan.axis_owner_ignore_empty_cells
+                );
             }
         }
         Ok(())
@@ -1075,6 +1132,11 @@ mod tests {
             .iter()
             .find(|result| result.node_id.path.is_empty())
             .expect("phase 8 should include a root node trace");
+        let root_derivation = derivation
+            .node_derivations
+            .iter()
+            .find(|node| node.node_id.path.is_empty())
+            .expect("phase 8 derivation should include a root node");
         assert_eq!(root_result.axis, FacetAxis::Column);
         assert!(root_result.subplot_cross_size_after > 0.0);
         assert!(root_result.derived_has_coordinated_extents);
@@ -1085,6 +1147,30 @@ mod tests {
         assert!(
             root_result.remeasured_with_coordinated_extents_count
                 <= root_result.remeasured_cell_count
+        );
+        let root_remeasure_plan = root_derivation
+            .remeasure_plan
+            .as_ref()
+            .expect("root derivation should include remeasure plan when remeasure is required");
+        assert_eq!(
+            root_result.remeasured_cell_count,
+            root_remeasure_plan.cell_intents.len()
+        );
+        assert_eq!(
+            root_result.remeasured_non_empty_cell_count,
+            root_remeasure_plan
+                .cell_intents
+                .iter()
+                .filter(|intent| intent.has_data_rows)
+                .count()
+        );
+        assert_eq!(
+            root_result.remeasured_with_coordinated_extents_count,
+            root_remeasure_plan
+                .cell_intents
+                .iter()
+                .filter(|intent| intent.use_coordinated_extents)
+                .count()
         );
         Ok(())
     }
