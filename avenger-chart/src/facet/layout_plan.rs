@@ -20,6 +20,20 @@ pub(crate) struct FacetCellPlan {
     pub filter_predicate: Option<Expr>,
 }
 
+impl From<&crate::facet::band_ir::FacetBandCellSemantic> for FacetCellPlan {
+    fn from(cell: &crate::facet::band_ir::FacetBandCellSemantic) -> Self {
+        Self {
+            value: cell.value.clone(),
+            full_path: cell.full_path.clone(),
+            in_domain_slot: cell.in_domain_slot,
+            has_data_rows: cell.has_data_rows,
+            empty_kind: cell.empty_kind,
+            is_empty: cell.is_empty,
+            filter_predicate: cell.filter_predicate.clone(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FacetCellEmptyKind {
     DomainPlaceholder,
