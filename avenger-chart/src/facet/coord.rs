@@ -36,6 +36,7 @@ use crate::{
         },
         layout_slabs::LayoutSlabs,
         marks::facet::{FacetMarkRef, facet_mark_ref},
+        ownership_policy::{has_holes_from_cells, resolve_facet_ownership_policy},
         padding_policy, path_math,
         scale_precompute::{
             FacetScaleNodeArtifacts, FacetScaleNodeKey, build_node_artifacts, canonicalize_path,
@@ -650,10 +651,10 @@ impl FacetBandCoordMeasurement {
             has_coordinated_layout_change(&self.local_layout, self.coordinated_layout.as_ref());
         let remeasure_required =
             should_remeasure_cells(has_legend_overflow, has_coordinated_extents);
-        let has_holes = self.cells.iter().any(|cell| cell.plan.is_empty);
-        let axis_owner_ignore_empty_cells = self
-            .empty_cell_policy
-            .axis_owner_ignore_empty_cells(has_holes);
+        let policy = resolve_facet_ownership_policy(
+            self.empty_cell_policy,
+            has_holes_from_cells(self.cells.iter().map(|cell| cell.plan.is_empty)),
+        );
         let original_main_size = self
             .cells
             .first()
@@ -675,8 +676,8 @@ impl FacetBandCoordMeasurement {
             has_coordinated_extents,
             has_coordinated_layout,
             remeasure_required,
-            has_holes,
-            axis_owner_ignore_empty_cells,
+            has_holes: policy.has_holes,
+            axis_owner_ignore_empty_cells: policy.axis_owner_ignore_empty_cells,
             original_main_size,
             adjusted_main_size,
             legend_main_axis_shrink,
@@ -1575,14 +1576,16 @@ async fn prepare_phase4_measurement_inputs_legacy(
     )
     .await?;
 
-    let has_holes = plan.cells.iter().any(|cell| cell.plan.is_empty);
-    let axis_owner_ignore_empty_cells = empty_cell_policy.axis_owner_ignore_empty_cells(has_holes);
+    let policy = resolve_facet_ownership_policy(
+        empty_cell_policy,
+        has_holes_from_cells(plan.cells.iter().map(|cell| cell.plan.is_empty)),
+    );
 
     let subplot_eval_ctx = {
         let mut params = compiled_subplot.get_default_params().clone();
         params.extend(eval_ctx.params.clone());
         let eval_ctx = eval_ctx.with_params(params);
-        eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
+        eval_ctx.with_axis_owner_ignore_empty_cells(policy.axis_owner_ignore_empty_cells)
     };
 
     let nested_measure_ctx = FacetBandNestedMeasureContext {
@@ -3332,6 +3335,32 @@ mod tests {
         let plan = facet_band.derive_coordinated_apply_plan();
         assert!(plan.has_coordinated_extents);
         assert!(plan.remeasure_required);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn derive_coordinated_apply_plan_axis_owner_ignore_empty_cells_matches_holes()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, _) =
+            build_coord_measurement_for_apply_plan_tests(FacetAxis::Column).await?;
+        let facet_band = measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurement>()
+            .expect("expected FacetBandCoordMeasurement");
+        facet_band.empty_cell_policy = FacetEmptyCellPolicy::Auto;
+
+        for cell in facet_band.cells.iter_mut() {
+            cell.plan.is_empty = false;
+        }
+
+        let no_holes_plan = facet_band.derive_coordinated_apply_plan();
+        assert!(!no_holes_plan.has_holes);
+        assert!(!no_holes_plan.axis_owner_ignore_empty_cells);
+
+        facet_band.cells[0].plan.is_empty = true;
+        let with_holes_plan = facet_band.derive_coordinated_apply_plan();
+        assert!(with_holes_plan.has_holes);
+        assert!(with_holes_plan.axis_owner_ignore_empty_cells);
         Ok(())
     }
 

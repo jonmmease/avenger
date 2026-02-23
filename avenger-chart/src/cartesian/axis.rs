@@ -15,7 +15,10 @@ use serde_with::serde_as;
 use crate::{
     axis::Axis,
     error::AvengerChartError,
-    facet::evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility, EvaluatedFacetTree},
+    facet::{
+        evaluated_facet_tree::{AxisOwnershipMode, AxisVisibility, EvaluatedFacetTree},
+        ownership_policy::axis_ownership_mode_from_ignore_empty_cells,
+    },
     layout::LayoutBounds,
     maybe::{Maybe, MaybeOptionalExpr},
     plot::{
@@ -30,6 +33,24 @@ use crate::{
     serialization::LogicalExprNodeExt,
     theme::Theme,
 };
+
+fn axis_owner_ignore_empty_cells_from_params(
+    params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+) -> bool {
+    params
+        .get(AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM)
+        .and_then(|value| match value {
+            datafusion::common::ScalarValue::Boolean(Some(v)) => Some(*v),
+            _ => None,
+        })
+        .unwrap_or(false)
+}
+
+fn axis_ownership_mode_from_params(
+    params: &indexmap::IndexMap<String, datafusion::common::ScalarValue>,
+) -> AxisOwnershipMode {
+    axis_ownership_mode_from_ignore_empty_cells(axis_owner_ignore_empty_cells_from_params(params))
+}
 
 /// Position for Cartesian axes
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -312,18 +333,7 @@ impl CartesianAxis {
                 _ => None,
             })
             .unwrap_or(false);
-        let axis_owner_ignore_empty_cells = params
-            .get(AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM)
-            .and_then(|value| match value {
-                datafusion::common::ScalarValue::Boolean(Some(v)) => Some(*v),
-                _ => None,
-            })
-            .unwrap_or(false);
-        let ownership_mode = if axis_owner_ignore_empty_cells {
-            AxisOwnershipMode::NonEmptySlots
-        } else {
-            AxisOwnershipMode::DomainSlots
-        };
+        let ownership_mode = axis_ownership_mode_from_params(params);
         let facet_visibility = if facet_path.is_empty() {
             AxisVisibility::visible()
         } else {
@@ -444,5 +454,34 @@ impl Axis for CartesianAxis {
 
     fn box_clone(&self) -> Box<dyn Axis> {
         Box::new(self.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{axis_owner_ignore_empty_cells_from_params, axis_ownership_mode_from_params};
+    use crate::facet::evaluated_facet_tree::AxisOwnershipMode;
+    use crate::render::context::AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM;
+    use datafusion::common::ScalarValue;
+    use indexmap::IndexMap;
+
+    #[test]
+    fn ownership_mode_from_params_matches_existing_behavior() {
+        let mut params = IndexMap::new();
+        assert!(!axis_owner_ignore_empty_cells_from_params(&params));
+        assert_eq!(
+            axis_ownership_mode_from_params(&params),
+            AxisOwnershipMode::DomainSlots
+        );
+
+        params.insert(
+            AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM.to_string(),
+            ScalarValue::Boolean(Some(true)),
+        );
+        assert!(axis_owner_ignore_empty_cells_from_params(&params));
+        assert_eq!(
+            axis_ownership_mode_from_params(&params),
+            AxisOwnershipMode::NonEmptySlots
+        );
     }
 }

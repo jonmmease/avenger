@@ -9,6 +9,10 @@ use crate::facet::dimension_config::{
 use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
 use crate::facet::layout_slabs::LayoutSlabs;
 use crate::facet::marks::facet_config::{FacetColChannelConfig, FacetRowChannelConfig};
+use crate::facet::ownership_policy::{
+    cell_requires_invalid_path_axis_fallback_hidden, has_holes_from_cells,
+    resolve_facet_ownership_policy,
+};
 use crate::marks::{
     ChannelDescriptor, ChannelValue, CompiledMark, CompiledMarkState, Mark, MarkState,
 };
@@ -331,19 +335,21 @@ impl CompiledMark for CompiledFacetRow {
             AvengerChartError::InternalError(format!("Failed to get bandwidth: {}", e))
         })?;
 
-        let has_holes = facet_measurement
-            .cells
-            .iter()
-            .any(|cell| cell.plan.is_empty);
-        let axis_owner_ignore_empty_cells = self
-            .facet_empty_cell_policy
-            .axis_owner_ignore_empty_cells(has_holes);
-        let effective_empty_policy = self.facet_empty_cell_policy.effective();
+        let ownership_policy = resolve_facet_ownership_policy(
+            self.facet_empty_cell_policy,
+            has_holes_from_cells(
+                facet_measurement
+                    .cells
+                    .iter()
+                    .map(|cell| cell.plan.is_empty),
+            ),
+        );
         let subplot_eval_ctx = {
             let mut params = self.compiled_subplot.get_default_params().clone();
             params.extend(context.eval.params.clone());
             let eval_ctx = context.eval.with_params(params);
-            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
+            eval_ctx
+                .with_axis_owner_ignore_empty_cells(ownership_policy.axis_owner_ignore_empty_cells)
         };
         let (origin_offset_x, origin_offset_y) =
             facet_cell_main_axis_start_offset(facet_measurement);
@@ -361,7 +367,12 @@ impl CompiledMark for CompiledFacetRow {
             let subplot_origin = [origin_offset_x, position + origin_offset_y];
             let is_empty_cell = cell.plan.is_empty;
 
-            if is_empty_cell && matches!(effective_empty_policy, FacetEmptyCellPolicy::Hole) {
+            if is_empty_cell
+                && matches!(
+                    ownership_policy.effective_empty_cell_policy,
+                    FacetEmptyCellPolicy::Hole
+                )
+            {
                 let empty_group = SceneGroup {
                     name: format!("facet_row_{}_empty", idx),
                     origin: subplot_origin,
@@ -378,7 +389,10 @@ impl CompiledMark for CompiledFacetRow {
                 continue;
             }
 
-            let cell_eval_ctx = if is_empty_cell && !cell.plan.in_domain_slot {
+            let cell_eval_ctx = if cell_requires_invalid_path_axis_fallback_hidden(
+                is_empty_cell,
+                cell.plan.in_domain_slot,
+            ) {
                 subplot_eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
             } else {
                 subplot_eval_ctx.clone()
@@ -715,19 +729,21 @@ impl CompiledMark for CompiledFacetCol {
         })?;
 
         // Create subplot EvaluationContext with merged params
-        let has_holes = facet_measurement
-            .cells
-            .iter()
-            .any(|cell| cell.plan.is_empty);
-        let axis_owner_ignore_empty_cells = self
-            .facet_empty_cell_policy
-            .axis_owner_ignore_empty_cells(has_holes);
-        let effective_empty_policy = self.facet_empty_cell_policy.effective();
+        let ownership_policy = resolve_facet_ownership_policy(
+            self.facet_empty_cell_policy,
+            has_holes_from_cells(
+                facet_measurement
+                    .cells
+                    .iter()
+                    .map(|cell| cell.plan.is_empty),
+            ),
+        );
         let subplot_eval_ctx = {
             let mut params = self.compiled_subplot.get_default_params().clone();
             params.extend(context.eval.params.clone());
             let eval_ctx = context.eval.with_params(params);
-            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
+            eval_ctx
+                .with_axis_owner_ignore_empty_cells(ownership_policy.axis_owner_ignore_empty_cells)
         };
         let (origin_offset_x, origin_offset_y) =
             facet_cell_main_axis_start_offset(facet_measurement);
@@ -752,7 +768,12 @@ impl CompiledMark for CompiledFacetCol {
             // render an empty group at the correct position to preserve layout.
             // Don't call build_plot_components which would trigger guide rendering
             // with potentially invalid scale domains (causing NaN/Inf errors).
-            if is_empty_cell && matches!(effective_empty_policy, FacetEmptyCellPolicy::Hole) {
+            if is_empty_cell
+                && matches!(
+                    ownership_policy.effective_empty_cell_policy,
+                    FacetEmptyCellPolicy::Hole
+                )
+            {
                 let empty_group = SceneGroup {
                     name: format!("facet_col_{}_empty", idx),
                     origin: subplot_origin,
@@ -769,7 +790,10 @@ impl CompiledMark for CompiledFacetCol {
                 continue;
             }
 
-            let cell_eval_ctx = if is_empty_cell && !cell.plan.in_domain_slot {
+            let cell_eval_ctx = if cell_requires_invalid_path_axis_fallback_hidden(
+                is_empty_cell,
+                cell.plan.in_domain_slot,
+            ) {
                 subplot_eval_ctx.with_invalid_facet_path_axis_fallback_hidden(true)
             } else {
                 subplot_eval_ctx.clone()
