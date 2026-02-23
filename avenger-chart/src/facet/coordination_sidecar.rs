@@ -13,7 +13,6 @@ use crate::{
             CoordPhase10Derivation, CoordPhase10Ir, CoordPhase10NodeDerivation,
             CoordPhase10NodeResult,
         },
-        layout_slabs::LayoutSlabs,
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
@@ -161,26 +160,16 @@ fn derive_phase8_recursive(
         }
 
         let node_id = CoordNodeId::new(node_path.clone());
-        let axis = facet_band.axis;
-        let legend_slabs = LayoutSlabs::from_coordinated(&facet_band.coordinated_overflow);
-        let (legend_start, legend_end) = match axis {
-            FacetAxis::Column => legend_slabs.legend_vertical(),
-            FacetAxis::Row => legend_slabs.legend_horizontal(),
-        };
-        let has_legend_overflow = legend_start > 0.0 || legend_end > 0.0;
-        let has_coordinated_extents = facet_band
-            .cells
-            .iter()
-            .any(|cell| !cell.coordinated_domain_extents.is_empty());
-        let remeasure_triggered = has_legend_overflow || has_coordinated_extents;
+        let apply_plan = facet_band.derive_coordinated_apply_plan();
         let child_count = facet_band.child_measurements_iter().count();
 
         node_derivations.push(CoordPhase8NodeDerivation {
             node_id,
-            axis,
-            has_legend_overflow,
-            has_coordinated_extents,
-            remeasure_triggered,
+            axis: apply_plan.axis,
+            has_legend_overflow: apply_plan.has_legend_overflow,
+            has_coordinated_extents: apply_plan.has_coordinated_extents,
+            remeasure_triggered: apply_plan.remeasure_required,
+            apply_plan,
             child_count,
         });
     }
@@ -223,18 +212,15 @@ fn run_phase8_apply_recursive<'a>(
     Box::pin(async move {
         if let Some(facet_band) = facet_band_mut(measurement) {
             let node_id = CoordNodeId::new(node_path.clone());
-            let axis = facet_band.axis;
-            let subplot_cross_size_before = facet_band.subplot_cross_size;
-
-            let derived = derivation_by_node.get(&node_id);
-            let derived_has_legend_overflow = derived.is_some_and(|node| node.has_legend_overflow);
-            let derived_has_coordinated_extents =
-                derived.is_some_and(|node| node.has_coordinated_extents);
-            let derived_remeasure_triggered = derived.is_some_and(|node| node.remeasure_triggered);
-            let derived_child_count = derived.map_or(0, |node| node.child_count);
-
-            facet_band.apply_coordinated_overflow(eval_ctx).await?;
-            let subplot_cross_size_after = facet_band.subplot_cross_size;
+            let derived = derivation_by_node.get(&node_id).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing phase-8 derivation for node path {:?}",
+                    node_id.path
+                ))
+            })?;
+            let outcome = facet_band
+                .apply_coordinated_overflow_with_plan(eval_ctx, &derived.apply_plan)
+                .await?;
             let parent_cross_size = facet_band.coordinated_subplot_cross_size();
             let parent_axis = facet_band.axis;
             let mut parent_cross_size_propagated = false;
@@ -266,14 +252,20 @@ fn run_phase8_apply_recursive<'a>(
 
             node_results.push(CoordPhase8NodeResult {
                 node_id,
-                axis,
-                derived_has_legend_overflow,
-                derived_has_coordinated_extents,
-                derived_child_count,
+                axis: derived.axis,
+                derived_has_legend_overflow: derived.has_legend_overflow,
+                derived_has_coordinated_extents: derived.has_coordinated_extents,
+                derived_remeasure_required: derived.remeasure_triggered,
+                derived_axis_owner_ignore_empty_cells: derived
+                    .apply_plan
+                    .axis_owner_ignore_empty_cells,
+                derived_adjusted_main_size: derived.apply_plan.adjusted_main_size,
+                derived_child_count: derived.child_count,
                 parent_cross_size_propagated,
-                subplot_cross_size_before,
-                subplot_cross_size_after,
-                remeasure_triggered: derived_remeasure_triggered,
+                subplot_cross_size_before: outcome.subplot_cross_size_before,
+                subplot_cross_size_after: outcome.subplot_cross_size_after,
+                remeasure_triggered: outcome.remeasure_triggered,
+                remeasured_cell_count: outcome.remeasured_cell_count,
             });
         }
         Ok(())

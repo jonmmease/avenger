@@ -342,6 +342,18 @@ fn debug_assert_phase8_trace_alignment(derivation: &CoordPhase8Derivation, trace
             derived.has_coordinated_extents
         );
         debug_assert_eq!(
+            trace_result.derived_remeasure_required,
+            derived.remeasure_triggered
+        );
+        debug_assert_eq!(
+            trace_result.derived_axis_owner_ignore_empty_cells,
+            derived.apply_plan.axis_owner_ignore_empty_cells
+        );
+        debug_assert_eq!(
+            trace_result.derived_adjusted_main_size,
+            derived.apply_plan.adjusted_main_size
+        );
+        debug_assert_eq!(
             trace_result.remeasure_triggered,
             derived.remeasure_triggered
         );
@@ -1000,6 +1012,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn phase8_derivation_contains_apply_plan_for_each_node() -> Result<(), AvengerChartError>
+    {
+        let (measurement, _) = nested_fixture().await?;
+        let derivation = derive_phase8(&measurement);
+        assert!(!derivation.node_derivations.is_empty());
+        for node in &derivation.node_derivations {
+            assert_eq!(node.axis, node.apply_plan.axis);
+            assert_eq!(node.remeasure_triggered, node.apply_plan.remeasure_required);
+            if node.has_legend_overflow {
+                assert!(node.apply_plan.legend_slab_applied > 0.0);
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn phase8_executor_applies_derivation_with_behavior_parity()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
@@ -1010,6 +1038,9 @@ mod tests {
             forced_layout.n = forced_layout.n.saturating_add(8);
             forced_layout.padding_inner_px += 12.0;
             root.set_coordinated_layout_value(forced_layout);
+            root.cells[0]
+                .coordinated_domain_extents
+                .insert("x".to_string(), DomainExtent::numeric(0.0, 15.0));
         }
 
         let derivation = derive_phase8(&measurement);
@@ -1028,6 +1059,40 @@ mod tests {
             .expect("phase 8 should include a root node trace");
         assert_eq!(root_result.axis, FacetAxis::Column);
         assert!(root_result.subplot_cross_size_after > 0.0);
+        assert!(root_result.derived_has_coordinated_extents);
+        assert!(root_result.derived_remeasure_required);
+        assert!(root_result.remeasure_triggered);
+        assert!(root_result.remeasured_cell_count > 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase8_node_identity_stable_between_derivation_and_execution()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
+        let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
+        apply_phase7_distribution(&mut measurement, &phase7);
+
+        let phase8_derivation = derive_phase8(&measurement);
+        let phase8 = run_phase8_apply_coordinated_overflow_and_remeasure_with_trace(
+            &mut measurement,
+            &eval_ctx,
+            &phase8_derivation,
+        )
+        .await?;
+
+        assert_eq!(
+            phase8
+                .node_results
+                .iter()
+                .map(|node| node.node_id.clone())
+                .collect::<Vec<_>>(),
+            phase8_derivation
+                .node_derivations
+                .iter()
+                .map(|node| node.node_id.clone())
+                .collect::<Vec<_>>()
+        );
         Ok(())
     }
 

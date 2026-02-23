@@ -6,7 +6,11 @@ use datafusion::common::ScalarValue;
 
 use crate::{
     coords::{CellDomainInfo, CoordinatedLayout, CoordinatedOverflow, FacetAxis},
-    facet::{coord::union_domain_extents, coordination::CoordinationGroupKey, sharing_policy},
+    facet::{
+        coord::{FacetBandCoordApplyPlan, union_domain_extents},
+        coordination::CoordinationGroupKey,
+        sharing_policy,
+    },
     scales::domain_extent::DomainExtent,
 };
 
@@ -97,6 +101,7 @@ pub(crate) struct CoordPhase9Ir {
 pub(crate) struct CoordPhase8NodeDerivation {
     pub(crate) node_id: CoordNodeId,
     pub(crate) axis: FacetAxis,
+    pub(crate) apply_plan: FacetBandCoordApplyPlan,
     pub(crate) has_legend_overflow: bool,
     pub(crate) has_coordinated_extents: bool,
     pub(crate) remeasure_triggered: bool,
@@ -114,11 +119,15 @@ pub(crate) struct CoordPhase8NodeResult {
     pub(crate) axis: FacetAxis,
     pub(crate) derived_has_legend_overflow: bool,
     pub(crate) derived_has_coordinated_extents: bool,
+    pub(crate) derived_remeasure_required: bool,
+    pub(crate) derived_axis_owner_ignore_empty_cells: bool,
+    pub(crate) derived_adjusted_main_size: f32,
     pub(crate) derived_child_count: usize,
     pub(crate) parent_cross_size_propagated: bool,
     pub(crate) subplot_cross_size_before: f32,
     pub(crate) subplot_cross_size_after: f32,
     pub(crate) remeasure_triggered: bool,
+    pub(crate) remeasured_cell_count: usize,
 }
 
 #[derive(Debug, Clone, Default)]
