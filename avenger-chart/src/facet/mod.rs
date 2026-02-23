@@ -7,6 +7,8 @@ pub mod band_positions;
 pub mod coord;
 pub mod coord_row;
 pub mod coordination;
+pub(crate) mod coordination_ir;
+pub(crate) mod coordination_sidecar;
 pub mod debug;
 pub mod dimension_config;
 pub mod empty_cell_policy;

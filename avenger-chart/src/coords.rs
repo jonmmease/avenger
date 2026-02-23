@@ -135,7 +135,7 @@ impl CoordMeasurement for EmptyCoordMeasurement {
 ///
 /// Contains all the information needed to group and aggregate domain extents
 /// across cells at the appropriate sharing level.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CellDomainInfo {
     /// Full path to this cell (parent_path + cell_value)
     pub full_cell_path: Vec<ScalarValue>,
