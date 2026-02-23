@@ -24,6 +24,7 @@ use crate::{
         },
         coord_row::compute_band_layout,
         coordination::CoordinationGroupKey,
+        coordination_remeasure::{FacetCoordRemeasureRequest, run_facet_coord_remeasure},
         empty_cell_policy::FacetEmptyCellPolicy,
         guide::FacetColGuideConfig,
         layout_plan::{
@@ -148,6 +149,8 @@ pub(crate) struct FacetBandCoordApplyOutcome {
     pub(crate) subplot_cross_size_after: f32,
     pub(crate) remeasure_triggered: bool,
     pub(crate) remeasured_cell_count: usize,
+    pub(crate) remeasured_non_empty_cell_count: usize,
+    pub(crate) remeasured_with_coordinated_extents_count: usize,
 }
 
 impl FacetBandCoordMeasurement {
@@ -725,64 +728,16 @@ impl FacetBandCoordMeasurement {
         Ok(())
     }
 
-    async fn remeasure_cells_with_coordinated_state(
-        &mut self,
-        eval_ctx: &EvaluationContext,
-        adjusted_main_size: f32,
-        axis_owner_ignore_empty_cells: bool,
-    ) -> Result<usize, AvengerChartError> {
-        let subplot_eval_ctx = {
-            let mut params = self.compiled_subplot.get_default_params().clone();
-            params.extend(eval_ctx.params.clone());
-            let eval_ctx = eval_ctx.with_params(params);
-            eval_ctx.with_axis_owner_ignore_empty_cells(axis_owner_ignore_empty_cells)
-        };
-
-        let compiled_subplot = self.compiled_subplot.clone();
-        let shared_scale_builder = self.shared_scale_builder.clone();
-        let mut remeasured_cell_count = 0usize;
-
-        for (idx, cell) in self.cells.iter_mut().enumerate() {
-            let subplot_layout_spec = match self.axis {
-                FacetAxis::Column => {
-                    fixed_plot_area_layout_spec(self.subplot_cross_size, adjusted_main_size)
-                }
-                FacetAxis::Row => {
-                    fixed_plot_area_layout_spec(adjusted_main_size, self.subplot_cross_size)
-                }
-            };
-            let mut builder = shared_scale_builder.clone();
-            if !cell.coordinated_domain_extents.is_empty() {
-                builder.extend_with_domain_extents(&cell.coordinated_domain_extents);
-            }
-
-            let mode = FacetCellMeasurementMode::ExplicitBuilder {
-                scale_builder: &builder,
-            };
-            let MeasuredFacetCell { measurement, .. } = measure_facet_cell(
-                &cell.plan,
-                &cell.data_override,
-                &compiled_subplot,
-                &subplot_eval_ctx,
-                &subplot_layout_spec,
-                mode,
-            )
-            .await?;
-
-            trace!(
-                cell_index = idx,
-                cell_value = ?cell.plan.value,
-                axis = ?self.axis,
-                subplot_cross_size = self.subplot_cross_size,
-                adjusted_main_size,
-                is_empty = !cell.plan.has_data_rows,
-                "FacetBand apply_coordinated_overflow re-measured cell"
-            );
-            cell.measurement = measurement;
-            remeasured_cell_count += 1;
+    fn build_coordinated_remeasure_request(
+        &self,
+        plan: &FacetBandCoordApplyPlan,
+    ) -> FacetCoordRemeasureRequest {
+        FacetCoordRemeasureRequest {
+            axis: self.axis,
+            subplot_cross_size: self.subplot_cross_size,
+            adjusted_main_size: plan.adjusted_main_size,
+            axis_owner_ignore_empty_cells: plan.axis_owner_ignore_empty_cells,
         }
-
-        Ok(remeasured_cell_count)
     }
 
     pub(crate) async fn apply_coordinated_overflow_with_plan(
@@ -844,6 +799,8 @@ impl FacetBandCoordMeasurement {
                 subplot_cross_size_after: self.subplot_cross_size,
                 remeasure_triggered: false,
                 remeasured_cell_count: 0,
+                remeasured_non_empty_cell_count: 0,
+                remeasured_with_coordinated_extents_count: 0,
             });
         }
 
@@ -870,19 +827,60 @@ impl FacetBandCoordMeasurement {
             "FacetBand apply_coordinated_overflow legend slab application"
         );
 
-        let remeasured_cell_count = self
-            .remeasure_cells_with_coordinated_state(
-                eval_ctx,
-                plan.adjusted_main_size,
-                plan.axis_owner_ignore_empty_cells,
-            )
-            .await?;
+        let request = self.build_coordinated_remeasure_request(plan);
+        let remeasure_outcome = run_facet_coord_remeasure(
+            &mut self.cells,
+            &self.compiled_subplot,
+            &self.shared_scale_builder,
+            eval_ctx,
+            &request,
+        )
+        .await?;
+        let remeasured_cell_count = remeasure_outcome.cell_outcomes.len();
+        for (idx, cell_outcome) in remeasure_outcome.cell_outcomes.iter().enumerate() {
+            debug_assert_eq!(
+                cell_outcome.cell_index, idx,
+                "coordination remeasure cell outcome ordering must match cell ordering"
+            );
+        }
+        let remeasured_non_empty_cell_count = remeasure_outcome
+            .cell_outcomes
+            .iter()
+            .filter(|outcome| outcome.has_data_rows)
+            .count();
+        let remeasured_with_coordinated_extents_count = remeasure_outcome
+            .cell_outcomes
+            .iter()
+            .filter(|outcome| outcome.used_coordinated_extents)
+            .count();
+        let remeasured_max_plot_area_width = remeasure_outcome
+            .cell_outcomes
+            .iter()
+            .map(|outcome| outcome.plot_area_width)
+            .fold(0.0f32, f32::max);
+        let remeasured_max_plot_area_height = remeasure_outcome
+            .cell_outcomes
+            .iter()
+            .map(|outcome| outcome.plot_area_height)
+            .fold(0.0f32, f32::max);
+        trace!(
+            axis = ?self.axis,
+            facet_depth = self.facet_depth,
+            remeasured_cell_count,
+            remeasured_non_empty_cell_count,
+            remeasured_with_coordinated_extents_count,
+            remeasured_max_plot_area_width,
+            remeasured_max_plot_area_height,
+            "FacetBand apply_coordinated_overflow remeasure outcome summary"
+        );
 
         Ok(FacetBandCoordApplyOutcome {
             subplot_cross_size_before,
             subplot_cross_size_after: self.subplot_cross_size,
             remeasure_triggered: true,
             remeasured_cell_count,
+            remeasured_non_empty_cell_count,
+            remeasured_with_coordinated_extents_count,
         })
     }
 
@@ -1350,6 +1348,27 @@ async fn measure_facet_cell(
                 })
         }
     }
+}
+
+pub(crate) async fn measure_facet_cell_with_explicit_builder(
+    cell: &FacetCellPlan,
+    data_override: &DataFrame,
+    compiled_subplot: &Arc<CompiledPlot>,
+    subplot_eval_ctx: &EvaluationContext,
+    subplot_layout_spec: &EvaluatedLayoutSpec,
+    scale_builder: &ScaleBuilder,
+) -> Result<ComponentsMeasurement, AvengerChartError> {
+    let mode = FacetCellMeasurementMode::ExplicitBuilder { scale_builder };
+    let MeasuredFacetCell { measurement, .. } = measure_facet_cell(
+        cell,
+        data_override,
+        compiled_subplot,
+        subplot_eval_ctx,
+        subplot_layout_spec,
+        mode,
+    )
+    .await?;
+    Ok(measurement)
 }
 
 async fn measure_nested_cell(
@@ -3267,6 +3286,8 @@ mod tests {
         assert!((outcome.subplot_cross_size_before - before_cross_size).abs() <= 0.01);
         assert!(!outcome.remeasure_triggered);
         assert_eq!(outcome.remeasured_cell_count, 0);
+        assert_eq!(outcome.remeasured_non_empty_cell_count, 0);
+        assert_eq!(outcome.remeasured_with_coordinated_extents_count, 0);
         assert!((facet_band.subplot_cross_size - before_cross_size).abs() > 0.01);
         Ok(())
     }
@@ -3303,7 +3324,97 @@ mod tests {
 
         assert!(outcome.remeasure_triggered);
         assert_eq!(outcome.remeasured_cell_count, expected_cells);
+        assert!(outcome.remeasured_non_empty_cell_count > 0);
+        assert!(
+            outcome.remeasured_non_empty_cell_count <= outcome.remeasured_cell_count,
+            "non-empty count must be bounded by total remeasured cells"
+        );
+        assert!(
+            outcome.remeasured_with_coordinated_extents_count <= outcome.remeasured_cell_count,
+            "coordinated-extents count must be bounded by total remeasured cells"
+        );
         assert!(first_after < first_before);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn coord_remeasure_updates_all_cells_and_returns_per_cell_outcomes()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) =
+            build_coord_measurement_for_apply_plan_tests(FacetAxis::Column).await?;
+        let facet_band = measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurement>()
+            .expect("expected FacetBandCoordMeasurement");
+        let request = crate::facet::coordination_remeasure::FacetCoordRemeasureRequest {
+            axis: FacetAxis::Column,
+            subplot_cross_size: facet_band.subplot_cross_size,
+            adjusted_main_size: facet_band
+                .cells
+                .first()
+                .map(|cell| cell.measurement.plot_area_height)
+                .unwrap_or(120.0),
+            axis_owner_ignore_empty_cells: false,
+        };
+
+        let outcome = crate::facet::coordination_remeasure::run_facet_coord_remeasure(
+            &mut facet_band.cells,
+            &facet_band.compiled_subplot,
+            &facet_band.shared_scale_builder,
+            &eval_ctx,
+            &request,
+        )
+        .await?;
+
+        assert_eq!(outcome.cell_outcomes.len(), facet_band.cells.len());
+        for (idx, cell_outcome) in outcome.cell_outcomes.iter().enumerate() {
+            assert_eq!(cell_outcome.cell_index, idx);
+            assert!(cell_outcome.plot_area_width > 0.0);
+            assert!(cell_outcome.plot_area_height > 0.0);
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn coord_remeasure_marks_cells_with_coordinated_extents_usage()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) =
+            build_coord_measurement_for_apply_plan_tests(FacetAxis::Column).await?;
+        let facet_band = measurement
+            .as_any_mut()
+            .downcast_mut::<FacetBandCoordMeasurement>()
+            .expect("expected FacetBandCoordMeasurement");
+        facet_band.cells[0]
+            .coordinated_domain_extents
+            .insert("x".to_string(), DomainExtent::numeric(0.0, 10.0));
+
+        let request = crate::facet::coordination_remeasure::FacetCoordRemeasureRequest {
+            axis: FacetAxis::Column,
+            subplot_cross_size: facet_band.subplot_cross_size,
+            adjusted_main_size: facet_band
+                .cells
+                .first()
+                .map(|cell| cell.measurement.plot_area_height)
+                .unwrap_or(120.0),
+            axis_owner_ignore_empty_cells: false,
+        };
+
+        let outcome = crate::facet::coordination_remeasure::run_facet_coord_remeasure(
+            &mut facet_band.cells,
+            &facet_band.compiled_subplot,
+            &facet_band.shared_scale_builder,
+            &eval_ctx,
+            &request,
+        )
+        .await?;
+
+        let used_count = outcome
+            .cell_outcomes
+            .iter()
+            .filter(|cell_outcome| cell_outcome.used_coordinated_extents)
+            .count();
+        assert_eq!(used_count, 1);
+        assert!(outcome.cell_outcomes[0].used_coordinated_extents);
         Ok(())
     }
 

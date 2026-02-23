@@ -128,6 +128,8 @@ pub(crate) struct CoordPhase8NodeResult {
     pub(crate) subplot_cross_size_after: f32,
     pub(crate) remeasure_triggered: bool,
     pub(crate) remeasured_cell_count: usize,
+    pub(crate) remeasured_non_empty_cell_count: usize,
+    pub(crate) remeasured_with_coordinated_extents_count: usize,
 }
 
 #[derive(Debug, Clone, Default)]

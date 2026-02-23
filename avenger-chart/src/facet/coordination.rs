@@ -358,6 +358,18 @@ fn debug_assert_phase8_trace_alignment(derivation: &CoordPhase8Derivation, trace
             derived.remeasure_triggered
         );
         debug_assert_eq!(trace_result.derived_child_count, derived.child_count);
+        if !trace_result.remeasure_triggered {
+            debug_assert_eq!(trace_result.remeasured_cell_count, 0);
+            debug_assert_eq!(trace_result.remeasured_non_empty_cell_count, 0);
+            debug_assert_eq!(trace_result.remeasured_with_coordinated_extents_count, 0);
+        }
+        debug_assert!(
+            trace_result.remeasured_non_empty_cell_count <= trace_result.remeasured_cell_count
+        );
+        debug_assert!(
+            trace_result.remeasured_with_coordinated_extents_count
+                <= trace_result.remeasured_cell_count
+        );
     }
 }
 
@@ -917,6 +929,12 @@ mod tests {
         assert!(root_result.parent_cross_size_propagated);
         assert!(root_result.remeasure_triggered);
         assert!(root_result.derived_has_coordinated_extents);
+        assert!(root_result.remeasured_cell_count > 0);
+        assert!(root_result.remeasured_non_empty_cell_count <= root_result.remeasured_cell_count);
+        assert!(
+            root_result.remeasured_with_coordinated_extents_count
+                <= root_result.remeasured_cell_count
+        );
         Ok(())
     }
 
@@ -1063,6 +1081,11 @@ mod tests {
         assert!(root_result.derived_remeasure_required);
         assert!(root_result.remeasure_triggered);
         assert!(root_result.remeasured_cell_count > 0);
+        assert!(root_result.remeasured_non_empty_cell_count <= root_result.remeasured_cell_count);
+        assert!(
+            root_result.remeasured_with_coordinated_extents_count
+                <= root_result.remeasured_cell_count
+        );
         Ok(())
     }
 

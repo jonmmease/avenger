@@ -8,6 +8,7 @@ pub mod coord;
 pub mod coord_row;
 pub mod coordination;
 pub(crate) mod coordination_ir;
+pub(crate) mod coordination_remeasure;
 pub(crate) mod coordination_sidecar;
 pub mod debug;
 pub mod dimension_config;
