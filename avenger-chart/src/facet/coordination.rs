@@ -433,6 +433,29 @@ fn debug_assert_phase10_trace_alignment(
             derived.parent_cross_size_target
         );
         debug_assert_eq!(trace_result.derived_child_count, derived.child_count);
+        debug_assert_eq!(
+            derived.child_intents.len(),
+            derived.child_count,
+            "phase 10 child intent count must match derived child count"
+        );
+        for (idx, child_intent) in derived.child_intents.iter().enumerate() {
+            debug_assert_eq!(
+                child_intent.child_index, idx,
+                "phase 10 child intents must preserve deterministic child index order"
+            );
+        }
+        debug_assert_eq!(
+            trace_result.derived_child_intent_count,
+            derived.child_intents.len()
+        );
+        debug_assert_eq!(
+            trace_result.derived_expected_plot_area_adjustments_count,
+            derived.expected_plot_area_adjustments_count
+        );
+        debug_assert_eq!(
+            trace_result.child_plot_area_adjustments_count,
+            derived.expected_plot_area_adjustments_count
+        );
     }
 }
 
@@ -1043,8 +1066,142 @@ mod tests {
             .iter()
             .find(|result| result.node_id.path.is_empty())
             .expect("phase 10 should include a root node trace");
+        let root_derivation = phase10_derivation
+            .node_derivations
+            .iter()
+            .find(|node| node.node_id.path.is_empty())
+            .expect("phase 10 derivation should include a root node");
         assert!(root_result.child_plot_area_adjustments_count > 0);
         assert!(root_result.scale_range_retarget_count > 0);
+        assert_eq!(
+            root_result.derived_child_intent_count,
+            root_derivation.child_intents.len()
+        );
+        assert_eq!(
+            root_result.derived_expected_plot_area_adjustments_count,
+            root_derivation.expected_plot_area_adjustments_count
+        );
+        assert_eq!(
+            root_result.child_plot_area_adjustments_count,
+            root_derivation.expected_plot_area_adjustments_count
+        );
+        assert_eq!(root_result.derived_child_count, root_derivation.child_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase10_derivation_contains_ordered_child_intents() -> Result<(), AvengerChartError> {
+        let (measurement, _) = nested_fixture().await?;
+        let derivation = derive_phase10(&measurement);
+        assert!(!derivation.node_derivations.is_empty());
+        for node in &derivation.node_derivations {
+            assert_eq!(node.child_intents.len(), node.child_count);
+            let expected_adjustments = node
+                .child_intents
+                .iter()
+                .filter(|intent| intent.adjust_plot_area)
+                .count();
+            assert_eq!(
+                node.expected_plot_area_adjustments_count,
+                expected_adjustments
+            );
+            for (idx, intent) in node.child_intents.iter().enumerate() {
+                assert_eq!(intent.child_index, idx);
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase10_trace_matches_derived_child_intent_adjustment_counts()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, _) = nested_fixture().await?;
+        {
+            let root = facet_band_mut(&mut measurement)
+                .expect("fixture should produce root facet-band measurement");
+            root.subplot_cross_size += 40.0;
+        }
+
+        let derivation = derive_phase10(&measurement);
+        let phase10 =
+            run_phase10_scale_retarget_and_adjustments_with_trace(&mut measurement, &derivation);
+
+        for (derived, trace_result) in derivation
+            .node_derivations
+            .iter()
+            .zip(phase10.node_results.iter())
+        {
+            assert_eq!(trace_result.node_id, derived.node_id);
+            assert_eq!(
+                trace_result.derived_child_intent_count,
+                derived.child_intents.len()
+            );
+            assert_eq!(
+                trace_result.derived_expected_plot_area_adjustments_count,
+                derived.expected_plot_area_adjustments_count
+            );
+            assert_eq!(
+                trace_result.child_plot_area_adjustments_count,
+                derived.expected_plot_area_adjustments_count
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase10_child_intents_encode_axis_target_cross_sizes() -> Result<(), AvengerChartError>
+    {
+        let (measurement, _) = nested_fixture().await?;
+        let derivation = derive_phase10(&measurement);
+        for node in &derivation.node_derivations {
+            match (node.axis, node.parent_cross_size_target) {
+                (FacetAxis::Column, Some(target_cross_size)) => {
+                    for intent in &node.child_intents {
+                        assert!(
+                            intent.target_plot_area_height.is_none(),
+                            "column intent should not target child plot height"
+                        );
+                        if intent.adjust_plot_area {
+                            assert_eq!(intent.target_plot_area_width, Some(target_cross_size));
+                        } else {
+                            assert!(intent.target_plot_area_width.is_none());
+                        }
+                        if intent.update_band_range {
+                            assert_eq!(intent.target_band_range_end, Some(target_cross_size));
+                        } else {
+                            assert!(intent.target_band_range_end.is_none());
+                        }
+                    }
+                }
+                (FacetAxis::Row, Some(target_cross_size)) => {
+                    for intent in &node.child_intents {
+                        assert!(
+                            intent.target_plot_area_width.is_none(),
+                            "row intent should not target child plot width"
+                        );
+                        if intent.adjust_plot_area {
+                            assert_eq!(intent.target_plot_area_height, Some(target_cross_size));
+                        } else {
+                            assert!(intent.target_plot_area_height.is_none());
+                        }
+                        if intent.update_band_range {
+                            assert_eq!(intent.target_band_range_end, Some(target_cross_size));
+                        } else {
+                            assert!(intent.target_band_range_end.is_none());
+                        }
+                    }
+                }
+                (_, None) => {
+                    for intent in &node.child_intents {
+                        assert!(intent.target_plot_area_width.is_none());
+                        assert!(intent.target_plot_area_height.is_none());
+                        assert!(intent.target_band_range_end.is_none());
+                        assert!(!intent.adjust_plot_area);
+                        assert!(!intent.update_band_range);
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -1255,6 +1412,11 @@ mod tests {
             .find(|result| result.node_id.path.is_empty())
             .expect("phase 10 should include a root node trace");
         assert!(root_result.child_plot_area_adjustments_count > 0);
+        assert!(root_result.derived_child_intent_count > 0);
+        assert_eq!(
+            root_result.child_plot_area_adjustments_count,
+            root_result.derived_expected_plot_area_adjustments_count
+        );
         Ok(())
     }
 
@@ -1349,6 +1511,17 @@ mod tests {
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>()
         );
+        for (derived, trace_result) in phase10
+            .node_results
+            .iter()
+            .zip(phase10_derivation.node_derivations.iter())
+        {
+            assert_eq!(derived.node_id, trace_result.node_id);
+            assert_eq!(
+                derived.derived_child_intent_count,
+                trace_result.child_intents.len()
+            );
+        }
         Ok(())
     }
 }

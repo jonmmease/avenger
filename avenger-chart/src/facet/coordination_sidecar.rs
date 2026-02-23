@@ -10,8 +10,8 @@ use crate::{
         coordination_ir::{
             CoordNodeId, CoordPhase7Ir, CoordPhase8Derivation, CoordPhase8Ir,
             CoordPhase8NodeDerivation, CoordPhase8NodeResult, CoordPhase9Ir,
-            CoordPhase10Derivation, CoordPhase10Ir, CoordPhase10NodeDerivation,
-            CoordPhase10NodeResult,
+            CoordPhase10ChildIntent, CoordPhase10Derivation, CoordPhase10Ir,
+            CoordPhase10NodeDerivation, CoordPhase10NodeResult,
         },
         coordination_remeasure::derive_facet_coord_remeasure_plan,
     },
@@ -307,13 +307,159 @@ fn derive_phase10_recursive(
             node_path.pop();
         }
 
+        let parent_cross_size_target = facet_band.coordinated_subplot_cross_size();
+        let child_intents = build_phase10_child_intents(
+            facet_band.axis,
+            parent_cross_size_target,
+            facet_band.child_measurements_iter(),
+        );
+        let expected_plot_area_adjustments_count = child_intents
+            .iter()
+            .filter(|intent| intent.adjust_plot_area)
+            .count();
+
         node_derivations.push(CoordPhase10NodeDerivation {
             node_id: CoordNodeId::new(node_path.clone()),
             axis: facet_band.axis,
-            parent_cross_size_target: facet_band.coordinated_subplot_cross_size(),
-            child_count: facet_band.child_measurements_iter().count(),
+            parent_cross_size_target,
+            child_count: child_intents.len(),
+            child_intents,
+            expected_plot_area_adjustments_count,
         });
     }
+}
+
+fn build_phase10_child_intents<'a, I>(
+    axis: FacetAxis,
+    parent_cross_size_target: Option<f32>,
+    child_measurements: I,
+) -> Vec<CoordPhase10ChildIntent>
+where
+    I: Iterator<Item = &'a ComponentsMeasurement>,
+{
+    child_measurements
+        .enumerate()
+        .map(|(idx, child)| {
+            let has_band_scale = child.scales.contains_key(axis.scale_name());
+            build_phase10_child_intent(
+                idx,
+                axis,
+                parent_cross_size_target,
+                child.plot_area_width,
+                child.plot_area_height,
+                has_band_scale,
+            )
+        })
+        .collect()
+}
+
+fn build_phase10_child_intent(
+    child_index: usize,
+    axis: FacetAxis,
+    parent_cross_size_target: Option<f32>,
+    old_plot_area_width: f32,
+    old_plot_area_height: f32,
+    has_band_scale: bool,
+) -> CoordPhase10ChildIntent {
+    let (target_plot_area_width, target_plot_area_height, adjust_plot_area) =
+        match (axis, parent_cross_size_target) {
+            (FacetAxis::Column, Some(target_width))
+                if (old_plot_area_width - target_width).abs() > 0.01 =>
+            {
+                (Some(target_width), None, true)
+            }
+            (FacetAxis::Row, Some(target_height))
+                if (old_plot_area_height - target_height).abs() > 0.01 =>
+            {
+                (None, Some(target_height), true)
+            }
+            _ => (None, None, false),
+        };
+
+    let target_band_range_end = if has_band_scale {
+        parent_cross_size_target
+    } else {
+        None
+    };
+    let update_band_range = target_band_range_end.is_some();
+
+    CoordPhase10ChildIntent {
+        child_index,
+        old_plot_area_width,
+        old_plot_area_height,
+        target_plot_area_width,
+        target_plot_area_height,
+        target_band_range_end,
+        adjust_plot_area,
+        update_band_range,
+    }
+}
+
+fn apply_phase10_child_propagation_from_intent(
+    axis: FacetAxis,
+    child: &mut ComponentsMeasurement,
+    intent: &CoordPhase10ChildIntent,
+) -> bool {
+    let mut plot_area_adjusted = false;
+
+    if intent.adjust_plot_area {
+        if let Some(new_width) = intent.target_plot_area_width {
+            if (child.plot_area_width - new_width).abs() > 0.01 {
+                trace!(
+                    old_width = child.plot_area_width,
+                    new_width,
+                    axis = "column",
+                    "coordinate_facet_measurement_tree updating child plot area cross-size"
+                );
+                child.plot_area_width = new_width;
+                plot_area_adjusted = true;
+            }
+        }
+        if let Some(new_height) = intent.target_plot_area_height {
+            if (child.plot_area_height - new_height).abs() > 0.01 {
+                trace!(
+                    old_height = child.plot_area_height,
+                    new_height,
+                    axis = "row",
+                    "coordinate_facet_measurement_tree updating child plot area cross-size"
+                );
+                child.plot_area_height = new_height;
+                plot_area_adjusted = true;
+            }
+        }
+    }
+
+    if intent.update_band_range {
+        if let (Some(band_scale), Some(range_end)) = (
+            child.scales.get_mut(axis.scale_name()),
+            intent.target_band_range_end,
+        ) {
+            let updated_config = band_scale
+                .configured()
+                .clone()
+                .with_range_interval((0.0, range_end));
+            *band_scale = ConfiguredScaleWithSpec::new(band_scale.spec().clone(), updated_config);
+        }
+    }
+
+    plot_area_adjusted
+}
+
+fn apply_phase10_child_retarget_from_intent(
+    child: &mut ComponentsMeasurement,
+    intent: &CoordPhase10ChildIntent,
+) -> usize {
+    if (child.plot_area_width - intent.old_plot_area_width).abs() <= 0.01
+        && (child.plot_area_height - intent.old_plot_area_height).abs() <= 0.01
+    {
+        return 0;
+    }
+
+    retarget_child_scales_for_resized_plot_area(
+        child,
+        intent.old_plot_area_width,
+        intent.old_plot_area_height,
+    )
 }
 
 pub(crate) fn run_phase10_scale_retarget_and_adjustments_with_trace(
@@ -350,64 +496,64 @@ fn run_phase10_scale_retarget_recursive(
 
     if let Some(facet_band) = facet_band_mut(measurement) {
         let node_id = CoordNodeId::new(node_path.clone());
-        let parent_width = facet_band.coordinated_subplot_cross_size();
         let axis = facet_band.axis;
+        let derived = derivation_by_node.get(&node_id);
+        debug_assert!(
+            derived.is_some(),
+            "Missing phase-10 derivation for node path {:?}",
+            node_id.path
+        );
+        let fallback_child_intents = build_phase10_child_intents(
+            axis,
+            facet_band.coordinated_subplot_cross_size(),
+            facet_band.child_measurements_iter(),
+        );
+        let fallback_expected_plot_area_adjustments_count = fallback_child_intents
+            .iter()
+            .filter(|intent| intent.adjust_plot_area)
+            .count();
+        let (
+            child_intents,
+            derived_parent_cross_size_target,
+            derived_child_count,
+            derived_expected_plot_area_adjustments_count,
+        ) = if let Some(derived) = derived {
+            (
+                derived.child_intents.clone(),
+                derived.parent_cross_size_target,
+                derived.child_count,
+                derived.expected_plot_area_adjustments_count,
+            )
+        } else {
+            (
+                fallback_child_intents,
+                facet_band.coordinated_subplot_cross_size(),
+                facet_band.child_measurements_iter().count(),
+                fallback_expected_plot_area_adjustments_count,
+            )
+        };
         let mut child_plot_area_adjustments_count = 0usize;
         let mut scale_range_retarget_count = 0usize;
 
         for (idx, child) in facet_band.child_measurements_iter_mut().enumerate() {
-            let old_plot_area_width = child.plot_area_width;
-            let old_plot_area_height = child.plot_area_height;
-            let mut plot_area_adjusted = false;
+            let intent = child_intents.get(idx).cloned().unwrap_or_else(|| {
+                let has_band_scale = child.scales.contains_key(axis.scale_name());
+                build_phase10_child_intent(
+                    idx,
+                    axis,
+                    derived_parent_cross_size_target,
+                    child.plot_area_width,
+                    child.plot_area_height,
+                    has_band_scale,
+                )
+            });
 
-            if let Some(width) = parent_width {
-                match axis {
-                    FacetAxis::Column if (child.plot_area_width - width).abs() > 0.01 => {
-                        trace!(
-                            old_width = child.plot_area_width,
-                            new_width = width,
-                            axis = "column",
-                            "coordinate_facet_measurement_tree updating child plot area cross-size"
-                        );
-                        child.plot_area_width = width;
-                        plot_area_adjusted = true;
-                    }
-                    FacetAxis::Row if (child.plot_area_height - width).abs() > 0.01 => {
-                        trace!(
-                            old_height = child.plot_area_height,
-                            new_height = width,
-                            axis = "row",
-                            "coordinate_facet_measurement_tree updating child plot area cross-size"
-                        );
-                        child.plot_area_height = width;
-                        plot_area_adjusted = true;
-                    }
-                    _ => {}
-                }
-
-                if let Some(band_scale) = child.scales.get_mut(axis.scale_name()) {
-                    let updated_config = band_scale
-                        .configured()
-                        .clone()
-                        .with_range_interval((0.0, width));
-                    *band_scale =
-                        ConfiguredScaleWithSpec::new(band_scale.spec().clone(), updated_config);
-                }
-            }
-
+            let plot_area_adjusted =
+                apply_phase10_child_propagation_from_intent(axis, child, &intent);
             if plot_area_adjusted {
                 child_plot_area_adjustments_count += 1;
             }
-
-            if (child.plot_area_width - old_plot_area_width).abs() > 0.01
-                || (child.plot_area_height - old_plot_area_height).abs() > 0.01
-            {
-                scale_range_retarget_count += retarget_child_scales_for_resized_plot_area(
-                    child,
-                    old_plot_area_width,
-                    old_plot_area_height,
-                );
-            }
+            scale_range_retarget_count += apply_phase10_child_retarget_from_intent(child, &intent);
             node_path.push(idx);
             run_phase10_scale_retarget_recursive(
                 child,
@@ -418,13 +564,13 @@ fn run_phase10_scale_retarget_recursive(
             node_path.pop();
         }
 
-        let derived = derivation_by_node.get(&node_id);
         node_results.push(CoordPhase10NodeResult {
             node_id,
             axis,
-            derived_parent_cross_size_target: derived
-                .and_then(|node| node.parent_cross_size_target),
-            derived_child_count: derived.map_or(0, |node| node.child_count),
+            derived_parent_cross_size_target,
+            derived_child_count,
+            derived_child_intent_count: child_intents.len(),
+            derived_expected_plot_area_adjustments_count,
             child_plot_area_adjustments_count,
             scale_range_retarget_count,
         });

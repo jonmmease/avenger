@@ -140,11 +140,25 @@ pub(crate) struct CoordPhase8Ir {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct CoordPhase10ChildIntent {
+    pub(crate) child_index: usize,
+    pub(crate) old_plot_area_width: f32,
+    pub(crate) old_plot_area_height: f32,
+    pub(crate) target_plot_area_width: Option<f32>,
+    pub(crate) target_plot_area_height: Option<f32>,
+    pub(crate) target_band_range_end: Option<f32>,
+    pub(crate) adjust_plot_area: bool,
+    pub(crate) update_band_range: bool,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct CoordPhase10NodeDerivation {
     pub(crate) node_id: CoordNodeId,
     pub(crate) axis: FacetAxis,
     pub(crate) parent_cross_size_target: Option<f32>,
     pub(crate) child_count: usize,
+    pub(crate) child_intents: Vec<CoordPhase10ChildIntent>,
+    pub(crate) expected_plot_area_adjustments_count: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -158,6 +172,8 @@ pub(crate) struct CoordPhase10NodeResult {
     pub(crate) axis: FacetAxis,
     pub(crate) derived_parent_cross_size_target: Option<f32>,
     pub(crate) derived_child_count: usize,
+    pub(crate) derived_child_intent_count: usize,
+    pub(crate) derived_expected_plot_area_adjustments_count: usize,
     pub(crate) child_plot_area_adjustments_count: usize,
     pub(crate) scale_range_retarget_count: usize,
 }
