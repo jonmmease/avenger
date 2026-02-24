@@ -108,7 +108,14 @@ pub async fn coordinate_facet_measurement_tree(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    let _ = coordinate_facet_measurement_tree_with_artifacts(measurement, eval_ctx).await?;
+    let artifacts = coordinate_facet_measurement_tree_with_artifacts(measurement, eval_ctx).await?;
+    trace!(
+        phase7_nodes = artifacts.phase7.snapshot.nodes.len(),
+        phase8_nodes = artifacts.phase8.node_results.len(),
+        phase9_nodes = artifacts.phase9.snapshot.nodes.len(),
+        phase10_nodes = artifacts.phase10.node_results.len(),
+        "coordinate_facet_measurement_tree complete"
+    );
     Ok(())
 }
 
@@ -138,7 +145,26 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     )
     .await?;
     debug_assert_phase8_trace_alignment(&phase8_derivation, &phase8);
-    debug!("coordinate_facet_measurement_tree phase 8 complete");
+    let parent_cross_propagations = phase8
+        .node_results
+        .iter()
+        .filter(|result| result.parent_cross_size_propagated)
+        .count();
+    let cross_size_changes = phase8
+        .node_results
+        .iter()
+        .filter(|result| (result.subplot_cross_size_after - result.subplot_cross_size_before).abs() > 0.01)
+        .count();
+    debug!(
+        parent_cross_propagations,
+        cross_size_changes,
+        remeasured_nodes = phase8
+            .node_results
+            .iter()
+            .filter(|result| result.remeasure_triggered)
+            .count(),
+        "coordinate_facet_measurement_tree phase 8 complete"
+    );
 
     // Phase 9: build immutable post-remeasure reconciliation IR, then apply patches.
     let phase9 = build_phase9_ir(collect_phase9_snapshot(measurement));
@@ -157,7 +183,19 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     let phase10 =
         run_phase10_scale_retarget_and_adjustments_with_trace(measurement, &phase10_derivation);
     debug_assert_phase10_trace_alignment(&phase10_derivation, &phase10);
-    trace!("coordinate_facet_measurement_tree phase 10 complete");
+    debug!(
+        scale_range_retargets = phase10
+            .node_results
+            .iter()
+            .map(|result| result.scale_range_retarget_count)
+            .sum::<usize>(),
+        plot_area_adjustments = phase10
+            .node_results
+            .iter()
+            .map(|result| result.child_plot_area_adjustments_count)
+            .sum::<usize>(),
+        "coordinate_facet_measurement_tree phase 10 complete"
+    );
 
     Ok(CoordinationRunArtifacts {
         phase7,
@@ -179,9 +217,7 @@ fn collect_phase7_snapshot(measurement: &ComponentsMeasurement) -> CoordGroupSna
             facet_band.collect_cell_domain_infos(&mut domain_infos);
             nodes.push(CoordGroupNodeSnapshot {
                 node_id: node_id.clone(),
-                depth,
                 key: facet_band.coordination_group_key_for_depth(depth),
-                axis: facet_band.axis,
                 local_overflow: facet_band.local_overflow_value(),
                 local_layout: facet_band.local_layout_value(),
                 domain_infos,
@@ -201,9 +237,7 @@ fn collect_phase9_snapshot(measurement: &ComponentsMeasurement) -> CoordReconcil
         &mut |node_id, depth, facet_band| {
             nodes.push(CoordReconcileNodeSnapshot {
                 node_id: node_id.clone(),
-                depth,
                 key: facet_band.coordination_group_key_for_depth(depth),
-                axis: facet_band.axis,
                 local_overflow: facet_band.local_overflow_value(),
                 local_layout: facet_band.local_layout_value(),
             });

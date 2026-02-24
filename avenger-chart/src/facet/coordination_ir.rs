@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet};
 
 use datafusion::common::ScalarValue;
@@ -30,9 +28,7 @@ impl CoordNodeKey {
 #[derive(Debug, Clone)]
 pub(crate) struct CoordGroupNodeSnapshot {
     pub(crate) node_id: CoordNodeKey,
-    pub(crate) depth: usize,
     pub(crate) key: CoordinationGroupKey,
-    pub(crate) axis: FacetAxis,
     pub(crate) local_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) domain_infos: Vec<CellDomainInfo>,
@@ -68,9 +64,7 @@ pub(crate) struct CoordGroupDistribution {
 #[derive(Debug, Clone)]
 pub(crate) struct CoordReconcileNodeSnapshot {
     pub(crate) node_id: CoordNodeKey,
-    pub(crate) depth: usize,
     pub(crate) key: CoordinationGroupKey,
-    pub(crate) axis: FacetAxis,
     pub(crate) local_overflow: Option<CoordinatedOverflow>,
     pub(crate) local_layout: CoordinatedLayout,
 }
@@ -395,9 +389,7 @@ mod tests {
             nodes: vec![
                 CoordGroupNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![0]),
-                    depth: 1,
                     key: key.clone(),
-                    axis: FacetAxis::Column,
                     local_overflow: Some(overflow(1.0, 2.0, 3.0, 4.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 2.0,
@@ -415,9 +407,7 @@ mod tests {
                 },
                 CoordGroupNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![1]),
-                    depth: 1,
                     key: key.clone(),
-                    axis: FacetAxis::Column,
                     local_overflow: Some(overflow(3.0, 1.0, 5.0, 2.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 4.0,
@@ -474,9 +464,7 @@ mod tests {
         let snapshot = CoordGroupSnapshot {
             nodes: vec![CoordGroupNodeSnapshot {
                 node_id: CoordNodeKey::new(vec![0]),
-                depth: 2,
                 key,
-                axis: FacetAxis::Column,
                 local_overflow: None,
                 local_layout: CoordinatedLayout::default(),
                 domain_infos: vec![info_a.clone(), info_b.clone(), info_c.clone()],
@@ -514,9 +502,7 @@ mod tests {
             nodes: vec![
                 CoordReconcileNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![0]),
-                    depth: 1,
                     key: key.clone(),
-                    axis: FacetAxis::Row,
                     local_overflow: Some(overflow(1.0, 1.0, 2.0, 3.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 3.0,
@@ -527,9 +513,7 @@ mod tests {
                 },
                 CoordReconcileNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![1]),
-                    depth: 1,
                     key,
-                    axis: FacetAxis::Row,
                     local_overflow: Some(overflow(2.0, 4.0, 1.0, 1.0)),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 5.0,
