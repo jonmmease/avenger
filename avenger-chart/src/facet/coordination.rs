@@ -15,10 +15,10 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coordination_ir::{
-            CoordNodeId, CoordPhase7Ir, CoordPhase7NodeSnapshot, CoordPhase7Snapshot,
-            CoordPhase8Derivation, CoordPhase8Ir, CoordPhase9Ir, CoordPhase9NodeSnapshot,
-            CoordPhase9Snapshot, CoordPhase10Derivation, CoordPhase10Ir,
-            CoordinationIrRunArtifacts, build_phase7_ir, build_phase9_ir,
+            CoordApplyIntent, CoordApplyTrace, CoordGroupDistribution, CoordGroupNodeSnapshot,
+            CoordGroupSnapshot, CoordNodeKey, CoordReconcileDistribution,
+            CoordReconcileNodeSnapshot, CoordReconcileSnapshot, CoordRetargetIntent,
+            CoordRetargetTrace, CoordinationRunArtifacts, build_phase7_ir, build_phase9_ir,
         },
         coordination_sidecar::{
             apply_phase7_distribution, apply_phase9_distribution, derive_phase8, derive_phase10,
@@ -115,7 +115,7 @@ pub async fn coordinate_facet_measurement_tree(
 pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
-) -> Result<CoordinationIrRunArtifacts, AvengerChartError> {
+) -> Result<CoordinationRunArtifacts, AvengerChartError> {
     // Phase 7: build immutable aggregate/distribution IR, then apply sidecar patches.
     let phase7 = build_phase7_ir(collect_phase7_snapshot(measurement));
     debug_assert_phase7_distribution_coverage(&phase7);
@@ -159,7 +159,7 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     debug_assert_phase10_trace_alignment(&phase10_derivation, &phase10);
     trace!("coordinate_facet_measurement_tree phase 10 complete");
 
-    Ok(CoordinationIrRunArtifacts {
+    Ok(CoordinationRunArtifacts {
         phase7,
         phase8,
         phase9,
@@ -167,7 +167,7 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     })
 }
 
-fn collect_phase7_snapshot(measurement: &ComponentsMeasurement) -> CoordPhase7Snapshot {
+fn collect_phase7_snapshot(measurement: &ComponentsMeasurement) -> CoordGroupSnapshot {
     let mut nodes = Vec::new();
     let mut node_path = Vec::new();
     visit_facet_bands_with_node_id(
@@ -177,7 +177,7 @@ fn collect_phase7_snapshot(measurement: &ComponentsMeasurement) -> CoordPhase7Sn
         &mut |node_id, depth, facet_band| {
             let mut domain_infos = Vec::new();
             facet_band.collect_cell_domain_infos(&mut domain_infos);
-            nodes.push(CoordPhase7NodeSnapshot {
+            nodes.push(CoordGroupNodeSnapshot {
                 node_id: node_id.clone(),
                 depth,
                 key: facet_band.coordination_group_key_for_depth(depth),
@@ -188,10 +188,10 @@ fn collect_phase7_snapshot(measurement: &ComponentsMeasurement) -> CoordPhase7Sn
             });
         },
     );
-    CoordPhase7Snapshot { nodes }
+    CoordGroupSnapshot { nodes }
 }
 
-fn collect_phase9_snapshot(measurement: &ComponentsMeasurement) -> CoordPhase9Snapshot {
+fn collect_phase9_snapshot(measurement: &ComponentsMeasurement) -> CoordReconcileSnapshot {
     let mut nodes = Vec::new();
     let mut node_path = Vec::new();
     visit_facet_bands_with_node_id(
@@ -199,7 +199,7 @@ fn collect_phase9_snapshot(measurement: &ComponentsMeasurement) -> CoordPhase9Sn
         0,
         &mut node_path,
         &mut |node_id, depth, facet_band| {
-            nodes.push(CoordPhase9NodeSnapshot {
+            nodes.push(CoordReconcileNodeSnapshot {
                 node_id: node_id.clone(),
                 depth,
                 key: facet_band.coordination_group_key_for_depth(depth),
@@ -209,10 +209,10 @@ fn collect_phase9_snapshot(measurement: &ComponentsMeasurement) -> CoordPhase9Sn
             });
         },
     );
-    CoordPhase9Snapshot { nodes }
+    CoordReconcileSnapshot { nodes }
 }
 
-fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordNodeId> {
+fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordNodeKey> {
     let mut node_ids = Vec::new();
     let mut node_path = Vec::new();
     visit_facet_bands_with_node_id(
@@ -226,14 +226,14 @@ fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordNodeId>
     node_ids
 }
 
-fn debug_assert_phase7_distribution_coverage(phase7: &CoordPhase7Ir) {
-    let snapshot_nodes: HashSet<CoordNodeId> = phase7
+fn debug_assert_phase7_distribution_coverage(phase7: &CoordGroupDistribution) {
+    let snapshot_nodes: HashSet<CoordNodeKey> = phase7
         .snapshot
         .nodes
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let layout_patch_nodes: HashSet<CoordNodeId> = phase7
+    let layout_patch_nodes: HashSet<CoordNodeKey> = phase7
         .distribution
         .layout_patches_by_node
         .keys()
@@ -253,14 +253,14 @@ fn debug_assert_phase7_distribution_coverage(phase7: &CoordPhase7Ir) {
     }
 }
 
-fn debug_assert_phase9_distribution_coverage(phase9: &CoordPhase9Ir) {
-    let snapshot_nodes: HashSet<CoordNodeId> = phase9
+fn debug_assert_phase9_distribution_coverage(phase9: &CoordReconcileDistribution) {
+    let snapshot_nodes: HashSet<CoordNodeKey> = phase9
         .snapshot
         .nodes
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let layout_patch_nodes: HashSet<CoordNodeId> = phase9
+    let layout_patch_nodes: HashSet<CoordNodeKey> = phase9
         .distribution
         .layout_patches_by_node
         .keys()
@@ -275,11 +275,11 @@ fn debug_assert_phase9_distribution_coverage(phase9: &CoordPhase9Ir) {
 
 fn debug_assert_phase8_derivation_node_coverage(
     measurement: &ComponentsMeasurement,
-    derivation: &CoordPhase8Derivation,
+    derivation: &CoordApplyIntent,
 ) {
-    let expected_ids: HashSet<CoordNodeId> =
+    let expected_ids: HashSet<CoordNodeKey> =
         measurement_node_ids(measurement).into_iter().collect();
-    let actual_ids: HashSet<CoordNodeId> = derivation
+    let actual_ids: HashSet<CoordNodeKey> = derivation
         .node_derivations
         .iter()
         .map(|node| node.node_id.clone())
@@ -293,11 +293,11 @@ fn debug_assert_phase8_derivation_node_coverage(
 
 fn debug_assert_phase10_derivation_node_coverage(
     measurement: &ComponentsMeasurement,
-    derivation: &CoordPhase10Derivation,
+    derivation: &CoordRetargetIntent,
 ) {
-    let expected_ids: HashSet<CoordNodeId> =
+    let expected_ids: HashSet<CoordNodeKey> =
         measurement_node_ids(measurement).into_iter().collect();
-    let actual_ids: HashSet<CoordNodeId> = derivation
+    let actual_ids: HashSet<CoordNodeKey> = derivation
         .node_derivations
         .iter()
         .map(|node| node.node_id.clone())
@@ -309,13 +309,13 @@ fn debug_assert_phase10_derivation_node_coverage(
     );
 }
 
-fn debug_assert_phase8_trace_alignment(derivation: &CoordPhase8Derivation, trace: &CoordPhase8Ir) {
-    let derived_ids: Vec<CoordNodeId> = derivation
+fn debug_assert_phase8_trace_alignment(derivation: &CoordApplyIntent, trace: &CoordApplyTrace) {
+    let derived_ids: Vec<CoordNodeKey> = derivation
         .node_derivations
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let trace_ids: Vec<CoordNodeId> = trace
+    let trace_ids: Vec<CoordNodeKey> = trace
         .node_results
         .iter()
         .map(|node| node.node_id.clone())
@@ -402,15 +402,15 @@ fn debug_assert_phase8_trace_alignment(derivation: &CoordPhase8Derivation, trace
 }
 
 fn debug_assert_phase10_trace_alignment(
-    derivation: &CoordPhase10Derivation,
-    trace: &CoordPhase10Ir,
+    derivation: &CoordRetargetIntent,
+    trace: &CoordRetargetTrace,
 ) {
-    let derived_ids: Vec<CoordNodeId> = derivation
+    let derived_ids: Vec<CoordNodeKey> = derivation
         .node_derivations
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let trace_ids: Vec<CoordNodeId> = trace
+    let trace_ids: Vec<CoordNodeKey> = trace
         .node_results
         .iter()
         .map(|node| node.node_id.clone())
@@ -1426,13 +1426,13 @@ mod tests {
         let (measurement, _) = nested_fixture().await?;
         let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
         debug_assert_phase7_distribution_coverage(&phase7);
-        let snapshot_nodes: std::collections::HashSet<CoordNodeId> = phase7
+        let snapshot_nodes: std::collections::HashSet<CoordNodeKey> = phase7
             .snapshot
             .nodes
             .iter()
             .map(|node| node.node_id.clone())
             .collect();
-        let layout_patch_nodes: std::collections::HashSet<CoordNodeId> = phase7
+        let layout_patch_nodes: std::collections::HashSet<CoordNodeKey> = phase7
             .distribution
             .layout_patches_by_node
             .keys()
@@ -1448,13 +1448,13 @@ mod tests {
         let (measurement, _) = nested_fixture().await?;
         let phase9 = build_phase9_ir(collect_phase9_snapshot(&measurement));
         debug_assert_phase9_distribution_coverage(&phase9);
-        let snapshot_nodes: std::collections::HashSet<CoordNodeId> = phase9
+        let snapshot_nodes: std::collections::HashSet<CoordNodeKey> = phase9
             .snapshot
             .nodes
             .iter()
             .map(|node| node.node_id.clone())
             .collect();
-        let layout_patch_nodes: std::collections::HashSet<CoordNodeId> = phase9
+        let layout_patch_nodes: std::collections::HashSet<CoordNodeKey> = phase9
             .distribution
             .layout_patches_by_node
             .keys()

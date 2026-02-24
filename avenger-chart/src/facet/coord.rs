@@ -2,10 +2,9 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, band::bandwidth};
-use datafusion::{
-    common::ScalarValue, dataframe::DataFrame, logical_expr::lit,
-    scalar::ScalarValue as DfScalarValue,
-};
+#[cfg(test)]
+use datafusion::logical_expr::lit;
+use datafusion::{common::ScalarValue, dataframe::DataFrame, scalar::ScalarValue as DfScalarValue};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
@@ -18,9 +17,9 @@ use crate::{
     error::AvengerChartError,
     facet::{
         band_ir::{
-            FacetBandIrParityReport, FacetBandPhase3Ir, FacetBandPhase4Ir, FacetBandPhase4Sidecars,
-            FacetBandPhase5Ir, FacetBandPhase6Ir, FacetBandPhase6Sidecars, OverflowProbeSummary,
-            assert_ir_legacy_parity,
+            FacetBandLocalLayout, FacetBandMeasuredRuntime, FacetBandOverflowProbe,
+            FacetBandPreparedPlan, FacetBandPreparedRuntime, FacetBandSemantics,
+            OverflowProbeSummary,
         },
         coord_row::compute_band_layout,
         coordination::CoordinationGroupKey,
@@ -1025,13 +1024,13 @@ pub(crate) struct FacetBandNestedMeasureContext {
     eval_ctx: EvaluationContext,
 }
 
-struct LegacyFacetPhase4Prep {
+struct FacetPreparedRuntimeInputs {
     plan: FacetBandMeasurePlan,
     subplot_eval_ctx: EvaluationContext,
     nested_measure_ctx: FacetBandNestedMeasureContext,
 }
 
-struct LegacyFacetPhase6LocalFinalization {
+struct FacetLocalLayoutOutcome {
     band_layout_plan: FacetBandPlan,
     final_subplot_main_or_cross_size: f32,
     cells: Vec<FacetCellDraft>,
@@ -1094,6 +1093,7 @@ fn empty_facet_band_measurement(
 }
 
 /// Build a single facet cell context from value and parent path.
+#[cfg(test)]
 fn build_facet_cell(
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     facet_path: &[ScalarValue],
@@ -1135,6 +1135,7 @@ fn build_facet_cell(
 ///
 /// This phase is geometry-independent and depends only on the evaluated facet tree
 /// semantics plus the enumerated cell values for this node.
+#[cfg(test)]
 fn build_facet_cell_plans(
     facet_tree: &crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
     facet_path: &[ScalarValue],
@@ -1558,14 +1559,14 @@ async fn build_facet_band_measure_plan(
     })
 }
 
-async fn prepare_phase4_measurement_inputs_legacy(
+async fn prepare_phase4_measurement_inputs(
     cell_plans: Vec<FacetCellPlan>,
     facet_path: &[ScalarValue],
     data_df: &DataFrame,
     compiled_subplot: &Arc<CompiledPlot>,
     empty_cell_policy: FacetEmptyCellPolicy,
     eval_ctx: &EvaluationContext,
-) -> Result<LegacyFacetPhase4Prep, AvengerChartError> {
+) -> Result<FacetPreparedRuntimeInputs, AvengerChartError> {
     let plan = build_facet_band_measure_plan(
         cell_plans,
         facet_path,
@@ -1595,7 +1596,7 @@ async fn prepare_phase4_measurement_inputs_legacy(
         eval_ctx: eval_ctx.clone(),
     };
 
-    Ok(LegacyFacetPhase4Prep {
+    Ok(FacetPreparedRuntimeInputs {
         plan,
         subplot_eval_ctx,
         nested_measure_ctx,
@@ -1603,8 +1604,8 @@ async fn prepare_phase4_measurement_inputs_legacy(
 }
 
 fn phase4_cells_as_drafts(
-    phase4: &FacetBandPhase4Ir,
-    sidecars: &FacetBandPhase4Sidecars,
+    phase4: &FacetBandPreparedPlan,
+    sidecars: &FacetBandPreparedRuntime,
 ) -> Vec<FacetCellDraft> {
     assert_eq!(
         phase4.phase3.cells.len(),
@@ -1627,15 +1628,15 @@ fn phase4_cells_as_drafts(
 }
 
 async fn build_phase4_ir_and_sidecars(
-    phase3: FacetBandPhase3Ir,
+    phase3: FacetBandSemantics,
     data_df: &DataFrame,
     compiled_subplot: &Arc<CompiledPlot>,
     band_scale: &ConfiguredScaleWithSpec,
     initial_subplot_band_size: f32,
     eval_ctx: &EvaluationContext,
-) -> Result<(FacetBandPhase4Ir, FacetBandPhase4Sidecars), AvengerChartError> {
+) -> Result<(FacetBandPreparedPlan, FacetBandPreparedRuntime), AvengerChartError> {
     let cell_plans: Vec<FacetCellPlan> = phase3.cells.iter().map(FacetCellPlan::from).collect();
-    let legacy_phase4 = prepare_phase4_measurement_inputs_legacy(
+    let phase4_inputs = prepare_phase4_measurement_inputs(
         cell_plans,
         &phase3.node_id.facet_path,
         data_df,
@@ -1646,24 +1647,24 @@ async fn build_phase4_ir_and_sidecars(
     .await?;
 
     let renderable_mask =
-        renderable_mask_for_cells(&legacy_phase4.plan.cells, phase3.empty_cell_policy);
-    let data_overrides = legacy_phase4
+        renderable_mask_for_cells(&phase4_inputs.plan.cells, phase3.empty_cell_policy);
+    let data_overrides = phase4_inputs
         .plan
         .cells
         .iter()
         .map(|cell| cell.data_override.clone())
         .collect::<Vec<_>>();
-    let scale_artifacts = legacy_phase4.plan.scale_artifacts.clone();
+    let scale_artifacts = phase4_inputs.plan.scale_artifacts.clone();
 
-    let phase4 = FacetBandPhase4Ir {
+    let phase4 = FacetBandPreparedPlan {
         phase3: phase3.clone(),
         renderable_mask,
         scale_artifacts_key: FacetScaleNodeKey::new(compiled_subplot, &phase3.node_id.facet_path),
     };
-    let sidecars = FacetBandPhase4Sidecars {
+    let sidecars = FacetBandPreparedRuntime {
         data_overrides,
-        subplot_eval_ctx: legacy_phase4.subplot_eval_ctx,
-        nested_measure_ctx: legacy_phase4.nested_measure_ctx,
+        subplot_eval_ctx: phase4_inputs.subplot_eval_ctx,
+        nested_measure_ctx: phase4_inputs.nested_measure_ctx,
         compiled_subplot: compiled_subplot.clone(),
         original_band_scale: band_scale.configured().clone(),
         initial_subplot_band_size,
@@ -1673,11 +1674,11 @@ async fn build_phase4_ir_and_sidecars(
 }
 
 async fn run_phase5_overflow_probe_ir(
-    phase4: &FacetBandPhase4Ir,
-    sidecars: &FacetBandPhase4Sidecars,
+    phase4: &FacetBandPreparedPlan,
+    sidecars: &FacetBandPreparedRuntime,
     subplot_plot_width: f32,
     subplot_plot_height: f32,
-) -> Result<FacetBandPhase5Ir, AvengerChartError> {
+) -> Result<FacetBandOverflowProbe, AvengerChartError> {
     assert_eq!(
         phase4.renderable_mask.len(),
         phase4.phase3.cells.len(),
@@ -1693,7 +1694,7 @@ async fn run_phase5_overflow_probe_ir(
     );
 
     let cells = phase4_cells_as_drafts(phase4, sidecars);
-    let overflow_probe_summary = run_phase5_overflow_probe_legacy(
+    let overflow_probe_summary = run_phase5_overflow_probe(
         &cells,
         subplot_plot_width,
         subplot_plot_height,
@@ -1704,7 +1705,7 @@ async fn run_phase5_overflow_probe_ir(
     )
     .await?;
 
-    Ok(FacetBandPhase5Ir {
+    Ok(FacetBandOverflowProbe {
         phase4: phase4.clone(),
         overflow_probe_summary,
     })
@@ -1825,7 +1826,7 @@ async fn measure_cells_overflow_probe(
     Ok(summary)
 }
 
-async fn run_phase5_overflow_probe_legacy(
+async fn run_phase5_overflow_probe(
     cells: &[FacetCellDraft],
     subplot_plot_width: f32,
     subplot_plot_height: f32,
@@ -2219,26 +2220,6 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let phase6 =
             self.build_coord_measurement_from_ir(phase6, phase6_sidecars, &phase4_sidecars);
 
-        #[cfg(any(test, debug_assertions))]
-        {
-            let legacy_measurement = self
-                .run_legacy_pipeline_from_phase3(&resolved, data_df, phase3)
-                .await?;
-            if let (Some(ir), Some(legacy)) = (
-                phase6.as_any().downcast_ref::<FacetBandCoordMeasurement>(),
-                legacy_measurement
-                    .as_any()
-                    .downcast_ref::<FacetBandCoordMeasurement>(),
-            ) {
-                let report: FacetBandIrParityReport = assert_ir_legacy_parity(ir, legacy);
-                trace!(
-                    axis = ?self.axis_ops.axis,
-                    compared_cells = report.compared_cells,
-                    "FacetBand IR parity with legacy pipeline"
-                );
-            }
-        }
-
         // Stage 7: package runtime cell state for coordination/rendering.
         Ok(phase6)
     }
@@ -2331,19 +2312,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             .unwrap_or_else(fallback)
     }
 
-    fn build_cell_plans_legacy(
-        &self,
-        cell_values: &[ScalarValue],
-    ) -> Result<Vec<FacetCellPlan>, AvengerChartError> {
-        build_facet_cell_plans(&self.eval_ctx.facet_tree, self.facet_path, cell_values)
-    }
-
     fn build_phase3_ir(
         &self,
         resolved: &FacetBandResolvedNode<'_>,
         cell_values: &[ScalarValue],
-    ) -> Result<FacetBandPhase3Ir, AvengerChartError> {
-        FacetBandPhase3Ir::from_tree_and_values(
+    ) -> Result<FacetBandSemantics, AvengerChartError> {
+        FacetBandSemantics::from_tree_and_values(
             self.axis_ops.axis,
             self.facet_path,
             self.facet_path.len() as u8 + 1,
@@ -2431,7 +2405,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         Ok(final_subplot_band_size)
     }
 
-    async fn run_phase6_local_layout_finalization_legacy(
+    async fn run_phase6_local_layout_finalization(
         &self,
         mut plan: FacetBandMeasurePlan,
         phase5_summary: &OverflowProbeSummary,
@@ -2441,7 +2415,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         nested_measure_ctx: &FacetBandNestedMeasureContext,
         band_scale: &ConfiguredScale,
         empty_cell_policy: FacetEmptyCellPolicy,
-    ) -> Result<LegacyFacetPhase6LocalFinalization, AvengerChartError> {
+    ) -> Result<FacetLocalLayoutOutcome, AvengerChartError> {
         let band_layout_plan = self.derive_layout_plan(
             &plan.cells,
             &plan.cell_values,
@@ -2469,7 +2443,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         )
         .await?;
 
-        Ok(LegacyFacetPhase6LocalFinalization {
+        Ok(FacetLocalLayoutOutcome {
             band_layout_plan,
             final_subplot_main_or_cross_size: final_subplot_band_size,
             cells: plan.cells,
@@ -2478,16 +2452,16 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
     async fn run_phase6_local_layout_finalization_ir(
         &self,
-        phase5: &FacetBandPhase5Ir,
-        phase4_sidecars: &FacetBandPhase4Sidecars,
-    ) -> Result<(FacetBandPhase6Ir, FacetBandPhase6Sidecars), AvengerChartError> {
+        phase5: &FacetBandOverflowProbe,
+        phase4_sidecars: &FacetBandPreparedRuntime,
+    ) -> Result<(FacetBandLocalLayout, FacetBandMeasuredRuntime), AvengerChartError> {
         let plan = FacetBandMeasurePlan {
             cell_values: phase5.phase4.phase3.cell_values.clone(),
             cells: phase4_cells_as_drafts(&phase5.phase4, phase4_sidecars),
             scale_artifacts: phase4_sidecars.scale_artifacts.clone(),
         };
-        let legacy_phase6 = self
-            .run_phase6_local_layout_finalization_legacy(
+        let phase6_outcome = self
+            .run_phase6_local_layout_finalization(
                 plan,
                 &phase5.overflow_probe_summary,
                 phase4_sidecars.initial_subplot_band_size,
@@ -2499,23 +2473,23 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             )
             .await?;
 
-        let channel_sharing_levels = collect_channel_sharing_levels(&legacy_phase6.cells);
-        let mut measurements = Vec::with_capacity(legacy_phase6.cells.len());
-        let mut local_domain_extents = Vec::with_capacity(legacy_phase6.cells.len());
-        for mut cell in legacy_phase6.cells {
+        let channel_sharing_levels = collect_channel_sharing_levels(&phase6_outcome.cells);
+        let mut measurements = Vec::with_capacity(phase6_outcome.cells.len());
+        let mut local_domain_extents = Vec::with_capacity(phase6_outcome.cells.len());
+        for mut cell in phase6_outcome.cells {
             measurements.push(cell.measurement.take().expect(
                 "FacetBand IR invariant violated: missing final cell measurement in phase-6 sidecars",
             ));
             local_domain_extents.push(cell.local_domain_extents);
         }
 
-        let phase6 = FacetBandPhase6Ir {
+        let phase6 = FacetBandLocalLayout {
             phase5: phase5.clone(),
-            band_layout_plan: legacy_phase6.band_layout_plan,
-            final_subplot_cross_size: legacy_phase6.final_subplot_main_or_cross_size,
+            band_layout_plan: phase6_outcome.band_layout_plan,
+            final_subplot_cross_size: phase6_outcome.final_subplot_main_or_cross_size,
             channel_sharing_levels,
         };
-        let sidecars = FacetBandPhase6Sidecars {
+        let sidecars = FacetBandMeasuredRuntime {
             measurements,
             local_domain_extents,
         };
@@ -2524,19 +2498,19 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
     fn build_coord_measurement_from_ir(
         &self,
-        phase6: FacetBandPhase6Ir,
-        phase6_sidecars: FacetBandPhase6Sidecars,
-        phase4_sidecars: &FacetBandPhase4Sidecars,
+        phase6: FacetBandLocalLayout,
+        phase6_sidecars: FacetBandMeasuredRuntime,
+        phase4_sidecars: &FacetBandPreparedRuntime,
     ) -> Box<dyn CoordMeasurement> {
-        let FacetBandPhase6Ir {
+        let FacetBandLocalLayout {
             phase5,
             band_layout_plan,
             final_subplot_cross_size,
             channel_sharing_levels,
         } = phase6;
-        let FacetBandPhase5Ir { phase4, .. } = phase5;
-        let FacetBandPhase4Ir { phase3, .. } = phase4;
-        let crate::facet::band_ir::FacetBandPhase3Ir {
+        let FacetBandOverflowProbe { phase4, .. } = phase5;
+        let FacetBandPreparedPlan { phase3, .. } = phase4;
+        let crate::facet::band_ir::FacetBandSemantics {
             facet_depth,
             coordination_field_identity,
             empty_cell_policy,
@@ -2602,116 +2576,6 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             channel_sharing_levels,
             empty_cell_policy,
         })
-    }
-
-    fn build_coord_measurement_legacy(
-        &self,
-        band_plan: FacetBandPlan,
-        cells: Vec<FacetCellDraft>,
-        shared_scale_builder: ScaleBuilder,
-        compiled_subplot: &Arc<CompiledPlot>,
-        final_subplot_band_size: f32,
-        original_band_scale: ConfiguredScale,
-        coordination_field_identity: String,
-        empty_cell_policy: FacetEmptyCellPolicy,
-    ) -> Box<dyn CoordMeasurement> {
-        let channel_sharing_levels = collect_channel_sharing_levels(&cells);
-        let cell_runtimes: Vec<FacetCellRuntime> = cells
-            .into_iter()
-            .map(|cell| FacetCellRuntime {
-                data_override: cell.data_override,
-                plan: cell.plan,
-                measurement: cell.measurement.expect(
-                    "FacetBand internal invariant violated: missing final cell measurement",
-                ),
-                local_domain_extents: cell.local_domain_extents,
-                coordinated_domain_extents: HashMap::new(),
-            })
-            .collect();
-
-        let local_layout = CoordinatedLayout {
-            padding_inner_px: band_plan.padding_inner_px,
-            outer_start: band_plan.outer_start,
-            outer_end: band_plan.outer_end,
-            n: band_plan.n,
-        };
-
-        Box::new(FacetBandCoordMeasurement {
-            axis: self.axis_ops.axis,
-            cells: cell_runtimes,
-            shared_scale_builder,
-            coordinated_overflow: CoordinatedOverflow::default(),
-            compiled_subplot: compiled_subplot.clone(),
-            subplot_cross_size: final_subplot_band_size,
-            facet_depth: self.facet_path.len() as u8 + 1,
-            original_band_scale,
-            local_layout,
-            coordinated_layout: None,
-            coordination_field_identity,
-            channel_sharing_levels,
-            empty_cell_policy,
-        })
-    }
-
-    async fn run_legacy_pipeline_from_phase3(
-        &self,
-        resolved: &FacetBandResolvedNode<'_>,
-        data_df: &DataFrame,
-        phase3: FacetBandPhase3Ir,
-    ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        let cell_plans = self.build_cell_plans_legacy(&phase3.cell_values)?;
-        let legacy_phase4 = prepare_phase4_measurement_inputs_legacy(
-            cell_plans,
-            self.facet_path,
-            data_df,
-            resolved.compiled_subplot,
-            resolved.empty_cell_policy,
-            self.eval_ctx,
-        )
-        .await?;
-
-        let (subplot_plot_width, subplot_plot_height) = self
-            .axis_ops
-            .measure_dims(self.plot_other_axis_size, resolved.subplot_band_size);
-        let phase5_summary = run_phase5_overflow_probe_legacy(
-            &legacy_phase4.plan.cells,
-            subplot_plot_width,
-            subplot_plot_height,
-            resolved.compiled_subplot,
-            &legacy_phase4.subplot_eval_ctx,
-            &legacy_phase4.nested_measure_ctx,
-            resolved.empty_cell_policy,
-        )
-        .await?;
-
-        let shared_scale_builder = legacy_phase4
-            .plan
-            .scale_artifacts
-            .shared_scale_builder
-            .clone();
-        let legacy_phase6 = self
-            .run_phase6_local_layout_finalization_legacy(
-                legacy_phase4.plan,
-                &phase5_summary,
-                resolved.subplot_band_size,
-                resolved.compiled_subplot,
-                &legacy_phase4.subplot_eval_ctx,
-                &legacy_phase4.nested_measure_ctx,
-                resolved.band_scale.configured(),
-                resolved.empty_cell_policy,
-            )
-            .await?;
-
-        Ok(self.build_coord_measurement_legacy(
-            legacy_phase6.band_layout_plan,
-            legacy_phase6.cells,
-            shared_scale_builder,
-            resolved.compiled_subplot,
-            legacy_phase6.final_subplot_main_or_cross_size,
-            resolved.band_scale.configured().clone(),
-            phase3.coordination_field_identity,
-            resolved.empty_cell_policy,
-        ))
     }
 }
 
@@ -3014,7 +2878,7 @@ mod tests {
     }
 
     async fn build_phase_measurement_fixture()
-    -> Result<(Arc<CompiledPlot>, LegacyFacetPhase4Prep), AvengerChartError> {
+    -> Result<(Arc<CompiledPlot>, FacetPreparedRuntimeInputs), AvengerChartError> {
         let session = SessionContext::new();
         let data_df = session
             .sql(
@@ -3046,7 +2910,7 @@ mod tests {
         let facet_path = vec![s("Group")];
         let cell_plans =
             build_facet_cell_plans(&facet_tree, &facet_path, &[s("A"), s("B"), s("C")])?;
-        let phase4 = prepare_phase4_measurement_inputs_legacy(
+        let phase4 = prepare_phase4_measurement_inputs(
             cell_plans,
             &facet_path,
             &data_df,
@@ -3804,7 +3668,7 @@ mod tests {
             .map(|cell| (cell.measurement.is_none(), cell.local_domain_extents.len()))
             .collect();
 
-        let phase5 = run_phase5_overflow_probe_legacy(
+        let phase5 = run_phase5_overflow_probe(
             &phase4.plan.cells,
             140.0,
             140.0,
@@ -3832,7 +3696,7 @@ mod tests {
     async fn phase6_local_layout_finalization_populates_measurements_and_extents()
     -> Result<(), AvengerChartError> {
         let (compiled_subplot, phase4) = build_phase_measurement_fixture().await?;
-        let LegacyFacetPhase4Prep {
+        let FacetPreparedRuntimeInputs {
             mut plan,
             subplot_eval_ctx,
             nested_measure_ctx,
@@ -4061,7 +3925,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ir_phase3_parity_with_legacy_cell_plan_builder() -> Result<(), AvengerChartError> {
+    async fn phase3_ir_semantics_match_cell_plan_projection() -> Result<(), AvengerChartError> {
         let fixture = build_facet_band_pipeline_fixture(FacetAxis::Column).await?;
         let pipeline = FacetBandMeasurePipeline::new(
             FacetAxisOps::for_axis(FacetAxis::Column),
@@ -4078,149 +3942,23 @@ mod tests {
         };
         let cell_values = pipeline.enumerate_cell_values(&resolved);
         let phase3 = pipeline.build_phase3_ir(&resolved, &cell_values)?;
-        let legacy_plans = pipeline.build_cell_plans_legacy(&cell_values)?;
+        let projected_plans =
+            build_facet_cell_plans(&fixture.eval_ctx.facet_tree, &[], &cell_values)?;
 
-        let ir_plans: Vec<FacetCellPlan> = phase3.cells.iter().map(FacetCellPlan::from).collect();
-        assert_eq!(ir_plans.len(), legacy_plans.len());
-        for (ir, legacy) in ir_plans.iter().zip(legacy_plans.iter()) {
-            assert_eq!(ir.value, legacy.value);
-            assert_eq!(ir.full_path, legacy.full_path);
-            assert_eq!(ir.in_domain_slot, legacy.in_domain_slot);
-            assert_eq!(ir.has_data_rows, legacy.has_data_rows);
-            assert_eq!(ir.empty_kind, legacy.empty_kind);
-            assert_eq!(ir.filter_predicate, legacy.filter_predicate);
+        let phase3_plans: Vec<FacetCellPlan> =
+            phase3.cells.iter().map(FacetCellPlan::from).collect();
+        assert_eq!(phase3_plans.len(), projected_plans.len());
+        for (phase3_plan, projected_plan) in phase3_plans.iter().zip(projected_plans.iter()) {
+            assert_eq!(phase3_plan.value, projected_plan.value);
+            assert_eq!(phase3_plan.full_path, projected_plan.full_path);
+            assert_eq!(phase3_plan.in_domain_slot, projected_plan.in_domain_slot);
+            assert_eq!(phase3_plan.has_data_rows, projected_plan.has_data_rows);
+            assert_eq!(phase3_plan.empty_kind, projected_plan.empty_kind);
+            assert_eq!(
+                phase3_plan.filter_predicate,
+                projected_plan.filter_predicate
+            );
         }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn ir_phase5_parity_with_legacy_probe_summary() -> Result<(), AvengerChartError> {
-        let fixture = build_facet_band_pipeline_fixture(FacetAxis::Column).await?;
-        let pipeline = FacetBandMeasurePipeline::new(
-            FacetAxisOps::for_axis(FacetAxis::Column),
-            &fixture.scales,
-            fixture.plot_other_axis_size,
-            &fixture.eval_ctx,
-            Some(&fixture.data_df),
-            &fixture.compiled_marks,
-            &[],
-        );
-        let resolved = match pipeline.resolve_node_or_empty()? {
-            ResolveBandNodeOutcome::Ready(resolved) => resolved,
-            ResolveBandNodeOutcome::Empty(_) => panic!("expected ready facet node"),
-        };
-        let cell_values = pipeline.enumerate_cell_values(&resolved);
-        let phase3 = pipeline.build_phase3_ir(&resolved, &cell_values)?;
-        let (phase4, sidecars) = build_phase4_ir_and_sidecars(
-            phase3,
-            &fixture.data_df,
-            resolved.compiled_subplot,
-            resolved.band_scale,
-            resolved.subplot_band_size,
-            &fixture.eval_ctx,
-        )
-        .await?;
-        let (subplot_plot_width, subplot_plot_height) = pipeline
-            .axis_ops
-            .measure_dims(fixture.plot_other_axis_size, resolved.subplot_band_size);
-        let phase5 = run_phase5_overflow_probe_ir(
-            &phase4,
-            &sidecars,
-            subplot_plot_width,
-            subplot_plot_height,
-        )
-        .await?;
-        let legacy_cells = phase4_cells_as_drafts(&phase4, &sidecars);
-        let legacy_summary = run_phase5_overflow_probe_legacy(
-            &legacy_cells,
-            subplot_plot_width,
-            subplot_plot_height,
-            resolved.compiled_subplot,
-            &sidecars.subplot_eval_ctx,
-            &sidecars.nested_measure_ctx,
-            phase4.phase3.empty_cell_policy,
-        )
-        .await?;
-
-        assert_eq!(
-            phase5.overflow_probe_summary.cell_overflows.len(),
-            legacy_summary.cell_overflows.len()
-        );
-        for (ir, legacy) in phase5
-            .overflow_probe_summary
-            .cell_overflows
-            .iter()
-            .zip(legacy_summary.cell_overflows.iter())
-        {
-            assert!((ir.0.top - legacy.0.top).abs() <= 0.01);
-            assert!((ir.0.right - legacy.0.right).abs() <= 0.01);
-            assert!((ir.0.bottom - legacy.0.bottom).abs() <= 0.01);
-            assert!((ir.0.left - legacy.0.left).abs() <= 0.01);
-            assert!((ir.1.top - legacy.1.top).abs() <= 0.01);
-            assert!((ir.1.right - legacy.1.right).abs() <= 0.01);
-            assert!((ir.1.bottom - legacy.1.bottom).abs() <= 0.01);
-            assert!((ir.1.left - legacy.1.left).abs() <= 0.01);
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn ir_phase6_parity_with_legacy_local_layout_and_cell_measurements()
-    -> Result<(), AvengerChartError> {
-        let fixture = build_facet_band_pipeline_fixture(FacetAxis::Column).await?;
-        let pipeline = FacetBandMeasurePipeline::new(
-            FacetAxisOps::for_axis(FacetAxis::Column),
-            &fixture.scales,
-            fixture.plot_other_axis_size,
-            &fixture.eval_ctx,
-            Some(&fixture.data_df),
-            &fixture.compiled_marks,
-            &[],
-        );
-        let resolved = match pipeline.resolve_node_or_empty()? {
-            ResolveBandNodeOutcome::Ready(resolved) => resolved,
-            ResolveBandNodeOutcome::Empty(_) => panic!("expected ready facet node"),
-        };
-        let cell_values = pipeline.enumerate_cell_values(&resolved);
-        let phase3 = pipeline.build_phase3_ir(&resolved, &cell_values)?;
-        let (phase4, sidecars) = build_phase4_ir_and_sidecars(
-            phase3.clone(),
-            &fixture.data_df,
-            resolved.compiled_subplot,
-            resolved.band_scale,
-            resolved.subplot_band_size,
-            &fixture.eval_ctx,
-        )
-        .await?;
-        let (subplot_plot_width, subplot_plot_height) = pipeline
-            .axis_ops
-            .measure_dims(fixture.plot_other_axis_size, resolved.subplot_band_size);
-        let phase5 = run_phase5_overflow_probe_ir(
-            &phase4,
-            &sidecars,
-            subplot_plot_width,
-            subplot_plot_height,
-        )
-        .await?;
-        let (phase6, phase6_sidecars) = pipeline
-            .run_phase6_local_layout_finalization_ir(&phase5, &sidecars)
-            .await?;
-        let ir_measurement =
-            pipeline.build_coord_measurement_from_ir(phase6, phase6_sidecars, &sidecars);
-        let legacy_measurement = pipeline
-            .run_legacy_pipeline_from_phase3(&resolved, &fixture.data_df, phase3)
-            .await?;
-
-        let ir_band = ir_measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-            .expect("expected IR facet measurement");
-        let legacy_band = legacy_measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-            .expect("expected legacy facet measurement");
-        let report = assert_ir_legacy_parity(ir_band, legacy_band);
-        assert_eq!(report.compared_cells, ir_band.cells.len());
         Ok(())
     }
 

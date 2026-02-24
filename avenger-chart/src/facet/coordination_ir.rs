@@ -17,19 +17,19 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct CoordNodeId {
+pub(crate) struct CoordNodeKey {
     pub(crate) path: Vec<usize>,
 }
 
-impl CoordNodeId {
+impl CoordNodeKey {
     pub(crate) fn new(path: Vec<usize>) -> Self {
         Self { path }
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordPhase7NodeSnapshot {
-    pub(crate) node_id: CoordNodeId,
+pub(crate) struct CoordGroupNodeSnapshot {
+    pub(crate) node_id: CoordNodeKey,
     pub(crate) depth: usize,
     pub(crate) key: CoordinationGroupKey,
     pub(crate) axis: FacetAxis,
@@ -39,35 +39,35 @@ pub(crate) struct CoordPhase7NodeSnapshot {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase7Snapshot {
-    pub(crate) nodes: Vec<CoordPhase7NodeSnapshot>,
+pub(crate) struct CoordGroupSnapshot {
+    pub(crate) nodes: Vec<CoordGroupNodeSnapshot>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase7Aggregates {
+pub(crate) struct CoordGroupAggregates {
     pub(crate) merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     pub(crate) merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
     pub(crate) unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase7Distribution {
-    pub(crate) overflow_patches_by_node: HashMap<CoordNodeId, CoordinatedOverflow>,
-    pub(crate) layout_patches_by_node: HashMap<CoordNodeId, CoordinatedLayout>,
-    pub(crate) domain_target_nodes: HashSet<CoordNodeId>,
+pub(crate) struct CoordGroupDistributionPlan {
+    pub(crate) overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
+    pub(crate) layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
+    pub(crate) domain_target_nodes: HashSet<CoordNodeKey>,
     pub(crate) unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase7Ir {
-    pub(crate) snapshot: CoordPhase7Snapshot,
-    pub(crate) aggregates: CoordPhase7Aggregates,
-    pub(crate) distribution: CoordPhase7Distribution,
+pub(crate) struct CoordGroupDistribution {
+    pub(crate) snapshot: CoordGroupSnapshot,
+    pub(crate) aggregates: CoordGroupAggregates,
+    pub(crate) distribution: CoordGroupDistributionPlan,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordPhase9NodeSnapshot {
-    pub(crate) node_id: CoordNodeId,
+pub(crate) struct CoordReconcileNodeSnapshot {
+    pub(crate) node_id: CoordNodeKey,
     pub(crate) depth: usize,
     pub(crate) key: CoordinationGroupKey,
     pub(crate) axis: FacetAxis,
@@ -76,32 +76,32 @@ pub(crate) struct CoordPhase9NodeSnapshot {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase9Snapshot {
-    pub(crate) nodes: Vec<CoordPhase9NodeSnapshot>,
+pub(crate) struct CoordReconcileSnapshot {
+    pub(crate) nodes: Vec<CoordReconcileNodeSnapshot>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase9Aggregates {
+pub(crate) struct CoordReconcileAggregates {
     pub(crate) merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     pub(crate) merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase9Distribution {
-    pub(crate) overflow_patches_by_node: HashMap<CoordNodeId, CoordinatedOverflow>,
-    pub(crate) layout_patches_by_node: HashMap<CoordNodeId, CoordinatedLayout>,
+pub(crate) struct CoordReconcileDistributionPlan {
+    pub(crate) overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
+    pub(crate) layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase9Ir {
-    pub(crate) snapshot: CoordPhase9Snapshot,
-    pub(crate) aggregates: CoordPhase9Aggregates,
-    pub(crate) distribution: CoordPhase9Distribution,
+pub(crate) struct CoordReconcileDistribution {
+    pub(crate) snapshot: CoordReconcileSnapshot,
+    pub(crate) aggregates: CoordReconcileAggregates,
+    pub(crate) distribution: CoordReconcileDistributionPlan,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordPhase8NodeDerivation {
-    pub(crate) node_id: CoordNodeId,
+pub(crate) struct CoordApplyNodeIntent {
+    pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) apply_plan: FacetBandCoordApplyPlan,
     pub(crate) remeasure_plan: Option<FacetCoordRemeasurePlan>,
@@ -112,13 +112,13 @@ pub(crate) struct CoordPhase8NodeDerivation {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase8Derivation {
-    pub(crate) node_derivations: Vec<CoordPhase8NodeDerivation>,
+pub(crate) struct CoordApplyIntent {
+    pub(crate) node_derivations: Vec<CoordApplyNodeIntent>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordPhase8NodeResult {
-    pub(crate) node_id: CoordNodeId,
+pub(crate) struct CoordApplyNodeOutcome {
+    pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) derived_has_legend_overflow: bool,
     pub(crate) derived_has_coordinated_extents: bool,
@@ -136,12 +136,12 @@ pub(crate) struct CoordPhase8NodeResult {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase8Ir {
-    pub(crate) node_results: Vec<CoordPhase8NodeResult>,
+pub(crate) struct CoordApplyTrace {
+    pub(crate) node_results: Vec<CoordApplyNodeOutcome>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordPhase10ChildIntent {
+pub(crate) struct CoordRetargetChildIntent {
     pub(crate) child_index: usize,
     pub(crate) old_plot_area_width: f32,
     pub(crate) old_plot_area_height: f32,
@@ -153,23 +153,23 @@ pub(crate) struct CoordPhase10ChildIntent {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordPhase10NodeDerivation {
-    pub(crate) node_id: CoordNodeId,
+pub(crate) struct CoordRetargetNodeIntent {
+    pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) parent_cross_size_target: Option<f32>,
     pub(crate) child_count: usize,
-    pub(crate) child_intents: Vec<CoordPhase10ChildIntent>,
+    pub(crate) child_intents: Vec<CoordRetargetChildIntent>,
     pub(crate) expected_plot_area_adjustments_count: usize,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase10Derivation {
-    pub(crate) node_derivations: Vec<CoordPhase10NodeDerivation>,
+pub(crate) struct CoordRetargetIntent {
+    pub(crate) node_derivations: Vec<CoordRetargetNodeIntent>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordPhase10NodeResult {
-    pub(crate) node_id: CoordNodeId,
+pub(crate) struct CoordRetargetNodeOutcome {
+    pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) derived_parent_cross_size_target: Option<f32>,
     pub(crate) derived_child_count: usize,
@@ -180,16 +180,16 @@ pub(crate) struct CoordPhase10NodeResult {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordPhase10Ir {
-    pub(crate) node_results: Vec<CoordPhase10NodeResult>,
+pub(crate) struct CoordRetargetTrace {
+    pub(crate) node_results: Vec<CoordRetargetNodeOutcome>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordinationIrRunArtifacts {
-    pub(crate) phase7: CoordPhase7Ir,
-    pub(crate) phase8: CoordPhase8Ir,
-    pub(crate) phase9: CoordPhase9Ir,
-    pub(crate) phase10: CoordPhase10Ir,
+pub(crate) struct CoordinationRunArtifacts {
+    pub(crate) phase7: CoordGroupDistribution,
+    pub(crate) phase8: CoordApplyTrace,
+    pub(crate) phase9: CoordReconcileDistribution,
+    pub(crate) phase10: CoordRetargetTrace,
 }
 
 fn merge_overflow_groups(
@@ -254,7 +254,7 @@ fn aggregate_domain_extents(
         .collect()
 }
 
-pub(crate) fn build_phase7_ir(snapshot: CoordPhase7Snapshot) -> CoordPhase7Ir {
+pub(crate) fn build_phase7_ir(snapshot: CoordGroupSnapshot) -> CoordGroupDistribution {
     let mut overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>> =
         HashMap::new();
     let mut layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>> = HashMap::new();
@@ -298,14 +298,14 @@ pub(crate) fn build_phase7_ir(snapshot: CoordPhase7Snapshot) -> CoordPhase7Ir {
         }
     }
 
-    CoordPhase7Ir {
+    CoordGroupDistribution {
         snapshot,
-        aggregates: CoordPhase7Aggregates {
+        aggregates: CoordGroupAggregates {
             merged_overflow_by_key,
             merged_layout_by_key,
             unified_domain_extents: unified_domain_extents.clone(),
         },
-        distribution: CoordPhase7Distribution {
+        distribution: CoordGroupDistributionPlan {
             overflow_patches_by_node,
             layout_patches_by_node,
             domain_target_nodes,
@@ -314,7 +314,7 @@ pub(crate) fn build_phase7_ir(snapshot: CoordPhase7Snapshot) -> CoordPhase7Ir {
     }
 }
 
-pub(crate) fn build_phase9_ir(snapshot: CoordPhase9Snapshot) -> CoordPhase9Ir {
+pub(crate) fn build_phase9_ir(snapshot: CoordReconcileSnapshot) -> CoordReconcileDistribution {
     let mut overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>> =
         HashMap::new();
     let mut layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>> = HashMap::new();
@@ -346,13 +346,13 @@ pub(crate) fn build_phase9_ir(snapshot: CoordPhase9Snapshot) -> CoordPhase9Ir {
         }
     }
 
-    CoordPhase9Ir {
+    CoordReconcileDistribution {
         snapshot,
-        aggregates: CoordPhase9Aggregates {
+        aggregates: CoordReconcileAggregates {
             merged_overflow_by_key,
             merged_layout_by_key,
         },
-        distribution: CoordPhase9Distribution {
+        distribution: CoordReconcileDistributionPlan {
             overflow_patches_by_node,
             layout_patches_by_node,
         },
@@ -391,10 +391,10 @@ mod tests {
     #[test]
     fn phase7_ir_groups_and_distributes_overflow_layout_domains() {
         let key = CoordinationGroupKey::new(1, "col:group");
-        let snapshot = CoordPhase7Snapshot {
+        let snapshot = CoordGroupSnapshot {
             nodes: vec![
-                CoordPhase7NodeSnapshot {
-                    node_id: CoordNodeId::new(vec![0]),
+                CoordGroupNodeSnapshot {
+                    node_id: CoordNodeKey::new(vec![0]),
                     depth: 1,
                     key: key.clone(),
                     axis: FacetAxis::Column,
@@ -413,8 +413,8 @@ mod tests {
                         extent: DomainExtent::numeric(0.0, 10.0),
                     }],
                 },
-                CoordPhase7NodeSnapshot {
-                    node_id: CoordNodeId::new(vec![1]),
+                CoordGroupNodeSnapshot {
+                    node_id: CoordNodeKey::new(vec![1]),
                     depth: 1,
                     key: key.clone(),
                     axis: FacetAxis::Column,
@@ -471,9 +471,9 @@ mod tests {
             extent: DomainExtent::numeric(5.0, 7.0),
         };
 
-        let snapshot = CoordPhase7Snapshot {
-            nodes: vec![CoordPhase7NodeSnapshot {
-                node_id: CoordNodeId::new(vec![0]),
+        let snapshot = CoordGroupSnapshot {
+            nodes: vec![CoordGroupNodeSnapshot {
+                node_id: CoordNodeKey::new(vec![0]),
                 depth: 2,
                 key,
                 axis: FacetAxis::Column,
@@ -510,10 +510,10 @@ mod tests {
     #[test]
     fn phase9_ir_reconciles_overflow_layout_without_domains() {
         let key = CoordinationGroupKey::new(1, "row:group");
-        let snapshot = CoordPhase9Snapshot {
+        let snapshot = CoordReconcileSnapshot {
             nodes: vec![
-                CoordPhase9NodeSnapshot {
-                    node_id: CoordNodeId::new(vec![0]),
+                CoordReconcileNodeSnapshot {
+                    node_id: CoordNodeKey::new(vec![0]),
                     depth: 1,
                     key: key.clone(),
                     axis: FacetAxis::Row,
@@ -525,8 +525,8 @@ mod tests {
                         n: 2,
                     },
                 },
-                CoordPhase9NodeSnapshot {
-                    node_id: CoordNodeId::new(vec![1]),
+                CoordReconcileNodeSnapshot {
+                    node_id: CoordNodeKey::new(vec![1]),
                     depth: 1,
                     key,
                     axis: FacetAxis::Row,
