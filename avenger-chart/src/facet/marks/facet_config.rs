@@ -4,7 +4,6 @@ use crate::facet::empty_cell_policy::FacetEmptyCellPolicy;
 #[derive(Clone, Default)]
 pub struct FacetRowChannelConfig {
     pub(crate) title: Option<String>,
-    pub(crate) spacing: Option<f32>,
     pub(crate) scale_sharing: Option<ScaleSharing>,
     pub(crate) position: Option<String>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -13,7 +12,6 @@ pub struct FacetRowChannelConfig {
 #[derive(Clone, Default)]
 pub struct FacetOptions {
     pub(crate) title: Option<String>,
-    pub(crate) spacing: Option<f32>,
     pub(crate) scale_sharing: Option<ScaleSharing>,
     pub(crate) position: Option<String>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -22,11 +20,6 @@ pub struct FacetOptions {
 impl FacetOptions {
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
-        self
-    }
-
-    pub fn spacing(mut self, spacing: f32) -> Self {
-        self.spacing = Some(spacing);
         self
     }
 
@@ -92,7 +85,6 @@ impl FacetRowChannelConfig {
     {
         let opts = f(FacetOptions::default());
         self.title = opts.title;
-        self.spacing = opts.spacing;
         self.scale_sharing = opts.scale_sharing;
         self.position = opts.position;
         self.empty_cell_policy = opts.empty_cell_policy;
@@ -103,7 +95,6 @@ impl FacetRowChannelConfig {
 #[derive(Clone, Default)]
 pub struct FacetColChannelConfig {
     pub(crate) title: Option<String>,
-    pub(crate) spacing: Option<f32>,
     pub(crate) scale_sharing: Option<ScaleSharing>,
     pub(crate) position: Option<String>,
     pub(crate) empty_cell_policy: Option<FacetEmptyCellPolicy>,
@@ -116,7 +107,6 @@ impl FacetColChannelConfig {
     {
         let opts = f(FacetOptions::default());
         self.title = opts.title;
-        self.spacing = opts.spacing;
         self.scale_sharing = opts.scale_sharing;
         self.position = opts.position;
         self.empty_cell_policy = opts.empty_cell_policy;

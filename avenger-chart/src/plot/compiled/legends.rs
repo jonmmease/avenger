@@ -57,8 +57,6 @@ pub(crate) struct PreparedLegendGroup {
     pub channels: Vec<LegendChannel>,
     pub legend: Legend,
     pub renderer: Arc<dyn LegendRenderer>,
-    pub effective_sharing_level: SharingLevel,
-    pub resolved_position: LegendPosition,
 }
 
 #[derive(Clone, Default)]
@@ -974,8 +972,6 @@ impl CompiledPlot {
                     channels: channels.clone(),
                     legend: legend.clone(),
                     renderer,
-                    effective_sharing_level,
-                    resolved_position,
                 });
             }
         }

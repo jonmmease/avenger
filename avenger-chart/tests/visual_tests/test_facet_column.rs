@@ -117,34 +117,6 @@ async fn facet_column_with_title() {
 }
 
 #[tokio::test]
-async fn facet_column_custom_spacing() {
-    let ctx = SessionContext::new();
-    let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));
-    let df = ctx
-        .read_parquet(iris_path, ParquetReadOptions::default())
-        .await
-        .expect("load iris dataset");
-
-    // Test custom spacing between facets
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
-        Facet::new()
-            .col_with(col("species"), |c| c.facet(|f| f.spacing(20.0)))
-            .subplot(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(col("sepal_length"))
-                        .y(col("sepal_width"))
-                        .size(36.0)
-                        .fill("#4682b4"),
-                ),
-            ),
-    );
-
-    let compiled = outer.compile(&ctx).await.expect("compile outer");
-    assert_visual_match_default(&compiled, &ctx, None, "facet", "facet_col_custom_spacing").await;
-}
-
-#[tokio::test]
 async fn facet_column_with_line_mark() {
     let ctx = SessionContext::new();
     let iris_path = format!("{}/tests/data/iris.parquet", env!("CARGO_MANIFEST_DIR"));

@@ -272,7 +272,6 @@ pub struct Facet<InnerC: CoordinateSystem> {
     pub(crate) subplot: Option<Plot<InnerC>>,
     pub(crate) facet_row_title: Option<String>,
     pub(crate) facet_col_title: Option<String>,
-    pub(crate) facet_spacing: Option<f32>,
     pub(crate) facet_row_scale_sharing: Option<ScaleSharing>,
     pub(crate) facet_col_scale_sharing: Option<ScaleSharing>,
     pub(crate) facet_row_position: Option<String>,
@@ -294,7 +293,6 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
             subplot: None,
             facet_row_title: None,
             facet_col_title: None,
-            facet_spacing: None,
             facet_row_scale_sharing: None,
             facet_col_scale_sharing: None,
             facet_row_position: None,
@@ -326,7 +324,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s
     }
 
-    /// Configure row with facet options (e.g., title, spacing, scale_sharing)
+    /// Configure row with facet options (e.g., title, scale_sharing)
     pub fn row_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -335,7 +333,6 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         let mut s = self.row(value);
         let cfg = f(FacetRowChannelConfig::default());
         s.facet_row_title = cfg.title;
-        s.facet_spacing = cfg.spacing;
         s.facet_row_scale_sharing = cfg.scale_sharing;
         s.facet_row_position = cfg.position;
         s.facet_row_empty_cell_policy = cfg.empty_cell_policy;
@@ -352,7 +349,7 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         s
     }
 
-    /// Configure col with facet options (e.g., title, spacing, scale_sharing, position)
+    /// Configure col with facet options (e.g., title, scale_sharing, position)
     pub fn col_with<V, F>(self, value: V, f: F) -> Self
     where
         V: Into<ChannelValue>,
@@ -361,7 +358,6 @@ impl<InnerC: CoordinateSystem> Facet<InnerC> {
         let mut s = self.column(value);
         let cfg = f(FacetColChannelConfig::default());
         s.facet_col_title = cfg.title;
-        s.facet_spacing = cfg.spacing;
         s.facet_col_scale_sharing = cfg.scale_sharing;
         s.facet_col_position = cfg.position;
         s.facet_col_empty_cell_policy = cfg.empty_cell_policy;
@@ -382,7 +378,6 @@ pub struct CompiledFacetRow {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
-    pub(crate) facet_spacing: Option<f32>,
     pub(crate) facet_scale_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
     #[serde(default)]
@@ -398,9 +393,6 @@ impl CompiledFacetRow {
     }
     pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
-    }
-    pub fn facet_spacing(&self) -> Option<f32> {
-        self.facet_spacing
     }
     pub fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
         self.facet_scale_sharing
@@ -474,7 +466,6 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetRow> for Facet<InnerC> {
             state: compiled_state,
             compiled_subplot,
             facet_title,
-            facet_spacing: self.facet_spacing,
             facet_scale_sharing: self.facet_row_scale_sharing,
             facet_position: self.facet_row_position.clone(),
             facet_empty_cell_policy: self.facet_row_empty_cell_policy.unwrap_or_default(),
@@ -591,7 +582,6 @@ pub struct CompiledFacetCol {
     pub(crate) state: CompiledMarkState,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) facet_title: Option<String>,
-    pub(crate) facet_spacing: Option<f32>,
     pub(crate) facet_scale_sharing: Option<ScaleSharing>,
     pub(crate) facet_position: Option<String>,
     #[serde(default)]
@@ -607,9 +597,6 @@ impl CompiledFacetCol {
     }
     pub fn facet_title(&self) -> Option<&str> {
         self.facet_title.as_deref()
-    }
-    pub fn facet_spacing(&self) -> Option<f32> {
-        self.facet_spacing
     }
     pub fn facet_scale_sharing(&self) -> Option<ScaleSharing> {
         self.facet_scale_sharing
@@ -726,7 +713,6 @@ impl<InnerC: CoordinateSystem + Clone> Mark<FacetColumn> for Facet<InnerC> {
             state: compiled_state,
             compiled_subplot,
             facet_title,
-            facet_spacing: self.facet_spacing,
             facet_scale_sharing: self.facet_col_scale_sharing,
             facet_position: self.facet_col_position.clone(),
             facet_empty_cell_policy: self.facet_col_empty_cell_policy.unwrap_or_default(),
@@ -871,71 +857,6 @@ fn resolve_facet_row_positions(
     cell_values: &[ScalarValue],
 ) -> Result<Vec<f32>, AvengerChartError> {
     resolve_facet_band_positions(configured, cell_values, "FacetRow")
-}
-
-// ============================================================================
-// Axis-Aligned Empty Space Helper
-// ============================================================================
-
-/// Determine the band scale alignment value based on subplot axis position.
-///
-/// When faceting creates cells with different numbers of subplots (e.g., in nested facets
-/// with Free scaling), empty space is allocated. This function determines where to place
-/// that empty space relative to the axis labels:
-///
-/// - X-axis at Bottom → align=1.0 (push subplots to bottom, empty space at top)
-/// - X-axis at Top → align=0.0 (push subplots to top, empty space at bottom)
-/// - Y-axis at Left → align=0.0 (push subplots to left, empty space at right)
-/// - Y-axis at Right → align=1.0 (push subplots to right, empty space at left)
-///
-/// This ensures subplots are visually aligned with their axis labels.
-///
-/// # Arguments
-/// * `is_row_facet` - true for FacetRow (vertical stacking), false for FacetCol (horizontal)
-/// * `compiled_subplot` - The compiled subplot to query axis position from
-///
-/// # Returns
-/// Band scale align value: 0.0 (start) or 1.0 (end)
-pub fn determine_facet_band_align(is_row_facet: bool, compiled_subplot: &CompiledPlot) -> f32 {
-    use crate::{
-        cartesian::{axis::AxisPosition, guide::CartesianGuide},
-        guide::CompiledGuide,
-    };
-
-    // Try to get the axis position from the compiled guide
-    if let Some(guide) = compiled_subplot.compiled_guide.as_ref() {
-        // For row facets, check x-axis position (determines vertical alignment)
-        // For column facets, check y-axis position (determines horizontal alignment)
-        let channel = if is_row_facet { "x" } else { "y" };
-
-        if let Some(position) = guide.axis_position(channel) {
-            return match position {
-                // Row faceting: x-axis position determines vertical alignment
-                AxisPosition::Bottom => 1.0, // Push to bottom, empty space at top
-                AxisPosition::Top => 0.0,    // Push to top, empty space at bottom
-                // Column faceting: y-axis position determines horizontal alignment
-                AxisPosition::Left => 0.0, // Push to left, empty space at right
-                AxisPosition::Right => 1.0, // Push to right, empty space at left
-            };
-        }
-
-        // If guide exists but doesn't provide axis_position, try downcasting to CartesianGuide
-        // to access the axis_position method directly
-        if let Some(cartesian) = guide.as_any().downcast_ref::<CartesianGuide>() {
-            if let Some(position) = cartesian.axis_position(channel) {
-                return match position {
-                    AxisPosition::Bottom => 1.0,
-                    AxisPosition::Top => 0.0,
-                    AxisPosition::Left => 0.0,
-                    AxisPosition::Right => 1.0,
-                };
-            }
-        }
-    }
-
-    // Default: 0.0 (start alignment) for backward compatibility
-    // This is the original hardcoded behavior
-    0.0
 }
 
 #[cfg(test)]

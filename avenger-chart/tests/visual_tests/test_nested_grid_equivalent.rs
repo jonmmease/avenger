@@ -6,7 +6,6 @@
 //! Milestone 1: Free Scale Tests
 //! - test_nested_free_row_free_scales: Port of test_grid_facet_free_scales
 //! - test_nested_free_row_with_line_mark: Port of test_grid_facet_with_line_mark
-//! - test_nested_free_row_custom_spacing: Port of test_grid_facet_custom_spacing
 
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
@@ -146,51 +145,6 @@ fn test_nested_free_row_with_line_mark() {
             None,
             "nested_grid",
             "nested_free_row_with_line_mark",
-        )
-        .await;
-    });
-}
-
-/// Port of test_grid_facet_custom_spacing
-///
-/// Tests that custom spacing is respected in nested facets.
-#[test]
-fn test_nested_free_row_custom_spacing() {
-    run_with_large_stack(|| async {
-        let ctx = SessionContext::new();
-        let df = iris_with_binned_petal_width().await;
-
-        let outer = Plot::<FacetColumn>::new()
-            .data(df)
-            .canvas_size(600, 600)
-            .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
-                    Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| c.facet(|f| f.spacing(20.0)))
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x(col("sepal_length"))
-                                        .y(col("sepal_width"))
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
-                            ),
-                    ),
-                ),
-            );
-
-        let compiled = outer
-            .compile(&ctx)
-            .await
-            .expect("compile nested custom spacing");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "nested_grid",
-            "nested_free_row_custom_spacing",
         )
         .await;
     });
@@ -1692,51 +1646,6 @@ fn test_nested_shared_row_with_line_mark() {
             None,
             "nested_grid",
             "nested_shared_row_with_line_mark",
-        )
-        .await;
-    });
-}
-
-/// Port of test_grid_facet_custom_spacing with shared row domain
-#[test]
-fn test_nested_shared_row_custom_spacing() {
-    run_with_large_stack(|| async {
-        let ctx = SessionContext::new();
-        let df = iris_with_binned_petal_width().await;
-
-        let outer = Plot::<FacetColumn>::new()
-            .data(df)
-            .canvas_size(600, 600)
-            .mark(
-                Facet::new().column(col("petal_width_bin")).subplot(
-                    Plot::<FacetRow>::new().mark(
-                        Facet::new()
-                            .row_with(col("species"), |c| {
-                                c.facet(|f| f.spacing(20.0).share_scale())
-                            })
-                            .subplot(
-                                Plot::<Cartesian>::new().mark(
-                                    Symbol::new()
-                                        .x(col("sepal_length"))
-                                        .y(col("sepal_width"))
-                                        .size(25.0)
-                                        .fill("#4682b4"),
-                                ),
-                            ),
-                    ),
-                ),
-            );
-
-        let compiled = outer
-            .compile(&ctx)
-            .await
-            .expect("compile nested shared row custom spacing");
-        assert_visual_match_default(
-            &compiled,
-            &ctx,
-            None,
-            "nested_grid",
-            "nested_shared_row_custom_spacing",
         )
         .await;
     });
