@@ -455,14 +455,14 @@ mod tests {
             ],
         };
 
-        let ir = build_collection_round_a(snapshot);
-        assert_eq!(ir.snapshot.nodes.len(), 2);
-        assert_eq!(ir.aggregates.merged_overflow_by_key.len(), 1);
-        assert_eq!(ir.aggregates.merged_layout_by_key.len(), 1);
-        assert_eq!(ir.aggregates.unified_domain_extents.len(), 1);
-        assert_eq!(ir.distribution.overflow_patches_by_node.len(), 2);
-        assert_eq!(ir.distribution.layout_patches_by_node.len(), 2);
-        assert_eq!(ir.distribution.domain_target_nodes.len(), 2);
+        let attributes = build_collection_round_a(snapshot);
+        assert_eq!(attributes.snapshot.nodes.len(), 2);
+        assert_eq!(attributes.aggregates.merged_overflow_by_key.len(), 1);
+        assert_eq!(attributes.aggregates.merged_layout_by_key.len(), 1);
+        assert_eq!(attributes.aggregates.unified_domain_extents.len(), 1);
+        assert_eq!(attributes.distribution.overflow_patches_by_node.len(), 2);
+        assert_eq!(attributes.distribution.layout_patches_by_node.len(), 2);
+        assert_eq!(attributes.distribution.domain_target_nodes.len(), 2);
     }
 
     #[test]
@@ -499,7 +499,7 @@ mod tests {
                 domain_infos: vec![info_a.clone(), info_b.clone(), info_c.clone()],
             }],
         };
-        let ir = build_collection_round_a(snapshot);
+        let attributes = build_collection_round_a(snapshot);
 
         let key_ab = sharing_policy::domain_group_key(
             &info_a.full_cell_path,
@@ -511,14 +511,14 @@ mod tests {
             SharingLevel::from_raw(info_c.sharing_level),
             info_c.facet_depth,
         );
-        assert_eq!(ir.aggregates.unified_domain_extents.len(), 2);
+        assert_eq!(attributes.aggregates.unified_domain_extents.len(), 2);
         assert!(
-            ir.aggregates
+            attributes.aggregates
                 .unified_domain_extents
                 .contains_key(&("x".to_string(), key_ab))
         );
         assert!(
-            ir.aggregates
+            attributes.aggregates
                 .unified_domain_extents
                 .contains_key(&("x".to_string(), key_c))
         );
@@ -554,11 +554,11 @@ mod tests {
             ],
         };
 
-        let ir = build_recollection_round(snapshot);
-        assert_eq!(ir.snapshot.nodes.len(), 2);
-        assert_eq!(ir.aggregates.merged_overflow_by_key.len(), 1);
-        assert_eq!(ir.aggregates.merged_layout_by_key.len(), 1);
-        assert_eq!(ir.distribution.overflow_patches_by_node.len(), 2);
-        assert_eq!(ir.distribution.layout_patches_by_node.len(), 2);
+        let attributes = build_recollection_round(snapshot);
+        assert_eq!(attributes.snapshot.nodes.len(), 2);
+        assert_eq!(attributes.aggregates.merged_overflow_by_key.len(), 1);
+        assert_eq!(attributes.aggregates.merged_layout_by_key.len(), 1);
+        assert_eq!(attributes.distribution.overflow_patches_by_node.len(), 2);
+        assert_eq!(attributes.distribution.layout_patches_by_node.len(), 2);
     }
 }

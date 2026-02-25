@@ -20,8 +20,8 @@ pub(crate) struct FacetCellPlan {
     pub filter_predicate: Option<Expr>,
 }
 
-impl From<&crate::facet::band_ir::FacetBandCellSemantic> for FacetCellPlan {
-    fn from(cell: &crate::facet::band_ir::FacetBandCellSemantic) -> Self {
+impl From<&crate::facet::band_attributes::FacetBandCellSemantic> for FacetCellPlan {
+    fn from(cell: &crate::facet::band_attributes::FacetBandCellSemantic) -> Self {
         Self {
             value: cell.value.clone(),
             full_path: cell.full_path.clone(),

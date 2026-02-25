@@ -2,12 +2,12 @@
 //!
 //! This module provides the infrastructure for faceted visualizations.
 
-pub(crate) mod band_ir;
+pub(crate) mod band_attributes;
 pub mod band_positions;
 pub mod coord;
 pub mod coord_row;
 pub mod coordination;
-pub(crate) mod coordination_ir;
+pub(crate) mod coordination_attributes;
 pub(crate) mod coordination_remeasure;
 pub(crate) mod coordination_sidecar;
 pub mod debug;

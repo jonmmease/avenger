@@ -7,7 +7,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coord::FacetBandCoordMeasurement,
-        coordination_ir::{
+        coordination_attributes::{
             CollectionRoundA, CoordNodeKey, InheritedApplyIntent, InheritedApplyNodeIntent,
             InheritedApplyNodeOutcome, InheritedApplyTrace, InheritedPropagationChildIntent,
             InheritedPropagationIntent, InheritedPropagationNodeIntent,

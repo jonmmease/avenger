@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn synthesize_cell_ir_preserves_semantics_and_order() -> Result<(), AvengerChartError> {
+    fn synthesize_cell_attributes_preserves_semantics_and_order() -> Result<(), AvengerChartError> {
         let mut children = IndexMap::new();
         children.insert(
             s("A"),

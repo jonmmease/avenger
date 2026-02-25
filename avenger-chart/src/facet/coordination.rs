@@ -6,7 +6,7 @@
 //! 3. recollection round stabilization,
 //! 4. inherited propagation (retarget + adjustment).
 //!
-//! Immutable artifacts are built in `coordination_ir`, and bounded side effects are
+//! Immutable artifacts are built in `coordination_attributes`, and bounded side effects are
 //! applied through executors in `coordination_sidecar`.
 //!
 //! Reference terminology:
@@ -21,7 +21,7 @@ use tracing::{debug, trace};
 use crate::{
     error::AvengerChartError,
     facet::{
-        coordination_ir::{
+        coordination_attributes::{
             CollectionRoundA, CollectionRoundNodeSnapshot, CollectionRoundSnapshot, CoordNodeKey,
             CoordinationRunArtifacts, InheritedApplyIntent, InheritedApplyTrace,
             InheritedPropagationIntent, InheritedPropagationTrace, RecollectionRound,
@@ -131,7 +131,7 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<CoordinationRunArtifacts, AvengerChartError> {
-    // Collection Round A: build immutable aggregate/distribution IR, then apply sidecar patches.
+    // Collection Round A: build immutable aggregate/distribution attributes, then apply sidecar patches.
     let collection_round_a =
         build_collection_round_a(collect_collection_round_snapshot(measurement));
     debug_assert_collection_round_coverage(&collection_round_a);
@@ -173,7 +173,7 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
         "coordinate_facet_measurement_tree inherited apply complete"
     );
 
-    // Recollection Round: build immutable post-remeasure reconciliation IR, then apply patches.
+    // Recollection Round: build immutable post-remeasure reconciliation attributes, then apply patches.
     let recollection_round =
         build_recollection_round(collect_recollection_round_snapshot(measurement));
     debug_assert_recollection_round_coverage(&recollection_round);

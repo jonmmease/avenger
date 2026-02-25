@@ -3409,9 +3409,9 @@ impl CompiledPlot {
         }
 
         // `coordinate_overflow_for_guides` currently maps to top-level phases 7-10:
-        // - phase 7 IR build (snapshot/aggregate/distribution) + sidecar apply,
+        // - phase 7 attributes build (snapshot/aggregate/distribution) + sidecar apply,
         // - phase 8 sidecar apply/remeasure + immutable execution trace,
-        // - phase 9 IR build (post-remeasure reconcile distribution) + sidecar apply,
+        // - phase 9 attributes build (post-remeasure reconcile distribution) + sidecar apply,
         // - phase 10 sidecar scale retarget/adjustment propagation + immutable trace.
         coordinate_overflow_for_guides(measurement, eval_ctx).await?;
 
