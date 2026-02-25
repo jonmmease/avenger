@@ -2546,6 +2546,37 @@ impl CompiledPlot {
         Ok((result, legend_plan))
     }
 
+    #[cfg(test)]
+    pub(crate) async fn total_overflow_from_precomputed_guide_overflow(
+        &self,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &EvaluatedLayoutSpec,
+        scales: &HashMap<String, ConfiguredScaleWithSpec>,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        guide_overflow: &OverflowSpaceRequirement,
+        facet_path: &[ScalarValue],
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        let params_with_dims = eval_ctx.with_dimension_params(plot_area_width, plot_area_height);
+        let (layout, _) = self
+            .compute_layout_with_precomputed_overflow(
+                guide_overflow,
+                layout_spec,
+                scales,
+                taffy::Size {
+                    width: plot_area_width,
+                    height: plot_area_height,
+                },
+                params_with_dims.session_context.as_ref(),
+                &params_with_dims.params,
+                params_with_dims.facet_tree.as_ref(),
+                facet_path,
+                Self::legend_scope_for_facet_path(facet_path),
+            )
+            .await?;
+        Ok(layout.total_overflow)
+    }
+
     #[inline]
     fn legend_scope_for_facet_path(facet_path: &[ScalarValue]) -> LegendPlanScope {
         if facet_path.is_empty() {

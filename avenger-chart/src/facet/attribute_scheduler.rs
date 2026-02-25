@@ -2,7 +2,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         attribute_context::FacetInheritedContextKey,
-        attribute_store::{FacetAttributeStore, FacetSynthesisSummary},
+        attribute_store::{FacetAttributeStore, FacetSynthesisValue},
     },
 };
 use std::future::Future;
@@ -17,44 +17,37 @@ pub(crate) enum SynthesisKind {
 pub(crate) fn evaluate_synthesized<F>(
     store: &mut FacetAttributeStore,
     key: FacetInheritedContextKey,
-    kind: SynthesisKind,
     evaluate: F,
-) -> Result<(FacetSynthesisSummary, bool), AvengerChartError>
+) -> Result<(FacetSynthesisValue, bool), AvengerChartError>
 where
-    F: FnOnce() -> Result<FacetSynthesisSummary, AvengerChartError>,
+    F: FnOnce() -> Result<FacetSynthesisValue, AvengerChartError>,
 {
     if let Some(hit) = store.get(&key) {
-        return Ok((hit.summary().clone(), true));
+        return Ok((hit.clone(), true));
     }
 
-    let summary = evaluate()?;
-    match kind {
-        SynthesisKind::Leaf => store.insert_leaf(key, summary.clone()),
-        SynthesisKind::Band => store.insert_band(key, summary.clone()),
-    }
-    Ok((summary, false))
+    let value = evaluate()?;
+    store.insert_value(key, value.clone());
+    Ok((value, false))
 }
 
+#[allow(dead_code)]
 pub(crate) async fn evaluate_synthesized_async<F, Fut>(
     store: &mut FacetAttributeStore,
     key: FacetInheritedContextKey,
-    kind: SynthesisKind,
     evaluate: F,
-) -> Result<(FacetSynthesisSummary, bool), AvengerChartError>
+) -> Result<(FacetSynthesisValue, bool), AvengerChartError>
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<FacetSynthesisSummary, AvengerChartError>>,
+    Fut: Future<Output = Result<FacetSynthesisValue, AvengerChartError>>,
 {
     if let Some(hit) = store.get(&key) {
-        return Ok((hit.summary().clone(), true));
+        return Ok((hit.clone(), true));
     }
 
-    let summary = evaluate().await?;
-    match kind {
-        SynthesisKind::Leaf => store.insert_leaf(key, summary.clone()),
-        SynthesisKind::Band => store.insert_band(key, summary.clone()),
-    }
-    Ok((summary, false))
+    let value = evaluate().await?;
+    store.insert_value(key, value.clone());
+    Ok((value, false))
 }
 
 #[cfg(test)]
@@ -64,7 +57,7 @@ mod tests {
         coords::OverflowSpaceRequirement,
         facet::{
             attribute_context::{FacetInheritedContextKey, ScaleScopeKey},
-            attribute_store::FacetSynthesisSummary,
+            attribute_store::{FacetCellProbeSummary, FacetSynthesisValue},
         },
     };
     use datafusion::common::ScalarValue;
@@ -81,11 +74,14 @@ mod tests {
         )
     }
 
-    fn summary() -> FacetSynthesisSummary {
-        FacetSynthesisSummary {
-            guide_overflow: OverflowSpaceRequirement::default(),
-            total_overflow: OverflowSpaceRequirement::default(),
-            max_child_padding: 0.0,
+    fn value() -> FacetSynthesisValue {
+        FacetSynthesisValue::LeafMeasured {
+            cell_probe_summary: FacetCellProbeSummary {
+                guide_overflow: OverflowSpaceRequirement::default(),
+                total_overflow: OverflowSpaceRequirement::default(),
+                max_child_padding: 0.0,
+            },
+            probe_payload: None,
         }
     }
 
@@ -94,16 +90,16 @@ mod tests {
         let mut store = FacetAttributeStore::default();
         let mut called = 0usize;
 
-        let (_value, hit) = evaluate_synthesized(&mut store, key(), SynthesisKind::Leaf, || {
+        let (_value, hit) = evaluate_synthesized(&mut store, key(), || {
             called += 1;
-            Ok(summary())
+            Ok(value())
         })
         .expect("first evaluation should succeed");
         assert!(!hit);
 
-        let (_value, hit) = evaluate_synthesized(&mut store, key(), SynthesisKind::Leaf, || {
+        let (_value, hit) = evaluate_synthesized(&mut store, key(), || {
             called += 1;
-            Ok(summary())
+            Ok(value())
         })
         .expect("second evaluation should succeed");
         assert!(hit);
