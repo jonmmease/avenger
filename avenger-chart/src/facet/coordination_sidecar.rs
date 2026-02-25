@@ -287,6 +287,7 @@ fn run_inherited_apply_recursive<'a>(
                 subplot_cross_size_after: outcome.subplot_cross_size_after,
                 remeasure_triggered: outcome.remeasure_triggered,
                 remeasured_cell_count: outcome.remeasured_cell_count,
+                remeasure_skipped_cell_count: outcome.remeasure_skipped_cell_count,
                 remeasured_non_empty_cell_count: outcome.remeasured_non_empty_cell_count,
                 remeasured_with_coordinated_extents_count: outcome
                     .remeasured_with_coordinated_extents_count,

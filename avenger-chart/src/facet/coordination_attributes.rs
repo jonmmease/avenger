@@ -125,6 +125,7 @@ pub(crate) struct InheritedApplyNodeOutcome {
     pub(crate) subplot_cross_size_after: f32,
     pub(crate) remeasure_triggered: bool,
     pub(crate) remeasured_cell_count: usize,
+    pub(crate) remeasure_skipped_cell_count: usize,
     pub(crate) remeasured_non_empty_cell_count: usize,
     pub(crate) remeasured_with_coordinated_extents_count: usize,
 }
@@ -513,12 +514,14 @@ mod tests {
         );
         assert_eq!(attributes.aggregates.unified_domain_extents.len(), 2);
         assert!(
-            attributes.aggregates
+            attributes
+                .aggregates
                 .unified_domain_extents
                 .contains_key(&("x".to_string(), key_ab))
         );
         assert!(
-            attributes.aggregates
+            attributes
+                .aggregates
                 .unified_domain_extents
                 .contains_key(&("x".to_string(), key_c))
         );

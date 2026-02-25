@@ -538,6 +538,7 @@ dependencies = [
  "indexmap 2.9.0",
  "lazy_static 1.5.0",
  "lyon_path",
+ "ordered-float 5.0.0",
  "palette",
  "paste",
  "postcard",

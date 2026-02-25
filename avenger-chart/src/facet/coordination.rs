@@ -21,6 +21,7 @@ use tracing::{debug, trace};
 use crate::{
     error::AvengerChartError,
     facet::{
+        attribute_context::FacetCircularEpoch,
         coordination_attributes::{
             CollectionRoundA, CollectionRoundNodeSnapshot, CollectionRoundSnapshot, CoordNodeKey,
             CoordinationRunArtifacts, InheritedApplyIntent, InheritedApplyTrace,
@@ -131,6 +132,10 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<CoordinationRunArtifacts, AvengerChartError> {
+    let mut epoch = None;
+    debug_assert_epoch_transition(epoch, FacetCircularEpoch::CollectionA);
+    epoch = Some(FacetCircularEpoch::CollectionA);
+
     // Collection Round A: build immutable aggregate/distribution attributes, then apply sidecar patches.
     let collection_round_a =
         build_collection_round_a(collect_collection_round_snapshot(measurement));
@@ -143,6 +148,9 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     );
     apply_collection_round_a(measurement, &collection_round_a);
     debug!("coordinate_facet_measurement_tree collection round A complete");
+
+    debug_assert_epoch_transition(epoch, FacetCircularEpoch::InheritedApply);
+    epoch = Some(FacetCircularEpoch::InheritedApply);
 
     // Inherited Apply: coordinated apply + selective remeasure (sidecar mutations + immutable trace).
     let inherited_apply_derivation = derive_inherited_apply_intent(measurement);
@@ -173,6 +181,9 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
         "coordinate_facet_measurement_tree inherited apply complete"
     );
 
+    debug_assert_epoch_transition(epoch, FacetCircularEpoch::Recollection);
+    epoch = Some(FacetCircularEpoch::Recollection);
+
     // Recollection Round: build immutable post-remeasure reconciliation attributes, then apply patches.
     let recollection_round =
         build_recollection_round(collect_recollection_round_snapshot(measurement));
@@ -184,6 +195,8 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     );
     apply_recollection_round(measurement, &recollection_round);
     debug!("coordinate_facet_measurement_tree recollection round complete");
+
+    debug_assert_epoch_transition(epoch, FacetCircularEpoch::InheritedPropagation);
 
     // Inherited Propagation: scale retarget + adjustment propagation (sidecar mutations + immutable trace).
     let inherited_propagation_derivation = derive_inherited_propagation_intent(measurement);
@@ -276,6 +289,29 @@ fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordNodeKey
         },
     );
     node_ids
+}
+
+fn debug_assert_epoch_transition(current: Option<FacetCircularEpoch>, next: FacetCircularEpoch) {
+    let allowed = matches!(
+        (current, next),
+        (None, FacetCircularEpoch::CollectionA)
+            | (
+                Some(FacetCircularEpoch::CollectionA),
+                FacetCircularEpoch::InheritedApply
+            )
+            | (
+                Some(FacetCircularEpoch::InheritedApply),
+                FacetCircularEpoch::Recollection
+            )
+            | (
+                Some(FacetCircularEpoch::Recollection),
+                FacetCircularEpoch::InheritedPropagation
+            )
+    );
+    debug_assert!(
+        allowed,
+        "invalid coordination circular schedule transition: current={current:?}, next={next:?}"
+    );
 }
 
 fn debug_assert_collection_round_coverage(collection_round_a: &CollectionRoundA) {
@@ -424,18 +460,32 @@ fn debug_assert_inherited_apply_trace_alignment(
         debug_assert_eq!(trace_result.derived_child_count, derived.child_count);
         if let Some(remeasure_plan) = derived.remeasure_plan.as_ref() {
             let derived_cell_count = remeasure_plan.cell_intents.len();
+            let derived_remeasured_count = remeasure_plan
+                .cell_intents
+                .iter()
+                .filter(|intent| intent.requires_remeasure)
+                .count();
+            let derived_skipped_count = derived_cell_count - derived_remeasured_count;
             let derived_non_empty_count = remeasure_plan
                 .cell_intents
                 .iter()
-                .filter(|intent| intent.has_data_rows)
+                .filter(|intent| intent.requires_remeasure && intent.has_data_rows)
                 .count();
             let derived_with_coordinated_extents_count = remeasure_plan
                 .cell_intents
                 .iter()
-                .filter(|intent| intent.use_coordinated_extents)
+                .filter(|intent| intent.requires_remeasure && intent.use_coordinated_extents)
                 .count();
             debug_assert!(trace_result.remeasure_triggered);
-            debug_assert_eq!(trace_result.remeasured_cell_count, derived_cell_count);
+            debug_assert_eq!(trace_result.remeasured_cell_count, derived_remeasured_count);
+            debug_assert_eq!(
+                trace_result.remeasure_skipped_cell_count,
+                derived_skipped_count
+            );
+            debug_assert_eq!(
+                trace_result.remeasured_cell_count + trace_result.remeasure_skipped_cell_count,
+                derived_cell_count
+            );
             debug_assert_eq!(
                 trace_result.remeasured_non_empty_cell_count,
                 derived_non_empty_count
@@ -447,6 +497,13 @@ fn debug_assert_inherited_apply_trace_alignment(
         } else {
             debug_assert!(!trace_result.remeasure_triggered);
             debug_assert_eq!(trace_result.remeasured_cell_count, 0);
+            debug_assert_eq!(trace_result.remeasure_skipped_cell_count, 0);
+            debug_assert_eq!(trace_result.remeasured_non_empty_cell_count, 0);
+            debug_assert_eq!(trace_result.remeasured_with_coordinated_extents_count, 0);
+        }
+        if !trace_result.remeasure_triggered {
+            debug_assert_eq!(trace_result.remeasured_cell_count, 0);
+            debug_assert_eq!(trace_result.remeasure_skipped_cell_count, 0);
             debug_assert_eq!(trace_result.remeasured_non_empty_cell_count, 0);
             debug_assert_eq!(trace_result.remeasured_with_coordinated_extents_count, 0);
         }
@@ -1075,8 +1132,20 @@ mod tests {
             .remeasure_plan
             .as_ref()
             .expect("root derivation should include remeasure plan");
+        let expected_remeasured_count = root_remeasure_plan
+            .cell_intents
+            .iter()
+            .filter(|intent| intent.requires_remeasure)
+            .count();
+        let expected_skipped_count =
+            root_remeasure_plan.cell_intents.len() - expected_remeasured_count;
+        assert_eq!(root_result.remeasured_cell_count, expected_remeasured_count);
         assert_eq!(
-            root_result.remeasured_cell_count,
+            root_result.remeasure_skipped_cell_count,
+            expected_skipped_count
+        );
+        assert_eq!(
+            root_result.remeasured_cell_count + root_result.remeasure_skipped_cell_count,
             root_remeasure_plan.cell_intents.len()
         );
         assert_eq!(
@@ -1084,7 +1153,7 @@ mod tests {
             root_remeasure_plan
                 .cell_intents
                 .iter()
-                .filter(|intent| intent.use_coordinated_extents)
+                .filter(|intent| intent.requires_remeasure && intent.use_coordinated_extents)
                 .count()
         );
         Ok(())
@@ -1395,8 +1464,20 @@ mod tests {
             .remeasure_plan
             .as_ref()
             .expect("root derivation should include remeasure plan when remeasure is required");
+        let expected_remeasured_count = root_remeasure_plan
+            .cell_intents
+            .iter()
+            .filter(|intent| intent.requires_remeasure)
+            .count();
+        let expected_skipped_count =
+            root_remeasure_plan.cell_intents.len() - expected_remeasured_count;
+        assert_eq!(root_result.remeasured_cell_count, expected_remeasured_count);
         assert_eq!(
-            root_result.remeasured_cell_count,
+            root_result.remeasure_skipped_cell_count,
+            expected_skipped_count
+        );
+        assert_eq!(
+            root_result.remeasured_cell_count + root_result.remeasure_skipped_cell_count,
             root_remeasure_plan.cell_intents.len()
         );
         assert_eq!(

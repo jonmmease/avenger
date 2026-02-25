@@ -29,6 +29,7 @@ palette = { workspace = true }
 thiserror = { workspace = true }
 image = { workspace = true }
 indexmap = { workspace = true }
+ordered-float = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = "3.0"

@@ -9,13 +9,19 @@
 //! - JastAdd reference manual: https://jastadd.cs.lth.se/web/documentation/reference-manual.php
 //! - Knuth attribute grammars: https://doi.org/10.1007/BF01692511
 //!
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{
+    any::Any,
+    collections::{HashMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, band::bandwidth};
 #[cfg(test)]
 use datafusion::logical_expr::lit;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, scalar::ScalarValue as DfScalarValue};
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
@@ -27,6 +33,9 @@ use crate::{
     },
     error::AvengerChartError,
     facet::{
+        attribute_context::{FacetCellMeasureContextKey, FacetInheritedContextKey, ScaleScopeKey},
+        attribute_scheduler::{SynthesisKind, evaluate_synthesized_async},
+        attribute_store::{FacetAttributeStore, FacetSynthesisSummary},
         band_attributes::{
             FacetBandLocalSynthesis, FacetBandMeasuredRuntime, FacetBandOverflowSynthesis,
             FacetBandPreparedRuntime, FacetBandPreparedSynthesis, FacetBandSemantics,
@@ -62,9 +71,12 @@ use crate::{
         scales::build_scale_builder_from_marks,
     },
     render::EvaluationContext,
+    render::context::{
+        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
+    },
     scales::{
         ConfiguredScaleWithSpec, ScaleBuilder,
-        domain_extent::{DomainBounds, DomainExtent, RadiusPadding},
+        domain_extent::{DomainBounds, DomainExtent, RadiusPadding, SerializableDomainValue},
     },
 };
 
@@ -95,6 +107,8 @@ pub(crate) struct FacetCellRuntime {
     pub(crate) local_domain_extents: HashMap<String, ChannelDomainExtent>,
     /// Coordinated per-channel extents distributed during coordination.
     pub(crate) coordinated_domain_extents: HashMap<String, DomainExtent>,
+    /// Last synthesized measurement context key used to produce `measurement`.
+    pub(crate) measurement_key: Option<FacetCellMeasureContextKey>,
 }
 
 /// Measurement data for FacetColumn coordinate system.
@@ -164,6 +178,7 @@ pub(crate) struct FacetBandCoordApplyOutcome {
     pub(crate) subplot_cross_size_after: f32,
     pub(crate) remeasure_triggered: bool,
     pub(crate) remeasured_cell_count: usize,
+    pub(crate) remeasure_skipped_cell_count: usize,
     pub(crate) remeasured_non_empty_cell_count: usize,
     pub(crate) remeasured_with_coordinated_extents_count: usize,
 }
@@ -558,6 +573,165 @@ fn collect_channel_sharing_levels(cells: &[FacetCellDraft]) -> HashMap<String, S
     sharing_levels
 }
 
+fn eval_ctx_axis_owner_ignore_empty_cells(eval_ctx: &EvaluationContext) -> bool {
+    matches!(
+        eval_ctx.params.get(AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM),
+        Some(DfScalarValue::Boolean(Some(true)))
+    )
+}
+
+fn eval_ctx_invalid_path_axis_fallback_hidden(eval_ctx: &EvaluationContext) -> bool {
+    matches!(
+        eval_ctx
+            .params
+            .get(INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM),
+        Some(DfScalarValue::Boolean(Some(true)))
+    )
+}
+
+fn hash_serializable_domain_value(value: &SerializableDomainValue, hasher: &mut DefaultHasher) {
+    match value {
+        SerializableDomainValue::String(v) => {
+            0u8.hash(hasher);
+            v.hash(hasher);
+        }
+        SerializableDomainValue::Int(v) => {
+            1u8.hash(hasher);
+            v.hash(hasher);
+        }
+        SerializableDomainValue::UInt64(v) => {
+            2u8.hash(hasher);
+            v.hash(hasher);
+        }
+        SerializableDomainValue::Float(v) => {
+            3u8.hash(hasher);
+            OrderedFloat(*v).hash(hasher);
+        }
+        SerializableDomainValue::Bool(v) => {
+            4u8.hash(hasher);
+            v.hash(hasher);
+        }
+        SerializableDomainValue::Decimal128(v) => {
+            5u8.hash(hasher);
+            v.hash(hasher);
+        }
+        SerializableDomainValue::TimestampMs(v) => {
+            6u8.hash(hasher);
+            v.hash(hasher);
+        }
+        SerializableDomainValue::TimestampUs(v) => {
+            7u8.hash(hasher);
+            v.hash(hasher);
+        }
+        SerializableDomainValue::TimestampNs(v) => {
+            8u8.hash(hasher);
+            v.hash(hasher);
+        }
+        SerializableDomainValue::Null => {
+            9u8.hash(hasher);
+        }
+    }
+}
+
+fn hash_domain_extent(extent: &DomainExtent, hasher: &mut DefaultHasher) {
+    match &extent.bounds {
+        DomainBounds::Numeric { min, max } => {
+            0u8.hash(hasher);
+            OrderedFloat(*min).hash(hasher);
+            OrderedFloat(*max).hash(hasher);
+        }
+        DomainBounds::Discrete(values) => {
+            1u8.hash(hasher);
+            values.len().hash(hasher);
+            for value in values {
+                hash_serializable_domain_value(value, hasher);
+            }
+        }
+        DomainBounds::Temporal { min, max } => {
+            2u8.hash(hasher);
+            min.hash(hasher);
+            max.hash(hasher);
+        }
+    }
+
+    match &extent.radius {
+        Some(radius) => {
+            1u8.hash(hasher);
+            OrderedFloat(radius.max_lower).hash(hasher);
+            OrderedFloat(radius.max_upper).hash(hasher);
+        }
+        None => {
+            0u8.hash(hasher);
+        }
+    }
+}
+
+fn coordinated_extents_fingerprint(extents: &HashMap<String, DomainExtent>) -> u64 {
+    if extents.is_empty() {
+        return 0;
+    }
+
+    let mut channels: Vec<&String> = extents.keys().collect();
+    channels.sort();
+    let mut hasher = DefaultHasher::new();
+    channels.len().hash(&mut hasher);
+    for channel in channels {
+        channel.hash(&mut hasher);
+        if let Some(extent) = extents.get(channel) {
+            hash_domain_extent(extent, &mut hasher);
+        }
+    }
+    hasher.finish()
+}
+
+fn build_measurement_context_key(
+    full_path: &[ScalarValue],
+    subplot_plot_width: f32,
+    subplot_plot_height: f32,
+    axis_owner_ignore_empty_cells: bool,
+    invalid_path_axis_fallback_hidden: bool,
+    scale_scope: ScaleScopeKey,
+    coordinated_extents_fingerprint: u64,
+) -> FacetCellMeasureContextKey {
+    FacetInheritedContextKey::from_parts(
+        canonicalize_path(full_path),
+        subplot_plot_width,
+        subplot_plot_height,
+        axis_owner_ignore_empty_cells,
+        invalid_path_axis_fallback_hidden,
+        scale_scope,
+        coordinated_extents_fingerprint,
+    )
+}
+
+pub(crate) fn build_explicit_measurement_context_key(
+    full_path: &[ScalarValue],
+    subplot_plot_width: f32,
+    subplot_plot_height: f32,
+    axis_owner_ignore_empty_cells: bool,
+    invalid_path_axis_fallback_hidden: bool,
+    coordinated_domain_extents: Option<&HashMap<String, DomainExtent>>,
+) -> FacetCellMeasureContextKey {
+    build_measurement_context_key(
+        full_path,
+        subplot_plot_width,
+        subplot_plot_height,
+        axis_owner_ignore_empty_cells,
+        invalid_path_axis_fallback_hidden,
+        ScaleScopeKey::ExplicitBuilder,
+        coordinated_domain_extents
+            .map(coordinated_extents_fingerprint)
+            .unwrap_or(0),
+    )
+}
+
+fn is_leaf_subplot(compiled_subplot: &CompiledPlot) -> bool {
+    !compiled_subplot
+        .marks
+        .iter()
+        .any(|mark| facet_mark_ref(mark.as_ref()).is_some())
+}
+
 #[cfg(test)]
 fn layout_from_measurement_or_local(
     local_layout: &CoordinatedLayout,
@@ -860,6 +1034,7 @@ impl FacetBandCoordMeasurement {
                 subplot_cross_size_after: self.subplot_cross_size,
                 remeasure_triggered: false,
                 remeasured_cell_count: 0,
+                remeasure_skipped_cell_count: 0,
                 remeasured_non_empty_cell_count: 0,
                 remeasured_with_coordinated_extents_count: 0,
             });
@@ -918,6 +1093,7 @@ impl FacetBandCoordMeasurement {
             }
         };
         let remeasured_cell_count = remeasure_outcome.cell_outcomes.len();
+        let remeasure_skipped_cell_count = remeasure_outcome.skipped_cell_count;
         for (idx, cell_outcome) in remeasure_outcome.cell_outcomes.iter().enumerate() {
             debug_assert_eq!(
                 cell_outcome.cell_index, idx,
@@ -948,6 +1124,7 @@ impl FacetBandCoordMeasurement {
             axis = ?self.axis,
             facet_depth = self.facet_depth,
             remeasured_cell_count,
+            remeasure_skipped_cell_count,
             remeasured_non_empty_cell_count,
             remeasured_with_coordinated_extents_count,
             remeasured_max_plot_area_width,
@@ -960,6 +1137,7 @@ impl FacetBandCoordMeasurement {
             subplot_cross_size_after: self.subplot_cross_size,
             remeasure_triggered: true,
             remeasured_cell_count,
+            remeasure_skipped_cell_count,
             remeasured_non_empty_cell_count,
             remeasured_with_coordinated_extents_count,
         })
@@ -997,6 +1175,7 @@ enum FacetCellMeasurementMode<'a> {
 struct MeasuredFacetCell {
     measurement: ComponentsMeasurement,
     cell_scale_builder: Option<ScaleBuilder>,
+    measurement_key: FacetCellMeasureContextKey,
 }
 
 struct FacetCellDraft {
@@ -1004,6 +1183,8 @@ struct FacetCellDraft {
     data_override: DataFrame,
     measurement: Option<ComponentsMeasurement>,
     local_domain_extents: HashMap<String, ChannelDomainExtent>,
+    last_measurement_key: Option<FacetCellMeasureContextKey>,
+    last_cell_scale_builder: Option<ScaleBuilder>,
 }
 
 enum NestedScalePlan<'a> {
@@ -1039,6 +1220,10 @@ struct FacetPreparedRuntimeInputs {
     plan: FacetBandMeasurePlan,
     subplot_eval_ctx: EvaluationContext,
     nested_measure_ctx: FacetBandNestedMeasureContext,
+}
+
+struct FacetBandOverflowRuntime {
+    cells: Vec<FacetCellDraft>,
 }
 
 struct FacetLocalLayoutOutcome {
@@ -1172,6 +1357,13 @@ fn fixed_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
     }
 }
 
+fn fixed_plot_area_dimensions(layout_spec: &EvaluatedLayoutSpec) -> (f32, f32) {
+    match layout_spec.plot_area {
+        EvaluatedSizeMode::Fixed { width, height } => (width, height),
+        _ => (0.0, 0.0),
+    }
+}
+
 fn resolve_nested_scale_plan<'a>(
     cell: &FacetCellPlan,
     nested_sharing_level: Option<SharingLevel>,
@@ -1239,6 +1431,52 @@ fn resolve_nested_scale_plan<'a>(
     }
 }
 
+fn infer_nested_scale_scope(
+    cell: &FacetCellPlan,
+    nested_ctx: &FacetBandNestedMeasureContext,
+) -> Result<ScaleScopeKey, AvengerChartError> {
+    if !cell.in_domain_slot {
+        return Ok(ScaleScopeKey::Shared);
+    }
+
+    let nested_sharing_level = nested_ctx.scale_artifacts.nested_col_sharing;
+    let nested_depth = nested_ctx.scale_artifacts.nested_depth;
+    let ancestor_scale_builder_cache = &nested_ctx.scale_artifacts.ancestor_scale_builder_cache;
+    let per_cell_scale_builder_cache = &nested_ctx.scale_artifacts.per_cell_scale_builder_cache;
+
+    match nested_sharing_level {
+        Some(sharing_level) if sharing_level.is_free() => {
+            let canonical_full_path = canonicalize_path(&cell.full_path);
+            if per_cell_scale_builder_cache.contains_key(&canonical_full_path)
+                || per_cell_scale_builder_cache.contains_key(&cell.full_path)
+            {
+                Ok(ScaleScopeKey::PerCellCached)
+            } else {
+                Ok(ScaleScopeKey::PerCellFallback)
+            }
+        }
+        Some(sharing_level) if sharing_level < nested_depth => {
+            let ancestor_key = path_math::nested_measurement_ancestor_key(
+                &cell.full_path,
+                sharing_level,
+                nested_depth,
+            );
+            let canonical_ancestor_key = canonicalize_path(&ancestor_key);
+            if ancestor_scale_builder_cache.contains_key(&canonical_ancestor_key)
+                || ancestor_scale_builder_cache.contains_key(&ancestor_key)
+            {
+                Ok(ScaleScopeKey::AncestorCached)
+            } else {
+                Err(AvengerChartError::InternalError(format!(
+                    "Missing cached scale builder for ancestor key {:?}",
+                    ancestor_key
+                )))
+            }
+        }
+        _ => Ok(ScaleScopeKey::Shared),
+    }
+}
+
 async fn execute_measurement_from_plan(
     plan: NestedScalePlan<'_>,
     cell: &FacetCellPlan,
@@ -1253,6 +1491,10 @@ async fn execute_measurement_from_plan(
         builder: shared_scale_builder,
         plot: compiled_subplot,
     };
+    let (subplot_plot_width, subplot_plot_height) = fixed_plot_area_dimensions(subplot_layout_spec);
+    let axis_owner_ignore_empty_cells = eval_ctx_axis_owner_ignore_empty_cells(subplot_eval_ctx);
+    let invalid_path_axis_fallback_hidden =
+        eval_ctx_invalid_path_axis_fallback_hidden(subplot_eval_ctx);
 
     match plan {
         NestedScalePlan::EmptySharedNoData => compiled_subplot
@@ -1267,6 +1509,15 @@ async fn execute_measurement_from_plan(
             .map(|measurement| MeasuredFacetCell {
                 measurement,
                 cell_scale_builder: None,
+                measurement_key: build_measurement_context_key(
+                    &cell.full_path,
+                    subplot_plot_width,
+                    subplot_plot_height,
+                    axis_owner_ignore_empty_cells,
+                    invalid_path_axis_fallback_hidden,
+                    ScaleScopeKey::Shared,
+                    0,
+                ),
             }),
         NestedScalePlan::PerCellCachedBuilder { cached_builder } => {
             let cached_scale_provider = DynamicScaleProvider {
@@ -1286,6 +1537,15 @@ async fn execute_measurement_from_plan(
             Ok(MeasuredFacetCell {
                 measurement,
                 cell_scale_builder: Some(cached_builder.clone()),
+                measurement_key: build_measurement_context_key(
+                    &cell.full_path,
+                    subplot_plot_width,
+                    subplot_plot_height,
+                    axis_owner_ignore_empty_cells,
+                    invalid_path_axis_fallback_hidden,
+                    ScaleScopeKey::PerCellCached,
+                    0,
+                ),
             })
         }
         NestedScalePlan::PerCellBuilderFallback => {
@@ -1318,6 +1578,15 @@ async fn execute_measurement_from_plan(
             Ok(MeasuredFacetCell {
                 measurement,
                 cell_scale_builder: Some(cell_scale_builder),
+                measurement_key: build_measurement_context_key(
+                    &cell.full_path,
+                    subplot_plot_width,
+                    subplot_plot_height,
+                    axis_owner_ignore_empty_cells,
+                    invalid_path_axis_fallback_hidden,
+                    ScaleScopeKey::PerCellFallback,
+                    0,
+                ),
             })
         }
         NestedScalePlan::AncestorCachedBuilder {
@@ -1341,6 +1610,15 @@ async fn execute_measurement_from_plan(
             Ok(MeasuredFacetCell {
                 measurement,
                 cell_scale_builder: None,
+                measurement_key: build_measurement_context_key(
+                    &cell.full_path,
+                    subplot_plot_width,
+                    subplot_plot_height,
+                    axis_owner_ignore_empty_cells,
+                    invalid_path_axis_fallback_hidden,
+                    ScaleScopeKey::AncestorCached,
+                    0,
+                ),
             })
         }
         NestedScalePlan::Shared => {
@@ -1357,6 +1635,15 @@ async fn execute_measurement_from_plan(
             Ok(MeasuredFacetCell {
                 measurement,
                 cell_scale_builder: None,
+                measurement_key: build_measurement_context_key(
+                    &cell.full_path,
+                    subplot_plot_width,
+                    subplot_plot_height,
+                    axis_owner_ignore_empty_cells,
+                    invalid_path_axis_fallback_hidden,
+                    ScaleScopeKey::Shared,
+                    0,
+                ),
             })
         }
     }
@@ -1411,6 +1698,12 @@ async fn measure_facet_cell(
                 builder: scale_builder,
                 plot: compiled_subplot,
             };
+            let (subplot_plot_width, subplot_plot_height) =
+                fixed_plot_area_dimensions(subplot_layout_spec);
+            let axis_owner_ignore_empty_cells =
+                eval_ctx_axis_owner_ignore_empty_cells(subplot_eval_ctx);
+            let invalid_path_axis_fallback_hidden =
+                eval_ctx_invalid_path_axis_fallback_hidden(subplot_eval_ctx);
             let data_arg = if cell.in_domain_slot {
                 Some(data_override)
             } else {
@@ -1428,6 +1721,15 @@ async fn measure_facet_cell(
                 .map(|measurement| MeasuredFacetCell {
                     measurement,
                     cell_scale_builder: None,
+                    measurement_key: build_measurement_context_key(
+                        &cell.full_path,
+                        subplot_plot_width,
+                        subplot_plot_height,
+                        axis_owner_ignore_empty_cells,
+                        invalid_path_axis_fallback_hidden,
+                        ScaleScopeKey::ExplicitBuilder,
+                        0,
+                    ),
                 })
         }
     }
@@ -1559,6 +1861,8 @@ async fn build_facet_band_measure_plan(
                 data_override,
                 measurement: None,
                 local_domain_extents: HashMap::new(),
+                last_measurement_key: None,
+                last_cell_scale_builder: None,
             })
         })
         .collect::<Result<_, AvengerChartError>>()?;
@@ -1634,6 +1938,8 @@ fn prepared_cells_as_drafts(
             data_override: data_override.clone(),
             measurement: None,
             local_domain_extents: HashMap::new(),
+            last_measurement_key: None,
+            last_cell_scale_builder: None,
         })
         .collect()
 }
@@ -1698,7 +2004,8 @@ async fn synthesize_overflow_probe_attributes(
     sidecars: &FacetBandPreparedRuntime,
     subplot_plot_width: f32,
     subplot_plot_height: f32,
-) -> Result<FacetBandOverflowSynthesis, AvengerChartError> {
+    attribute_store: &mut FacetAttributeStore,
+) -> Result<(FacetBandOverflowSynthesis, FacetBandOverflowRuntime), AvengerChartError> {
     assert_eq!(
         prepared_synthesis.renderable_mask.len(),
         prepared_synthesis.cell_synthesis.cells.len(),
@@ -1713,22 +2020,27 @@ async fn synthesize_overflow_probe_attributes(
         "FacetBand prepared-synthesis attributes invariant violated: scale artifacts key mismatch"
     );
 
-    let cells = prepared_cells_as_drafts(prepared_synthesis, sidecars);
+    let mut cells = prepared_cells_as_drafts(prepared_synthesis, sidecars);
     let overflow_probe_summary = synthesize_overflow_probe(
-        &cells,
+        &mut cells,
         subplot_plot_width,
         subplot_plot_height,
         &sidecars.compiled_subplot,
         &sidecars.subplot_eval_ctx,
         &sidecars.nested_measure_ctx,
         prepared_synthesis.cell_synthesis.empty_cell_policy,
+        is_leaf_subplot(&sidecars.compiled_subplot),
+        attribute_store,
     )
     .await?;
 
-    Ok(FacetBandOverflowSynthesis {
-        prepared_synthesis: prepared_synthesis.clone(),
-        overflow_probe_summary,
-    })
+    Ok((
+        FacetBandOverflowSynthesis {
+            prepared_synthesis: prepared_synthesis.clone(),
+            overflow_probe_summary,
+        },
+        FacetBandOverflowRuntime { cells },
+    ))
 }
 
 async fn build_extent_builder_for_cell(
@@ -1769,18 +2081,20 @@ fn annotate_domain_extents(
 }
 
 async fn measure_cells_overflow_probe(
-    cells: &[FacetCellDraft],
+    cells: &mut [FacetCellDraft],
     subplot_plot_width: f32,
     subplot_plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
     nested_ctx: &FacetBandNestedMeasureContext,
     empty_cell_policy: FacetEmptyCellPolicy,
+    is_leaf_node: bool,
+    attribute_store: &mut FacetAttributeStore,
 ) -> Result<OverflowProbeSummary, AvengerChartError> {
     let mut summary = OverflowProbeSummary::default();
     summary.cell_overflows.reserve(cells.len());
 
-    for (idx, cell) in cells.iter().enumerate() {
+    for (idx, cell) in cells.iter_mut().enumerate() {
         if !cell.plan.has_data_rows {
             trace!(
                 cell_index = idx,
@@ -1800,29 +2114,93 @@ async fn measure_cells_overflow_probe(
             subplot_eval_ctx.clone()
         };
 
-        let MeasuredFacetCell { measurement, .. } = measure_nested_cell(
-            &cell.plan,
-            &cell.data_override,
+        let probe_key = build_measurement_context_key(
+            &cell.plan.full_path,
             subplot_plot_width,
             subplot_plot_height,
-            compiled_subplot,
-            &cell_eval_ctx,
-            nested_ctx,
-        )
-        .await?;
-
-        let guide_overflow = measurement.layout.overflow.clone();
-        let total_overflow = measurement.layout.total_overflow.clone();
-
-        if let Some(child_facet_col) = measurement
-            .coord_measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-        {
-            summary.max_child_padding = summary
-                .max_child_padding
-                .max(child_facet_col.active_layout().padding_inner_px);
-        }
+            eval_ctx_axis_owner_ignore_empty_cells(&cell_eval_ctx),
+            eval_ctx_invalid_path_axis_fallback_hidden(&cell_eval_ctx),
+            infer_nested_scale_scope(&cell.plan, nested_ctx)?,
+            0,
+        );
+        let cell_summary = if is_leaf_node {
+            let measured = measure_nested_cell(
+                &cell.plan,
+                &cell.data_override,
+                subplot_plot_width,
+                subplot_plot_height,
+                compiled_subplot,
+                &cell_eval_ctx,
+                nested_ctx,
+            )
+            .await?;
+            let mut max_child_padding = 0.0f32;
+            measured
+                .measurement
+                .coord_measurement
+                .as_any()
+                .downcast_ref::<FacetBandCoordMeasurement>()
+                .inspect(|child_facet_band| {
+                    max_child_padding = child_facet_band.active_layout().padding_inner_px;
+                });
+            let synthesis_summary = FacetSynthesisSummary {
+                guide_overflow: measured.measurement.layout.overflow.clone(),
+                total_overflow: measured.measurement.layout.total_overflow.clone(),
+                max_child_padding,
+            };
+            attribute_store.insert_leaf(probe_key, synthesis_summary.clone());
+            cell.last_measurement_key = Some(measured.measurement_key);
+            cell.last_cell_scale_builder = measured.cell_scale_builder;
+            cell.measurement = Some(measured.measurement);
+            synthesis_summary
+        } else {
+            let mut measured_probe = None;
+            let (summary, _cache_hit) = evaluate_synthesized_async(
+                attribute_store,
+                probe_key,
+                SynthesisKind::Band,
+                || async {
+                    let measured = measure_nested_cell(
+                        &cell.plan,
+                        &cell.data_override,
+                        subplot_plot_width,
+                        subplot_plot_height,
+                        compiled_subplot,
+                        &cell_eval_ctx,
+                        nested_ctx,
+                    )
+                    .await?;
+                    let mut max_child_padding = 0.0f32;
+                    measured
+                        .measurement
+                        .coord_measurement
+                        .as_any()
+                        .downcast_ref::<FacetBandCoordMeasurement>()
+                        .inspect(|child_facet_band| {
+                            max_child_padding = child_facet_band.active_layout().padding_inner_px;
+                        });
+                    let summary = FacetSynthesisSummary {
+                        guide_overflow: measured.measurement.layout.overflow.clone(),
+                        total_overflow: measured.measurement.layout.total_overflow.clone(),
+                        max_child_padding,
+                    };
+                    measured_probe = Some(measured);
+                    Ok(summary)
+                },
+            )
+            .await?;
+            if let Some(measured) = measured_probe.take() {
+                cell.last_measurement_key = Some(measured.measurement_key);
+                cell.last_cell_scale_builder = measured.cell_scale_builder;
+                cell.measurement = Some(measured.measurement);
+            }
+            summary
+        };
+        let guide_overflow = cell_summary.guide_overflow.clone();
+        let total_overflow = cell_summary.total_overflow.clone();
+        summary.max_child_padding = summary
+            .max_child_padding
+            .max(cell_summary.max_child_padding);
 
         trace!(
             cell_index = idx,
@@ -1841,19 +2219,25 @@ async fn measure_cells_overflow_probe(
         summary
             .cell_overflows
             .push((guide_overflow, total_overflow));
+
+        if is_leaf_node {
+            debug_assert!(cell.measurement.is_some());
+        }
     }
 
     Ok(summary)
 }
 
 async fn synthesize_overflow_probe(
-    cells: &[FacetCellDraft],
+    cells: &mut [FacetCellDraft],
     subplot_plot_width: f32,
     subplot_plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
     subplot_eval_ctx: &EvaluationContext,
     nested_ctx: &FacetBandNestedMeasureContext,
     empty_cell_policy: FacetEmptyCellPolicy,
+    is_leaf_node: bool,
+    attribute_store: &mut FacetAttributeStore,
 ) -> Result<OverflowProbeSummary, AvengerChartError> {
     let overflow_probe_summary = measure_cells_overflow_probe(
         cells,
@@ -1863,6 +2247,8 @@ async fn synthesize_overflow_probe(
         subplot_eval_ctx,
         nested_ctx,
         empty_cell_policy,
+        is_leaf_node,
+        attribute_store,
     )
     .await?;
 
@@ -1897,20 +2283,49 @@ async fn measure_cells_final_and_extents(
         } else {
             subplot_eval_ctx.clone()
         };
-
-        let MeasuredFacetCell {
-            measurement,
-            cell_scale_builder,
-        } = measure_nested_cell(
-            &cell.plan,
-            &cell.data_override,
+        let target_key = build_measurement_context_key(
+            &cell.plan.full_path,
             subplot_plot_width,
             subplot_plot_height,
-            compiled_subplot,
-            &cell_eval_ctx,
-            nested_ctx,
-        )
-        .await?;
+            eval_ctx_axis_owner_ignore_empty_cells(&cell_eval_ctx),
+            eval_ctx_invalid_path_axis_fallback_hidden(&cell_eval_ctx),
+            infer_nested_scale_scope(&cell.plan, nested_ctx)?,
+            0,
+        );
+
+        let can_reuse_measurement =
+            cell.measurement.is_some() && cell.last_measurement_key.as_ref() == Some(&target_key);
+        let mut measured_cell_scale_builder = None;
+        if !can_reuse_measurement {
+            let MeasuredFacetCell {
+                measurement,
+                cell_scale_builder,
+                measurement_key,
+            } = measure_nested_cell(
+                &cell.plan,
+                &cell.data_override,
+                subplot_plot_width,
+                subplot_plot_height,
+                compiled_subplot,
+                &cell_eval_ctx,
+                nested_ctx,
+            )
+            .await?;
+
+            cell.measurement = Some(measurement);
+            cell.last_measurement_key = Some(measurement_key);
+            cell.last_cell_scale_builder = cell_scale_builder.clone();
+            measured_cell_scale_builder = cell_scale_builder;
+        } else {
+            trace!(
+                cell_index = idx,
+                cell_value = ?cell.plan.value,
+                subplot_plot_width,
+                subplot_plot_height,
+                "FacetBand final measure reused phase-5 synthesized measurement"
+            );
+            cell.last_measurement_key = Some(target_key);
+        }
 
         trace!(
             cell_index = idx,
@@ -1922,7 +2337,9 @@ async fn measure_cells_final_and_extents(
         );
 
         let local_extents = if cell.plan.has_data_rows {
-            let extent_builder = if let Some(builder) = cell_scale_builder {
+            let extent_builder = if let Some(builder) = measured_cell_scale_builder {
+                builder
+            } else if let Some(builder) = cell.last_cell_scale_builder.clone() {
                 builder
             } else {
                 build_extent_builder_for_cell(&cell.data_override, compiled_subplot, nested_ctx)
@@ -1936,7 +2353,6 @@ async fn measure_cells_final_and_extents(
             HashMap::new()
         };
 
-        cell.measurement = Some(measurement);
         cell.local_domain_extents = local_extents;
     }
 
@@ -2222,19 +2638,21 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let (subplot_plot_width, subplot_plot_height) = self
             .axis_ops
             .measure_dims(self.plot_other_axis_size, resolved.subplot_band_size);
+        let mut attribute_store = FacetAttributeStore::default();
 
         // Step 5: Synthesize overflow probe -- non-mutating probe at estimated slot size.
-        let overflow_synthesis = synthesize_overflow_probe_attributes(
+        let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
             &prepared_synthesis,
             &prepared_runtime,
             subplot_plot_width,
             subplot_plot_height,
+            &mut attribute_store,
         )
         .await?;
 
         // Step 6: Synthesize local layout -- finalize band layout and measure cells.
         let (local_synthesis, measured_runtime) = self
-            .synthesize_local_attributes(&overflow_synthesis, &prepared_runtime)
+            .synthesize_local_attributes(&overflow_synthesis, overflow_runtime, &prepared_runtime)
             .await?;
 
         let coord_measurement =
@@ -2473,6 +2891,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
     async fn synthesize_local_attributes(
         &self,
         overflow_synthesis: &FacetBandOverflowSynthesis,
+        overflow_runtime: FacetBandOverflowRuntime,
         prepared_runtime: &FacetBandPreparedRuntime,
     ) -> Result<(FacetBandLocalSynthesis, FacetBandMeasuredRuntime), AvengerChartError> {
         let plan = FacetBandMeasurePlan {
@@ -2481,10 +2900,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .cell_synthesis
                 .cell_values
                 .clone(),
-            cells: prepared_cells_as_drafts(
-                &overflow_synthesis.prepared_synthesis,
-                prepared_runtime,
-            ),
+            cells: overflow_runtime.cells,
             scale_artifacts: prepared_runtime.scale_artifacts.clone(),
         };
         let local_layout_outcome = self
@@ -2506,11 +2922,13 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let channel_sharing_levels = collect_channel_sharing_levels(&local_layout_outcome.cells);
         let mut measurements = Vec::with_capacity(local_layout_outcome.cells.len());
         let mut local_domain_extents = Vec::with_capacity(local_layout_outcome.cells.len());
+        let mut measurement_keys = Vec::with_capacity(local_layout_outcome.cells.len());
         for mut cell in local_layout_outcome.cells {
             measurements.push(cell.measurement.take().expect(
                 "FacetBand attributes invariant violated: missing final cell measurement in measured-runtime sidecars",
             ));
             local_domain_extents.push(cell.local_domain_extents);
+            measurement_keys.push(cell.last_measurement_key.take());
         }
 
         let local_synthesis = FacetBandLocalSynthesis {
@@ -2522,6 +2940,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let sidecars = FacetBandMeasuredRuntime {
             measurements,
             local_domain_extents,
+            measurement_keys,
         };
         Ok((local_synthesis, sidecars))
     }
@@ -2565,23 +2984,36 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             measured_runtime.local_domain_extents.len(),
             "FacetBand attributes/sidecar invariant violated: cell-synthesis cell count must equal measured-runtime local extents"
         );
+        assert_eq!(
+            cells.len(),
+            measured_runtime.measurement_keys.len(),
+            "FacetBand attributes/sidecar invariant violated: cell-synthesis cell count must equal measured-runtime measurement keys"
+        );
 
         let cell_runtimes: Vec<FacetCellRuntime> = cells
             .into_iter()
             .zip(prepared_runtime.data_overrides.iter().cloned())
             .zip(
-                measured_runtime
-                    .measurements
-                    .into_iter()
-                    .zip(measured_runtime.local_domain_extents.into_iter()),
+                measured_runtime.measurements.into_iter().zip(
+                    measured_runtime
+                        .local_domain_extents
+                        .into_iter()
+                        .zip(measured_runtime.measurement_keys.into_iter()),
+                ),
             )
             .map(
-                |((cell, data_override), (measurement, local_domain_extents))| FacetCellRuntime {
-                    data_override,
-                    plan: FacetCellPlan::from(&cell),
-                    measurement,
-                    local_domain_extents,
-                    coordinated_domain_extents: HashMap::new(),
+                |(
+                    (cell, data_override),
+                    (measurement, (local_domain_extents, measurement_key)),
+                )| {
+                    FacetCellRuntime {
+                        data_override,
+                        plan: FacetCellPlan::from(&cell),
+                        measurement,
+                        local_domain_extents,
+                        coordinated_domain_extents: HashMap::new(),
+                        measurement_key,
+                    }
                 },
             )
             .collect();
@@ -3287,6 +3719,7 @@ mod tests {
         assert!((outcome.subplot_cross_size_before - before_cross_size).abs() <= 0.01);
         assert!(!outcome.remeasure_triggered);
         assert_eq!(outcome.remeasured_cell_count, 0);
+        assert_eq!(outcome.remeasure_skipped_cell_count, 0);
         assert_eq!(outcome.remeasured_non_empty_cell_count, 0);
         assert_eq!(outcome.remeasured_with_coordinated_extents_count, 0);
         assert!((facet_band.subplot_cross_size - before_cross_size).abs() > 0.01);
@@ -3325,6 +3758,7 @@ mod tests {
 
         assert!(outcome.remeasure_triggered);
         assert_eq!(outcome.remeasured_cell_count, expected_cells);
+        assert_eq!(outcome.remeasure_skipped_cell_count, 0);
         assert!(outcome.remeasured_non_empty_cell_count > 0);
         assert!(
             outcome.remeasured_non_empty_cell_count <= outcome.remeasured_cell_count,
@@ -3361,15 +3795,21 @@ mod tests {
                 facet_band.subplot_cross_size,
             );
         let expected_cell_count = explicit_remeasure_plan.cell_intents.len();
+        let expected_remeasured_count = explicit_remeasure_plan
+            .cell_intents
+            .iter()
+            .filter(|intent| intent.requires_remeasure)
+            .count();
+        let expected_skipped_count = expected_cell_count - expected_remeasured_count;
         let expected_non_empty_count = explicit_remeasure_plan
             .cell_intents
             .iter()
-            .filter(|intent| intent.has_data_rows)
+            .filter(|intent| intent.requires_remeasure && intent.has_data_rows)
             .count();
         let expected_with_extents_count = explicit_remeasure_plan
             .cell_intents
             .iter()
-            .filter(|intent| intent.use_coordinated_extents)
+            .filter(|intent| intent.requires_remeasure && intent.use_coordinated_extents)
             .count();
 
         let outcome = facet_band
@@ -3381,7 +3821,12 @@ mod tests {
             .await?;
 
         assert!(outcome.remeasure_triggered);
-        assert_eq!(outcome.remeasured_cell_count, expected_cell_count);
+        assert_eq!(outcome.remeasured_cell_count, expected_remeasured_count);
+        assert_eq!(outcome.remeasure_skipped_cell_count, expected_skipped_count);
+        assert_eq!(
+            outcome.remeasured_cell_count + outcome.remeasure_skipped_cell_count,
+            expected_cell_count
+        );
         assert_eq!(
             outcome.remeasured_non_empty_cell_count,
             expected_non_empty_count
@@ -3693,37 +4138,62 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn overflow_synthesis_overflow_probe_does_not_mutate_cell_drafts()
+    async fn overflow_synthesis_overflow_probe_leaf_capture_preserves_extents()
     -> Result<(), AvengerChartError> {
         let (compiled_subplot, prepared_synthesis) = build_synthesis_measurement_fixture().await?;
+        let FacetPreparedRuntimeInputs {
+            mut plan,
+            subplot_eval_ctx,
+            nested_measure_ctx,
+        } = prepared_synthesis;
+        let cells = &mut plan.cells;
+        let is_leaf = is_leaf_subplot(&compiled_subplot);
 
-        let before: Vec<(bool, usize)> = prepared_synthesis
-            .plan
-            .cells
+        let before: Vec<(bool, usize, bool)> = cells
             .iter()
-            .map(|cell| (cell.measurement.is_none(), cell.local_domain_extents.len()))
+            .map(|cell| {
+                (
+                    cell.measurement.is_none(),
+                    cell.local_domain_extents.len(),
+                    cell.last_measurement_key.is_none(),
+                )
+            })
             .collect();
 
         let overflow_synthesis = synthesize_overflow_probe(
-            &prepared_synthesis.plan.cells,
+            cells,
             140.0,
             140.0,
             &compiled_subplot,
-            &prepared_synthesis.subplot_eval_ctx,
-            &prepared_synthesis.nested_measure_ctx,
+            &subplot_eval_ctx,
+            &nested_measure_ctx,
             FacetEmptyCellPolicy::Hole,
+            is_leaf,
+            &mut FacetAttributeStore::default(),
         )
         .await?;
 
         assert_eq!(overflow_synthesis.cell_overflows.len(), 3);
 
-        let after: Vec<(bool, usize)> = prepared_synthesis
-            .plan
-            .cells
+        let after: Vec<(bool, usize, bool)> = cells
             .iter()
-            .map(|cell| (cell.measurement.is_none(), cell.local_domain_extents.len()))
+            .map(|cell| {
+                (
+                    cell.measurement.is_none(),
+                    cell.local_domain_extents.len(),
+                    cell.last_measurement_key.is_none(),
+                )
+            })
             .collect();
-        assert_eq!(before, after);
+        if is_leaf {
+            assert!(
+                after
+                    .iter()
+                    .all(|(measurement_none, _, key_none)| { !*measurement_none && !*key_none })
+            );
+        } else {
+            assert_eq!(before, after);
+        }
 
         Ok(())
     }
@@ -3836,11 +4306,13 @@ mod tests {
         let (subplot_plot_width, subplot_plot_height) = pipeline
             .axis_ops
             .measure_dims(fixture.plot_other_axis_size, resolved.subplot_band_size);
-        let overflow_synthesis = synthesize_overflow_probe_attributes(
+        let mut attribute_store = FacetAttributeStore::default();
+        let (overflow_synthesis, _overflow_runtime) = synthesize_overflow_probe_attributes(
             &prepared_synthesis,
             &sidecars,
             subplot_plot_width,
             subplot_plot_height,
+            &mut attribute_store,
         )
         .await?;
 
@@ -3888,15 +4360,17 @@ mod tests {
         let (subplot_plot_width, subplot_plot_height) = pipeline
             .axis_ops
             .measure_dims(fixture.plot_other_axis_size, resolved.subplot_band_size);
-        let overflow_synthesis = synthesize_overflow_probe_attributes(
+        let mut attribute_store = FacetAttributeStore::default();
+        let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
             &prepared_synthesis,
             &sidecars,
             subplot_plot_width,
             subplot_plot_height,
+            &mut attribute_store,
         )
         .await?;
         let (local_synthesis, measured_runtime) = pipeline
-            .synthesize_local_attributes(&overflow_synthesis, &sidecars)
+            .synthesize_local_attributes(&overflow_synthesis, overflow_runtime, &sidecars)
             .await?;
 
         assert_eq!(
@@ -3909,6 +4383,10 @@ mod tests {
         );
         assert_eq!(
             measured_runtime.local_domain_extents.len(),
+            prepared_synthesis.cell_synthesis.cells.len()
+        );
+        assert_eq!(
+            measured_runtime.measurement_keys.len(),
             prepared_synthesis.cell_synthesis.cells.len()
         );
         Ok(())
@@ -3947,15 +4425,17 @@ mod tests {
         let (subplot_plot_width, subplot_plot_height) = pipeline
             .axis_ops
             .measure_dims(fixture.plot_other_axis_size, resolved.subplot_band_size);
-        let overflow_synthesis = synthesize_overflow_probe_attributes(
+        let mut attribute_store = FacetAttributeStore::default();
+        let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
             &prepared_synthesis,
             &sidecars,
             subplot_plot_width,
             subplot_plot_height,
+            &mut attribute_store,
         )
         .await?;
         let (local_synthesis, measured_runtime) = pipeline
-            .synthesize_local_attributes(&overflow_synthesis, &sidecars)
+            .synthesize_local_attributes(&overflow_synthesis, overflow_runtime, &sidecars)
             .await?;
         let expected_n = local_synthesis.band_layout_plan.n;
         let expected_size = local_synthesis.final_subplot_cross_size;

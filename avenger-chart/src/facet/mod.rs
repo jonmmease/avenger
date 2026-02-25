@@ -2,6 +2,9 @@
 //!
 //! This module provides the infrastructure for faceted visualizations.
 
+pub(crate) mod attribute_context;
+pub(crate) mod attribute_scheduler;
+pub(crate) mod attribute_store;
 pub(crate) mod band_attributes;
 pub mod band_positions;
 pub mod coord;

@@ -9,6 +9,7 @@ use crate::{
     coords::{FacetAxis, OverflowSpaceRequirement},
     error::AvengerChartError,
     facet::{
+        attribute_context::FacetCellMeasureContextKey,
         coord::{ChannelDomainExtent, FacetBandNestedMeasureContext},
         empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::EvaluatedFacetTree,
@@ -87,6 +88,7 @@ pub(crate) struct FacetBandPreparedRuntime {
 pub(crate) struct FacetBandMeasuredRuntime {
     pub(crate) measurements: Vec<ComponentsMeasurement>,
     pub(crate) local_domain_extents: Vec<HashMap<String, ChannelDomainExtent>>,
+    pub(crate) measurement_keys: Vec<Option<FacetCellMeasureContextKey>>,
 }
 
 impl FacetBandSemantics {

@@ -7,8 +7,10 @@ use tracing::trace;
 use crate::{
     coords::FacetAxis,
     error::AvengerChartError,
+    facet::attribute_context::FacetCellMeasureContextKey,
     facet::coord::{
-        FacetBandCoordApplyPlan, FacetCellRuntime, measure_facet_cell_with_explicit_builder,
+        FacetBandCoordApplyPlan, FacetCellRuntime, build_explicit_measurement_context_key,
+        measure_facet_cell_with_explicit_builder,
     },
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     plot::compiled::CompiledPlot,
@@ -29,6 +31,8 @@ pub(crate) struct FacetCoordRemeasureCellIntent {
     pub(crate) cell_index: usize,
     pub(crate) has_data_rows: bool,
     pub(crate) use_coordinated_extents: bool,
+    pub(crate) target_measurement_key: FacetCellMeasureContextKey,
+    pub(crate) requires_remeasure: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +53,7 @@ pub(crate) struct FacetCoordRemeasureCellOutcome {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FacetCoordRemeasureOutcome {
     pub(crate) cell_outcomes: Vec<FacetCoordRemeasureCellOutcome>,
+    pub(crate) skipped_cell_count: usize,
 }
 
 pub(crate) fn subplot_plot_dimensions(request: &FacetCoordRemeasureRequest) -> (f32, f32) {
@@ -95,20 +100,42 @@ pub(crate) fn derive_facet_coord_remeasure_plan(
         adjusted_main_size: plan.adjusted_main_size,
         axis_owner_ignore_empty_cells: plan.axis_owner_ignore_empty_cells,
     };
-    let cell_intents = cells
-        .iter()
-        .enumerate()
-        .map(|(cell_index, cell)| FacetCoordRemeasureCellIntent {
-            cell_index,
-            has_data_rows: cell.plan.has_data_rows,
-            use_coordinated_extents: !cell.coordinated_domain_extents.is_empty(),
-        })
-        .collect();
+    let cell_intents = build_remeasure_intents(cells, &request);
 
     FacetCoordRemeasurePlan {
         request,
         cell_intents,
     }
+}
+
+fn build_remeasure_intents(
+    cells: &[FacetCellRuntime],
+    request: &FacetCoordRemeasureRequest,
+) -> Vec<FacetCoordRemeasureCellIntent> {
+    let (subplot_plot_width, subplot_plot_height) = subplot_plot_dimensions(request);
+    cells
+        .iter()
+        .enumerate()
+        .map(|(cell_index, cell)| {
+            let use_coordinated_extents = !cell.coordinated_domain_extents.is_empty();
+            let target_measurement_key = build_explicit_measurement_context_key(
+                &cell.plan.full_path,
+                subplot_plot_width,
+                subplot_plot_height,
+                request.axis_owner_ignore_empty_cells,
+                false,
+                use_coordinated_extents.then_some(&cell.coordinated_domain_extents),
+            );
+            let requires_remeasure = cell.measurement_key.as_ref() != Some(&target_measurement_key);
+            FacetCoordRemeasureCellIntent {
+                cell_index,
+                has_data_rows: cell.plan.has_data_rows,
+                use_coordinated_extents,
+                target_measurement_key,
+                requires_remeasure,
+            }
+        })
+        .collect()
 }
 
 pub(crate) async fn run_facet_coord_remeasure(
@@ -120,15 +147,7 @@ pub(crate) async fn run_facet_coord_remeasure(
 ) -> Result<FacetCoordRemeasureOutcome, AvengerChartError> {
     let fallback_plan = FacetCoordRemeasurePlan {
         request: request.clone(),
-        cell_intents: cells
-            .iter()
-            .enumerate()
-            .map(|(cell_index, cell)| FacetCoordRemeasureCellIntent {
-                cell_index,
-                has_data_rows: cell.plan.has_data_rows,
-                use_coordinated_extents: !cell.coordinated_domain_extents.is_empty(),
-            })
-            .collect(),
+        cell_intents: build_remeasure_intents(cells, request),
     };
     run_facet_coord_remeasure_with_plan(
         cells,
@@ -165,6 +184,7 @@ pub(crate) async fn run_facet_coord_remeasure_with_plan(
     let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_plot_width, subplot_plot_height);
 
     let mut cell_outcomes = Vec::with_capacity(remeasure_plan.cell_intents.len());
+    let mut skipped_cell_count = 0usize;
     for (expected_index, intent) in remeasure_plan.cell_intents.iter().enumerate() {
         if intent.cell_index != expected_index {
             return Err(AvengerChartError::InternalError(format!(
@@ -195,6 +215,11 @@ pub(crate) async fn run_facet_coord_remeasure_with_plan(
 
         let use_coordinated_extents_for_builder =
             intent.use_coordinated_extents || live_uses_coordinated_extents;
+        if !intent.requires_remeasure {
+            cell.measurement_key = Some(intent.target_measurement_key.clone());
+            skipped_cell_count += 1;
+            continue;
+        }
         let mut builder = shared_scale_builder.clone();
         if use_coordinated_extents_for_builder {
             builder.extend_with_domain_extents(&cell.coordinated_domain_extents);
@@ -230,10 +255,14 @@ pub(crate) async fn run_facet_coord_remeasure_with_plan(
             plot_area_height: measurement.plot_area_height,
         };
         cell.measurement = measurement;
+        cell.measurement_key = Some(intent.target_measurement_key.clone());
         cell_outcomes.push(outcome);
     }
 
-    Ok(FacetCoordRemeasureOutcome { cell_outcomes })
+    Ok(FacetCoordRemeasureOutcome {
+        cell_outcomes,
+        skipped_cell_count,
+    })
 }
 
 #[cfg(test)]
