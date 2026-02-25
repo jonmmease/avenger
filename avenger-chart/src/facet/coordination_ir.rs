@@ -26,7 +26,7 @@ impl CoordNodeKey {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordGroupNodeSnapshot {
+pub(crate) struct CollectionRoundNodeSnapshot {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) key: CoordinationGroupKey,
     pub(crate) local_overflow: Option<CoordinatedOverflow>,
@@ -35,19 +35,19 @@ pub(crate) struct CoordGroupNodeSnapshot {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordGroupSnapshot {
-    pub(crate) nodes: Vec<CoordGroupNodeSnapshot>,
+pub(crate) struct CollectionRoundSnapshot {
+    pub(crate) nodes: Vec<CollectionRoundNodeSnapshot>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordGroupAggregates {
+pub(crate) struct CollectionRoundAggregates {
     pub(crate) merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     pub(crate) merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
     pub(crate) unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordGroupDistributionPlan {
+pub(crate) struct CollectionRoundDistributionPlan {
     pub(crate) overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
     pub(crate) layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
     pub(crate) domain_target_nodes: HashSet<CoordNodeKey>,
@@ -55,14 +55,14 @@ pub(crate) struct CoordGroupDistributionPlan {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordGroupDistribution {
-    pub(crate) snapshot: CoordGroupSnapshot,
-    pub(crate) aggregates: CoordGroupAggregates,
-    pub(crate) distribution: CoordGroupDistributionPlan,
+pub(crate) struct CollectionRoundA {
+    pub(crate) snapshot: CollectionRoundSnapshot,
+    pub(crate) aggregates: CollectionRoundAggregates,
+    pub(crate) distribution: CollectionRoundDistributionPlan,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordReconcileNodeSnapshot {
+pub(crate) struct RecollectionRoundNodeSnapshot {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) key: CoordinationGroupKey,
     pub(crate) local_overflow: Option<CoordinatedOverflow>,
@@ -70,31 +70,31 @@ pub(crate) struct CoordReconcileNodeSnapshot {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordReconcileSnapshot {
-    pub(crate) nodes: Vec<CoordReconcileNodeSnapshot>,
+pub(crate) struct RecollectionRoundSnapshot {
+    pub(crate) nodes: Vec<RecollectionRoundNodeSnapshot>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordReconcileAggregates {
+pub(crate) struct RecollectionRoundAggregates {
     pub(crate) merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
     pub(crate) merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordReconcileDistributionPlan {
+pub(crate) struct RecollectionRoundDistributionPlan {
     pub(crate) overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
     pub(crate) layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordReconcileDistribution {
-    pub(crate) snapshot: CoordReconcileSnapshot,
-    pub(crate) aggregates: CoordReconcileAggregates,
-    pub(crate) distribution: CoordReconcileDistributionPlan,
+pub(crate) struct RecollectionRound {
+    pub(crate) snapshot: RecollectionRoundSnapshot,
+    pub(crate) aggregates: RecollectionRoundAggregates,
+    pub(crate) distribution: RecollectionRoundDistributionPlan,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordApplyNodeIntent {
+pub(crate) struct InheritedApplyNodeIntent {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) apply_plan: FacetBandCoordApplyPlan,
@@ -106,12 +106,12 @@ pub(crate) struct CoordApplyNodeIntent {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordApplyIntent {
-    pub(crate) node_derivations: Vec<CoordApplyNodeIntent>,
+pub(crate) struct InheritedApplyIntent {
+    pub(crate) node_derivations: Vec<InheritedApplyNodeIntent>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordApplyNodeOutcome {
+pub(crate) struct InheritedApplyNodeOutcome {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) derived_has_legend_overflow: bool,
@@ -130,12 +130,12 @@ pub(crate) struct CoordApplyNodeOutcome {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordApplyTrace {
-    pub(crate) node_results: Vec<CoordApplyNodeOutcome>,
+pub(crate) struct InheritedApplyTrace {
+    pub(crate) node_results: Vec<InheritedApplyNodeOutcome>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordRetargetChildIntent {
+pub(crate) struct InheritedPropagationChildIntent {
     pub(crate) child_index: usize,
     pub(crate) old_plot_area_width: f32,
     pub(crate) old_plot_area_height: f32,
@@ -147,22 +147,22 @@ pub(crate) struct CoordRetargetChildIntent {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordRetargetNodeIntent {
+pub(crate) struct InheritedPropagationNodeIntent {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) parent_cross_size_target: Option<f32>,
     pub(crate) child_count: usize,
-    pub(crate) child_intents: Vec<CoordRetargetChildIntent>,
+    pub(crate) child_intents: Vec<InheritedPropagationChildIntent>,
     pub(crate) expected_plot_area_adjustments_count: usize,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordRetargetIntent {
-    pub(crate) node_derivations: Vec<CoordRetargetNodeIntent>,
+pub(crate) struct InheritedPropagationIntent {
+    pub(crate) node_derivations: Vec<InheritedPropagationNodeIntent>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoordRetargetNodeOutcome {
+pub(crate) struct InheritedPropagationNodeOutcome {
     pub(crate) node_id: CoordNodeKey,
     pub(crate) axis: FacetAxis,
     pub(crate) derived_parent_cross_size_target: Option<f32>,
@@ -174,16 +174,16 @@ pub(crate) struct CoordRetargetNodeOutcome {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CoordRetargetTrace {
-    pub(crate) node_results: Vec<CoordRetargetNodeOutcome>,
+pub(crate) struct InheritedPropagationTrace {
+    pub(crate) node_results: Vec<InheritedPropagationNodeOutcome>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CoordinationRunArtifacts {
-    pub(crate) phase7: CoordGroupDistribution,
-    pub(crate) phase8: CoordApplyTrace,
-    pub(crate) phase9: CoordReconcileDistribution,
-    pub(crate) phase10: CoordRetargetTrace,
+    pub(crate) collection_round_a: CollectionRoundA,
+    pub(crate) inherited_apply: InheritedApplyTrace,
+    pub(crate) recollection_round: RecollectionRound,
+    pub(crate) inherited_propagation: InheritedPropagationTrace,
 }
 
 fn merge_overflow_groups(
@@ -248,13 +248,34 @@ fn aggregate_domain_extents(
         .collect()
 }
 
-pub(crate) fn build_phase7_ir(snapshot: CoordGroupSnapshot) -> CoordGroupDistribution {
+#[derive(Debug, Clone)]
+struct RoundCollectionInput {
+    node_id: CoordNodeKey,
+    key: CoordinationGroupKey,
+    local_overflow: Option<CoordinatedOverflow>,
+    local_layout: CoordinatedLayout,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RoundCollectionOutput {
+    merged_overflow_by_key: HashMap<CoordinationGroupKey, CoordinatedOverflow>,
+    merged_layout_by_key: HashMap<CoordinationGroupKey, CoordinatedLayout>,
+    overflow_patches_by_node: HashMap<CoordNodeKey, CoordinatedOverflow>,
+    layout_patches_by_node: HashMap<CoordNodeKey, CoordinatedLayout>,
+    unified_domain_extents: HashMap<(String, Vec<ScalarValue>), DomainExtent>,
+    domain_target_nodes: HashSet<CoordNodeKey>,
+}
+
+fn build_round_collection(
+    nodes: &[RoundCollectionInput],
+    include_domains: bool,
+    domain_infos: &[CellDomainInfo],
+) -> RoundCollectionOutput {
     let mut overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>> =
         HashMap::new();
     let mut layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>> = HashMap::new();
-    let mut domain_infos: Vec<CellDomainInfo> = Vec::new();
 
-    for node in &snapshot.nodes {
+    for node in nodes {
         if let Some(local_overflow) = node.local_overflow.clone() {
             overflow_by_key
                 .entry(node.key.clone())
@@ -265,90 +286,98 @@ pub(crate) fn build_phase7_ir(snapshot: CoordGroupSnapshot) -> CoordGroupDistrib
             .entry(node.key.clone())
             .or_default()
             .push(node.local_layout.clone());
-        domain_infos.extend(node.domain_infos.iter().cloned());
     }
 
     let merged_overflow_by_key = merge_overflow_groups(overflow_by_key);
     let merged_layout_by_key = merge_layout_groups(layout_by_key);
-    let unified_domain_extents = if domain_infos.is_empty() {
-        HashMap::new()
+    let unified_domain_extents = if include_domains && !domain_infos.is_empty() {
+        aggregate_domain_extents(domain_infos)
     } else {
-        aggregate_domain_extents(&domain_infos)
+        HashMap::new()
     };
 
     let mut overflow_patches_by_node = HashMap::new();
     let mut layout_patches_by_node = HashMap::new();
     let mut domain_target_nodes = HashSet::new();
 
-    for node in &snapshot.nodes {
+    for node in nodes {
         if let Some(merged) = merged_overflow_by_key.get(&node.key).cloned() {
             overflow_patches_by_node.insert(node.node_id.clone(), merged);
         }
         if let Some(merged) = merged_layout_by_key.get(&node.key).cloned() {
             layout_patches_by_node.insert(node.node_id.clone(), merged);
         }
-        if !unified_domain_extents.is_empty() {
+        if include_domains && !unified_domain_extents.is_empty() {
             domain_target_nodes.insert(node.node_id.clone());
         }
     }
 
-    CoordGroupDistribution {
+    RoundCollectionOutput {
+        merged_overflow_by_key,
+        merged_layout_by_key,
+        overflow_patches_by_node,
+        layout_patches_by_node,
+        unified_domain_extents,
+        domain_target_nodes,
+    }
+}
+
+pub(crate) fn build_collection_round_a(snapshot: CollectionRoundSnapshot) -> CollectionRoundA {
+    let nodes = snapshot
+        .nodes
+        .iter()
+        .map(|node| RoundCollectionInput {
+            node_id: node.node_id.clone(),
+            key: node.key.clone(),
+            local_overflow: node.local_overflow.clone(),
+            local_layout: node.local_layout.clone(),
+        })
+        .collect::<Vec<_>>();
+    let domain_infos = snapshot
+        .nodes
+        .iter()
+        .flat_map(|node| node.domain_infos.iter().cloned())
+        .collect::<Vec<_>>();
+    let round = build_round_collection(&nodes, true, &domain_infos);
+
+    CollectionRoundA {
         snapshot,
-        aggregates: CoordGroupAggregates {
-            merged_overflow_by_key,
-            merged_layout_by_key,
-            unified_domain_extents: unified_domain_extents.clone(),
+        aggregates: CollectionRoundAggregates {
+            merged_overflow_by_key: round.merged_overflow_by_key,
+            merged_layout_by_key: round.merged_layout_by_key,
+            unified_domain_extents: round.unified_domain_extents.clone(),
         },
-        distribution: CoordGroupDistributionPlan {
-            overflow_patches_by_node,
-            layout_patches_by_node,
-            domain_target_nodes,
-            unified_domain_extents,
+        distribution: CollectionRoundDistributionPlan {
+            overflow_patches_by_node: round.overflow_patches_by_node,
+            layout_patches_by_node: round.layout_patches_by_node,
+            domain_target_nodes: round.domain_target_nodes,
+            unified_domain_extents: round.unified_domain_extents,
         },
     }
 }
 
-pub(crate) fn build_phase9_ir(snapshot: CoordReconcileSnapshot) -> CoordReconcileDistribution {
-    let mut overflow_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedOverflow>> =
-        HashMap::new();
-    let mut layout_by_key: HashMap<CoordinationGroupKey, Vec<CoordinatedLayout>> = HashMap::new();
+pub(crate) fn build_recollection_round(snapshot: RecollectionRoundSnapshot) -> RecollectionRound {
+    let nodes = snapshot
+        .nodes
+        .iter()
+        .map(|node| RoundCollectionInput {
+            node_id: node.node_id.clone(),
+            key: node.key.clone(),
+            local_overflow: node.local_overflow.clone(),
+            local_layout: node.local_layout.clone(),
+        })
+        .collect::<Vec<_>>();
+    let round = build_round_collection(&nodes, false, &[]);
 
-    for node in &snapshot.nodes {
-        if let Some(local_overflow) = node.local_overflow.clone() {
-            overflow_by_key
-                .entry(node.key.clone())
-                .or_default()
-                .push(local_overflow);
-        }
-        layout_by_key
-            .entry(node.key.clone())
-            .or_default()
-            .push(node.local_layout.clone());
-    }
-
-    let merged_overflow_by_key = merge_overflow_groups(overflow_by_key);
-    let merged_layout_by_key = merge_layout_groups(layout_by_key);
-
-    let mut overflow_patches_by_node = HashMap::new();
-    let mut layout_patches_by_node = HashMap::new();
-    for node in &snapshot.nodes {
-        if let Some(merged) = merged_overflow_by_key.get(&node.key).cloned() {
-            overflow_patches_by_node.insert(node.node_id.clone(), merged);
-        }
-        if let Some(merged) = merged_layout_by_key.get(&node.key).cloned() {
-            layout_patches_by_node.insert(node.node_id.clone(), merged);
-        }
-    }
-
-    CoordReconcileDistribution {
+    RecollectionRound {
         snapshot,
-        aggregates: CoordReconcileAggregates {
-            merged_overflow_by_key,
-            merged_layout_by_key,
+        aggregates: RecollectionRoundAggregates {
+            merged_overflow_by_key: round.merged_overflow_by_key,
+            merged_layout_by_key: round.merged_layout_by_key,
         },
-        distribution: CoordReconcileDistributionPlan {
-            overflow_patches_by_node,
-            layout_patches_by_node,
+        distribution: RecollectionRoundDistributionPlan {
+            overflow_patches_by_node: round.overflow_patches_by_node,
+            layout_patches_by_node: round.layout_patches_by_node,
         },
     }
 }
@@ -383,11 +412,11 @@ mod tests {
     }
 
     #[test]
-    fn phase7_ir_groups_and_distributes_overflow_layout_domains() {
+    fn collection_round_a_groups_and_distributes_overflow_layout_domains() {
         let key = CoordinationGroupKey::new(1, "col:group");
-        let snapshot = CoordGroupSnapshot {
+        let snapshot = CollectionRoundSnapshot {
             nodes: vec![
-                CoordGroupNodeSnapshot {
+                CollectionRoundNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![0]),
                     key: key.clone(),
                     local_overflow: Some(overflow(1.0, 2.0, 3.0, 4.0)),
@@ -405,7 +434,7 @@ mod tests {
                         extent: DomainExtent::numeric(0.0, 10.0),
                     }],
                 },
-                CoordGroupNodeSnapshot {
+                CollectionRoundNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![1]),
                     key: key.clone(),
                     local_overflow: Some(overflow(3.0, 1.0, 5.0, 2.0)),
@@ -426,7 +455,7 @@ mod tests {
             ],
         };
 
-        let ir = build_phase7_ir(snapshot);
+        let ir = build_collection_round_a(snapshot);
         assert_eq!(ir.snapshot.nodes.len(), 2);
         assert_eq!(ir.aggregates.merged_overflow_by_key.len(), 1);
         assert_eq!(ir.aggregates.merged_layout_by_key.len(), 1);
@@ -437,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn phase7_ir_domain_grouping_respects_sharing_keys() {
+    fn collection_round_a_domain_grouping_respects_sharing_keys() {
         let key = CoordinationGroupKey::new(2, "col:shared");
         let info_a = CellDomainInfo {
             full_cell_path: vec![s("A"), s("B"), s("X")],
@@ -461,8 +490,8 @@ mod tests {
             extent: DomainExtent::numeric(5.0, 7.0),
         };
 
-        let snapshot = CoordGroupSnapshot {
-            nodes: vec![CoordGroupNodeSnapshot {
+        let snapshot = CollectionRoundSnapshot {
+            nodes: vec![CollectionRoundNodeSnapshot {
                 node_id: CoordNodeKey::new(vec![0]),
                 key,
                 local_overflow: None,
@@ -470,7 +499,7 @@ mod tests {
                 domain_infos: vec![info_a.clone(), info_b.clone(), info_c.clone()],
             }],
         };
-        let ir = build_phase7_ir(snapshot);
+        let ir = build_collection_round_a(snapshot);
 
         let key_ab = sharing_policy::domain_group_key(
             &info_a.full_cell_path,
@@ -496,11 +525,11 @@ mod tests {
     }
 
     #[test]
-    fn phase9_ir_reconciles_overflow_layout_without_domains() {
+    fn recollection_round_reconciles_overflow_layout_without_domains() {
         let key = CoordinationGroupKey::new(1, "row:group");
-        let snapshot = CoordReconcileSnapshot {
+        let snapshot = RecollectionRoundSnapshot {
             nodes: vec![
-                CoordReconcileNodeSnapshot {
+                RecollectionRoundNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![0]),
                     key: key.clone(),
                     local_overflow: Some(overflow(1.0, 1.0, 2.0, 3.0)),
@@ -511,7 +540,7 @@ mod tests {
                         n: 2,
                     },
                 },
-                CoordReconcileNodeSnapshot {
+                RecollectionRoundNodeSnapshot {
                     node_id: CoordNodeKey::new(vec![1]),
                     key,
                     local_overflow: Some(overflow(2.0, 4.0, 1.0, 1.0)),
@@ -525,7 +554,7 @@ mod tests {
             ],
         };
 
-        let ir = build_phase9_ir(snapshot);
+        let ir = build_recollection_round(snapshot);
         assert_eq!(ir.snapshot.nodes.len(), 2);
         assert_eq!(ir.aggregates.merged_overflow_by_key.len(), 1);
         assert_eq!(ir.aggregates.merged_layout_by_key.len(), 1);

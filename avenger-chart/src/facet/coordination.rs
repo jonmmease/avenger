@@ -1,11 +1,18 @@
-//! Facet-specific coordination keys and grouping helpers.
+//! Facet coordination pipeline for AG-style collection and inherited propagation.
 //!
-//! This module provides stable keys for grouping "equivalent" facet nodes across
-//! branches during coordination passes (overflow/layout/domain distribution).
+//! Coordination runs after local synthesis and applies four ordered steps:
+//! 1. Collection round A (aggregate + distribute),
+//! 2. inherited apply with selective resynthesis,
+//! 3. recollection round stabilization,
+//! 4. inherited propagation (retarget + adjustment).
 //!
-//! Phases 7-10 follow an IR + sidecar model:
-//! - immutable IR artifacts are built in `coordination_ir`,
-//! - runtime side effects are applied through bounded executors in `coordination_sidecar`.
+//! Immutable artifacts are built in `coordination_ir`, and bounded side effects are
+//! applied through executors in `coordination_sidecar`.
+//!
+//! Reference terminology:
+//! - JastAdd concept overview: https://jastadd.cs.lth.se/web/documentation/concept-overview.php
+//! - JastAdd reference manual: https://jastadd.cs.lth.se/web/documentation/reference-manual.php
+//! - Knuth attribute grammars: https://doi.org/10.1007/BF01692511
 
 use std::collections::HashSet;
 
@@ -15,15 +22,16 @@ use crate::{
     error::AvengerChartError,
     facet::{
         coordination_ir::{
-            CoordApplyIntent, CoordApplyTrace, CoordGroupDistribution, CoordGroupNodeSnapshot,
-            CoordGroupSnapshot, CoordNodeKey, CoordReconcileDistribution,
-            CoordReconcileNodeSnapshot, CoordReconcileSnapshot, CoordRetargetIntent,
-            CoordRetargetTrace, CoordinationRunArtifacts, build_phase7_ir, build_phase9_ir,
+            CollectionRoundA, CollectionRoundNodeSnapshot, CollectionRoundSnapshot, CoordNodeKey,
+            CoordinationRunArtifacts, InheritedApplyIntent, InheritedApplyTrace,
+            InheritedPropagationIntent, InheritedPropagationTrace, RecollectionRound,
+            RecollectionRoundNodeSnapshot, RecollectionRoundSnapshot, build_collection_round_a,
+            build_recollection_round,
         },
         coordination_sidecar::{
-            apply_phase7_distribution, apply_phase9_distribution, derive_phase8, derive_phase10,
-            run_phase8_apply_coordinated_overflow_and_remeasure_with_trace,
-            run_phase10_scale_retarget_and_adjustments_with_trace, visit_facet_bands_with_node_id,
+            apply_collection_round_a, apply_recollection_round, derive_inherited_apply_intent,
+            derive_inherited_propagation_intent, run_inherited_apply_with_trace,
+            run_inherited_propagation_with_trace, visit_facet_bands_with_node_id,
         },
     },
     plot::compiled::ComponentsMeasurement,
@@ -110,10 +118,10 @@ pub async fn coordinate_facet_measurement_tree(
 ) -> Result<(), AvengerChartError> {
     let artifacts = coordinate_facet_measurement_tree_with_artifacts(measurement, eval_ctx).await?;
     trace!(
-        phase7_nodes = artifacts.phase7.snapshot.nodes.len(),
-        phase8_nodes = artifacts.phase8.node_results.len(),
-        phase9_nodes = artifacts.phase9.snapshot.nodes.len(),
-        phase10_nodes = artifacts.phase10.node_results.len(),
+        collection_round_a_nodes = artifacts.collection_round_a.snapshot.nodes.len(),
+        inherited_apply_nodes = artifacts.inherited_apply.node_results.len(),
+        recollection_round_nodes = artifacts.recollection_round.snapshot.nodes.len(),
+        inherited_propagation_nodes = artifacts.inherited_propagation.node_results.len(),
         "coordinate_facet_measurement_tree complete"
     );
     Ok(())
@@ -123,89 +131,97 @@ pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<CoordinationRunArtifacts, AvengerChartError> {
-    // Phase 7: build immutable aggregate/distribution IR, then apply sidecar patches.
-    let phase7 = build_phase7_ir(collect_phase7_snapshot(measurement));
-    debug_assert_phase7_distribution_coverage(&phase7);
+    // Collection Round A: build immutable aggregate/distribution IR, then apply sidecar patches.
+    let collection_round_a =
+        build_collection_round_a(collect_collection_round_snapshot(measurement));
+    debug_assert_collection_round_coverage(&collection_round_a);
     debug!(
-        overflow_groups = phase7.aggregates.merged_overflow_by_key.len(),
-        layout_groups = phase7.aggregates.merged_layout_by_key.len(),
-        domain_groups = phase7.aggregates.unified_domain_extents.len(),
-        "coordinate_facet_measurement_tree phase 7 global aggregate + distribution"
+        overflow_groups = collection_round_a.aggregates.merged_overflow_by_key.len(),
+        layout_groups = collection_round_a.aggregates.merged_layout_by_key.len(),
+        domain_groups = collection_round_a.aggregates.unified_domain_extents.len(),
+        "coordinate_facet_measurement_tree collection round A global aggregate + distribution"
     );
-    apply_phase7_distribution(measurement, &phase7);
-    debug!("coordinate_facet_measurement_tree phase 7 complete");
+    apply_collection_round_a(measurement, &collection_round_a);
+    debug!("coordinate_facet_measurement_tree collection round A complete");
 
-    // Phase 8: coordinated apply + selective remeasure (sidecar mutations + immutable trace).
-    let phase8_derivation = derive_phase8(measurement);
-    debug_assert_phase8_derivation_node_coverage(measurement, &phase8_derivation);
-    let phase8 = run_phase8_apply_coordinated_overflow_and_remeasure_with_trace(
-        measurement,
-        eval_ctx,
-        &phase8_derivation,
-    )
-    .await?;
-    debug_assert_phase8_trace_alignment(&phase8_derivation, &phase8);
-    let parent_cross_propagations = phase8
+    // Inherited Apply: coordinated apply + selective remeasure (sidecar mutations + immutable trace).
+    let inherited_apply_derivation = derive_inherited_apply_intent(measurement);
+    debug_assert_inherited_apply_derivation_coverage(measurement, &inherited_apply_derivation);
+    let inherited_apply =
+        run_inherited_apply_with_trace(measurement, eval_ctx, &inherited_apply_derivation).await?;
+    debug_assert_inherited_apply_trace_alignment(&inherited_apply_derivation, &inherited_apply);
+    let parent_cross_propagations = inherited_apply
         .node_results
         .iter()
         .filter(|result| result.parent_cross_size_propagated)
         .count();
-    let cross_size_changes = phase8
+    let cross_size_changes = inherited_apply
         .node_results
         .iter()
-        .filter(|result| (result.subplot_cross_size_after - result.subplot_cross_size_before).abs() > 0.01)
+        .filter(|result| {
+            (result.subplot_cross_size_after - result.subplot_cross_size_before).abs() > 0.01
+        })
         .count();
     debug!(
         parent_cross_propagations,
         cross_size_changes,
-        remeasured_nodes = phase8
+        remeasured_nodes = inherited_apply
             .node_results
             .iter()
             .filter(|result| result.remeasure_triggered)
             .count(),
-        "coordinate_facet_measurement_tree phase 8 complete"
+        "coordinate_facet_measurement_tree inherited apply complete"
     );
 
-    // Phase 9: build immutable post-remeasure reconciliation IR, then apply patches.
-    let phase9 = build_phase9_ir(collect_phase9_snapshot(measurement));
-    debug_assert_phase9_distribution_coverage(&phase9);
+    // Recollection Round: build immutable post-remeasure reconciliation IR, then apply patches.
+    let recollection_round =
+        build_recollection_round(collect_recollection_round_snapshot(measurement));
+    debug_assert_recollection_round_coverage(&recollection_round);
     debug!(
-        overflow_groups = phase9.aggregates.merged_overflow_by_key.len(),
-        layout_groups = phase9.aggregates.merged_layout_by_key.len(),
-        "coordinate_facet_measurement_tree phase 9 post-remeasure reconciliation"
+        overflow_groups = recollection_round.aggregates.merged_overflow_by_key.len(),
+        layout_groups = recollection_round.aggregates.merged_layout_by_key.len(),
+        "coordinate_facet_measurement_tree recollection round post-remeasure reconciliation"
     );
-    apply_phase9_distribution(measurement, &phase9);
-    debug!("coordinate_facet_measurement_tree phase 9 complete");
+    apply_recollection_round(measurement, &recollection_round);
+    debug!("coordinate_facet_measurement_tree recollection round complete");
 
-    // Phase 10: scale retarget + adjustment propagation (sidecar mutations + immutable trace).
-    let phase10_derivation = derive_phase10(measurement);
-    debug_assert_phase10_derivation_node_coverage(measurement, &phase10_derivation);
-    let phase10 =
-        run_phase10_scale_retarget_and_adjustments_with_trace(measurement, &phase10_derivation);
-    debug_assert_phase10_trace_alignment(&phase10_derivation, &phase10);
+    // Inherited Propagation: scale retarget + adjustment propagation (sidecar mutations + immutable trace).
+    let inherited_propagation_derivation = derive_inherited_propagation_intent(measurement);
+    debug_assert_inherited_propagation_derivation_coverage(
+        measurement,
+        &inherited_propagation_derivation,
+    );
+    let inherited_propagation =
+        run_inherited_propagation_with_trace(measurement, &inherited_propagation_derivation);
+    debug_assert_inherited_propagation_trace_alignment(
+        &inherited_propagation_derivation,
+        &inherited_propagation,
+    );
     debug!(
-        scale_range_retargets = phase10
+        scale_range_retargets = inherited_propagation
             .node_results
             .iter()
             .map(|result| result.scale_range_retarget_count)
             .sum::<usize>(),
-        plot_area_adjustments = phase10
+        plot_area_adjustments = inherited_propagation
             .node_results
             .iter()
             .map(|result| result.child_plot_area_adjustments_count)
             .sum::<usize>(),
-        "coordinate_facet_measurement_tree phase 10 complete"
+        "coordinate_facet_measurement_tree inherited propagation complete"
     );
 
     Ok(CoordinationRunArtifacts {
-        phase7,
-        phase8,
-        phase9,
-        phase10,
+        collection_round_a,
+        inherited_apply,
+        recollection_round,
+        inherited_propagation,
     })
 }
 
-fn collect_phase7_snapshot(measurement: &ComponentsMeasurement) -> CoordGroupSnapshot {
+fn collect_collection_round_snapshot(
+    measurement: &ComponentsMeasurement,
+) -> CollectionRoundSnapshot {
     let mut nodes = Vec::new();
     let mut node_path = Vec::new();
     visit_facet_bands_with_node_id(
@@ -215,7 +231,7 @@ fn collect_phase7_snapshot(measurement: &ComponentsMeasurement) -> CoordGroupSna
         &mut |node_id, depth, facet_band| {
             let mut domain_infos = Vec::new();
             facet_band.collect_cell_domain_infos(&mut domain_infos);
-            nodes.push(CoordGroupNodeSnapshot {
+            nodes.push(CollectionRoundNodeSnapshot {
                 node_id: node_id.clone(),
                 key: facet_band.coordination_group_key_for_depth(depth),
                 local_overflow: facet_band.local_overflow_value(),
@@ -224,10 +240,12 @@ fn collect_phase7_snapshot(measurement: &ComponentsMeasurement) -> CoordGroupSna
             });
         },
     );
-    CoordGroupSnapshot { nodes }
+    CollectionRoundSnapshot { nodes }
 }
 
-fn collect_phase9_snapshot(measurement: &ComponentsMeasurement) -> CoordReconcileSnapshot {
+fn collect_recollection_round_snapshot(
+    measurement: &ComponentsMeasurement,
+) -> RecollectionRoundSnapshot {
     let mut nodes = Vec::new();
     let mut node_path = Vec::new();
     visit_facet_bands_with_node_id(
@@ -235,7 +253,7 @@ fn collect_phase9_snapshot(measurement: &ComponentsMeasurement) -> CoordReconcil
         0,
         &mut node_path,
         &mut |node_id, depth, facet_band| {
-            nodes.push(CoordReconcileNodeSnapshot {
+            nodes.push(RecollectionRoundNodeSnapshot {
                 node_id: node_id.clone(),
                 key: facet_band.coordination_group_key_for_depth(depth),
                 local_overflow: facet_band.local_overflow_value(),
@@ -243,7 +261,7 @@ fn collect_phase9_snapshot(measurement: &ComponentsMeasurement) -> CoordReconcil
             });
         },
     );
-    CoordReconcileSnapshot { nodes }
+    RecollectionRoundSnapshot { nodes }
 }
 
 fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordNodeKey> {
@@ -260,14 +278,14 @@ fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordNodeKey
     node_ids
 }
 
-fn debug_assert_phase7_distribution_coverage(phase7: &CoordGroupDistribution) {
-    let snapshot_nodes: HashSet<CoordNodeKey> = phase7
+fn debug_assert_collection_round_coverage(collection_round_a: &CollectionRoundA) {
+    let snapshot_nodes: HashSet<CoordNodeKey> = collection_round_a
         .snapshot
         .nodes
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let layout_patch_nodes: HashSet<CoordNodeKey> = phase7
+    let layout_patch_nodes: HashSet<CoordNodeKey> = collection_round_a
         .distribution
         .layout_patches_by_node
         .keys()
@@ -276,25 +294,29 @@ fn debug_assert_phase7_distribution_coverage(phase7: &CoordGroupDistribution) {
 
     debug_assert_eq!(
         layout_patch_nodes, snapshot_nodes,
-        "phase 7 layout patch coverage must match snapshot nodes"
+        "collection round A layout patch coverage must match snapshot nodes"
     );
 
-    if !phase7.aggregates.unified_domain_extents.is_empty() {
+    if !collection_round_a
+        .aggregates
+        .unified_domain_extents
+        .is_empty()
+    {
         debug_assert_eq!(
-            phase7.distribution.domain_target_nodes, snapshot_nodes,
-            "phase 7 domain target coverage must match snapshot nodes when domain aggregates exist"
+            collection_round_a.distribution.domain_target_nodes, snapshot_nodes,
+            "collection round A domain target coverage must match snapshot nodes when domain aggregates exist"
         );
     }
 }
 
-fn debug_assert_phase9_distribution_coverage(phase9: &CoordReconcileDistribution) {
-    let snapshot_nodes: HashSet<CoordNodeKey> = phase9
+fn debug_assert_recollection_round_coverage(recollection_round: &RecollectionRound) {
+    let snapshot_nodes: HashSet<CoordNodeKey> = recollection_round
         .snapshot
         .nodes
         .iter()
         .map(|node| node.node_id.clone())
         .collect();
-    let layout_patch_nodes: HashSet<CoordNodeKey> = phase9
+    let layout_patch_nodes: HashSet<CoordNodeKey> = recollection_round
         .distribution
         .layout_patches_by_node
         .keys()
@@ -303,13 +325,13 @@ fn debug_assert_phase9_distribution_coverage(phase9: &CoordReconcileDistribution
 
     debug_assert_eq!(
         layout_patch_nodes, snapshot_nodes,
-        "phase 9 layout patch coverage must match snapshot nodes"
+        "recollection round layout patch coverage must match snapshot nodes"
     );
 }
 
-fn debug_assert_phase8_derivation_node_coverage(
+fn debug_assert_inherited_apply_derivation_coverage(
     measurement: &ComponentsMeasurement,
-    derivation: &CoordApplyIntent,
+    derivation: &InheritedApplyIntent,
 ) {
     let expected_ids: HashSet<CoordNodeKey> =
         measurement_node_ids(measurement).into_iter().collect();
@@ -321,13 +343,13 @@ fn debug_assert_phase8_derivation_node_coverage(
 
     debug_assert_eq!(
         actual_ids, expected_ids,
-        "phase 8 derivation nodes must match current measurement tree node coverage"
+        "inherited apply derivation nodes must match current measurement tree node coverage"
     );
 }
 
-fn debug_assert_phase10_derivation_node_coverage(
+fn debug_assert_inherited_propagation_derivation_coverage(
     measurement: &ComponentsMeasurement,
-    derivation: &CoordRetargetIntent,
+    derivation: &InheritedPropagationIntent,
 ) {
     let expected_ids: HashSet<CoordNodeKey> =
         measurement_node_ids(measurement).into_iter().collect();
@@ -339,11 +361,14 @@ fn debug_assert_phase10_derivation_node_coverage(
 
     debug_assert_eq!(
         actual_ids, expected_ids,
-        "phase 10 derivation nodes must match current measurement tree node coverage"
+        "inherited propagation derivation nodes must match current measurement tree node coverage"
     );
 }
 
-fn debug_assert_phase8_trace_alignment(derivation: &CoordApplyIntent, trace: &CoordApplyTrace) {
+fn debug_assert_inherited_apply_trace_alignment(
+    derivation: &InheritedApplyIntent,
+    trace: &InheritedApplyTrace,
+) {
     let derived_ids: Vec<CoordNodeKey> = derivation
         .node_derivations
         .iter()
@@ -357,7 +382,7 @@ fn debug_assert_phase8_trace_alignment(derivation: &CoordApplyIntent, trace: &Co
 
     debug_assert_eq!(
         trace_ids, derived_ids,
-        "phase 8 execution trace nodes must match derivation nodes in deterministic order"
+        "inherited apply execution trace nodes must match derivation nodes in deterministic order"
     );
 
     for (derived, trace_result) in derivation
@@ -394,7 +419,7 @@ fn debug_assert_phase8_trace_alignment(derivation: &CoordApplyIntent, trace: &Co
         debug_assert_eq!(
             derived.remeasure_triggered,
             derived.remeasure_plan.is_some(),
-            "phase 8 derivation must carry per-cell remeasure plan iff remeasure is required"
+            "inherited apply derivation must carry per-cell remeasure plan iff remeasure is required"
         );
         debug_assert_eq!(trace_result.derived_child_count, derived.child_count);
         if let Some(remeasure_plan) = derived.remeasure_plan.as_ref() {
@@ -435,9 +460,9 @@ fn debug_assert_phase8_trace_alignment(derivation: &CoordApplyIntent, trace: &Co
     }
 }
 
-fn debug_assert_phase10_trace_alignment(
-    derivation: &CoordRetargetIntent,
-    trace: &CoordRetargetTrace,
+fn debug_assert_inherited_propagation_trace_alignment(
+    derivation: &InheritedPropagationIntent,
+    trace: &InheritedPropagationTrace,
 ) {
     let derived_ids: Vec<CoordNodeKey> = derivation
         .node_derivations
@@ -452,7 +477,7 @@ fn debug_assert_phase10_trace_alignment(
 
     debug_assert_eq!(
         trace_ids, derived_ids,
-        "phase 10 execution trace nodes must match derivation nodes in deterministic order"
+        "inherited propagation execution trace nodes must match derivation nodes in deterministic order"
     );
 
     for (derived, trace_result) in derivation
@@ -470,12 +495,12 @@ fn debug_assert_phase10_trace_alignment(
         debug_assert_eq!(
             derived.child_intents.len(),
             derived.child_count,
-            "phase 10 child intent count must match derived child count"
+            "inherited propagation child intent count must match derived child count"
         );
         for (idx, child_intent) in derived.child_intents.iter().enumerate() {
             debug_assert_eq!(
                 child_intent.child_index, idx,
-                "phase 10 child intents must preserve deterministic child index order"
+                "inherited propagation child intents must preserve deterministic child index order"
             );
         }
         debug_assert_eq!(
@@ -778,12 +803,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase7_applies_initial_aggregates_to_all_matching_groups()
+    async fn collection_round_a_applies_initial_aggregates_to_all_matching_groups()
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) = nested_fixture().await?;
 
-        let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
-        apply_phase7_distribution(&mut measurement, &phase7);
+        let collection_round_a =
+            build_collection_round_a(collect_collection_round_snapshot(&measurement));
+        apply_collection_round_a(&mut measurement, &collection_round_a);
 
         let states = depth1_states(&measurement);
         assert!(
@@ -795,14 +821,14 @@ mod tests {
         let expected_layout = first
             .coordinated_layout
             .as_ref()
-            .expect("phase 7 should set coordinated layout");
+            .expect("collection round A should set coordinated layout");
         for state in states.iter().skip(1) {
             assert_eq!(state.key, first.key);
             assert_overflow_close(&state.coordinated_overflow, &first.coordinated_overflow);
             let actual_layout = state
                 .coordinated_layout
                 .as_ref()
-                .expect("phase 7 should set coordinated layout");
+                .expect("collection round A should set coordinated layout");
             assert_layout_close(actual_layout, expected_layout);
         }
 
@@ -810,7 +836,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase8_can_mutate_measurements_via_apply_coordinated_overflow()
+    async fn inherited_apply_can_mutate_measurements_via_apply_coordinated_overflow()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
 
@@ -826,11 +852,11 @@ mod tests {
             root.set_coordinated_layout_value(forced_layout);
         }
 
-        let phase8_derivation = derive_phase8(&measurement);
-        let _phase8 = run_phase8_apply_coordinated_overflow_and_remeasure_with_trace(
+        let inherited_apply_derivation = derive_inherited_apply_intent(&measurement);
+        let _inherited_apply = run_inherited_apply_with_trace(
             &mut measurement,
             &eval_ctx,
-            &phase8_derivation,
+            &inherited_apply_derivation,
         )
         .await?;
 
@@ -839,23 +865,25 @@ mod tests {
             .subplot_cross_size;
         assert!(
             (after_cross_size - before_cross_size).abs() > 0.01,
-            "phase 8 should mutate subplot cross size when coordinated layout differs"
+            "inherited apply should mutate subplot cross size when coordinated layout differs"
         );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn phase9_reconciles_layout_after_phase8_remeasure() -> Result<(), AvengerChartError> {
+    async fn recollection_round_reconciles_layout_after_inherited_apply_remeasure()
+    -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
 
-        let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
-        apply_phase7_distribution(&mut measurement, &phase7);
-        let phase8_derivation = derive_phase8(&measurement);
-        let _phase8 = run_phase8_apply_coordinated_overflow_and_remeasure_with_trace(
+        let collection_round_a =
+            build_collection_round_a(collect_collection_round_snapshot(&measurement));
+        apply_collection_round_a(&mut measurement, &collection_round_a);
+        let inherited_apply_derivation = derive_inherited_apply_intent(&measurement);
+        let _inherited_apply = run_inherited_apply_with_trace(
             &mut measurement,
             &eval_ctx,
-            &phase8_derivation,
+            &inherited_apply_derivation,
         )
         .await?;
 
@@ -883,8 +911,9 @@ mod tests {
             .max()
             .unwrap_or(0);
 
-        let phase9 = build_phase9_ir(collect_phase9_snapshot(&measurement));
-        apply_phase9_distribution(&mut measurement, &phase9);
+        let recollection_round =
+            build_recollection_round(collect_recollection_round_snapshot(&measurement));
+        apply_recollection_round(&mut measurement, &recollection_round);
 
         let states = depth1_states(&measurement);
         assert!(
@@ -895,7 +924,7 @@ mod tests {
             let coordinated = state
                 .coordinated_layout
                 .as_ref()
-                .expect("phase 9 should set coordinated layout");
+                .expect("recollection round should set coordinated layout");
             assert!(approx_eq_within(
                 coordinated.padding_inner_px,
                 expected_padding,
@@ -908,7 +937,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase10_retargets_child_scales_when_parent_cross_size_changes()
+    async fn inherited_propagation_retargets_child_scales_when_parent_cross_size_changes()
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) = nested_fixture().await?;
 
@@ -925,10 +954,10 @@ mod tests {
             (root.subplot_cross_size, old_child_width)
         };
 
-        let phase10_derivation = derive_phase10(&measurement);
-        let _phase10 = run_phase10_scale_retarget_and_adjustments_with_trace(
+        let inherited_propagation_derivation = derive_inherited_propagation_intent(&measurement);
+        let _inherited_propagation = run_inherited_propagation_with_trace(
             &mut measurement,
-            &phase10_derivation,
+            &inherited_propagation_derivation,
         );
 
         let root = facet_band_ref(&measurement)
@@ -945,7 +974,7 @@ mod tests {
         ));
         assert!(
             (first_child.plot_area_width - old_child_width).abs() > 0.01,
-            "phase 10 should retarget child plot width when parent cross size changes"
+            "inherited propagation should retarget child plot width when parent cross size changes"
         );
 
         if let Some(scale_with_spec) = first_child.scales.get(root.axis.scale_name()) {
@@ -959,32 +988,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase7_ir_contains_expected_group_counts_and_node_targets()
+    async fn collection_round_a_ir_contains_expected_group_counts_and_node_targets()
     -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
-        assert!(!phase7.snapshot.nodes.is_empty());
-        assert!(!phase7.aggregates.merged_layout_by_key.is_empty());
-        assert_eq!(
-            phase7.distribution.layout_patches_by_node.len(),
-            phase7.snapshot.nodes.len()
+        let collection_round_a =
+            build_collection_round_a(collect_collection_round_snapshot(&measurement));
+        assert!(!collection_round_a.snapshot.nodes.is_empty());
+        assert!(
+            !collection_round_a
+                .aggregates
+                .merged_layout_by_key
+                .is_empty()
         );
-        assert!(phase7.distribution.overflow_patches_by_node.len() <= phase7.snapshot.nodes.len());
-        if !phase7.aggregates.unified_domain_extents.is_empty() {
+        assert_eq!(
+            collection_round_a.distribution.layout_patches_by_node.len(),
+            collection_round_a.snapshot.nodes.len()
+        );
+        assert!(
+            collection_round_a
+                .distribution
+                .overflow_patches_by_node
+                .len()
+                <= collection_round_a.snapshot.nodes.len()
+        );
+        if !collection_round_a
+            .aggregates
+            .unified_domain_extents
+            .is_empty()
+        {
             assert_eq!(
-                phase7.distribution.domain_target_nodes.len(),
-                phase7.snapshot.nodes.len()
+                collection_round_a.distribution.domain_target_nodes.len(),
+                collection_round_a.snapshot.nodes.len()
             );
         }
         Ok(())
     }
 
     #[tokio::test]
-    async fn phase8_ir_trace_records_remeasure_and_parent_cross_propagation()
+    async fn inherited_apply_ir_trace_records_remeasure_and_parent_cross_propagation()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = col_col_fixture().await?;
-        let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
-        apply_phase7_distribution(&mut measurement, &phase7);
+        let collection_round_a =
+            build_collection_round_a(collect_collection_round_snapshot(&measurement));
+        apply_collection_round_a(&mut measurement, &collection_round_a);
 
         {
             let root = facet_band_mut(&mut measurement)
@@ -998,24 +1044,24 @@ mod tests {
                 .insert("x".to_string(), DomainExtent::numeric(0.0, 10.0));
         }
 
-        let phase8_derivation = derive_phase8(&measurement);
-        let phase8 = run_phase8_apply_coordinated_overflow_and_remeasure_with_trace(
+        let inherited_apply_derivation = derive_inherited_apply_intent(&measurement);
+        let inherited_apply = run_inherited_apply_with_trace(
             &mut measurement,
             &eval_ctx,
-            &phase8_derivation,
+            &inherited_apply_derivation,
         )
         .await?;
-        assert!(!phase8.node_results.is_empty());
-        let root_result = phase8
+        assert!(!inherited_apply.node_results.is_empty());
+        let root_result = inherited_apply
             .node_results
             .iter()
             .find(|result| result.node_id.path.is_empty())
-            .expect("phase 8 should include a root node trace");
-        let root_derivation = phase8_derivation
+            .expect("inherited apply should include a root node trace");
+        let root_derivation = inherited_apply_derivation
             .node_derivations
             .iter()
             .find(|node| node.node_id.path.is_empty())
-            .expect("phase 8 derivation should include a root node");
+            .expect("inherited apply derivation should include a root node");
         assert!(root_result.parent_cross_size_propagated);
         assert!(root_result.remeasure_triggered);
         assert!(root_result.derived_has_coordinated_extents);
@@ -1045,41 +1091,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase9_ir_distribution_stabilizes_layout_values() -> Result<(), AvengerChartError> {
+    async fn recollection_round_ir_distribution_stabilizes_layout_values()
+    -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
-        apply_phase7_distribution(&mut measurement, &phase7);
-        let phase8_derivation = derive_phase8(&measurement);
-        let _phase8 = run_phase8_apply_coordinated_overflow_and_remeasure_with_trace(
+        let collection_round_a =
+            build_collection_round_a(collect_collection_round_snapshot(&measurement));
+        apply_collection_round_a(&mut measurement, &collection_round_a);
+        let inherited_apply_derivation = derive_inherited_apply_intent(&measurement);
+        let _inherited_apply = run_inherited_apply_with_trace(
             &mut measurement,
             &eval_ctx,
-            &phase8_derivation,
+            &inherited_apply_derivation,
         )
         .await?;
 
-        let phase9 = build_phase9_ir(collect_phase9_snapshot(&measurement));
-        assert!(!phase9.distribution.layout_patches_by_node.is_empty());
-        apply_phase9_distribution(&mut measurement, &phase9);
+        let recollection_round =
+            build_recollection_round(collect_recollection_round_snapshot(&measurement));
+        assert!(
+            !recollection_round
+                .distribution
+                .layout_patches_by_node
+                .is_empty()
+        );
+        apply_recollection_round(&mut measurement, &recollection_round);
 
         let states = depth1_states(&measurement);
         assert!(states.len() >= 2);
         let first_layout = states
             .first()
             .and_then(|state| state.coordinated_layout.as_ref())
-            .expect("phase 9 should set coordinated layout on depth-1 states")
+            .expect("recollection round should set coordinated layout on depth-1 states")
             .clone();
         for state in states.iter().skip(1) {
             let coordinated = state
                 .coordinated_layout
                 .as_ref()
-                .expect("phase 9 should set coordinated layout");
+                .expect("recollection round should set coordinated layout");
             assert_layout_close(coordinated, &first_layout);
         }
         Ok(())
     }
 
     #[tokio::test]
-    async fn phase10_ir_trace_records_plot_resize_and_scale_retarget_events()
+    async fn inherited_propagation_ir_trace_records_plot_resize_and_scale_retarget_events()
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) = nested_fixture().await?;
 
@@ -1089,22 +1143,22 @@ mod tests {
             root.subplot_cross_size += 40.0;
         }
 
-        let phase10_derivation = derive_phase10(&measurement);
-        let phase10 = run_phase10_scale_retarget_and_adjustments_with_trace(
+        let inherited_propagation_derivation = derive_inherited_propagation_intent(&measurement);
+        let inherited_propagation = run_inherited_propagation_with_trace(
             &mut measurement,
-            &phase10_derivation,
+            &inherited_propagation_derivation,
         );
-        assert!(!phase10.node_results.is_empty());
-        let root_result = phase10
+        assert!(!inherited_propagation.node_results.is_empty());
+        let root_result = inherited_propagation
             .node_results
             .iter()
             .find(|result| result.node_id.path.is_empty())
-            .expect("phase 10 should include a root node trace");
-        let root_derivation = phase10_derivation
+            .expect("inherited propagation should include a root node trace");
+        let root_derivation = inherited_propagation_derivation
             .node_derivations
             .iter()
             .find(|node| node.node_id.path.is_empty())
-            .expect("phase 10 derivation should include a root node");
+            .expect("inherited propagation derivation should include a root node");
         assert!(root_result.child_plot_area_adjustments_count > 0);
         assert!(root_result.scale_range_retarget_count > 0);
         assert_eq!(
@@ -1124,9 +1178,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase10_derivation_contains_ordered_child_intents() -> Result<(), AvengerChartError> {
+    async fn inherited_propagation_derivation_contains_ordered_child_intents()
+    -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let derivation = derive_phase10(&measurement);
+        let derivation = derive_inherited_propagation_intent(&measurement);
         assert!(!derivation.node_derivations.is_empty());
         for node in &derivation.node_derivations {
             assert_eq!(node.child_intents.len(), node.child_count);
@@ -1147,7 +1202,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase10_trace_matches_derived_child_intent_adjustment_counts()
+    async fn inherited_propagation_trace_matches_derived_child_intent_adjustment_counts()
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) = nested_fixture().await?;
         {
@@ -1156,14 +1211,14 @@ mod tests {
             root.subplot_cross_size += 40.0;
         }
 
-        let derivation = derive_phase10(&measurement);
-        let phase10 =
-            run_phase10_scale_retarget_and_adjustments_with_trace(&mut measurement, &derivation);
+        let derivation = derive_inherited_propagation_intent(&measurement);
+        let inherited_propagation =
+            run_inherited_propagation_with_trace(&mut measurement, &derivation);
 
         for (derived, trace_result) in derivation
             .node_derivations
             .iter()
-            .zip(phase10.node_results.iter())
+            .zip(inherited_propagation.node_results.iter())
         {
             assert_eq!(trace_result.node_id, derived.node_id);
             assert_eq!(
@@ -1183,10 +1238,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase10_child_intents_encode_axis_target_cross_sizes() -> Result<(), AvengerChartError>
-    {
+    async fn inherited_propagation_child_intents_encode_axis_target_cross_sizes()
+    -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let derivation = derive_phase10(&measurement);
+        let derivation = derive_inherited_propagation_intent(&measurement);
         for node in &derivation.node_derivations {
             match (node.axis, node.parent_cross_size_target) {
                 (FacetAxis::Column, Some(target_cross_size)) => {
@@ -1240,14 +1295,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase8_derivation_is_read_only_and_node_complete() -> Result<(), AvengerChartError> {
+    async fn inherited_apply_derivation_is_read_only_and_node_complete()
+    -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
         let before_node_ids = measurement_node_ids(&measurement);
         let before_cross_size = facet_band_ref(&measurement)
             .expect("fixture should produce root facet-band measurement")
             .subplot_cross_size;
 
-        let derivation = derive_phase8(&measurement);
+        let derivation = derive_inherited_apply_intent(&measurement);
 
         let after_node_ids = measurement_node_ids(&measurement);
         let after_cross_size = facet_band_ref(&measurement)
@@ -1270,10 +1326,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase8_derivation_contains_apply_plan_for_each_node() -> Result<(), AvengerChartError>
-    {
+    async fn inherited_apply_derivation_contains_apply_plan_for_each_node()
+    -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let derivation = derive_phase8(&measurement);
+        let derivation = derive_inherited_apply_intent(&measurement);
         assert!(!derivation.node_derivations.is_empty());
         for node in &derivation.node_derivations {
             assert_eq!(node.axis, node.apply_plan.axis);
@@ -1294,7 +1350,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase8_executor_applies_derivation_with_behavior_parity()
+    async fn inherited_apply_executor_applies_derivation_with_behavior_parity()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
         {
@@ -1309,25 +1365,21 @@ mod tests {
                 .insert("x".to_string(), DomainExtent::numeric(0.0, 15.0));
         }
 
-        let derivation = derive_phase8(&measurement);
-        let phase8 = run_phase8_apply_coordinated_overflow_and_remeasure_with_trace(
-            &mut measurement,
-            &eval_ctx,
-            &derivation,
-        )
-        .await?;
+        let derivation = derive_inherited_apply_intent(&measurement);
+        let inherited_apply =
+            run_inherited_apply_with_trace(&mut measurement, &eval_ctx, &derivation).await?;
 
-        debug_assert_phase8_trace_alignment(&derivation, &phase8);
-        let root_result = phase8
+        debug_assert_inherited_apply_trace_alignment(&derivation, &inherited_apply);
+        let root_result = inherited_apply
             .node_results
             .iter()
             .find(|result| result.node_id.path.is_empty())
-            .expect("phase 8 should include a root node trace");
+            .expect("inherited apply should include a root node trace");
         let root_derivation = derivation
             .node_derivations
             .iter()
             .find(|node| node.node_id.path.is_empty())
-            .expect("phase 8 derivation should include a root node");
+            .expect("inherited apply derivation should include a root node");
         assert_eq!(root_result.axis, FacetAxis::Column);
         assert!(root_result.subplot_cross_size_after > 0.0);
         assert!(root_result.derived_has_coordinated_extents);
@@ -1367,27 +1419,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase8_node_identity_stable_between_derivation_and_execution()
+    async fn inherited_apply_node_identity_stable_between_derivation_and_execution()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
-        apply_phase7_distribution(&mut measurement, &phase7);
+        let collection_round_a =
+            build_collection_round_a(collect_collection_round_snapshot(&measurement));
+        apply_collection_round_a(&mut measurement, &collection_round_a);
 
-        let phase8_derivation = derive_phase8(&measurement);
-        let phase8 = run_phase8_apply_coordinated_overflow_and_remeasure_with_trace(
+        let inherited_apply_derivation = derive_inherited_apply_intent(&measurement);
+        let inherited_apply = run_inherited_apply_with_trace(
             &mut measurement,
             &eval_ctx,
-            &phase8_derivation,
+            &inherited_apply_derivation,
         )
         .await?;
 
         assert_eq!(
-            phase8
+            inherited_apply
                 .node_results
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>(),
-            phase8_derivation
+            inherited_apply_derivation
                 .node_derivations
                 .iter()
                 .map(|node| node.node_id.clone())
@@ -1397,14 +1450,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase10_derivation_is_read_only_and_node_complete() -> Result<(), AvengerChartError> {
+    async fn inherited_propagation_derivation_is_read_only_and_node_complete()
+    -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
         let before_node_ids = measurement_node_ids(&measurement);
         let before_cross_size = facet_band_ref(&measurement)
             .expect("fixture should produce root facet-band measurement")
             .subplot_cross_size;
 
-        let derivation = derive_phase10(&measurement);
+        let derivation = derive_inherited_propagation_intent(&measurement);
 
         let after_node_ids = measurement_node_ids(&measurement);
         let after_cross_size = facet_band_ref(&measurement)
@@ -1426,7 +1480,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase10_executor_applies_retarget_with_behavior_parity()
+    async fn inherited_propagation_executor_applies_retarget_with_behavior_parity()
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) = nested_fixture().await?;
         {
@@ -1435,16 +1489,16 @@ mod tests {
             root.subplot_cross_size += 40.0;
         }
 
-        let derivation = derive_phase10(&measurement);
-        let phase10 =
-            run_phase10_scale_retarget_and_adjustments_with_trace(&mut measurement, &derivation);
-        debug_assert_phase10_trace_alignment(&derivation, &phase10);
+        let derivation = derive_inherited_propagation_intent(&measurement);
+        let inherited_propagation =
+            run_inherited_propagation_with_trace(&mut measurement, &derivation);
+        debug_assert_inherited_propagation_trace_alignment(&derivation, &inherited_propagation);
 
-        let root_result = phase10
+        let root_result = inherited_propagation
             .node_results
             .iter()
             .find(|result| result.node_id.path.is_empty())
-            .expect("phase 10 should include a root node trace");
+            .expect("inherited propagation should include a root node trace");
         assert!(root_result.child_plot_area_adjustments_count > 0);
         assert!(root_result.derived_child_intent_count > 0);
         assert_eq!(
@@ -1455,18 +1509,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase7_distribution_patch_coverage_matches_snapshot() -> Result<(), AvengerChartError>
-    {
+    async fn collection_round_a_distribution_patch_coverage_matches_snapshot()
+    -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
-        debug_assert_phase7_distribution_coverage(&phase7);
-        let snapshot_nodes: std::collections::HashSet<CoordNodeKey> = phase7
+        let collection_round_a =
+            build_collection_round_a(collect_collection_round_snapshot(&measurement));
+        debug_assert_collection_round_coverage(&collection_round_a);
+        let snapshot_nodes: std::collections::HashSet<CoordNodeKey> = collection_round_a
             .snapshot
             .nodes
             .iter()
             .map(|node| node.node_id.clone())
             .collect();
-        let layout_patch_nodes: std::collections::HashSet<CoordNodeKey> = phase7
+        let layout_patch_nodes: std::collections::HashSet<CoordNodeKey> = collection_round_a
             .distribution
             .layout_patches_by_node
             .keys()
@@ -1477,18 +1532,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase9_distribution_patch_coverage_matches_snapshot() -> Result<(), AvengerChartError>
-    {
+    async fn recollection_round_distribution_patch_coverage_matches_snapshot()
+    -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let phase9 = build_phase9_ir(collect_phase9_snapshot(&measurement));
-        debug_assert_phase9_distribution_coverage(&phase9);
-        let snapshot_nodes: std::collections::HashSet<CoordNodeKey> = phase9
+        let recollection_round =
+            build_recollection_round(collect_recollection_round_snapshot(&measurement));
+        debug_assert_recollection_round_coverage(&recollection_round);
+        let snapshot_nodes: std::collections::HashSet<CoordNodeKey> = recollection_round
             .snapshot
             .nodes
             .iter()
             .map(|node| node.node_id.clone())
             .collect();
-        let layout_patch_nodes: std::collections::HashSet<CoordNodeKey> = phase9
+        let layout_patch_nodes: std::collections::HashSet<CoordNodeKey> = recollection_round
             .distribution
             .layout_patches_by_node
             .keys()
@@ -1499,56 +1555,58 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase8_and_phase10_node_identity_stable_across_derivation_and_execution()
+    async fn inherited_apply_and_inherited_propagation_node_identity_stable_across_derivation_and_execution()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let phase7 = build_phase7_ir(collect_phase7_snapshot(&measurement));
-        apply_phase7_distribution(&mut measurement, &phase7);
+        let collection_round_a =
+            build_collection_round_a(collect_collection_round_snapshot(&measurement));
+        apply_collection_round_a(&mut measurement, &collection_round_a);
 
-        let phase8_derivation = derive_phase8(&measurement);
-        let phase8 = run_phase8_apply_coordinated_overflow_and_remeasure_with_trace(
+        let inherited_apply_derivation = derive_inherited_apply_intent(&measurement);
+        let inherited_apply = run_inherited_apply_with_trace(
             &mut measurement,
             &eval_ctx,
-            &phase8_derivation,
+            &inherited_apply_derivation,
         )
         .await?;
         assert_eq!(
-            phase8
+            inherited_apply
                 .node_results
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>(),
-            phase8_derivation
+            inherited_apply_derivation
                 .node_derivations
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>()
         );
 
-        let phase9 = build_phase9_ir(collect_phase9_snapshot(&measurement));
-        apply_phase9_distribution(&mut measurement, &phase9);
+        let recollection_round =
+            build_recollection_round(collect_recollection_round_snapshot(&measurement));
+        apply_recollection_round(&mut measurement, &recollection_round);
 
-        let phase10_derivation = derive_phase10(&measurement);
-        let phase10 = run_phase10_scale_retarget_and_adjustments_with_trace(
+        let inherited_propagation_derivation = derive_inherited_propagation_intent(&measurement);
+        let inherited_propagation = run_inherited_propagation_with_trace(
             &mut measurement,
-            &phase10_derivation,
+            &inherited_propagation_derivation,
         );
         assert_eq!(
-            phase10
+            inherited_propagation
                 .node_results
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>(),
-            phase10_derivation
+            inherited_propagation_derivation
                 .node_derivations
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>()
         );
-        for (derived, trace_result) in phase10
+        for (derived, trace_result) in inherited_propagation
             .node_results
             .iter()
-            .zip(phase10_derivation.node_derivations.iter())
+            .zip(inherited_propagation_derivation.node_derivations.iter())
         {
             assert_eq!(derived.node_id, trace_result.node_id);
             assert_eq!(

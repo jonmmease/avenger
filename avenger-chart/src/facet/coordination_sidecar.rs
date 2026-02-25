@@ -8,10 +8,10 @@ use crate::{
     facet::{
         coord::FacetBandCoordMeasurement,
         coordination_ir::{
-            CoordApplyIntent, CoordApplyNodeIntent, CoordApplyNodeOutcome, CoordApplyTrace,
-            CoordGroupDistribution, CoordNodeKey, CoordReconcileDistribution,
-            CoordRetargetChildIntent, CoordRetargetIntent, CoordRetargetNodeIntent,
-            CoordRetargetNodeOutcome, CoordRetargetTrace,
+            CollectionRoundA, CoordNodeKey, InheritedApplyIntent, InheritedApplyNodeIntent,
+            InheritedApplyNodeOutcome, InheritedApplyTrace, InheritedPropagationChildIntent,
+            InheritedPropagationIntent, InheritedPropagationNodeIntent,
+            InheritedPropagationNodeOutcome, InheritedPropagationTrace, RecollectionRound,
         },
         coordination_remeasure::derive_facet_coord_remeasure_plan,
     },
@@ -74,9 +74,9 @@ pub(crate) fn visit_facet_bands_with_node_id_mut<F>(
     }
 }
 
-pub(crate) fn apply_phase7_distribution(
+pub(crate) fn apply_collection_round_a(
     measurement: &mut ComponentsMeasurement,
-    phase7: &CoordGroupDistribution,
+    collection_round_a: &CollectionRoundA,
 ) {
     let mut node_path = Vec::new();
     visit_facet_bands_with_node_id_mut(
@@ -84,7 +84,7 @@ pub(crate) fn apply_phase7_distribution(
         0,
         &mut node_path,
         &mut |node_id, _depth, facet_band| {
-            if let Some(overflow) = phase7
+            if let Some(overflow) = collection_round_a
                 .distribution
                 .overflow_patches_by_node
                 .get(node_id)
@@ -92,7 +92,7 @@ pub(crate) fn apply_phase7_distribution(
             {
                 facet_band.set_coordinated_overflow_value(overflow);
             }
-            if let Some(layout) = phase7
+            if let Some(layout) = collection_round_a
                 .distribution
                 .layout_patches_by_node
                 .get(node_id)
@@ -100,20 +100,26 @@ pub(crate) fn apply_phase7_distribution(
             {
                 facet_band.set_coordinated_layout_value(layout);
             }
-            if phase7.distribution.domain_target_nodes.contains(node_id)
-                && !phase7.distribution.unified_domain_extents.is_empty()
+            if collection_round_a
+                .distribution
+                .domain_target_nodes
+                .contains(node_id)
+                && !collection_round_a
+                    .distribution
+                    .unified_domain_extents
+                    .is_empty()
             {
                 facet_band.distribute_coordinated_domain_extents(
-                    &phase7.distribution.unified_domain_extents,
+                    &collection_round_a.distribution.unified_domain_extents,
                 );
             }
         },
     );
 }
 
-pub(crate) fn apply_phase9_distribution(
+pub(crate) fn apply_recollection_round(
     measurement: &mut ComponentsMeasurement,
-    phase9: &CoordReconcileDistribution,
+    recollection_round: &RecollectionRound,
 ) {
     let mut node_path = Vec::new();
     visit_facet_bands_with_node_id_mut(
@@ -121,7 +127,7 @@ pub(crate) fn apply_phase9_distribution(
         0,
         &mut node_path,
         &mut |node_id, _depth, facet_band| {
-            if let Some(overflow) = phase9
+            if let Some(overflow) = recollection_round
                 .distribution
                 .overflow_patches_by_node
                 .get(node_id)
@@ -129,7 +135,7 @@ pub(crate) fn apply_phase9_distribution(
             {
                 facet_band.set_coordinated_overflow_value(overflow);
             }
-            if let Some(layout) = phase9
+            if let Some(layout) = recollection_round
                 .distribution
                 .layout_patches_by_node
                 .get(node_id)
@@ -141,22 +147,24 @@ pub(crate) fn apply_phase9_distribution(
     );
 }
 
-pub(crate) fn derive_phase8(measurement: &ComponentsMeasurement) -> CoordApplyIntent {
+pub(crate) fn derive_inherited_apply_intent(
+    measurement: &ComponentsMeasurement,
+) -> InheritedApplyIntent {
     let mut node_derivations = Vec::new();
     let mut node_path = Vec::new();
-    derive_phase8_recursive(measurement, &mut node_path, &mut node_derivations);
-    CoordApplyIntent { node_derivations }
+    derive_inherited_apply_intent_recursive(measurement, &mut node_path, &mut node_derivations);
+    InheritedApplyIntent { node_derivations }
 }
 
-fn derive_phase8_recursive(
+fn derive_inherited_apply_intent_recursive(
     measurement: &ComponentsMeasurement,
     node_path: &mut Vec<usize>,
-    node_derivations: &mut Vec<CoordApplyNodeIntent>,
+    node_derivations: &mut Vec<InheritedApplyNodeIntent>,
 ) {
     if let Some(facet_band) = facet_band_ref(measurement) {
         for (idx, child) in facet_band.child_measurements_iter().enumerate() {
             node_path.push(idx);
-            derive_phase8_recursive(child, node_path, node_derivations);
+            derive_inherited_apply_intent_recursive(child, node_path, node_derivations);
             node_path.pop();
         }
 
@@ -171,7 +179,7 @@ fn derive_phase8_recursive(
             )
         });
 
-        node_derivations.push(CoordApplyNodeIntent {
+        node_derivations.push(InheritedApplyNodeIntent {
             node_id,
             axis: apply_plan.axis,
             remeasure_plan,
@@ -184,13 +192,13 @@ fn derive_phase8_recursive(
     }
 }
 
-pub(crate) fn run_phase8_apply_coordinated_overflow_and_remeasure_with_trace<'a>(
+pub(crate) fn run_inherited_apply_with_trace<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
-    derivation: &'a CoordApplyIntent,
-) -> Pin<Box<dyn Future<Output = Result<CoordApplyTrace, AvengerChartError>> + Send + 'a>> {
+    derivation: &'a InheritedApplyIntent,
+) -> Pin<Box<dyn Future<Output = Result<InheritedApplyTrace, AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
-        let derivation_by_node: HashMap<CoordNodeKey, CoordApplyNodeIntent> = derivation
+        let derivation_by_node: HashMap<CoordNodeKey, InheritedApplyNodeIntent> = derivation
             .node_derivations
             .iter()
             .cloned()
@@ -199,7 +207,7 @@ pub(crate) fn run_phase8_apply_coordinated_overflow_and_remeasure_with_trace<'a>
 
         let mut node_results = Vec::new();
         let mut node_path = Vec::new();
-        run_phase8_apply_recursive(
+        run_inherited_apply_recursive(
             measurement,
             eval_ctx,
             &derivation_by_node,
@@ -207,23 +215,23 @@ pub(crate) fn run_phase8_apply_coordinated_overflow_and_remeasure_with_trace<'a>
             &mut node_results,
         )
         .await?;
-        Ok(CoordApplyTrace { node_results })
+        Ok(InheritedApplyTrace { node_results })
     })
 }
 
-fn run_phase8_apply_recursive<'a>(
+fn run_inherited_apply_recursive<'a>(
     measurement: &'a mut ComponentsMeasurement,
     eval_ctx: &'a EvaluationContext,
-    derivation_by_node: &'a HashMap<CoordNodeKey, CoordApplyNodeIntent>,
+    derivation_by_node: &'a HashMap<CoordNodeKey, InheritedApplyNodeIntent>,
     node_path: &'a mut Vec<usize>,
-    node_results: &'a mut Vec<CoordApplyNodeOutcome>,
+    node_results: &'a mut Vec<InheritedApplyNodeOutcome>,
 ) -> Pin<Box<dyn Future<Output = Result<(), AvengerChartError>> + Send + 'a>> {
     Box::pin(async move {
         if let Some(facet_band) = facet_band_mut(measurement) {
             let node_id = CoordNodeKey::new(node_path.clone());
             let derived = derivation_by_node.get(&node_id).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
-                    "Missing phase-8 derivation for node path {:?}",
+                    "Missing inherited-apply derivation for node path {:?}",
                     node_id.path
                 ))
             })?;
@@ -252,7 +260,7 @@ fn run_phase8_apply_recursive<'a>(
                     }
                 }
                 node_path.push(idx);
-                run_phase8_apply_recursive(
+                run_inherited_apply_recursive(
                     child,
                     eval_ctx,
                     derivation_by_node,
@@ -263,7 +271,7 @@ fn run_phase8_apply_recursive<'a>(
                 node_path.pop();
             }
 
-            node_results.push(CoordApplyNodeOutcome {
+            node_results.push(InheritedApplyNodeOutcome {
                 node_id,
                 axis: derived.axis,
                 derived_has_legend_overflow: derived.has_legend_overflow,
@@ -288,27 +296,33 @@ fn run_phase8_apply_recursive<'a>(
     })
 }
 
-pub(crate) fn derive_phase10(measurement: &ComponentsMeasurement) -> CoordRetargetIntent {
+pub(crate) fn derive_inherited_propagation_intent(
+    measurement: &ComponentsMeasurement,
+) -> InheritedPropagationIntent {
     let mut node_derivations = Vec::new();
     let mut node_path = Vec::new();
-    derive_phase10_recursive(measurement, &mut node_path, &mut node_derivations);
-    CoordRetargetIntent { node_derivations }
+    derive_inherited_propagation_intent_recursive(
+        measurement,
+        &mut node_path,
+        &mut node_derivations,
+    );
+    InheritedPropagationIntent { node_derivations }
 }
 
-fn derive_phase10_recursive(
+fn derive_inherited_propagation_intent_recursive(
     measurement: &ComponentsMeasurement,
     node_path: &mut Vec<usize>,
-    node_derivations: &mut Vec<CoordRetargetNodeIntent>,
+    node_derivations: &mut Vec<InheritedPropagationNodeIntent>,
 ) {
     if let Some(facet_band) = facet_band_ref(measurement) {
         for (idx, child) in facet_band.child_measurements_iter().enumerate() {
             node_path.push(idx);
-            derive_phase10_recursive(child, node_path, node_derivations);
+            derive_inherited_propagation_intent_recursive(child, node_path, node_derivations);
             node_path.pop();
         }
 
         let parent_cross_size_target = facet_band.coordinated_subplot_cross_size();
-        let child_intents = build_phase10_child_intents(
+        let child_intents = build_inherited_propagation_child_intents(
             facet_band.axis,
             parent_cross_size_target,
             facet_band.child_measurements_iter(),
@@ -318,7 +332,7 @@ fn derive_phase10_recursive(
             .filter(|intent| intent.adjust_plot_area)
             .count();
 
-        node_derivations.push(CoordRetargetNodeIntent {
+        node_derivations.push(InheritedPropagationNodeIntent {
             node_id: CoordNodeKey::new(node_path.clone()),
             axis: facet_band.axis,
             parent_cross_size_target,
@@ -329,11 +343,11 @@ fn derive_phase10_recursive(
     }
 }
 
-fn build_phase10_child_intents<'a, I>(
+fn build_inherited_propagation_child_intents<'a, I>(
     axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
     child_measurements: I,
-) -> Vec<CoordRetargetChildIntent>
+) -> Vec<InheritedPropagationChildIntent>
 where
     I: Iterator<Item = &'a ComponentsMeasurement>,
 {
@@ -341,7 +355,7 @@ where
         .enumerate()
         .map(|(idx, child)| {
             let has_band_scale = child.scales.contains_key(axis.scale_name());
-            build_phase10_child_intent(
+            build_inherited_propagation_child_intent(
                 idx,
                 axis,
                 parent_cross_size_target,
@@ -353,14 +367,14 @@ where
         .collect()
 }
 
-fn build_phase10_child_intent(
+fn build_inherited_propagation_child_intent(
     child_index: usize,
     axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
     old_plot_area_width: f32,
     old_plot_area_height: f32,
     has_band_scale: bool,
-) -> CoordRetargetChildIntent {
+) -> InheritedPropagationChildIntent {
     let (target_plot_area_width, target_plot_area_height, adjust_plot_area) =
         match (axis, parent_cross_size_target) {
             (FacetAxis::Column, Some(target_width))
@@ -383,7 +397,7 @@ fn build_phase10_child_intent(
     };
     let update_band_range = target_band_range_end.is_some();
 
-    CoordRetargetChildIntent {
+    InheritedPropagationChildIntent {
         child_index,
         old_plot_area_width,
         old_plot_area_height,
@@ -395,10 +409,10 @@ fn build_phase10_child_intent(
     }
 }
 
-fn apply_phase10_child_propagation_from_intent(
+fn apply_inherited_propagation_child_resize(
     axis: FacetAxis,
     child: &mut ComponentsMeasurement,
-    intent: &CoordRetargetChildIntent,
+    intent: &InheritedPropagationChildIntent,
 ) -> bool {
     let mut plot_area_adjusted = false;
 
@@ -445,9 +459,9 @@ fn apply_phase10_child_propagation_from_intent(
     plot_area_adjusted
 }
 
-fn apply_phase10_child_retarget_from_intent(
+fn apply_inherited_propagation_child_retarget(
     child: &mut ComponentsMeasurement,
-    intent: &CoordRetargetChildIntent,
+    intent: &InheritedPropagationChildIntent,
 ) -> usize {
     if (child.plot_area_width - intent.old_plot_area_width).abs() <= 0.01
         && (child.plot_area_height - intent.old_plot_area_height).abs() <= 0.01
@@ -462,11 +476,11 @@ fn apply_phase10_child_retarget_from_intent(
     )
 }
 
-pub(crate) fn run_phase10_scale_retarget_and_adjustments_with_trace(
+pub(crate) fn run_inherited_propagation_with_trace(
     measurement: &mut ComponentsMeasurement,
-    derivation: &CoordRetargetIntent,
-) -> CoordRetargetTrace {
-    let derivation_by_node: HashMap<CoordNodeKey, CoordRetargetNodeIntent> = derivation
+    derivation: &InheritedPropagationIntent,
+) -> InheritedPropagationTrace {
+    let derivation_by_node: HashMap<CoordNodeKey, InheritedPropagationNodeIntent> = derivation
         .node_derivations
         .iter()
         .cloned()
@@ -475,20 +489,20 @@ pub(crate) fn run_phase10_scale_retarget_and_adjustments_with_trace(
 
     let mut node_results = Vec::new();
     let mut node_path = Vec::new();
-    run_phase10_scale_retarget_recursive(
+    run_inherited_propagation_recursive(
         measurement,
         &derivation_by_node,
         &mut node_path,
         &mut node_results,
     );
-    CoordRetargetTrace { node_results }
+    InheritedPropagationTrace { node_results }
 }
 
-fn run_phase10_scale_retarget_recursive(
+fn run_inherited_propagation_recursive(
     measurement: &mut ComponentsMeasurement,
-    derivation_by_node: &HashMap<CoordNodeKey, CoordRetargetNodeIntent>,
+    derivation_by_node: &HashMap<CoordNodeKey, InheritedPropagationNodeIntent>,
     node_path: &mut Vec<usize>,
-    node_results: &mut Vec<CoordRetargetNodeOutcome>,
+    node_results: &mut Vec<InheritedPropagationNodeOutcome>,
 ) {
     measurement
         .coord_measurement
@@ -500,10 +514,10 @@ fn run_phase10_scale_retarget_recursive(
         let derived = derivation_by_node.get(&node_id);
         debug_assert!(
             derived.is_some(),
-            "Missing phase-10 derivation for node path {:?}",
+            "Missing inherited-propagation derivation for node path {:?}",
             node_id.path
         );
-        let fallback_child_intents = build_phase10_child_intents(
+        let fallback_child_intents = build_inherited_propagation_child_intents(
             axis,
             facet_band.coordinated_subplot_cross_size(),
             facet_band.child_measurements_iter(),
@@ -538,7 +552,7 @@ fn run_phase10_scale_retarget_recursive(
         for (idx, child) in facet_band.child_measurements_iter_mut().enumerate() {
             let intent = child_intents.get(idx).cloned().unwrap_or_else(|| {
                 let has_band_scale = child.scales.contains_key(axis.scale_name());
-                build_phase10_child_intent(
+                build_inherited_propagation_child_intent(
                     idx,
                     axis,
                     derived_parent_cross_size_target,
@@ -548,23 +562,18 @@ fn run_phase10_scale_retarget_recursive(
                 )
             });
 
-            let plot_area_adjusted =
-                apply_phase10_child_propagation_from_intent(axis, child, &intent);
+            let plot_area_adjusted = apply_inherited_propagation_child_resize(axis, child, &intent);
             if plot_area_adjusted {
                 child_plot_area_adjustments_count += 1;
             }
-            scale_range_retarget_count += apply_phase10_child_retarget_from_intent(child, &intent);
+            scale_range_retarget_count +=
+                apply_inherited_propagation_child_retarget(child, &intent);
             node_path.push(idx);
-            run_phase10_scale_retarget_recursive(
-                child,
-                derivation_by_node,
-                node_path,
-                node_results,
-            );
+            run_inherited_propagation_recursive(child, derivation_by_node, node_path, node_results);
             node_path.pop();
         }
 
-        node_results.push(CoordRetargetNodeOutcome {
+        node_results.push(InheritedPropagationNodeOutcome {
             node_id,
             axis,
             derived_parent_cross_size_target,
