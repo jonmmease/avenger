@@ -3246,7 +3246,14 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         };
 
         let band_scale = self.scales.get(self.axis_ops.scale_name).ok_or_else(|| {
-            AvengerChartError::InternalError(self.axis_ops.missing_scale_err.to_string())
+            let available_scales = self.scales.keys().cloned().collect::<Vec<_>>();
+            AvengerChartError::InternalError(format!(
+                "{} (axis={:?}, facet_path={:?}, available_scales={:?})",
+                self.axis_ops.missing_scale_err,
+                self.axis_ops.axis,
+                self.facet_path,
+                available_scales
+            ))
         })?;
 
         let subplot_band_size = bandwidth(&band_scale.configured().config).map_err(|e| {

@@ -4,6 +4,7 @@ use std::{
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     sync::Arc,
+    time::Instant,
 };
 
 use arrow::array::{Float32Array, Float64Array};
@@ -3495,7 +3496,13 @@ impl CompiledPlot {
         // Build evaluated facet spec (pre-pass to discover partition structure)
         // This queries distinct values for each facet level, respecting scale sharing settings.
         // Used for efficient domain lookups in nested facet coordination.
+        let facet_tree_start = Instant::now();
         let facet_tree = Arc::new(EvaluatedFacetTree::from_compiled_plot(self, ctx).await?);
+        debug!(
+            elapsed_ms = facet_tree_start.elapsed().as_secs_f64() * 1000.0,
+            depth = facet_tree.depth(),
+            "evaluated facet tree construction completed"
+        );
 
         // Evaluate layout spec to get concrete dimensions
         let evaluated_layout_spec = evaluate_layout_spec(
