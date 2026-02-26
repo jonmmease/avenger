@@ -422,25 +422,24 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     facet_path: &[ScalarValue],
     coord_measurement: Option<&dyn CoordMeasurement>,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-    let subplot_overflow = if let Some(local_overflow) =
-        coord_measurement.and_then(facet_local_overflow)
-    {
-        propagated_subplot_overflow(Some(local_overflow))
-    } else {
-        compute_subplot_overflow_common::<O>(
-            state,
-            scales,
-            plot_width,
-            plot_height,
-            theme,
-            params,
-            data_override,
-            ctx,
-            facet_tree,
-            facet_path,
-        )
-        .await?
-    };
+    let subplot_overflow =
+        if let Some(local_overflow) = coord_measurement.and_then(facet_local_overflow) {
+            propagated_subplot_overflow(Some(local_overflow))
+        } else {
+            compute_subplot_overflow_common::<O>(
+                state,
+                scales,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+                data_override,
+                ctx,
+                facet_tree,
+                facet_path,
+            )
+            .await?
+        };
 
     let (_band_positions, labels) = band_positions_and_labels::<O>(scales, coord_measurement)?;
     let place_at_end = O::place_at_end(state.position.as_deref());
@@ -790,7 +789,9 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
 }
 
 fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<ScalarValue>> {
-    if let Some(facet_measurement) = measurement.as_any().downcast_ref::<FacetBandCoordMeasurement>()
+    if let Some(facet_measurement) = measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurement>()
     {
         return Some(facet_measurement.cell_values().cloned().collect::<Vec<_>>());
     }
@@ -801,7 +802,9 @@ fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<Sc
 }
 
 fn facet_local_overflow(measurement: &dyn CoordMeasurement) -> Option<CoordinatedOverflow> {
-    if let Some(facet_measurement) = measurement.as_any().downcast_ref::<FacetBandCoordMeasurement>()
+    if let Some(facet_measurement) = measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurement>()
     {
         return facet_measurement.local_overflow_value();
     }

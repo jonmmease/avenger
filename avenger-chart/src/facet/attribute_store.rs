@@ -91,7 +91,6 @@ impl FacetAttributeStore {
             },
         );
     }
-
 }
 
 #[cfg(test)]

@@ -505,8 +505,10 @@ impl<C: CoordinateSystem> Plot<C> {
 
     // ====== Layout API ======
 
-    /// Set fixed canvas dimensions (traditional mode)
-    /// The plot area will fill the available space within the canvas
+    /// Set fixed canvas dimensions (traditional mode).
+    ///
+    /// For faceted charts, this selects canvas-fit facet sizing.
+    /// The plot area is solved to fit within the provided canvas.
     ///
     /// Accepts numeric literals (e.g., `800.0`), `Expr` values, or column references via `col()`
     pub fn canvas_size<W, H>(mut self, width: W, height: H) -> Self
@@ -530,8 +532,12 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
-    /// Set fixed plot area dimensions (data-first mode)
-    /// The canvas will expand to accommodate the plot area plus margins, axes, and legends
+    /// Set fixed plot area dimensions (data-first mode).
+    ///
+    /// For non-facet charts, this fixes the top-level plot area.
+    /// For top-level faceted charts, this selects fixed-subplot sizing where
+    /// `width`/`height` are interpreted as per-leaf-subplot plot-area dimensions and
+    /// the root canvas grows to fit the facet tree.
     ///
     /// Accepts numeric literals (e.g., `400.0`), `Expr` values, or column references via `col()`
     pub fn plot_size<W, H>(mut self, width: W, height: H) -> Self

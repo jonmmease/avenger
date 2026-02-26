@@ -158,11 +158,46 @@ pub struct CellDomainInfo {
 /// 6. Re-measures any subplots affected by legend overflow or layout coordination
 ///
 /// This ensures measurements are correct before `build_plot_components` is called.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FacetCoordinationMode {
+    /// Full AG-style coordination cycle:
+    /// collection -> inherited apply/resynthesis -> recollection -> inherited propagation.
+    FullCycle,
+    /// Fixed-subplot mode:
+    /// collection-only coordination without inherited remeasure/propagation rounds.
+    CollectionOnly,
+}
+
 pub async fn coordinate_overflow_for_guides(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    crate::facet::coordination::coordinate_facet_measurement_tree(measurement, eval_ctx).await
+    coordinate_overflow_for_guides_with_mode(
+        measurement,
+        eval_ctx,
+        FacetCoordinationMode::FullCycle,
+    )
+    .await
+}
+
+pub async fn coordinate_overflow_for_guides_with_mode(
+    measurement: &mut ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+    mode: FacetCoordinationMode,
+) -> Result<(), AvengerChartError> {
+    match mode {
+        FacetCoordinationMode::FullCycle => {
+            crate::facet::coordination::coordinate_facet_measurement_tree(measurement, eval_ctx)
+                .await
+        }
+        FacetCoordinationMode::CollectionOnly => {
+            crate::facet::coordination::coordinate_facet_measurement_tree_collection_only(
+                measurement,
+                eval_ctx,
+            )
+            .await
+        }
+    }
 }
 
 #[typetag::serde(tag = "type")]

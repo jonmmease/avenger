@@ -40,12 +40,15 @@ use crate::{
         resolution::resolve_all_channel_refs,
         value::{ChannelValue, ConditionalValue, strip_trailing_numbers},
     },
-    coords::{CoordMeasurement, coordinate_overflow_for_guides},
+    coords::{
+        CoordMeasurement, FacetCoordinationMode, coordinate_overflow_for_guides,
+        coordinate_overflow_for_guides_with_mode,
+    },
     error::AvengerChartError,
     facet::{
         debug as facet_debug,
         empty_cell_policy::FacetEmptyCellPolicy,
-        evaluated_facet_tree::EvaluatedFacetTree,
+        evaluated_facet_tree::{EvaluatedFacetTree, PartitionContent, PartitionNode},
         marks::facet::{FacetMarkRef, facet_mark_ref},
     },
     guide::OverflowSpaceRequirement,
@@ -82,6 +85,24 @@ struct PreparedMarkData {
     scalar_batch: RecordBatch,
     /// Render state with plot dimensions and scales
     render_state: RenderState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FacetSizingStrategy {
+    CanvasFit,
+    FixedSubplot {
+        leaf_plot_width: f32,
+        leaf_plot_height: f32,
+    },
+}
+
+impl FacetSizingStrategy {
+    fn coordination_mode(self) -> FacetCoordinationMode {
+        match self {
+            Self::CanvasFit => FacetCoordinationMode::FullCycle,
+            Self::FixedSubplot { .. } => FacetCoordinationMode::CollectionOnly,
+        }
+    }
 }
 
 impl CompiledPlot {
@@ -121,6 +142,186 @@ impl CompiledPlot {
             }
             false
         })
+    }
+
+    fn marks_contain_facet(marks: &[Arc<dyn CompiledMark>]) -> bool {
+        marks
+            .iter()
+            .any(|mark| facet_mark_ref(mark.as_ref()).is_some())
+    }
+
+    fn contains_partial_size_mode(mode: &SizeMode) -> bool {
+        matches!(mode, SizeMode::Width(_) | SizeMode::Height(_))
+    }
+
+    fn validate_no_nested_subplot_plot_size_under_facet(
+        marks: &[Arc<dyn CompiledMark>],
+        path: &mut Vec<String>,
+    ) -> Result<(), AvengerChartError> {
+        for (idx, mark) in marks.iter().enumerate() {
+            let Some(facet_mark) = facet_mark_ref(mark.as_ref()) else {
+                continue;
+            };
+
+            path.push(format!("facet[{idx}]"));
+            let subplot = facet_mark.compiled_subplot();
+            if !matches!(subplot.layout_spec.plot_area, SizeMode::Auto) {
+                let facet_path = if path.is_empty() {
+                    "facet-root".to_string()
+                } else {
+                    path.join(" -> ")
+                };
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Nested subplot at {facet_path} cannot set `plot_size(...)` when used under a facet. \
+                     Set `plot_size(...)` only on the top-level faceted plot."
+                )));
+            }
+            Self::validate_no_nested_subplot_plot_size_under_facet(&subplot.marks, path)?;
+            path.pop();
+        }
+        Ok(())
+    }
+
+    fn resolve_facet_sizing_strategy(
+        &self,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+    ) -> Result<FacetSizingStrategy, AvengerChartError> {
+        if !Self::marks_contain_facet(&self.marks) {
+            return Ok(FacetSizingStrategy::CanvasFit);
+        }
+
+        Self::validate_no_nested_subplot_plot_size_under_facet(&self.marks, &mut Vec::new())?;
+
+        if Self::contains_partial_size_mode(&self.layout_spec.canvas)
+            || Self::contains_partial_size_mode(&self.layout_spec.plot_area)
+        {
+            return Err(AvengerChartError::InvalidArgument(
+                "Faceted charts do not support partial `canvas_constraint`/`plot_constraint` in this mode. \
+                 Use `canvas_size(...)` (canvas-fit mode) or `plot_size(width, height)` (fixed-subplot mode)."
+                    .to_string(),
+            ));
+        }
+
+        if let EvaluatedSizeMode::Fixed {
+            width: leaf_plot_width,
+            height: leaf_plot_height,
+        } = evaluated_layout_spec.plot_area
+        {
+            if matches!(
+                evaluated_layout_spec.canvas,
+                EvaluatedSizeMode::Fixed { .. }
+            ) {
+                return Err(AvengerChartError::InvalidArgument(
+                    "Faceted charts cannot combine `canvas_size(...)` and `plot_size(...)`. \
+                     Use exactly one sizing mode."
+                        .to_string(),
+                ));
+            }
+            return Ok(FacetSizingStrategy::FixedSubplot {
+                leaf_plot_width,
+                leaf_plot_height,
+            });
+        }
+
+        Ok(FacetSizingStrategy::CanvasFit)
+    }
+
+    fn synthesize_subtree_plot_area_from_leaf_size(
+        node: &PartitionNode,
+        leaf_plot_width: f32,
+        leaf_plot_height: f32,
+    ) -> (f32, f32) {
+        match &node.content {
+            PartitionContent::Leaf { values } => {
+                let count = values.len().max(1) as f32;
+                match node.direction {
+                    crate::guide::FacetDirection::Column => {
+                        (leaf_plot_width * count, leaf_plot_height)
+                    }
+                    crate::guide::FacetDirection::Row => {
+                        (leaf_plot_width, leaf_plot_height * count)
+                    }
+                }
+            }
+            PartitionContent::Branch { children } => {
+                let mut child_sizes = children.values().map(|child| {
+                    Self::synthesize_subtree_plot_area_from_leaf_size(
+                        child.as_ref(),
+                        leaf_plot_width,
+                        leaf_plot_height,
+                    )
+                });
+
+                let Some((first_w, first_h)) = child_sizes.next() else {
+                    return (leaf_plot_width, leaf_plot_height);
+                };
+
+                match node.direction {
+                    crate::guide::FacetDirection::Column => {
+                        let mut total_w = first_w;
+                        let mut max_h = first_h;
+                        for (w, h) in child_sizes {
+                            total_w += w;
+                            max_h = max_h.max(h);
+                        }
+                        (total_w, max_h)
+                    }
+                    crate::guide::FacetDirection::Row => {
+                        let mut max_w = first_w;
+                        let mut total_h = first_h;
+                        for (w, h) in child_sizes {
+                            max_w = max_w.max(w);
+                            total_h += h;
+                        }
+                        (max_w, total_h)
+                    }
+                }
+            }
+        }
+    }
+
+    fn derive_fixed_subplot_plot_area(
+        facet_tree: &EvaluatedFacetTree,
+        leaf_plot_width: f32,
+        leaf_plot_height: f32,
+    ) -> (f32, f32) {
+        if let Some(root) = facet_tree.root() {
+            Self::synthesize_subtree_plot_area_from_leaf_size(
+                root,
+                leaf_plot_width,
+                leaf_plot_height,
+            )
+        } else {
+            (leaf_plot_width.max(1.0), leaf_plot_height.max(1.0))
+        }
+    }
+
+    fn layout_spec_for_facet_sizing_strategy(
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        facet_tree: &EvaluatedFacetTree,
+        strategy: FacetSizingStrategy,
+    ) -> EvaluatedLayoutSpec {
+        match strategy {
+            FacetSizingStrategy::CanvasFit => evaluated_layout_spec.clone(),
+            FacetSizingStrategy::FixedSubplot {
+                leaf_plot_width,
+                leaf_plot_height,
+            } => {
+                let (required_plot_area_width, required_plot_area_height) =
+                    Self::derive_fixed_subplot_plot_area(
+                        facet_tree,
+                        leaf_plot_width,
+                        leaf_plot_height,
+                    );
+                let mut adjusted = evaluated_layout_spec.clone();
+                adjusted.canvas = EvaluatedSizeMode::Auto;
+                adjusted.plot_area = EvaluatedSizeMode::Fixed {
+                    width: required_plot_area_width.max(1.0),
+                    height: required_plot_area_height.max(1.0),
+                };
+                adjusted
+            }
+        }
     }
 }
 
@@ -165,6 +366,7 @@ mod tests {
     use crate::{
         coords::CoordinatedOverflow,
         facet::{band_positions::BandPositionIterator, coord::FacetBandCoordMeasurement},
+        layout::PlotConstraint,
         legend::LegendPosition,
         prelude::*,
     };
@@ -272,6 +474,20 @@ mod tests {
                         ),
                     ),
             )
+    }
+
+    fn build_simple_facet_col_plot(df: DataFrame) -> Plot<FacetColumn> {
+        Plot::<FacetColumn>::new().data(df).mark(
+            Facet::new().column(col("outer_group")).subplot(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x(col("value"))
+                        .y(col("value"))
+                        .size(24.0)
+                        .fill("#4682b4"),
+                ),
+            ),
+        )
     }
 
     async fn legend_sharing_dataframe(ctx: &SessionContext) -> DataFrame {
@@ -741,6 +957,16 @@ mod tests {
         plot.compile(ctx).await
     }
 
+    async fn compile_simple_facet_plot_with_plot_size(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = deeply_nested_dataframe(ctx);
+        build_simple_facet_col_plot(df)
+            .plot_size(120.0, 90.0)
+            .compile(ctx)
+            .await
+    }
+
     async fn prepare_top_level_measurement(
         compiled: &CompiledPlot,
         ctx: &SessionContext,
@@ -762,6 +988,13 @@ mod tests {
             compiled.get_theme().as_ref(),
         )
         .await?;
+        let facet_sizing_strategy =
+            compiled.resolve_facet_sizing_strategy(&evaluated_layout_spec)?;
+        let measured_layout_spec = CompiledPlot::layout_spec_for_facet_sizing_strategy(
+            &evaluated_layout_spec,
+            facet_tree.as_ref(),
+            facet_sizing_strategy,
+        );
 
         let scale_builder = build_scale_builder_from_marks(
             &compiled.marks,
@@ -787,10 +1020,10 @@ mod tests {
         );
 
         let measurement = compiled
-            .measure_plot_components(&eval_ctx, &evaluated_layout_spec, &provider, None, &[])
+            .measure_plot_components(&eval_ctx, &measured_layout_spec, &provider, None, &[])
             .await?;
 
-        Ok((eval_ctx, evaluated_layout_spec, scale_builder, measurement))
+        Ok((eval_ctx, measured_layout_spec, scale_builder, measurement))
     }
 
     async fn prepare_refined_top_level_measurement(
@@ -807,7 +1040,11 @@ mod tests {
         let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
             prepare_top_level_measurement(compiled, ctx).await?;
 
-        coordinate_overflow_for_guides(&mut measurement, &eval_ctx).await?;
+        let coordination_mode = compiled
+            .resolve_facet_sizing_strategy(&evaluated_layout_spec)?
+            .coordination_mode();
+        coordinate_overflow_for_guides_with_mode(&mut measurement, &eval_ctx, coordination_mode)
+            .await?;
         let (_, _, is_plot_area_mode) =
             CompiledPlot::resolve_dimensions_from_spec(&evaluated_layout_spec);
         if !is_plot_area_mode {
@@ -1066,6 +1303,7 @@ mod tests {
                 &eval_ctx,
                 &evaluated_layout_spec,
                 &provider,
+                FacetCoordinationMode::FullCycle,
             )
             .await?;
 
@@ -1088,6 +1326,7 @@ mod tests {
                 &eval_ctx,
                 &evaluated_layout_spec,
                 &provider,
+                FacetCoordinationMode::FullCycle,
             )
             .await?;
 
@@ -1101,6 +1340,135 @@ mod tests {
         assert!(final_delta_h <= coordinated_delta_h + 1e-6);
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_plot_size_mode_detected_on_top_level_facet_root() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_facet_plot_with_plot_size(&ctx).await?;
+        let params = compiled.get_default_params().clone();
+        let evaluated_layout_spec = evaluate_layout_spec(
+            compiled.get_layout_spec(),
+            &ctx,
+            &params,
+            compiled.get_theme().as_ref(),
+        )
+        .await?;
+
+        let strategy = compiled.resolve_facet_sizing_strategy(&evaluated_layout_spec)?;
+        assert!(
+            matches!(
+                strategy,
+                FacetSizingStrategy::FixedSubplot {
+                    leaf_plot_width: 120.0,
+                    leaf_plot_height: 90.0
+                }
+            ),
+            "expected fixed-subplot strategy for faceted plot_size"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_plot_size_mode_evaluates_successfully() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = compile_simple_facet_plot_with_plot_size(&ctx).await?;
+        let evaluated = compiled
+            .evaluate_with_options(
+                &ctx,
+                None,
+                EvaluationOptions {
+                    layout_snapshot: LayoutSnapshot::Final,
+                    debug_layout_lines: false,
+                },
+            )
+            .await?;
+        assert!(evaluated.scene_graph.width > 0.0);
+        assert!(evaluated.scene_graph.height > 0.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_canvas_and_plot_size_combination_errors() {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let compiled = build_simple_facet_col_plot(df)
+            .canvas_size(640.0, 420.0)
+            .plot_size(120.0, 90.0)
+            .compile(&ctx)
+            .await
+            .expect("compile facet plot with both canvas_size and plot_size");
+
+        let err = match compiled
+            .evaluate_with_options(&ctx, None, EvaluationOptions::default())
+            .await
+        {
+            Ok(_) => panic!("facet chart with canvas_size + plot_size should error"),
+            Err(err) => err,
+        };
+        let message = err.to_string();
+        assert!(
+            message.contains("cannot combine `canvas_size(...)` and `plot_size(...)`"),
+            "unexpected error: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn facet_partial_constraints_error_in_fixed_subplot_mode() {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let compiled = build_simple_facet_col_plot(df)
+            .plot_constraint(PlotConstraint::width(200.0))
+            .compile(&ctx)
+            .await
+            .expect("compile facet plot with plot_constraint");
+
+        let err = match compiled
+            .evaluate_with_options(&ctx, None, EvaluationOptions::default())
+            .await
+        {
+            Ok(_) => panic!("faceted partial constraints should error"),
+            Err(err) => err,
+        };
+        let message = err.to_string();
+        assert!(
+            message.contains("do not support partial `canvas_constraint`/`plot_constraint`"),
+            "unexpected error: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_subplot_plot_size_under_facet_errors() {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let plot = Plot::<FacetColumn>::new()
+            .data(df)
+            .plot_size(120.0, 90.0)
+            .mark(
+                Facet::new().column(col("outer_group")).subplot(
+                    Plot::<Cartesian>::new()
+                        .plot_size(80.0, 60.0)
+                        .mark(Symbol::new().x(col("value")).y(col("value")).size(24.0)),
+                ),
+            );
+
+        let compiled = plot
+            .compile(&ctx)
+            .await
+            .expect("compile nested subplot plot_size test");
+        let err = match compiled
+            .evaluate_with_options(&ctx, None, EvaluationOptions::default())
+            .await
+        {
+            Ok(_) => panic!("nested subplot plot_size under facet should error"),
+            Err(err) => err,
+        };
+        let message = err.to_string();
+        assert!(
+            message.contains("cannot set `plot_size(...)` when used under a facet"),
+            "unexpected error: {message}"
+        );
     }
 
     #[tokio::test]
@@ -3432,6 +3800,7 @@ impl CompiledPlot {
         eval_ctx: &EvaluationContext,
         evaluated_layout_spec: &EvaluatedLayoutSpec,
         provider: &dyn ScaleProvider,
+        coordination_mode: FacetCoordinationMode,
     ) -> Result<(), AvengerChartError> {
         if !matches!(
             snapshot,
@@ -3445,7 +3814,7 @@ impl CompiledPlot {
         // - phase 8 sidecar apply/remeasure + immutable execution trace,
         // - phase 9 attributes build (post-remeasure reconcile distribution) + sidecar apply,
         // - phase 10 sidecar scale retarget/adjustment propagation + immutable trace.
-        coordinate_overflow_for_guides(measurement, eval_ctx).await?;
+        coordinate_overflow_for_guides_with_mode(measurement, eval_ctx, coordination_mode).await?;
 
         if !matches!(snapshot, LayoutSnapshot::Final) {
             return Ok(());
@@ -3512,6 +3881,12 @@ impl CompiledPlot {
             self.get_theme().as_ref(),
         )
         .await?;
+        let facet_sizing_strategy = self.resolve_facet_sizing_strategy(&evaluated_layout_spec)?;
+        let measured_layout_spec = Self::layout_spec_for_facet_sizing_strategy(
+            &evaluated_layout_spec,
+            facet_tree.as_ref(),
+            facet_sizing_strategy,
+        );
 
         // Build scale provider
         let scale_builder = build_scale_builder_from_marks(
@@ -3550,7 +3925,7 @@ impl CompiledPlot {
         let measurement = self
             .measure_plot_components(
                 &eval_ctx,
-                &evaluated_layout_spec,
+                &measured_layout_spec,
                 &provider,
                 None, // No data override for top-level plots
                 &[],  // Empty facet path for top-level plots
@@ -3562,8 +3937,9 @@ impl CompiledPlot {
             options.layout_snapshot,
             &mut measurement,
             &eval_ctx,
-            &evaluated_layout_spec,
+            &measured_layout_spec,
             &provider,
+            facet_sizing_strategy.coordination_mode(),
         )
         .await?;
 

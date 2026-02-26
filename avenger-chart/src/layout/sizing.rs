@@ -17,6 +17,10 @@
 //! Data-first mode where the plot area (where data is rendered) has fixed dimensions
 //! and the canvas expands to accommodate margins, axes, legends, and titles.
 //!
+//! For top-level faceted charts, fixed plot area selects fixed-subplot sizing:
+//! the configured `plot_size(width, height)` is interpreted as per-leaf-subplot
+//! plot-area size, and the root plot area/canvas are synthesized from the facet tree.
+//!
 //! ```ignore
 //! Plot::new()
 //!     .plot_size(400.0, 300.0)

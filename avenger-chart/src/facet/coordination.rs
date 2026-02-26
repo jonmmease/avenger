@@ -128,6 +128,27 @@ pub async fn coordinate_facet_measurement_tree(
     Ok(())
 }
 
+/// Collection-only facet coordination.
+///
+/// Used by fixed-subplot facet sizing mode where inherited remeasure/propagation
+/// rounds are intentionally disabled for performance and deterministic sizing.
+pub async fn coordinate_facet_measurement_tree_collection_only(
+    measurement: &mut ComponentsMeasurement,
+    _eval_ctx: &EvaluationContext,
+) -> Result<(), AvengerChartError> {
+    let collection_round_a =
+        build_collection_round_a(collect_collection_round_snapshot(measurement));
+    debug_assert_collection_round_coverage(&collection_round_a);
+    debug!(
+        overflow_groups = collection_round_a.aggregates.merged_overflow_by_key.len(),
+        layout_groups = collection_round_a.aggregates.merged_layout_by_key.len(),
+        domain_groups = collection_round_a.aggregates.unified_domain_extents.len(),
+        "coordinate_facet_measurement_tree collection-only aggregate + distribution"
+    );
+    apply_collection_round_a(measurement, &collection_round_a);
+    Ok(())
+}
+
 pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,

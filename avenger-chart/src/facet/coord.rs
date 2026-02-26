@@ -2534,8 +2534,7 @@ async fn measure_cells_overflow_probe(
             perf_counters.phase5_non_leaf_probe_aggregate_count += 1;
             trace!(
                 cell_index = idx,
-                child_probe_summary_count,
-                "FacetBand non-leaf synthesized probe aggregate"
+                child_probe_summary_count, "FacetBand non-leaf synthesized probe aggregate"
             );
             synthesized.cell_probe_summary().clone()
         };
@@ -3059,7 +3058,10 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         }
 
         let data_df = self.data.ok_or_else(|| {
-            AvengerChartError::InternalError(format!("{} measure requires data", self.axis_ops.facet_label))
+            AvengerChartError::InternalError(format!(
+                "{} measure requires data",
+                self.axis_ops.facet_label
+            ))
         })?;
 
         ensure_subtree_precomputed(
@@ -3152,7 +3154,11 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         let probe_measurement = FacetBandProbeMeasurement {
             axis: self.axis_ops.axis,
             cell_values: plan.cell_values.clone(),
-            cell_has_data_rows: plan.cells.iter().map(|cell| cell.plan.has_data_rows).collect(),
+            cell_has_data_rows: plan
+                .cells
+                .iter()
+                .map(|cell| cell.plan.has_data_rows)
+                .collect(),
             local_overflow,
             original_band_scale: prepared_runtime.original_band_scale.clone(),
             local_layout,
@@ -3164,40 +3170,41 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         let mut adjusted_scales = self.scales.clone();
         probe_measurement.apply_scale_adjustments(&mut adjusted_scales);
-        let guide_overflow = if let Some(compiled_guide) = &prepared_runtime.compiled_subplot.compiled_guide {
-            let configured_scales = adjusted_scales
-                .iter()
-                .map(|(name, scale)| (name.clone(), scale.configured().clone()))
-                .collect::<HashMap<_, _>>();
-            compiled_guide
-                .measure_overflow(
-                    &configured_scales,
-                    final_subplot_plot_width,
-                    final_subplot_plot_height,
-                    prepared_runtime.compiled_subplot.get_theme().as_ref(),
-                    &self.eval_ctx.params,
-                    self.data,
-                    self.eval_ctx.session_context.as_ref(),
-                    self.eval_ctx.facet_tree.as_ref(),
-                    self.facet_path,
-                    Some(&probe_measurement),
-                )
-                .await?
-        } else {
-            probe_measurement.local_overflow_value().guide
-        };
+        let guide_overflow =
+            if let Some(compiled_guide) = &prepared_runtime.compiled_subplot.compiled_guide {
+                let configured_scales = adjusted_scales
+                    .iter()
+                    .map(|(name, scale)| (name.clone(), scale.configured().clone()))
+                    .collect::<HashMap<_, _>>();
+                compiled_guide
+                    .measure_overflow(
+                        &configured_scales,
+                        final_subplot_plot_width,
+                        final_subplot_plot_height,
+                        prepared_runtime.compiled_subplot.get_theme().as_ref(),
+                        &self.eval_ctx.params,
+                        self.data,
+                        self.eval_ctx.session_context.as_ref(),
+                        self.eval_ctx.facet_tree.as_ref(),
+                        self.facet_path,
+                        Some(&probe_measurement),
+                    )
+                    .await?
+            } else {
+                probe_measurement.local_overflow_value().guide
+            };
         let total_overflow = prepared_runtime
             .compiled_subplot
-                .total_overflow_from_precomputed_guide_overflow(
-                    self.eval_ctx,
-                    &fixed_plot_area_layout_spec(final_subplot_plot_width, final_subplot_plot_height),
-                    &adjusted_scales,
-                    final_subplot_plot_width,
-                    final_subplot_plot_height,
-                    &guide_overflow,
-                    self.facet_path,
-                )
-                .await?;
+            .total_overflow_from_precomputed_guide_overflow(
+                self.eval_ctx,
+                &fixed_plot_area_layout_spec(final_subplot_plot_width, final_subplot_plot_height),
+                &adjusted_scales,
+                final_subplot_plot_width,
+                final_subplot_plot_height,
+                &guide_overflow,
+                self.facet_path,
+            )
+            .await?;
 
         Ok(FacetBandProbeSynthesis {
             cell_probe_summary: FacetCellProbeSummary {
@@ -4989,8 +4996,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn non_leaf_phase5_probe_path_records_full_measure_calls()
-    -> Result<(), AvengerChartError> {
+    async fn non_leaf_phase5_probe_path_records_full_measure_calls() -> Result<(), AvengerChartError>
+    {
         let fixture = build_non_leaf_probe_fixture().await?;
         let pipeline = FacetBandMeasurePipeline::new(
             FacetAxisOps::for_axis(FacetAxis::Column),
