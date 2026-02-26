@@ -10,6 +10,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         attribute_context::FacetCellMeasureContextKey,
+        attribute_store::FacetCellProbeSummary,
         coord::{ChannelDomainExtent, FacetBandNestedMeasureContext},
         empty_cell_policy::FacetEmptyCellPolicy,
         evaluated_facet_tree::EvaluatedFacetTree,
@@ -58,6 +59,7 @@ pub(crate) struct FacetBandPreparedSynthesis {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct OverflowProbeSummary {
     pub(crate) cell_overflows: Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>,
+    pub(crate) cell_probe_summaries: Vec<FacetCellProbeSummary>,
     pub(crate) max_child_padding: f32,
 }
 

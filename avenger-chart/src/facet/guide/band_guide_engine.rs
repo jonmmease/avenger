@@ -17,7 +17,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         band_positions::{BandPosition, BandPositionIterator},
-        coord::{FacetBandCoordMeasurement, FacetCellRuntime},
+        coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement, FacetCellRuntime},
         guide_utils::{
             FacetLabelMeasurementConfig, FacetLabelRenderConfig,
             facet_guide_labels_visible_for_cell, format_scalar_value, measure_facet_label_slab,
@@ -186,13 +186,7 @@ impl FacetGuideAxisOps for RowGuideAxisOps {
         subplot_overflow: &OverflowSpaceRequirement,
         coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> (f32, GuideAnchorSource) {
-        let preferred = coord_measurement
-            .and_then(|measurement| {
-                measurement
-                    .as_any()
-                    .downcast_ref::<FacetBandCoordMeasurement>()
-            })
-            .and_then(preferred_overflow_for_facet_measurement);
+        let preferred = coord_measurement.and_then(preferred_overflow_for_facet_measurement);
 
         if let Some((overflow, source)) = preferred {
             return (
@@ -332,13 +326,7 @@ impl FacetGuideAxisOps for ColGuideAxisOps {
                 Some(coordinated)
             }
         });
-        let local = coord_measurement
-            .and_then(|measurement| {
-                measurement
-                    .as_any()
-                    .downcast_ref::<FacetBandCoordMeasurement>()
-            })
-            .and_then(|fcm| fcm.local_overflow_value());
+        let local = coord_measurement.and_then(facet_local_overflow);
 
         let (resolved, source) = resolve_col_guide_anchor_overflow(
             place_at_end,
@@ -434,10 +422,10 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     facet_path: &[ScalarValue],
     coord_measurement: Option<&dyn CoordMeasurement>,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-    let subplot_overflow = if let Some(fcm) =
-        coord_measurement.and_then(|cm| cm.as_any().downcast_ref::<FacetBandCoordMeasurement>())
+    let subplot_overflow = if let Some(local_overflow) =
+        coord_measurement.and_then(facet_local_overflow)
     {
-        propagated_subplot_overflow(fcm.local_overflow_value())
+        propagated_subplot_overflow(Some(local_overflow))
     } else {
         compute_subplot_overflow_common::<O>(
             state,
@@ -795,16 +783,32 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
         .ok_or_else(|| AvengerChartError::InternalError(O::missing_scale_error().to_string()))?;
     let band_positions: Vec<_> = BandPositionIterator::from_configured_scale(band_scale)?.collect();
 
-    let coord_values = coord_measurement
-        .and_then(|measurement| {
-            measurement
-                .as_any()
-                .downcast_ref::<FacetBandCoordMeasurement>()
-        })
-        .map(|fcm| fcm.cell_values().cloned().collect::<Vec<_>>());
+    let coord_values = coord_measurement.and_then(facet_measurement_values);
     let labels = labels_from_values_or_band_positions(coord_values, &band_positions);
 
     Ok((band_positions, labels))
+}
+
+fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<ScalarValue>> {
+    if let Some(facet_measurement) = measurement.as_any().downcast_ref::<FacetBandCoordMeasurement>()
+    {
+        return Some(facet_measurement.cell_values().cloned().collect::<Vec<_>>());
+    }
+    measurement
+        .as_any()
+        .downcast_ref::<FacetBandProbeMeasurement>()
+        .map(|facet_measurement| facet_measurement.cell_values().cloned().collect::<Vec<_>>())
+}
+
+fn facet_local_overflow(measurement: &dyn CoordMeasurement) -> Option<CoordinatedOverflow> {
+    if let Some(facet_measurement) = measurement.as_any().downcast_ref::<FacetBandCoordMeasurement>()
+    {
+        return facet_measurement.local_overflow_value();
+    }
+    measurement
+        .as_any()
+        .downcast_ref::<FacetBandProbeMeasurement>()
+        .map(|facet_measurement| facet_measurement.local_overflow_value())
 }
 
 fn labels_from_values_or_band_positions(
@@ -843,18 +847,16 @@ pub(crate) fn coordinated_overflow_is_zero(overflow: &CoordinatedOverflow) -> bo
 }
 
 pub(crate) fn preferred_overflow_for_facet_measurement(
-    facet_measurement: &FacetBandCoordMeasurement,
+    measurement: &dyn CoordMeasurement,
 ) -> Option<(CoordinatedOverflow, GuideAnchorSource)> {
-    if !coordinated_overflow_is_zero(&facet_measurement.coordinated_overflow) {
-        Some((
-            facet_measurement.coordinated_overflow.clone(),
-            GuideAnchorSource::CoordinatedGuide,
-        ))
-    } else {
-        facet_measurement
-            .local_overflow_value()
-            .map(|overflow| (overflow, GuideAnchorSource::LocalGuide))
+    if let Some(coordinated) = measurement
+        .coordinated_overflow()
+        .filter(|overflow| !coordinated_overflow_is_zero(overflow))
+    {
+        return Some((coordinated.clone(), GuideAnchorSource::CoordinatedGuide));
     }
+
+    facet_local_overflow(measurement).map(|overflow| (overflow, GuideAnchorSource::LocalGuide))
 }
 
 pub(crate) fn propagated_subplot_overflow(

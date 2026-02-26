@@ -22,6 +22,7 @@ pub(crate) struct FacetSynthesisProbePayload {
 #[derive(Clone, Debug)]
 pub(crate) struct FacetBandProbeSynthesis {
     pub(crate) cell_probe_summary: FacetCellProbeSummary,
+    pub(crate) child_cell_summaries: Vec<FacetCellProbeSummary>,
 }
 
 #[derive(Clone, Debug)]
@@ -91,18 +92,6 @@ impl FacetAttributeStore {
         );
     }
 
-    pub(crate) fn insert_band(
-        &mut self,
-        key: FacetInheritedContextKey,
-        band_probe_synthesis: FacetBandProbeSynthesis,
-    ) {
-        self.synthesized_by_key.insert(
-            key,
-            FacetSynthesisValue::BandAggregated {
-                band_probe_synthesis,
-            },
-        );
-    }
 }
 
 #[cfg(test)]

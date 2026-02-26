@@ -34,6 +34,7 @@ use crate::{
     error::AvengerChartError,
     facet::{
         attribute_context::{FacetCellMeasureContextKey, FacetInheritedContextKey, ScaleScopeKey},
+        attribute_scheduler::evaluate_synthesized_async,
         attribute_store::{
             FacetAttributeStore, FacetBandProbeSynthesis, FacetCellProbeSummary,
             FacetSynthesisProbePayload, FacetSynthesisValue,
@@ -155,6 +156,31 @@ pub struct FacetBandCoordMeasurement {
     pub(crate) channel_sharing_levels: HashMap<String, SharingLevel>,
     /// Effective policy used when deciding whether empty cells are renderable.
     pub empty_cell_policy: FacetEmptyCellPolicy,
+}
+
+/// Probe-only facet band measurement used during phase-5 synthesized aggregation.
+///
+/// This carries enough local information for guide overflow measurement and band-scale
+/// layout rewrites without materializing child `ComponentsMeasurement` trees.
+#[derive(Debug, Clone)]
+pub(crate) struct FacetBandProbeMeasurement {
+    pub(crate) axis: FacetAxis,
+    pub(crate) cell_values: Vec<ScalarValue>,
+    pub(crate) cell_has_data_rows: Vec<bool>,
+    pub(crate) local_overflow: CoordinatedOverflow,
+    pub(crate) original_band_scale: ConfiguredScale,
+    pub(crate) local_layout: CoordinatedLayout,
+    pub(crate) empty_cell_policy: FacetEmptyCellPolicy,
+}
+
+impl FacetBandProbeMeasurement {
+    pub(crate) fn cell_values(&self) -> impl Iterator<Item = &ScalarValue> {
+        self.cell_values.iter()
+    }
+
+    pub(crate) fn local_overflow_value(&self) -> CoordinatedOverflow {
+        self.local_overflow.clone()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -344,6 +370,46 @@ impl FacetBandCoordMeasurement {
     }
 }
 
+fn apply_facet_band_scale_adjustment(
+    axis: FacetAxis,
+    scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
+    original_band_scale: &ConfiguredScale,
+    active_layout: &CoordinatedLayout,
+    cell_values: &[ScalarValue],
+    has_hole_cells: bool,
+    has_adjacent_non_empty: bool,
+) {
+    let Some(band_scale) = scales.get_mut(axis.scale_name()) else {
+        return;
+    };
+
+    let needs_zero_padding_override = has_hole_cells && !has_adjacent_non_empty;
+    let domain_override = if cell_values.is_empty() {
+        None
+    } else {
+        Some(cell_values)
+    };
+    let band_n_override = if active_layout.n > cell_values.len() {
+        Some(active_layout.n)
+    } else {
+        None
+    };
+
+    let updated_config = apply_facet_band_scale_layout(
+        axis,
+        original_band_scale,
+        active_layout,
+        domain_override,
+        band_n_override,
+        ScaleLayoutRewriteMode::RenderPass {
+            allow_zero_padding_override: needs_zero_padding_override,
+            side_specific_outer_edges: true,
+        },
+    );
+
+    *band_scale = ConfiguredScaleWithSpec::new(band_scale.spec().clone(), updated_config);
+}
+
 impl CoordMeasurement for FacetBandCoordMeasurement {
     fn as_any(&self) -> &dyn Any {
         self
@@ -365,54 +431,54 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
         //
         // The band_n override preserves equal subplot sizing for ragged nested layouts by
         // reserving trailing empty slots in branches with fewer local values.
-        if let Some(band_scale) = scales.get_mut(self.axis.scale_name()) {
-            let has_hole_cells = self.cells.iter().any(|cell| {
-                !cell.plan.has_data_rows
-                    && !renderable_for_empty_policy(
-                        self.empty_cell_policy,
-                        !cell.plan.has_data_rows,
-                    )
-            });
-            let has_adjacent_non_empty = self.cells.windows(2).any(|pair| {
-                renderable_for_empty_policy(self.empty_cell_policy, !pair[0].plan.has_data_rows)
-                    && renderable_for_empty_policy(
-                        self.empty_cell_policy,
-                        !pair[1].plan.has_data_rows,
-                    )
-            });
-            let needs_zero_padding_override = has_hole_cells && !has_adjacent_non_empty;
-            let cell_values: Vec<ScalarValue> = self.cell_values().cloned().collect();
-            let domain_override = if cell_values.is_empty() {
-                None
-            } else {
-                Some(cell_values.as_slice())
-            };
-            let layout = self.active_layout();
-            let band_n_override = if layout.n > cell_values.len() {
-                Some(layout.n)
-            } else {
-                None
-            };
+        let has_hole_cells = self.cells.iter().any(|cell| {
+            !cell.plan.has_data_rows
+                && !renderable_for_empty_policy(self.empty_cell_policy, !cell.plan.has_data_rows)
+        });
+        let has_adjacent_non_empty = self.cells.windows(2).any(|pair| {
+            renderable_for_empty_policy(self.empty_cell_policy, !pair[0].plan.has_data_rows)
+                && renderable_for_empty_policy(self.empty_cell_policy, !pair[1].plan.has_data_rows)
+        });
+        let cell_values = self.cell_values().cloned().collect::<Vec<_>>();
+        apply_facet_band_scale_adjustment(
+            self.axis,
+            scales,
+            &self.original_band_scale,
+            self.active_layout(),
+            &cell_values,
+            has_hole_cells,
+            has_adjacent_non_empty,
+        );
+    }
+}
 
-            // Always start from the original measured column scale so repeated
-            // coordination passes re-apply the same layout adjustments
-            // deterministically without shrinking the range multiple times.
-            let base_scale = self.original_band_scale.clone();
+impl CoordMeasurement for FacetBandProbeMeasurement {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 
-            let updated_config = apply_facet_band_scale_layout(
-                self.axis,
-                &base_scale,
-                layout,
-                domain_override,
-                band_n_override,
-                ScaleLayoutRewriteMode::RenderPass {
-                    allow_zero_padding_override: needs_zero_padding_override,
-                    side_specific_outer_edges: true,
-                },
-            );
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
-            *band_scale = ConfiguredScaleWithSpec::new(band_scale.spec().clone(), updated_config);
-        }
+    fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
+        let has_hole_cells = self.cell_has_data_rows.iter().any(|has_data_rows| {
+            !*has_data_rows && !renderable_for_empty_policy(self.empty_cell_policy, true)
+        });
+        let has_adjacent_non_empty = self.cell_has_data_rows.windows(2).any(|pair| {
+            renderable_for_empty_policy(self.empty_cell_policy, !pair[0])
+                && renderable_for_empty_policy(self.empty_cell_policy, !pair[1])
+        });
+
+        apply_facet_band_scale_adjustment(
+            self.axis,
+            scales,
+            &self.original_band_scale,
+            &self.local_layout,
+            &self.cell_values,
+            has_hole_cells,
+            has_adjacent_non_empty,
+        );
     }
 }
 
@@ -2160,7 +2226,7 @@ async fn synthesize_overflow_probe_attributes(
 async fn synthesize_nested_facet_probe_from_builder(
     cell: &FacetCellPlan,
     cell_data_override: &DataFrame,
-    _probe_data_override: Option<&DataFrame>,
+    probe_data_override: Option<&DataFrame>,
     subplot_plot_width: f32,
     subplot_plot_height: f32,
     compiled_subplot: &Arc<CompiledPlot>,
@@ -2173,7 +2239,7 @@ async fn synthesize_nested_facet_probe_from_builder(
     let subplot_layout_spec = fixed_plot_area_layout_spec(subplot_plot_width, subplot_plot_height);
     let measurement = measure_facet_cell_with_explicit_builder(
         cell,
-        cell_data_override,
+        probe_data_override.unwrap_or(cell_data_override),
         compiled_subplot,
         subplot_eval_ctx,
         &subplot_layout_spec,
@@ -2192,6 +2258,7 @@ async fn synthesize_nested_facet_probe_from_builder(
             total_overflow: measurement.layout.total_overflow,
             max_child_padding,
         },
+        child_cell_summaries: Vec::new(),
     })
 }
 
@@ -2360,6 +2427,7 @@ async fn measure_cells_overflow_probe(
 ) -> Result<OverflowProbeSummary, AvengerChartError> {
     let mut summary = OverflowProbeSummary::default();
     summary.cell_overflows.reserve(cells.len());
+    summary.cell_probe_summaries.reserve(cells.len());
 
     for (idx, cell) in cells.iter_mut().enumerate() {
         if !cell.plan.has_data_rows {
@@ -2444,17 +2512,31 @@ async fn measure_cells_overflow_probe(
                     perf_counters,
                 )
                 .await?;
-                attribute_store.insert_band(probe_key.clone(), band_probe_synthesis.clone());
-                let value = FacetSynthesisValue::BandAggregated {
-                    band_probe_synthesis,
-                };
+                let (value, _hit) =
+                    evaluate_synthesized_async(attribute_store, probe_key.clone(), || async {
+                        Ok(FacetSynthesisValue::BandAggregated {
+                            band_probe_synthesis,
+                        })
+                    })
+                    .await?;
                 value
             };
             if let Some(payload) = synthesized.as_probe_payload() {
                 cell.last_measurement_key = Some(payload.measurement_key.clone());
                 cell.last_cell_scale_builder = payload.cell_scale_builder.clone();
             }
+            let child_probe_summary_count = match &synthesized {
+                FacetSynthesisValue::BandAggregated {
+                    band_probe_synthesis,
+                } => band_probe_synthesis.child_cell_summaries.len(),
+                _ => 0,
+            };
             perf_counters.phase5_non_leaf_probe_aggregate_count += 1;
+            trace!(
+                cell_index = idx,
+                child_probe_summary_count,
+                "FacetBand non-leaf synthesized probe aggregate"
+            );
             synthesized.cell_probe_summary().clone()
         };
         let guide_overflow = cell_summary.guide_overflow.clone();
@@ -2480,6 +2562,7 @@ async fn measure_cells_overflow_probe(
         summary
             .cell_overflows
             .push((guide_overflow, total_overflow));
+        summary.cell_probe_summaries.push(cell_summary);
 
         if is_leaf_node {
             debug_assert!(cell.measurement.is_some());
@@ -2945,214 +3028,191 @@ impl<'a> FacetBandMeasurePipeline<'a> {
     }
 
     #[cfg(test)]
-    fn run_probe_only<'b>(
-        &'b self,
-        attribute_store: &'b mut FacetAttributeStore,
-        perf_counters: &'b mut FacetPipelinePerfCounters,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<FacetBandProbeSynthesis, AvengerChartError>>
-                + Send
-                + 'b,
-        >,
-    >
-    {
-        Box::pin(async move {
-            let resolved = match self.resolve_node_or_empty()? {
-                ResolveBandNodeOutcome::Empty(_) => {
-                    return Ok(FacetBandProbeSynthesis {
-                        cell_probe_summary: FacetCellProbeSummary {
-                            guide_overflow: OverflowSpaceRequirement::default(),
-                            total_overflow: OverflowSpaceRequirement::default(),
-                            max_child_padding: 0.0,
-                        },
-                    });
-                }
-                ResolveBandNodeOutcome::Ready(resolved) => resolved,
-            };
-            let cell_values = self.enumerate_cell_values(&resolved);
-            if cell_values.is_empty() {
+    async fn synthesize_band_probe_only(
+        &self,
+        attribute_store: &mut FacetAttributeStore,
+        perf_counters: &mut FacetPipelinePerfCounters,
+    ) -> Result<FacetBandProbeSynthesis, AvengerChartError> {
+        let resolved = match self.resolve_node_or_empty()? {
+            ResolveBandNodeOutcome::Empty(_) => {
                 return Ok(FacetBandProbeSynthesis {
                     cell_probe_summary: FacetCellProbeSummary {
                         guide_overflow: OverflowSpaceRequirement::default(),
                         total_overflow: OverflowSpaceRequirement::default(),
                         max_child_padding: 0.0,
                     },
+                    child_cell_summaries: Vec::new(),
                 });
             }
+            ResolveBandNodeOutcome::Ready(resolved) => resolved,
+        };
+        let cell_values = self.enumerate_cell_values(&resolved);
+        if cell_values.is_empty() {
+            return Ok(FacetBandProbeSynthesis {
+                cell_probe_summary: FacetCellProbeSummary {
+                    guide_overflow: OverflowSpaceRequirement::default(),
+                    total_overflow: OverflowSpaceRequirement::default(),
+                    max_child_padding: 0.0,
+                },
+                child_cell_summaries: Vec::new(),
+            });
+        }
 
-            let data_df = self.data.ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "{} measure requires data",
-                    self.axis_ops.facet_label
-                ))
-            })?;
+        let data_df = self.data.ok_or_else(|| {
+            AvengerChartError::InternalError(format!("{} measure requires data", self.axis_ops.facet_label))
+        })?;
 
-            ensure_subtree_precomputed(
-                self.compiled_marks,
-                self.facet_path,
-                data_df,
-                &self.eval_ctx.facet_tree,
-                self.eval_ctx,
-            )
-            .await?;
+        ensure_subtree_precomputed(
+            self.compiled_marks,
+            self.facet_path,
+            data_df,
+            &self.eval_ctx.facet_tree,
+            self.eval_ctx,
+        )
+        .await?;
 
-            let cell_synthesis = self.synthesize_cell_attributes(&resolved, &cell_values)?;
-            let (prepared_synthesis, prepared_runtime) =
-                synthesize_prepared_attributes_and_runtime(
-                    cell_synthesis,
-                    data_df,
-                    resolved.compiled_subplot,
-                    resolved.band_scale,
-                    resolved.subplot_band_size,
-                    self.eval_ctx,
+        let cell_synthesis = self.synthesize_cell_attributes(&resolved, &cell_values)?;
+        let (prepared_synthesis, prepared_runtime) = synthesize_prepared_attributes_and_runtime(
+            cell_synthesis,
+            data_df,
+            resolved.compiled_subplot,
+            resolved.band_scale,
+            resolved.subplot_band_size,
+            self.eval_ctx,
+        )
+        .await?;
+        let (subplot_plot_width, subplot_plot_height) = self
+            .axis_ops
+            .measure_dims(self.plot_other_axis_size, resolved.subplot_band_size);
+        let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
+            &prepared_synthesis,
+            &prepared_runtime,
+            subplot_plot_width,
+            subplot_plot_height,
+            attribute_store,
+            perf_counters,
+        )
+        .await?;
+
+        let plan = FacetBandMeasurePlan {
+            cell_values: overflow_synthesis
+                .prepared_synthesis
+                .cell_synthesis
+                .cell_values
+                .clone(),
+            cells: overflow_runtime.cells,
+            scale_artifacts: prepared_runtime.scale_artifacts.clone(),
+        };
+        let (
+            band_layout_plan,
+            _final_subplot_band_size,
+            final_subplot_plot_width,
+            final_subplot_plot_height,
+        ) = self.derive_local_layout_from_probe(
+            &plan,
+            &overflow_synthesis.overflow_probe_summary,
+            prepared_runtime.initial_subplot_band_size,
+            &prepared_runtime.original_band_scale,
+            overflow_synthesis
+                .prepared_synthesis
+                .cell_synthesis
+                .empty_cell_policy,
+        )?;
+
+        let mut final_probe_cells =
+            prepared_cells_as_drafts(&overflow_synthesis.prepared_synthesis, &prepared_runtime);
+        let final_overflow_summary = synthesize_overflow_probe(
+            &mut final_probe_cells,
+            final_subplot_plot_width,
+            final_subplot_plot_height,
+            &prepared_runtime.compiled_subplot,
+            &prepared_runtime.subplot_eval_ctx,
+            &prepared_runtime.nested_measure_ctx,
+            overflow_synthesis
+                .prepared_synthesis
+                .cell_synthesis
+                .empty_cell_policy,
+            is_leaf_subplot(&prepared_runtime.compiled_subplot),
+            attribute_store,
+            perf_counters,
+        )
+        .await?;
+
+        let local_layout = CoordinatedLayout {
+            padding_inner_px: band_layout_plan.padding_inner_px,
+            outer_start: band_layout_plan.outer_start,
+            outer_end: band_layout_plan.outer_end,
+            n: band_layout_plan.n,
+        };
+        let local_overflow = derive_band_overflow_from_probe(
+            self.axis_ops.axis,
+            &overflow_synthesis.prepared_synthesis.renderable_mask,
+            &final_overflow_summary.cell_overflows,
+        );
+        let probe_measurement = FacetBandProbeMeasurement {
+            axis: self.axis_ops.axis,
+            cell_values: plan.cell_values.clone(),
+            cell_has_data_rows: plan.cells.iter().map(|cell| cell.plan.has_data_rows).collect(),
+            local_overflow,
+            original_band_scale: prepared_runtime.original_band_scale.clone(),
+            local_layout,
+            empty_cell_policy: overflow_synthesis
+                .prepared_synthesis
+                .cell_synthesis
+                .empty_cell_policy,
+        };
+
+        let mut adjusted_scales = self.scales.clone();
+        probe_measurement.apply_scale_adjustments(&mut adjusted_scales);
+        let guide_overflow = if let Some(compiled_guide) = &prepared_runtime.compiled_subplot.compiled_guide {
+            let configured_scales = adjusted_scales
+                .iter()
+                .map(|(name, scale)| (name.clone(), scale.configured().clone()))
+                .collect::<HashMap<_, _>>();
+            compiled_guide
+                .measure_overflow(
+                    &configured_scales,
+                    final_subplot_plot_width,
+                    final_subplot_plot_height,
+                    prepared_runtime.compiled_subplot.get_theme().as_ref(),
+                    &self.eval_ctx.params,
+                    self.data,
+                    self.eval_ctx.session_context.as_ref(),
+                    self.eval_ctx.facet_tree.as_ref(),
+                    self.facet_path,
+                    Some(&probe_measurement),
                 )
-                .await?;
-            let (subplot_plot_width, subplot_plot_height) = self
-                .axis_ops
-                .measure_dims(self.plot_other_axis_size, resolved.subplot_band_size);
-            let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
-                &prepared_synthesis,
-                &prepared_runtime,
-                subplot_plot_width,
-                subplot_plot_height,
-                attribute_store,
-                perf_counters,
-            )
-            .await?;
-            let plan = FacetBandMeasurePlan {
-                cell_values: overflow_synthesis
-                    .prepared_synthesis
-                    .cell_synthesis
-                    .cell_values
-                    .clone(),
-                cells: overflow_runtime.cells,
-                scale_artifacts: prepared_runtime.scale_artifacts.clone(),
-            };
-            let (band_layout_plan, _, _, _) = self.derive_local_layout_from_probe(
-                &plan,
-                &overflow_synthesis.overflow_probe_summary,
-                prepared_runtime.initial_subplot_band_size,
-                &prepared_runtime.original_band_scale,
-                overflow_synthesis
-                    .prepared_synthesis
-                    .cell_synthesis
-                    .empty_cell_policy,
-            )?;
-            let local_layout_outcome = self
-                .synthesize_local_layout(
-                    plan,
-                    &overflow_synthesis.overflow_probe_summary,
-                    prepared_runtime.initial_subplot_band_size,
-                    &prepared_runtime.compiled_subplot,
-                    &prepared_runtime.subplot_eval_ctx,
-                    &prepared_runtime.nested_measure_ctx,
-                    &prepared_runtime.original_band_scale,
-                    overflow_synthesis
-                        .prepared_synthesis
-                        .cell_synthesis
-                        .empty_cell_policy,
-                    perf_counters,
-                )
-                .await?;
-            let mut probe_cells = local_layout_outcome.cells;
-            let channel_sharing_levels = collect_channel_sharing_levels(&probe_cells);
-            let cell_runtimes = probe_cells
-                .drain(..)
-                .map(|mut cell| FacetCellRuntime {
-                    data_override: cell.data_override,
-                    plan: cell.plan,
-                    measurement: cell
-                        .measurement
-                        .take()
-                        .expect("probe-only local layout must materialize measurements"),
-                    local_domain_extents: cell.local_domain_extents,
-                    coordinated_domain_extents: HashMap::new(),
-                    measurement_key: cell.last_measurement_key.take(),
-                })
-                .collect::<Vec<_>>();
-            let probe_layout = CoordinatedLayout {
-                padding_inner_px: band_layout_plan.padding_inner_px,
-                outer_start: band_layout_plan.outer_start,
-                outer_end: band_layout_plan.outer_end,
-                n: band_layout_plan.n,
-            };
-            let probe_measurement = FacetBandCoordMeasurement {
-                axis: self.axis_ops.axis,
-                cells: cell_runtimes,
-                shared_scale_builder: prepared_runtime
-                    .scale_artifacts
-                    .shared_scale_builder
-                    .clone(),
-                coordinated_overflow: CoordinatedOverflow::default(),
-                compiled_subplot: prepared_runtime.compiled_subplot.clone(),
-                subplot_cross_size: local_layout_outcome.final_subplot_main_or_cross_size,
-                facet_depth: overflow_synthesis
-                    .prepared_synthesis
-                    .cell_synthesis
-                    .facet_depth,
-                original_band_scale: prepared_runtime.original_band_scale.clone(),
-                local_layout: probe_layout,
-                coordinated_layout: None,
-                coordination_field_identity: overflow_synthesis
-                    .prepared_synthesis
-                    .cell_synthesis
-                    .coordination_field_identity
-                    .clone(),
-                channel_sharing_levels,
-                empty_cell_policy: overflow_synthesis
-                    .prepared_synthesis
-                    .cell_synthesis
-                    .empty_cell_policy,
-            };
-            let mut adjusted_scales = self.scales.clone();
-            probe_measurement.apply_scale_adjustments(&mut adjusted_scales);
-            let guide_overflow =
-                if let Some(compiled_guide) = &prepared_runtime.compiled_subplot.compiled_guide {
-                    let configured_scales = adjusted_scales
-                        .iter()
-                        .map(|(name, scale)| (name.clone(), scale.configured().clone()))
-                        .collect::<HashMap<_, _>>();
-                    compiled_guide
-                        .measure_overflow(
-                            &configured_scales,
-                            subplot_plot_width,
-                            subplot_plot_height,
-                            prepared_runtime.compiled_subplot.get_theme().as_ref(),
-                            &self.eval_ctx.params,
-                            self.data,
-                            self.eval_ctx.session_context.as_ref(),
-                            self.eval_ctx.facet_tree.as_ref(),
-                            self.facet_path,
-                            Some(&probe_measurement),
-                        )
-                        .await?
-                } else {
-                    probe_measurement
-                        .local_overflow_value()
-                        .map(|overflow| overflow.guide)
-                        .unwrap_or_default()
-                };
-            let total_overflow = prepared_runtime
-                .compiled_subplot
+                .await?
+        } else {
+            probe_measurement.local_overflow_value().guide
+        };
+        let total_overflow = prepared_runtime
+            .compiled_subplot
                 .total_overflow_from_precomputed_guide_overflow(
                     self.eval_ctx,
-                    &fixed_plot_area_layout_spec(subplot_plot_width, subplot_plot_height),
+                    &fixed_plot_area_layout_spec(final_subplot_plot_width, final_subplot_plot_height),
                     &adjusted_scales,
-                    subplot_plot_width,
-                    subplot_plot_height,
+                    final_subplot_plot_width,
+                    final_subplot_plot_height,
                     &guide_overflow,
                     self.facet_path,
                 )
                 .await?;
 
-            Ok(FacetBandProbeSynthesis {
-                cell_probe_summary: FacetCellProbeSummary {
-                    guide_overflow,
-                    total_overflow,
-                    max_child_padding: band_layout_plan.padding_inner_px,
-                },
-            })
+        Ok(FacetBandProbeSynthesis {
+            cell_probe_summary: FacetCellProbeSummary {
+                guide_overflow,
+                total_overflow,
+                max_child_padding: band_layout_plan.padding_inner_px,
+            },
+            child_cell_summaries: overflow_synthesis
+                .prepared_synthesis
+                .cell_synthesis
+                .cells
+                .iter()
+                .zip(final_overflow_summary.cell_probe_summaries.iter())
+                .map(|(_cell, summary)| summary.clone())
+                .collect::<Vec<_>>(),
         })
     }
 
@@ -4581,6 +4641,7 @@ mod tests {
                     },
                 ),
             ],
+            cell_probe_summaries: vec![],
             max_child_padding: 0.0,
         };
 
@@ -4732,6 +4793,7 @@ mod tests {
                     },
                 ),
             ],
+            cell_probe_summaries: vec![],
             max_child_padding: 50.0,
         };
         let renderable_cells = vec![true, true];
@@ -4761,6 +4823,7 @@ mod tests {
                     },
                 ),
             ],
+            cell_probe_summaries: vec![],
             max_child_padding: 18.0,
         };
         let renderable_cells = vec![true, true];
@@ -4935,7 +4998,7 @@ mod tests {
         let mut perf_counters = FacetPipelinePerfCounters::default();
 
         let synthesis = pipeline
-            .run_probe_only(&mut attribute_store, &mut perf_counters)
+            .synthesize_band_probe_only(&mut attribute_store, &mut perf_counters)
             .await?;
         assert!(synthesis.cell_probe_summary.max_child_padding >= 0.0);
         assert!(perf_counters.phase5_non_leaf_probe_aggregate_count > 0);
