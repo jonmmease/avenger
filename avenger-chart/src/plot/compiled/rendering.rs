@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Instant,
 };
 
@@ -60,8 +60,8 @@ use crate::{
     maybe::Maybe,
     render::context::FacetRuntimeSizingMode,
     render::{
-        EvaluatedPlot, EvaluationContext, EvaluationOptions, LayoutSnapshot, LayoutSolution,
-        RenderContext, RenderState, debug::create_debug_layout_rects,
+        EvaluatedPlot, EvaluationContext, EvaluationMetrics, EvaluationOptions, LayoutSnapshot,
+        LayoutSolution, RenderContext, RenderState, debug::create_debug_layout_rects,
     },
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
@@ -1759,6 +1759,68 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn evaluation_metrics_capture_facet_recursive_counts() {
+        run_with_large_stack(|| async {
+            let ctx = SessionContext::new();
+            let compiled =
+                compile_three_level_col_legend_sharing_plot(&ctx, LegendPosition::Right).await?;
+            let (_evaluated, metrics) = compiled
+                .evaluate_with_options_and_metrics(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        layout_snapshot: LayoutSnapshot::Initial,
+                        debug_layout_lines: false,
+                    },
+                )
+                .await?;
+            let facet_metrics = &metrics.facet_layout;
+
+            assert_eq!(
+                facet_metrics
+                    .plot_component_measure_calls_by_facet_depth
+                    .first()
+                    .copied(),
+                Some(1),
+                "expected one top-level measurement: {metrics:?}"
+            );
+            assert!(
+                facet_metrics
+                    .plot_component_measure_calls_by_facet_depth
+                    .len()
+                    >= 4,
+                "expected top-level plus three facet path depths: {metrics:?}"
+            );
+            assert!(
+                facet_metrics.plot_component_measure_calls_by_facet_depth[3] > 0,
+                "expected leaf-depth measurements: {metrics:?}"
+            );
+            assert!(
+                facet_metrics.facet_band_measure_runs > 0,
+                "expected facet-band measurement pipelines: {metrics:?}"
+            );
+            assert!(
+                facet_metrics.phase5_non_leaf_probe_aggregate_count > 0,
+                "expected non-leaf synthesized probe aggregates: {metrics:?}"
+            );
+            assert!(
+                facet_metrics.phase5_non_leaf_full_measure_count > 0,
+                "expected non-leaf synthesized probes to require full subtree measurement: {metrics:?}"
+            );
+            assert!(
+                facet_metrics.phase6_full_measure_count > 0,
+                "expected phase-6 final cell measurements: {metrics:?}"
+            );
+            assert!(
+                facet_metrics.plot_component_measure_calls <= 128,
+                "unexpected recursive measurement regression: {metrics:?}"
+            );
+
+            Ok(())
+        });
     }
 
     #[tokio::test]
@@ -4337,6 +4399,8 @@ impl CompiledPlot {
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
+        eval_ctx.record_plot_component_measure_call(facet_path.len());
+
         let ctx = &*eval_ctx.session_context;
         let facet_tree = &*eval_ctx.facet_tree;
 
@@ -4850,6 +4914,36 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<EvaluatedPlot, AvengerChartError> {
+        self.evaluate_with_options_internal(ctx, params, options, None)
+            .await
+    }
+
+    /// Evaluate the plot while collecting focused performance diagnostics.
+    #[doc(hidden)]
+    pub async fn evaluate_with_options_and_metrics(
+        &self,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        options: EvaluationOptions,
+    ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
+        let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
+        let evaluated = self
+            .evaluate_with_options_internal(ctx, params, options, Some(metrics.clone()))
+            .await?;
+        let metrics = metrics
+            .lock()
+            .expect("evaluation metrics lock poisoned")
+            .clone();
+        Ok((evaluated, metrics))
+    }
+
+    async fn evaluate_with_options_internal(
+        &self,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        options: EvaluationOptions,
+        evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
+    ) -> Result<EvaluatedPlot, AvengerChartError> {
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
@@ -4904,7 +4998,7 @@ impl CompiledPlot {
         };
 
         // Create EvaluationContext for the entire evaluation
-        let eval_ctx = EvaluationContext::new(
+        let mut eval_ctx = EvaluationContext::new(
             self.get_theme(),
             Arc::new(ctx.clone()),
             merged_params,
@@ -4914,6 +5008,9 @@ impl CompiledPlot {
         .with_debug_layout_lines(facet_debug::resolve_layout_overlay_enabled(
             options.debug_layout_lines,
         ));
+        if let Some(metrics) = evaluation_metrics {
+            eval_ctx = eval_ctx.with_evaluation_metrics(metrics);
+        }
 
         if Self::marks_use_auto_empty_cell_policy(&self.marks) {
             trace!("Facet empty-cell policy `auto` resolved to `hole` for this evaluation");

@@ -5,7 +5,10 @@
 //! - `RenderState` - Changes per subplot, contains computed dimensions and scales
 //! - `RenderContext` - Thin facade combining both for mark rendering API
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
@@ -15,6 +18,7 @@ use crate::{
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree, scale_precompute::FacetScalePrecomputeStore,
     },
+    render::types::EvaluationMetrics,
     scales::ConfiguredScaleWithSpec,
     theme::{Theme, ThemeContext, ThemeValue},
 };
@@ -60,6 +64,8 @@ pub struct EvaluationContext {
     pub(crate) facet_runtime_sizing_mode: FacetRuntimeSizingMode,
     /// Effective debug overlay toggle for layout bounds.
     pub(crate) debug_layout_lines: bool,
+    /// Optional shared collector for focused evaluation diagnostics.
+    pub(crate) evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
 }
 
 impl EvaluationContext {
@@ -78,6 +84,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: Arc::new(FacetScalePrecomputeStore::default()),
             facet_runtime_sizing_mode: FacetRuntimeSizingMode::CanvasFit,
             debug_layout_lines: false,
+            evaluation_metrics: None,
         }
     }
 
@@ -92,6 +99,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
+            evaluation_metrics: self.evaluation_metrics.clone(),
         }
     }
 
@@ -109,6 +117,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
+            evaluation_metrics: self.evaluation_metrics.clone(),
         }
     }
 
@@ -128,6 +137,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
+            evaluation_metrics: self.evaluation_metrics.clone(),
         }
     }
 
@@ -147,6 +157,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
+            evaluation_metrics: self.evaluation_metrics.clone(),
         }
     }
 
@@ -160,6 +171,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: mode,
             debug_layout_lines: self.debug_layout_lines,
+            evaluation_metrics: self.evaluation_metrics.clone(),
         }
     }
 
@@ -177,6 +189,7 @@ impl EvaluationContext {
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
             facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: enabled,
+            evaluation_metrics: self.evaluation_metrics.clone(),
         }
     }
 
@@ -186,6 +199,49 @@ impl EvaluationContext {
 
     pub(crate) fn facet_scale_precompute_store(&self) -> &Arc<FacetScalePrecomputeStore> {
         &self.facet_scale_precompute_store
+    }
+
+    pub(crate) fn with_evaluation_metrics(&self, metrics: Arc<Mutex<EvaluationMetrics>>) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_lines: self.debug_layout_lines,
+            evaluation_metrics: Some(metrics),
+        }
+    }
+
+    pub(crate) fn record_plot_component_measure_call(&self, facet_depth: usize) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_plot_component_measure_call(facet_depth);
+        }
+    }
+
+    pub(crate) fn record_facet_band_measure_run(
+        &self,
+        phase5_leaf_measure_count: usize,
+        phase5_non_leaf_probe_aggregate_count: usize,
+        phase5_non_leaf_full_measure_count: usize,
+        phase6_full_measure_count: usize,
+    ) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_facet_band_measure_run(
+                    phase5_leaf_measure_count,
+                    phase5_non_leaf_probe_aggregate_count,
+                    phase5_non_leaf_full_measure_count,
+                    phase6_full_measure_count,
+                );
+        }
     }
 }
 

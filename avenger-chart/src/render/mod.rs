@@ -12,6 +12,7 @@ pub mod wgpu;
 pub use canvas::CanvasExt;
 pub use context::{EvaluationContext, RenderContext, RenderState};
 pub use types::{
-    EvaluatedPlot, EvaluationOptions, LayoutSnapshot, LayoutSolution, LegendMeasurements,
+    EvaluatedPlot, EvaluationMetrics, EvaluationOptions, FacetLayoutMetrics, LayoutSnapshot,
+    LayoutSolution, LegendMeasurements,
 };
 pub use wgpu::WgpuRenderer;

@@ -3415,6 +3415,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             phase6_full_measure_count = perf_counters.phase6_full_measure_count,
             "FacetBand synthesized measurement counters"
         );
+        self.eval_ctx.record_facet_band_measure_run(
+            perf_counters.phase5_leaf_measure_count,
+            perf_counters.phase5_non_leaf_probe_aggregate_count,
+            perf_counters.phase5_non_leaf_full_measure_count,
+            perf_counters.phase6_full_measure_count,
+        );
 
         // Step 7: Assemble -- package runtime cell state for coordination and rendering.
         Ok(coord_measurement)

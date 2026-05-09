@@ -41,6 +41,84 @@ impl Default for EvaluationOptions {
     }
 }
 
+/// Opt-in counters for evaluation performance diagnostics.
+///
+/// This is intentionally not part of the normal evaluated plot output. Use it
+/// from focused tests or benchmarks when changing evaluation algorithms.
+#[doc(hidden)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EvaluationMetrics {
+    /// Metrics for recursive facet layout measurement.
+    pub facet_layout: FacetLayoutMetrics,
+}
+
+impl EvaluationMetrics {
+    pub(crate) fn record_plot_component_measure_call(&mut self, facet_depth: usize) {
+        self.facet_layout
+            .record_plot_component_measure_call(facet_depth);
+    }
+
+    pub(crate) fn record_facet_band_measure_run(
+        &mut self,
+        phase5_leaf_measure_count: usize,
+        phase5_non_leaf_probe_aggregate_count: usize,
+        phase5_non_leaf_full_measure_count: usize,
+        phase6_full_measure_count: usize,
+    ) {
+        self.facet_layout.record_facet_band_measure_run(
+            phase5_leaf_measure_count,
+            phase5_non_leaf_probe_aggregate_count,
+            phase5_non_leaf_full_measure_count,
+            phase6_full_measure_count,
+        );
+    }
+}
+
+/// Opt-in counters for recursive facet layout measurement diagnostics.
+#[doc(hidden)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FacetLayoutMetrics {
+    /// Number of times `CompiledPlot::measure_plot_components` ran.
+    pub plot_component_measure_calls: usize,
+    /// `measure_plot_components` calls grouped by `facet_path.len()`.
+    pub plot_component_measure_calls_by_facet_depth: Vec<usize>,
+    /// Number of completed facet-band measurement pipelines.
+    pub facet_band_measure_runs: usize,
+    /// Number of leaf cell measurements in phase 5 overflow probes.
+    pub phase5_leaf_measure_count: usize,
+    /// Number of non-leaf synthesized probe aggregates in phase 5.
+    pub phase5_non_leaf_probe_aggregate_count: usize,
+    /// Number of full subtree measurements used to synthesize non-leaf phase 5 probes.
+    pub phase5_non_leaf_full_measure_count: usize,
+    /// Number of full cell measurements in phase 6 finalization.
+    pub phase6_full_measure_count: usize,
+}
+
+impl FacetLayoutMetrics {
+    pub(crate) fn record_plot_component_measure_call(&mut self, facet_depth: usize) {
+        self.plot_component_measure_calls += 1;
+        if self.plot_component_measure_calls_by_facet_depth.len() <= facet_depth {
+            self.plot_component_measure_calls_by_facet_depth
+                .resize(facet_depth + 1, 0);
+        }
+        self.plot_component_measure_calls_by_facet_depth[facet_depth] += 1;
+    }
+
+    pub(crate) fn record_facet_band_measure_run(
+        &mut self,
+        phase5_leaf_measure_count: usize,
+        phase5_non_leaf_probe_aggregate_count: usize,
+        phase5_non_leaf_full_measure_count: usize,
+        phase6_full_measure_count: usize,
+    ) {
+        self.facet_band_measure_runs += 1;
+        self.phase5_leaf_measure_count += phase5_leaf_measure_count;
+        self.phase5_non_leaf_probe_aggregate_count += phase5_non_leaf_probe_aggregate_count;
+        self.phase5_non_leaf_full_measure_count += phase5_non_leaf_full_measure_count;
+        self.phase6_full_measure_count += phase6_full_measure_count;
+    }
+}
+
 /// Measurement and layout information for a single legend
 #[derive(Debug, Clone)]
 pub struct LegendMeasurement {
