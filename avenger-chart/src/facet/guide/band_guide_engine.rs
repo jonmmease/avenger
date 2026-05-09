@@ -17,7 +17,10 @@ use crate::{
     error::AvengerChartError,
     facet::{
         band_positions::{BandPosition, BandPositionIterator},
-        coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement, FacetCellRuntime},
+        coord::{
+            FacetBandCoordMeasurement, FacetBandProbeMeasurement, FacetCellRuntime,
+            facet_band_ref as facet_band_from_coord,
+        },
         guide_utils::{
             FacetLabelMeasurementConfig, FacetLabelRenderConfig,
             facet_guide_labels_visible_for_cell, format_scalar_value, measure_facet_label_slab,
@@ -209,10 +212,8 @@ impl FacetGuideAxisOps for RowGuideAxisOps {
         coord_measurement: &dyn CoordMeasurement,
     ) -> (f32, GuideAnchorSource) {
         let coordinated = coord_measurement.coordinated_overflow();
-        let local = coord_measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-            .and_then(|fcm| fcm.local_overflow_value());
+        let local =
+            facet_band_from_coord(coord_measurement).and_then(|fcm| fcm.local_overflow_value());
         resolve_row_guide_anchor_overflow_horizontal(place_at_end, coordinated, local.as_ref())
     }
 
@@ -352,10 +353,8 @@ impl FacetGuideAxisOps for ColGuideAxisOps {
         coord_measurement: &dyn CoordMeasurement,
     ) -> (f32, GuideAnchorSource) {
         let coordinated = coord_measurement.coordinated_overflow();
-        let local = coord_measurement
-            .as_any()
-            .downcast_ref::<FacetBandCoordMeasurement>()
-            .and_then(|fcm| fcm.local_overflow_value());
+        let local =
+            facet_band_from_coord(coord_measurement).and_then(|fcm| fcm.local_overflow_value());
         resolve_col_guide_anchor_overflow(place_at_end, title_visible, coordinated, local.as_ref())
     }
 
@@ -789,10 +788,7 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
 }
 
 fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<ScalarValue>> {
-    if let Some(facet_measurement) = measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurement>()
-    {
+    if let Some(facet_measurement) = facet_band_from_coord(measurement) {
         return Some(facet_measurement.cell_values().cloned().collect::<Vec<_>>());
     }
     measurement
@@ -802,10 +798,7 @@ fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<Sc
 }
 
 fn facet_local_overflow(measurement: &dyn CoordMeasurement) -> Option<CoordinatedOverflow> {
-    if let Some(facet_measurement) = measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurement>()
-    {
+    if let Some(facet_measurement) = facet_band_from_coord(measurement) {
         return facet_measurement.local_overflow_value();
     }
     measurement
@@ -939,11 +932,8 @@ pub(crate) fn resolve_col_guide_anchor_overflow(
 }
 
 fn child_col_span_midpoint(cell: &FacetCellRuntime, recursion_depth: usize) -> Option<f32> {
-    let child_facet = cell
-        .measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurement>()?;
+    let child_facet = cell.measurement.coord_measurement.as_ref();
+    let child_facet = facet_band_from_coord(child_facet)?;
     if child_facet.axis != FacetAxis::Column {
         return None;
     }
@@ -1024,10 +1014,7 @@ fn align_bands_to_nested_child_col_spans(
     band_positions: &[BandPosition],
     coord_measurement: &dyn CoordMeasurement,
 ) -> Vec<BandPosition> {
-    let Some(facet_measurement) = coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurement>()
-    else {
+    let Some(facet_measurement) = facet_band_from_coord(coord_measurement) else {
         return band_positions.to_vec();
     };
 
@@ -1039,9 +1026,7 @@ fn coordinated_col_title_midpoint_override(
     band_positions: &[BandPosition],
     plot_bounds: &LayoutBounds,
 ) -> Option<f32> {
-    let facet_measurement = coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurement>()?;
+    let facet_measurement = facet_band_from_coord(coord_measurement)?;
     if facet_measurement.axis != FacetAxis::Column {
         return None;
     }

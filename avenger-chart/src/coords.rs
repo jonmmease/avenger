@@ -162,10 +162,10 @@ pub struct CellDomainInfo {
 pub enum FacetCoordinationMode {
     /// Full AG-style coordination cycle:
     /// collection -> inherited apply/resynthesis -> recollection -> inherited propagation.
-    FullCycle,
+    CanvasFullCycle,
     /// Fixed-subplot mode:
-    /// collection-only coordination without inherited remeasure/propagation rounds.
-    CollectionOnly,
+    /// full-cycle coordination with fixed-safe inherited behavior (no plot-area resizing).
+    FixedFullCycle,
 }
 
 pub async fn coordinate_overflow_for_guides(
@@ -175,7 +175,7 @@ pub async fn coordinate_overflow_for_guides(
     coordinate_overflow_for_guides_with_mode(
         measurement,
         eval_ctx,
-        FacetCoordinationMode::FullCycle,
+        FacetCoordinationMode::CanvasFullCycle,
     )
     .await
 }
@@ -186,12 +186,15 @@ pub async fn coordinate_overflow_for_guides_with_mode(
     mode: FacetCoordinationMode,
 ) -> Result<(), AvengerChartError> {
     match mode {
-        FacetCoordinationMode::FullCycle => {
-            crate::facet::coordination::coordinate_facet_measurement_tree(measurement, eval_ctx)
-                .await
+        FacetCoordinationMode::CanvasFullCycle => {
+            crate::facet::coordination_canvas_fit::coordinate_facet_measurement_tree_canvas_fit(
+                measurement,
+                eval_ctx,
+            )
+            .await
         }
-        FacetCoordinationMode::CollectionOnly => {
-            crate::facet::coordination::coordinate_facet_measurement_tree_collection_only(
+        FacetCoordinationMode::FixedFullCycle => {
+            crate::facet::coordination_fixed_subplot::coordinate_facet_measurement_tree_fixed_subplot(
                 measurement,
                 eval_ctx,
             )

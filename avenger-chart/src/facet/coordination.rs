@@ -16,33 +16,35 @@
 
 use std::collections::HashSet;
 
-use tracing::{debug, trace};
-
 use crate::{
     error::AvengerChartError,
     facet::{
         attribute_context::FacetCircularEpoch,
         coordination_attributes::{
             CollectionRoundA, CollectionRoundNodeSnapshot, CollectionRoundSnapshot, CoordNodeKey,
-            CoordinationRunArtifacts, InheritedApplyIntent, InheritedApplyTrace,
-            InheritedPropagationIntent, InheritedPropagationTrace, RecollectionRound,
-            RecollectionRoundNodeSnapshot, RecollectionRoundSnapshot, build_collection_round_a,
-            build_recollection_round,
+            InheritedApplyIntent, InheritedApplyTrace, InheritedPropagationIntent,
+            InheritedPropagationTrace, RecollectionRound, RecollectionRoundNodeSnapshot,
+            RecollectionRoundSnapshot,
         },
-        coordination_sidecar::{
-            apply_collection_round_a, apply_recollection_round, derive_inherited_apply_intent,
-            derive_inherited_propagation_intent, run_inherited_apply_with_trace,
-            run_inherited_propagation_with_trace, visit_facet_bands_with_node_id,
-        },
+        coordination_sidecar::visit_facet_bands_with_node_id,
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
 };
 
 #[cfg(test)]
-use crate::facet::coord::FacetBandCoordMeasurement;
+use crate::facet::coord::{
+    FacetBandCoordMeasurement, facet_band_canvas_mut as facet_band_canvas_mut_from_coord,
+    facet_band_canvas_ref as facet_band_canvas_ref_from_coord,
+};
 #[cfg(test)]
-use crate::facet::coordination_sidecar::visit_facet_bands_with_node_id_mut;
+use crate::facet::coordination_attributes::{build_collection_round_a, build_recollection_round};
+#[cfg(test)]
+use crate::facet::coordination_sidecar::{
+    apply_collection_round_a, apply_recollection_round, derive_inherited_apply_intent,
+    derive_inherited_propagation_intent, run_inherited_apply_with_trace,
+    run_inherited_propagation_with_trace, visit_facet_bands_with_node_id_mut,
+};
 
 /// Stable key identifying a coordination group in the measurement tree.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -62,20 +64,14 @@ impl CoordinationGroupKey {
 
 #[cfg(test)]
 fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<&FacetBandCoordMeasurement> {
-    measurement
-        .coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurement>()
+    facet_band_canvas_ref_from_coord(measurement.coord_measurement.as_ref())
 }
 
 #[cfg(test)]
 fn facet_band_mut(
     measurement: &mut ComponentsMeasurement,
 ) -> Option<&mut FacetBandCoordMeasurement> {
-    measurement
-        .coord_measurement
-        .as_any_mut()
-        .downcast_mut::<FacetBandCoordMeasurement>()
+    facet_band_canvas_mut_from_coord(measurement.coord_measurement.as_mut())
 }
 
 #[cfg(test)]
@@ -117,143 +113,14 @@ pub async fn coordinate_facet_measurement_tree(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    let artifacts = coordinate_facet_measurement_tree_with_artifacts(measurement, eval_ctx).await?;
-    trace!(
-        collection_round_a_nodes = artifacts.collection_round_a.snapshot.nodes.len(),
-        inherited_apply_nodes = artifacts.inherited_apply.node_results.len(),
-        recollection_round_nodes = artifacts.recollection_round.snapshot.nodes.len(),
-        inherited_propagation_nodes = artifacts.inherited_propagation.node_results.len(),
-        "coordinate_facet_measurement_tree complete"
-    );
-    Ok(())
-}
-
-/// Collection-only facet coordination.
-///
-/// Used by fixed-subplot facet sizing mode where inherited remeasure/propagation
-/// rounds are intentionally disabled for performance and deterministic sizing.
-pub async fn coordinate_facet_measurement_tree_collection_only(
-    measurement: &mut ComponentsMeasurement,
-    _eval_ctx: &EvaluationContext,
-) -> Result<(), AvengerChartError> {
-    let collection_round_a =
-        build_collection_round_a(collect_collection_round_snapshot(measurement));
-    debug_assert_collection_round_coverage(&collection_round_a);
-    debug!(
-        overflow_groups = collection_round_a.aggregates.merged_overflow_by_key.len(),
-        layout_groups = collection_round_a.aggregates.merged_layout_by_key.len(),
-        domain_groups = collection_round_a.aggregates.unified_domain_extents.len(),
-        "coordinate_facet_measurement_tree collection-only aggregate + distribution"
-    );
-    apply_collection_round_a(measurement, &collection_round_a);
-    Ok(())
-}
-
-pub(crate) async fn coordinate_facet_measurement_tree_with_artifacts(
-    measurement: &mut ComponentsMeasurement,
-    eval_ctx: &EvaluationContext,
-) -> Result<CoordinationRunArtifacts, AvengerChartError> {
-    let mut epoch = None;
-    debug_assert_epoch_transition(epoch, FacetCircularEpoch::CollectionA);
-    epoch = Some(FacetCircularEpoch::CollectionA);
-
-    // Collection Round A: build immutable aggregate/distribution attributes, then apply sidecar patches.
-    let collection_round_a =
-        build_collection_round_a(collect_collection_round_snapshot(measurement));
-    debug_assert_collection_round_coverage(&collection_round_a);
-    debug!(
-        overflow_groups = collection_round_a.aggregates.merged_overflow_by_key.len(),
-        layout_groups = collection_round_a.aggregates.merged_layout_by_key.len(),
-        domain_groups = collection_round_a.aggregates.unified_domain_extents.len(),
-        "coordinate_facet_measurement_tree collection round A global aggregate + distribution"
-    );
-    apply_collection_round_a(measurement, &collection_round_a);
-    debug!("coordinate_facet_measurement_tree collection round A complete");
-
-    debug_assert_epoch_transition(epoch, FacetCircularEpoch::InheritedApply);
-    epoch = Some(FacetCircularEpoch::InheritedApply);
-
-    // Inherited Apply: coordinated apply + selective remeasure (sidecar mutations + immutable trace).
-    let inherited_apply_derivation = derive_inherited_apply_intent(measurement);
-    debug_assert_inherited_apply_derivation_coverage(measurement, &inherited_apply_derivation);
-    let inherited_apply =
-        run_inherited_apply_with_trace(measurement, eval_ctx, &inherited_apply_derivation).await?;
-    debug_assert_inherited_apply_trace_alignment(&inherited_apply_derivation, &inherited_apply);
-    let parent_cross_propagations = inherited_apply
-        .node_results
-        .iter()
-        .filter(|result| result.parent_cross_size_propagated)
-        .count();
-    let cross_size_changes = inherited_apply
-        .node_results
-        .iter()
-        .filter(|result| {
-            (result.subplot_cross_size_after - result.subplot_cross_size_before).abs() > 0.01
-        })
-        .count();
-    debug!(
-        parent_cross_propagations,
-        cross_size_changes,
-        remeasured_nodes = inherited_apply
-            .node_results
-            .iter()
-            .filter(|result| result.remeasure_triggered)
-            .count(),
-        "coordinate_facet_measurement_tree inherited apply complete"
-    );
-
-    debug_assert_epoch_transition(epoch, FacetCircularEpoch::Recollection);
-    epoch = Some(FacetCircularEpoch::Recollection);
-
-    // Recollection Round: build immutable post-remeasure reconciliation attributes, then apply patches.
-    let recollection_round =
-        build_recollection_round(collect_recollection_round_snapshot(measurement));
-    debug_assert_recollection_round_coverage(&recollection_round);
-    debug!(
-        overflow_groups = recollection_round.aggregates.merged_overflow_by_key.len(),
-        layout_groups = recollection_round.aggregates.merged_layout_by_key.len(),
-        "coordinate_facet_measurement_tree recollection round post-remeasure reconciliation"
-    );
-    apply_recollection_round(measurement, &recollection_round);
-    debug!("coordinate_facet_measurement_tree recollection round complete");
-
-    debug_assert_epoch_transition(epoch, FacetCircularEpoch::InheritedPropagation);
-
-    // Inherited Propagation: scale retarget + adjustment propagation (sidecar mutations + immutable trace).
-    let inherited_propagation_derivation = derive_inherited_propagation_intent(measurement);
-    debug_assert_inherited_propagation_derivation_coverage(
+    crate::facet::coordination_canvas_fit::coordinate_facet_measurement_tree_canvas_fit(
         measurement,
-        &inherited_propagation_derivation,
-    );
-    let inherited_propagation =
-        run_inherited_propagation_with_trace(measurement, &inherited_propagation_derivation);
-    debug_assert_inherited_propagation_trace_alignment(
-        &inherited_propagation_derivation,
-        &inherited_propagation,
-    );
-    debug!(
-        scale_range_retargets = inherited_propagation
-            .node_results
-            .iter()
-            .map(|result| result.scale_range_retarget_count)
-            .sum::<usize>(),
-        plot_area_adjustments = inherited_propagation
-            .node_results
-            .iter()
-            .map(|result| result.child_plot_area_adjustments_count)
-            .sum::<usize>(),
-        "coordinate_facet_measurement_tree inherited propagation complete"
-    );
-
-    Ok(CoordinationRunArtifacts {
-        collection_round_a,
-        inherited_apply,
-        recollection_round,
-        inherited_propagation,
-    })
+        eval_ctx,
+    )
+    .await
 }
 
-fn collect_collection_round_snapshot(
+pub(crate) fn collect_collection_round_snapshot(
     measurement: &ComponentsMeasurement,
 ) -> CollectionRoundSnapshot {
     let mut nodes = Vec::new();
@@ -277,7 +144,7 @@ fn collect_collection_round_snapshot(
     CollectionRoundSnapshot { nodes }
 }
 
-fn collect_recollection_round_snapshot(
+pub(crate) fn collect_recollection_round_snapshot(
     measurement: &ComponentsMeasurement,
 ) -> RecollectionRoundSnapshot {
     let mut nodes = Vec::new();
@@ -312,7 +179,10 @@ fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordNodeKey
     node_ids
 }
 
-fn debug_assert_epoch_transition(current: Option<FacetCircularEpoch>, next: FacetCircularEpoch) {
+pub(crate) fn debug_assert_epoch_transition(
+    current: Option<FacetCircularEpoch>,
+    next: FacetCircularEpoch,
+) {
     let allowed = matches!(
         (current, next),
         (None, FacetCircularEpoch::CollectionA)
@@ -335,7 +205,7 @@ fn debug_assert_epoch_transition(current: Option<FacetCircularEpoch>, next: Face
     );
 }
 
-fn debug_assert_collection_round_coverage(collection_round_a: &CollectionRoundA) {
+pub(crate) fn debug_assert_collection_round_coverage(collection_round_a: &CollectionRoundA) {
     let snapshot_nodes: HashSet<CoordNodeKey> = collection_round_a
         .snapshot
         .nodes
@@ -366,7 +236,7 @@ fn debug_assert_collection_round_coverage(collection_round_a: &CollectionRoundA)
     }
 }
 
-fn debug_assert_recollection_round_coverage(recollection_round: &RecollectionRound) {
+pub(crate) fn debug_assert_recollection_round_coverage(recollection_round: &RecollectionRound) {
     let snapshot_nodes: HashSet<CoordNodeKey> = recollection_round
         .snapshot
         .nodes
@@ -386,7 +256,7 @@ fn debug_assert_recollection_round_coverage(recollection_round: &RecollectionRou
     );
 }
 
-fn debug_assert_inherited_apply_derivation_coverage(
+pub(crate) fn debug_assert_inherited_apply_derivation_coverage(
     measurement: &ComponentsMeasurement,
     derivation: &InheritedApplyIntent,
 ) {
@@ -404,7 +274,7 @@ fn debug_assert_inherited_apply_derivation_coverage(
     );
 }
 
-fn debug_assert_inherited_propagation_derivation_coverage(
+pub(crate) fn debug_assert_inherited_propagation_derivation_coverage(
     measurement: &ComponentsMeasurement,
     derivation: &InheritedPropagationIntent,
 ) {
@@ -422,7 +292,7 @@ fn debug_assert_inherited_propagation_derivation_coverage(
     );
 }
 
-fn debug_assert_inherited_apply_trace_alignment(
+pub(crate) fn debug_assert_inherited_apply_trace_alignment(
     derivation: &InheritedApplyIntent,
     trace: &InheritedApplyTrace,
 ) {
@@ -538,7 +408,7 @@ fn debug_assert_inherited_apply_trace_alignment(
     }
 }
 
-fn debug_assert_inherited_propagation_trace_alignment(
+pub(crate) fn debug_assert_inherited_propagation_trace_alignment(
     derivation: &InheritedPropagationIntent,
     trace: &InheritedPropagationTrace,
 ) {

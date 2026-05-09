@@ -24,7 +24,8 @@ use crate::{
     plot::{
         IntoExpr,
         compiled::expr_eval::{
-            evaluate_axis_position_expr, evaluate_bool_expr, evaluate_string_expr,
+            evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr,
+            evaluate_string_expr,
         },
     },
     render::context::{
@@ -362,6 +363,15 @@ impl CartesianAxis {
         let show_title = show_title_expr && facet_visibility.show_title;
         let labels_visible = Some(facet_visibility.show_labels || jagged_labels_override);
 
+        // Evaluate tick_count expression if present
+        let tick_count = if let Some(tc_node) = self.tick_count.as_option().and_then(|o| o.as_ref())
+        {
+            let tc_expr = tc_node.to_expr(ctx)?;
+            Some(evaluate_f32_expr(&tc_expr, ctx, params).await?)
+        } else {
+            None
+        };
+
         // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {
             orientation,
@@ -391,6 +401,7 @@ impl CartesianAxis {
             title_font_family,
             title_visible: Some(show_title),
             labels_visible,
+            tick_count,
         };
 
         // Evaluate title expression if present

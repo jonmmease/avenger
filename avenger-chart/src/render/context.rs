@@ -23,6 +23,15 @@ pub const INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM: &str =
     "__avenger_hide_invalid_facet_path_axes";
 pub const AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM: &str = "__avenger_axis_owner_ignore_empty_cells";
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FacetRuntimeSizingMode {
+    CanvasFit,
+    FixedSubplot {
+        leaf_plot_width: f32,
+        leaf_plot_height: f32,
+    },
+}
+
 /// Immutable context built once at evaluate() entry.
 ///
 /// Contains all state that remains constant throughout the entire evaluation:
@@ -47,6 +56,8 @@ pub struct EvaluationContext {
     pub hide_invalid_facet_path_axes: bool,
     /// Shared cache of facet scale precompute artifacts for the current evaluation run.
     pub(crate) facet_scale_precompute_store: Arc<FacetScalePrecomputeStore>,
+    /// Internal facet runtime sizing mode used to dispatch canvas-fit vs fixed-subplot paths.
+    pub(crate) facet_runtime_sizing_mode: FacetRuntimeSizingMode,
     /// Effective debug overlay toggle for layout bounds.
     pub(crate) debug_layout_lines: bool,
 }
@@ -65,6 +76,7 @@ impl EvaluationContext {
             facet_tree,
             hide_invalid_facet_path_axes: false,
             facet_scale_precompute_store: Arc::new(FacetScalePrecomputeStore::default()),
+            facet_runtime_sizing_mode: FacetRuntimeSizingMode::CanvasFit,
             debug_layout_lines: false,
         }
     }
@@ -78,6 +90,7 @@ impl EvaluationContext {
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
         }
     }
@@ -94,6 +107,7 @@ impl EvaluationContext {
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
         }
     }
@@ -112,6 +126,7 @@ impl EvaluationContext {
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: hidden,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
         }
     }
@@ -130,8 +145,26 @@ impl EvaluationContext {
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: self.debug_layout_lines,
         }
+    }
+
+    pub(crate) fn with_facet_runtime_sizing_mode(&self, mode: FacetRuntimeSizingMode) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            facet_tree: self.facet_tree.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: mode,
+            debug_layout_lines: self.debug_layout_lines,
+        }
+    }
+
+    pub(crate) fn facet_runtime_sizing_mode(&self) -> FacetRuntimeSizingMode {
+        self.facet_runtime_sizing_mode
     }
 
     pub(crate) fn with_debug_layout_lines(&self, enabled: bool) -> Self {
@@ -142,6 +175,7 @@ impl EvaluationContext {
             facet_tree: self.facet_tree.clone(),
             hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
             facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
             debug_layout_lines: enabled,
         }
     }

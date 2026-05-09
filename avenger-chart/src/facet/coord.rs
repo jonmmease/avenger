@@ -13,6 +13,7 @@ use std::{
     any::Any,
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
+    ops::{Deref, DerefMut},
     sync::Arc,
 };
 
@@ -75,7 +76,8 @@ use crate::{
     },
     render::EvaluationContext,
     render::context::{
-        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
+        AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, FacetRuntimeSizingMode,
+        INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
     },
     scales::{
         ConfiguredScaleWithSpec, ScaleBuilder,
@@ -158,6 +160,71 @@ pub struct FacetBandCoordMeasurement {
     pub empty_cell_policy: FacetEmptyCellPolicy,
 }
 
+/// Canvas-fit facet band measurement type.
+pub type FacetBandCoordMeasurementCanvasFit = FacetBandCoordMeasurement;
+
+/// Fixed-subplot facet band measurement type.
+///
+/// This wraps the shared facet runtime payload with fixed-mode-only placement data.
+pub struct FacetBandCoordMeasurementFixed {
+    pub(crate) base: FacetBandCoordMeasurement,
+    /// Explicit main-axis positions used by fixed-subplot rendering.
+    pub(crate) fixed_main_axis_positions: Vec<f32>,
+}
+
+impl Deref for FacetBandCoordMeasurementFixed {
+    type Target = FacetBandCoordMeasurement;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for FacetBandCoordMeasurementFixed {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+pub(crate) fn facet_band_canvas_ref(
+    coord_measurement: &dyn CoordMeasurement,
+) -> Option<&FacetBandCoordMeasurement> {
+    coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurement>()
+}
+
+pub(crate) fn facet_band_fixed_ref(
+    coord_measurement: &dyn CoordMeasurement,
+) -> Option<&FacetBandCoordMeasurementFixed> {
+    coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+}
+
+pub(crate) fn facet_band_ref(
+    coord_measurement: &dyn CoordMeasurement,
+) -> Option<&FacetBandCoordMeasurement> {
+    facet_band_canvas_ref(coord_measurement)
+        .or_else(|| facet_band_fixed_ref(coord_measurement).map(|fixed| &fixed.base))
+}
+
+pub(crate) fn facet_band_canvas_mut(
+    coord_measurement: &mut dyn CoordMeasurement,
+) -> Option<&mut FacetBandCoordMeasurement> {
+    coord_measurement
+        .as_any_mut()
+        .downcast_mut::<FacetBandCoordMeasurement>()
+}
+
+pub(crate) fn facet_band_fixed_mut(
+    coord_measurement: &mut dyn CoordMeasurement,
+) -> Option<&mut FacetBandCoordMeasurementFixed> {
+    coord_measurement
+        .as_any_mut()
+        .downcast_mut::<FacetBandCoordMeasurementFixed>()
+}
+
 /// Probe-only facet band measurement used during phase-5 synthesized aggregation.
 ///
 /// This carries enough local information for guide overflow measurement and band-scale
@@ -171,6 +238,7 @@ pub(crate) struct FacetBandProbeMeasurement {
     pub(crate) original_band_scale: ConfiguredScale,
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) empty_cell_policy: FacetEmptyCellPolicy,
+    pub(crate) fixed_plot_area_lock: bool,
 }
 
 impl FacetBandProbeMeasurement {
@@ -452,6 +520,25 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
     }
 }
 
+impl CoordMeasurement for FacetBandCoordMeasurementFixed {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
+        Some(&self.base.coordinated_overflow)
+    }
+
+    fn apply_scale_adjustments(&self, _scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
+        // Fixed-subplot mode keeps leaf plot area sizing locked, so render-time
+        // facet band scale rewrites are intentionally disabled.
+    }
+}
+
 impl CoordMeasurement for FacetBandProbeMeasurement {
     fn as_any(&self) -> &dyn Any {
         self
@@ -462,6 +549,10 @@ impl CoordMeasurement for FacetBandProbeMeasurement {
     }
 
     fn apply_scale_adjustments(&self, scales: &mut HashMap<String, ConfiguredScaleWithSpec>) {
+        if self.fixed_plot_area_lock {
+            return;
+        }
+
         let has_hole_cells = self.cell_has_data_rows.iter().any(|has_data_rows| {
             !*has_data_rows && !renderable_for_empty_policy(self.empty_cell_policy, true)
         });
@@ -1442,14 +1533,297 @@ fn renderable_mask_for_cells(cells: &[FacetCellDraft], policy: FacetEmptyCellPol
         .collect()
 }
 
+/// Returns the main-axis extent of a cell for fixed-subplot positioning.
+///
+/// For leaf cells, this is simply `plot_area_width` (or height for rows).
+/// For intermediate cells (containing a facet band), the actual rendered extent
+/// includes inter-cell gaps computed by `compute_fixed_main_axis_positions`, which
+/// may exceed `plot_area_width`. When fixed main-axis positions are available,
+/// we use them to compute the true extent: last_position + last_cell_size.
+fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> f32 {
+    // Check if this cell contains a fixed facet band with computed positions
+    if let Some(facet_band) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+    {
+        let positions = &facet_band.fixed_main_axis_positions;
+        if let Some(&last_pos) = positions.last() {
+            if let Some(last_cell) = facet_band.base.cells.last() {
+                let last_cell_size = match axis {
+                    FacetAxis::Column => last_cell.measurement.plot_area_width,
+                    FacetAxis::Row => last_cell.measurement.plot_area_height,
+                };
+                return (last_pos + last_cell_size).max(0.0);
+            }
+        }
+    }
+
+    // Fallback for leaf cells or cells without fixed positions
+    match axis {
+        FacetAxis::Column => measurement.plot_area_width,
+        FacetAxis::Row => measurement.plot_area_height,
+    }
+    .max(0.0)
+}
+
+fn cell_main_axis_overflow_pair(
+    axis: FacetAxis,
+    measurement: &ComponentsMeasurement,
+) -> (f32, f32) {
+    // Fixed-subplot placement uses these per-cell edge paddings to keep adjacent
+    // subplot groups separated. Add a small legend-owned breathing room so legends
+    // don't visually crowd the next subplot when they sit near branch boundaries.
+    const LEGEND_EDGE_BREATHING_ROOM: f32 = 8.0;
+
+    let total = &measurement.layout.total_overflow;
+    let guide = &measurement.layout.overflow;
+    let (
+        legend_left_from_bounds,
+        legend_right_from_bounds,
+        legend_top_from_bounds,
+        legend_bottom_from_bounds,
+    ) = legend_bounds_overflow_edges(measurement);
+    let (coord_legend_left, coord_legend_right, coord_legend_top, coord_legend_bottom) =
+        coordinated_legend_overflow_edges(measurement);
+
+    // Prefer whichever legend estimate is larger:
+    // - total-guide delta captures coordinated legend slabs in layout overflow
+    // - legend bounds capture per-cell legend boxes directly from taffy placement
+    let legend_left = (total.left - guide.left)
+        .max(0.0)
+        .max(coord_legend_left)
+        .max(legend_left_from_bounds);
+    let legend_right = (total.right - guide.right)
+        .max(0.0)
+        .max(coord_legend_right)
+        .max(legend_right_from_bounds);
+    let legend_top = (total.top - guide.top)
+        .max(0.0)
+        .max(coord_legend_top)
+        .max(legend_top_from_bounds);
+    let legend_bottom = (total.bottom - guide.bottom)
+        .max(0.0)
+        .max(coord_legend_bottom)
+        .max(legend_bottom_from_bounds);
+
+    // Also consider the full coordinated overflow from the inner facet band.
+    // The taffy `total` may be stale or may not include overflow from nested facet
+    // levels (e.g., nested legends or row labels updated during coordination).
+    let (coord_total_left, coord_total_right, coord_total_top, coord_total_bottom) =
+        coordinated_total_overflow_edges(measurement);
+
+    match axis {
+        FacetAxis::Column => {
+            let mut left = total.left.max(coord_total_left).max(0.0);
+            let mut right = total.right.max(coord_total_right).max(0.0);
+            if legend_left > 0.0 {
+                left += LEGEND_EDGE_BREATHING_ROOM;
+            }
+            if legend_right > 0.0 {
+                right += LEGEND_EDGE_BREATHING_ROOM;
+            }
+            (left, right)
+        }
+        FacetAxis::Row => {
+            let mut top = total.top.max(coord_total_top).max(0.0);
+            let mut bottom = total.bottom.max(coord_total_bottom).max(0.0);
+            if legend_top > 0.0 {
+                top += LEGEND_EDGE_BREATHING_ROOM;
+            }
+            if legend_bottom > 0.0 {
+                bottom += LEGEND_EDGE_BREATHING_ROOM;
+            }
+            (top, bottom)
+        }
+    }
+}
+
+fn legend_bounds_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
+    let mut left = 0.0f32;
+    let mut right = 0.0f32;
+    let mut top = 0.0f32;
+    let mut bottom = 0.0f32;
+    let plot_width = measurement.plot_area_width;
+    let plot_height = measurement.plot_area_height;
+
+    for bounds in measurement.layout.taffy_layout.legends.values() {
+        left = left.max((-bounds.x).max(0.0));
+        right = right.max((bounds.x + bounds.width - plot_width).max(0.0));
+        top = top.max((-bounds.y).max(0.0));
+        bottom = bottom.max((bounds.y + bounds.height - plot_height).max(0.0));
+    }
+
+    (left, right, top, bottom)
+}
+
+fn coordinated_legend_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
+    if let Some(facet_band) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurementFixed>()
+    {
+        let total = &facet_band.coordinated_overflow.total;
+        let guide = &facet_band.coordinated_overflow.guide;
+        return (
+            (total.left - guide.left).max(0.0),
+            (total.right - guide.right).max(0.0),
+            (total.top - guide.top).max(0.0),
+            (total.bottom - guide.bottom).max(0.0),
+        );
+    }
+
+    if let Some(facet_band) = measurement
+        .coord_measurement
+        .as_any()
+        .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
+    {
+        let total = &facet_band.coordinated_overflow.total;
+        let guide = &facet_band.coordinated_overflow.guide;
+        return (
+            (total.left - guide.left).max(0.0),
+            (total.right - guide.right).max(0.0),
+            (total.top - guide.top).max(0.0),
+            (total.bottom - guide.bottom).max(0.0),
+        );
+    }
+
+    (0.0, 0.0, 0.0, 0.0)
+}
+
+/// Returns the full coordinated overflow (guide + legend) from the inner facet band,
+/// recursing through all nested levels to capture overflow from deeply nested legends
+/// or guides that may not be visible at the immediate inner level.
+///
+/// For example, in a 3-level col>col>col layout with a legend at the innermost level,
+/// the middle level's `coordinated_overflow.total` won't include the innermost legend.
+/// This function walks down through nested cells to find the maximum overflow at any depth.
+fn coordinated_total_overflow_edges(measurement: &ComponentsMeasurement) -> (f32, f32, f32, f32) {
+    // Iterative traversal to avoid stack overflow with deep nesting + async test stacks
+    let mut left = 0.0f32;
+    let mut right = 0.0f32;
+    let mut top = 0.0f32;
+    let mut bottom = 0.0f32;
+
+    // Work queue of measurements to inspect
+    let mut queue: Vec<&ComponentsMeasurement> = vec![measurement];
+
+    while let Some(m) = queue.pop() {
+        let band: Option<&FacetBandCoordMeasurement> = m
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurementFixed>()
+            .map(|fb| &fb.base)
+            .or_else(|| {
+                m.coord_measurement
+                    .as_any()
+                    .downcast_ref::<FacetBandCoordMeasurementCanvasFit>()
+                    .map(|fb| fb as &FacetBandCoordMeasurement)
+            });
+
+        if let Some(band) = band {
+            let total = &band.coordinated_overflow.total;
+            left = left.max(total.left.max(0.0));
+            right = right.max(total.right.max(0.0));
+            top = top.max(total.top.max(0.0));
+            bottom = bottom.max(total.bottom.max(0.0));
+
+            // Enqueue child cells for inspection
+            for cell in &band.cells {
+                queue.push(&cell.measurement);
+            }
+        }
+    }
+
+    (left, right, top, bottom)
+}
+
+pub(crate) fn compute_fixed_main_axis_positions(
+    axis: FacetAxis,
+    cells: &[FacetCellRuntime],
+    layout: &CoordinatedLayout,
+) -> Vec<f32> {
+    if cells.is_empty() {
+        return Vec::new();
+    }
+
+    const MIN_FIXED_SUBPLOT_MAIN_GAP: f32 = 12.0;
+    let mut positions = Vec::with_capacity(cells.len());
+    let mut cursor = layout.outer_start.max(0.0);
+    let gap = layout.padding_inner_px.max(MIN_FIXED_SUBPLOT_MAIN_GAP);
+
+    for (idx, cell) in cells.iter().enumerate() {
+        positions.push(cursor);
+        cursor += cell_main_plot_size(axis, &cell.measurement);
+        if idx + 1 < cells.len() {
+            let (_, after_current) = cell_main_axis_overflow_pair(axis, &cell.measurement);
+            let (before_next, _) = cell_main_axis_overflow_pair(axis, &cells[idx + 1].measurement);
+            cursor += gap.max(after_current + before_next);
+        }
+    }
+
+    positions
+}
+
+fn synthesize_subtree_plot_area_from_leaf_size(
+    node: &crate::facet::evaluated_facet_tree::PartitionNode,
+    leaf_plot_width: f32,
+    leaf_plot_height: f32,
+) -> (f32, f32) {
+    match &node.content {
+        crate::facet::evaluated_facet_tree::PartitionContent::Leaf { values } => {
+            let count = values.len().max(1) as f32;
+            match node.direction {
+                crate::guide::FacetDirection::Column => (leaf_plot_width * count, leaf_plot_height),
+                crate::guide::FacetDirection::Row => (leaf_plot_width, leaf_plot_height * count),
+            }
+        }
+        crate::facet::evaluated_facet_tree::PartitionContent::Branch { children } => {
+            let mut child_sizes = children.values().map(|child| {
+                synthesize_subtree_plot_area_from_leaf_size(
+                    child.as_ref(),
+                    leaf_plot_width,
+                    leaf_plot_height,
+                )
+            });
+
+            let Some((first_w, first_h)) = child_sizes.next() else {
+                return (leaf_plot_width, leaf_plot_height);
+            };
+
+            match node.direction {
+                crate::guide::FacetDirection::Column => {
+                    let mut total_w = first_w;
+                    let mut max_h = first_h;
+                    for (w, h) in child_sizes {
+                        total_w += w;
+                        max_h = max_h.max(h);
+                    }
+                    (total_w, max_h)
+                }
+                crate::guide::FacetDirection::Row => {
+                    let mut max_w = first_w;
+                    let mut total_h = first_h;
+                    for (w, h) in child_sizes {
+                        max_w = max_w.max(w);
+                        total_h += h;
+                    }
+                    (max_w, total_h)
+                }
+            }
+        }
+    }
+}
+
 fn empty_facet_band_measurement(
     axis: FacetAxis,
     facet_path: &[ScalarValue],
     compiled_subplot: &Arc<CompiledPlot>,
     band_scale: &ConfiguredScaleWithSpec,
     empty_cell_policy: FacetEmptyCellPolicy,
+    fixed_mode: bool,
 ) -> Box<dyn CoordMeasurement> {
-    Box::new(FacetBandCoordMeasurement {
+    let base = FacetBandCoordMeasurement {
         axis,
         cells: Vec::new(),
         shared_scale_builder: ScaleBuilder::default(),
@@ -1463,7 +1837,15 @@ fn empty_facet_band_measurement(
         coordination_field_identity: axis.scale_name().to_string(),
         channel_sharing_levels: HashMap::new(),
         empty_cell_policy,
-    })
+    };
+    if fixed_mode {
+        Box::new(FacetBandCoordMeasurementFixed {
+            base,
+            fixed_main_axis_positions: Vec::new(),
+        })
+    } else {
+        Box::new(base)
+    }
 }
 
 /// Build a single facet cell context from value and parent path.
@@ -2798,7 +3180,7 @@ fn union_radius_padding(
 pub struct FacetColumn;
 
 #[derive(Clone, Copy, Debug)]
-struct FacetAxisOps {
+pub(crate) struct FacetAxisOps {
     axis: FacetAxis,
     scale_name: &'static str,
     facet_label: &'static str,
@@ -2807,7 +3189,7 @@ struct FacetAxisOps {
 }
 
 impl FacetAxisOps {
-    fn for_axis(axis: FacetAxis) -> Self {
+    pub(crate) fn for_axis(axis: FacetAxis) -> Self {
         match axis {
             FacetAxis::Column => Self {
                 axis,
@@ -2879,9 +3261,16 @@ impl FacetAxisOps {
             FacetAxis::Row => (plot_other_axis, subplot_band_size),
         }
     }
+
+    fn main_size(self, plot_width: f32, plot_height: f32) -> f32 {
+        match self.axis {
+            FacetAxis::Column => plot_width,
+            FacetAxis::Row => plot_height,
+        }
+    }
 }
 
-struct FacetBandMeasurePipeline<'a> {
+pub(crate) struct FacetBandMeasurePipeline<'a> {
     axis_ops: FacetAxisOps,
     scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
     plot_other_axis_size: f32,
@@ -2906,7 +3295,7 @@ enum ResolveBandNodeOutcome<'a> {
 }
 
 impl<'a> FacetBandMeasurePipeline<'a> {
-    fn new(
+    pub(crate) fn new(
         axis_ops: FacetAxisOps,
         scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
         plot_other_axis_size: f32,
@@ -2926,7 +3315,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         }
     }
 
-    async fn run(&self) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
+    pub(crate) async fn run(&self) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
         // Step 1: Resolve -- resolve this facet node and enumerate cell values for the current path.
         let resolved = match self.resolve_node_or_empty()? {
             ResolveBandNodeOutcome::Empty(measurement) => return Ok(measurement),
@@ -2948,8 +3337,13 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 resolved.compiled_subplot,
                 resolved.band_scale,
                 resolved.empty_cell_policy,
+                matches!(
+                    self.eval_ctx.facet_runtime_sizing_mode(),
+                    FacetRuntimeSizingMode::FixedSubplot { .. }
+                ),
             ));
         }
+        let subplot_band_size = self.resolve_subplot_band_size(&resolved, &cell_values);
 
         let data_df = self.data.ok_or_else(|| {
             AvengerChartError::InternalError(format!(
@@ -2977,14 +3371,14 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             data_df,
             resolved.compiled_subplot,
             resolved.band_scale,
-            resolved.subplot_band_size,
+            subplot_band_size,
             self.eval_ctx,
         )
         .await?;
 
         let (subplot_plot_width, subplot_plot_height) = self
             .axis_ops
-            .measure_dims(self.plot_other_axis_size, resolved.subplot_band_size);
+            .measure_dims(self.plot_other_axis_size, subplot_band_size);
         let mut attribute_store = FacetAttributeStore::default();
         let mut perf_counters = FacetPipelinePerfCounters::default();
 
@@ -3056,6 +3450,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 child_cell_summaries: Vec::new(),
             });
         }
+        let subplot_band_size = self.resolve_subplot_band_size(&resolved, &cell_values);
 
         let data_df = self.data.ok_or_else(|| {
             AvengerChartError::InternalError(format!(
@@ -3079,13 +3474,13 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             data_df,
             resolved.compiled_subplot,
             resolved.band_scale,
-            resolved.subplot_band_size,
+            subplot_band_size,
             self.eval_ctx,
         )
         .await?;
         let (subplot_plot_width, subplot_plot_height) = self
             .axis_ops
-            .measure_dims(self.plot_other_axis_size, resolved.subplot_band_size);
+            .measure_dims(self.plot_other_axis_size, subplot_band_size);
         let (overflow_synthesis, overflow_runtime) = synthesize_overflow_probe_attributes(
             &prepared_synthesis,
             &prepared_runtime,
@@ -3166,6 +3561,10 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .prepared_synthesis
                 .cell_synthesis
                 .empty_cell_policy,
+            fixed_plot_area_lock: matches!(
+                self.eval_ctx.facet_runtime_sizing_mode(),
+                FacetRuntimeSizingMode::FixedSubplot { .. }
+            ),
         };
 
         let mut adjusted_scales = self.scales.clone();
@@ -3286,6 +3685,10 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 compiled_subplot,
                 band_scale,
                 empty_cell_policy,
+                matches!(
+                    self.eval_ctx.facet_runtime_sizing_mode(),
+                    FacetRuntimeSizingMode::FixedSubplot { .. }
+                ),
             )));
         };
 
@@ -3316,6 +3719,51 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         facet_tree
             .enumerate_values_for_facet(self.facet_path, resolved.current_sharing_level.raw())
             .unwrap_or_else(fallback)
+    }
+
+    fn fixed_subtree_plot_area_for_cell_path(
+        &self,
+        cell_path: &[ScalarValue],
+        leaf_plot_width: f32,
+        leaf_plot_height: f32,
+    ) -> (f32, f32) {
+        if let Some(node) = self.eval_ctx.facet_tree.node_at_path(cell_path) {
+            synthesize_subtree_plot_area_from_leaf_size(node, leaf_plot_width, leaf_plot_height)
+        } else {
+            (leaf_plot_width, leaf_plot_height)
+        }
+    }
+
+    fn resolve_subplot_band_size(
+        &self,
+        resolved: &FacetBandResolvedNode<'_>,
+        cell_values: &[ScalarValue],
+    ) -> f32 {
+        match self.eval_ctx.facet_runtime_sizing_mode() {
+            FacetRuntimeSizingMode::CanvasFit => resolved.subplot_band_size,
+            FacetRuntimeSizingMode::FixedSubplot {
+                leaf_plot_width,
+                leaf_plot_height,
+            } => {
+                let mut max_main_size = 0.0f32;
+                for value in cell_values {
+                    let mut cell_path = self.facet_path.to_vec();
+                    cell_path.push(value.clone());
+                    let (plot_width, plot_height) = self.fixed_subtree_plot_area_for_cell_path(
+                        &cell_path,
+                        leaf_plot_width,
+                        leaf_plot_height,
+                    );
+                    max_main_size =
+                        max_main_size.max(self.axis_ops.main_size(plot_width, plot_height));
+                }
+                if max_main_size > 0.0 {
+                    max_main_size
+                } else {
+                    resolved.subplot_band_size
+                }
+            }
+        }
     }
 
     fn synthesize_cell_attributes(
@@ -3425,12 +3873,19 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             overflow_summary,
             empty_cell_policy,
         );
-        let final_subplot_band_size = self.build_pass2_scale(
-            band_scale,
-            &band_layout_plan,
-            &plan.cell_values,
-            initial_subplot_band_size,
-        )?;
+        let final_subplot_band_size = if matches!(
+            self.eval_ctx.facet_runtime_sizing_mode(),
+            FacetRuntimeSizingMode::FixedSubplot { .. }
+        ) {
+            initial_subplot_band_size
+        } else {
+            self.build_pass2_scale(
+                band_scale,
+                &band_layout_plan,
+                &plan.cell_values,
+                initial_subplot_band_size,
+            )?
+        };
         let (subplot_plot_width, subplot_plot_height) = self
             .axis_ops
             .measure_dims(self.plot_other_axis_size, final_subplot_band_size);
@@ -3620,8 +4075,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             outer_end: band_layout_plan.outer_end,
             n: band_layout_plan.n,
         };
-
-        Box::new(FacetBandCoordMeasurement {
+        let base = FacetBandCoordMeasurement {
             axis: self.axis_ops.axis,
             cells: cell_runtimes,
             shared_scale_builder: prepared_runtime
@@ -3638,7 +4092,24 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             coordination_field_identity,
             channel_sharing_levels,
             empty_cell_policy,
-        })
+        };
+
+        if matches!(
+            self.eval_ctx.facet_runtime_sizing_mode(),
+            FacetRuntimeSizingMode::FixedSubplot { .. }
+        ) {
+            let fixed_main_axis_positions = compute_fixed_main_axis_positions(
+                self.axis_ops.axis,
+                &base.cells,
+                &base.local_layout,
+            );
+            Box::new(FacetBandCoordMeasurementFixed {
+                base,
+                fixed_main_axis_positions,
+            })
+        } else {
+            Box::new(base)
+        }
     }
 }
 
@@ -3650,17 +4121,30 @@ pub(crate) async fn measure_facet_row(
     compiled_marks: &[Arc<dyn CompiledMark>],
     facet_path: &[ScalarValue],
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-    FacetBandMeasurePipeline::new(
-        FacetAxisOps::for_axis(FacetAxis::Row),
-        scales,
-        plot_width,
-        eval_ctx,
-        data,
-        compiled_marks,
-        facet_path,
-    )
-    .run()
-    .await
+    match eval_ctx.facet_runtime_sizing_mode() {
+        FacetRuntimeSizingMode::CanvasFit => {
+            crate::facet::coord_canvas_fit::measure_facet_row_canvas_fit(
+                scales,
+                plot_width,
+                eval_ctx,
+                data,
+                compiled_marks,
+                facet_path,
+            )
+            .await
+        }
+        FacetRuntimeSizingMode::FixedSubplot { .. } => {
+            crate::facet::coord_fixed_subplot::measure_facet_row_fixed_subplot(
+                scales,
+                plot_width,
+                eval_ctx,
+                data,
+                compiled_marks,
+                facet_path,
+            )
+            .await
+        }
+    }
 }
 
 impl CoordinateSystem for FacetColumn {
@@ -3701,17 +4185,30 @@ impl CoordinateSystemTransform for FacetColumn {
         compiled_marks: &[Arc<dyn CompiledMark>],
         facet_path: &[ScalarValue],
     ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
-        FacetBandMeasurePipeline::new(
-            FacetAxisOps::for_axis(FacetAxis::Column),
-            scales,
-            plot_height,
-            eval_ctx,
-            data,
-            compiled_marks,
-            facet_path,
-        )
-        .run()
-        .await
+        match eval_ctx.facet_runtime_sizing_mode() {
+            FacetRuntimeSizingMode::CanvasFit => {
+                crate::facet::coord_canvas_fit::measure_facet_column_canvas_fit(
+                    scales,
+                    plot_height,
+                    eval_ctx,
+                    data,
+                    compiled_marks,
+                    facet_path,
+                )
+                .await
+            }
+            FacetRuntimeSizingMode::FixedSubplot { .. } => {
+                crate::facet::coord_fixed_subplot::measure_facet_column_fixed_subplot(
+                    scales,
+                    plot_height,
+                    eval_ctx,
+                    data,
+                    compiled_marks,
+                    facet_path,
+                )
+                .await
+            }
+        }
     }
 
     fn transform(

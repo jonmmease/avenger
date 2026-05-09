@@ -37,8 +37,27 @@ pub fn make_numeric_axis_marks(
         ..Default::default()
     };
 
+    // Compute tick count: use explicit value, or adapt to available pixel space
+    let tick_count = config.tick_count.or_else(|| {
+        // Estimate reasonable tick count from available axis length.
+        // For vertical axes (Left/Right), use height; for horizontal (Top/Bottom), use width.
+        let axis_length_px = match config.orientation {
+            AxisOrientation::Left | AxisOrientation::Right => config.dimensions[1],
+            AxisOrientation::Top | AxisOrientation::Bottom => config.dimensions[0],
+        };
+        // Use ~25px minimum spacing between ticks (accommodates ~10px font at 12pt)
+        let min_tick_spacing = 25.0;
+        let adaptive_count = (axis_length_px / min_tick_spacing).floor().max(2.0);
+        // Only override the default (10) if the axis is small enough to need fewer ticks
+        if adaptive_count < 10.0 {
+            Some(adaptive_count)
+        } else {
+            None
+        }
+    });
+
     // Get ticks
-    let ticks = scale.ticks(None)?;
+    let ticks = scale.ticks(tick_count)?;
 
     // Get range bounds considering orientation
     let range = scale.numeric_interval_range()?;
